@@ -23369,6 +23369,26 @@ CASES = (
      b"\"transforms the pet into a different skin (\" + a.Class + \"): it seeks",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
      SHIMEJI, "classifier", "reason: G3_Interact gave"),
+    # N-audit-1106-163: a TickPackEmitter refusal's throw is deleted, so the named refusal becomes an unhandled exception
+    # (a null operator, a Substring past the end, a 0-by-0 Bitmap).
+    ("bd-w7-converter-1: the tokenizer's unterminated-string refusal is deleted (N-audit-1106-163)",
+     os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
+     b"                    if (i >= s.Length) throw new Refusal(\"TICK_NAN_SHAPE: an unterminated string\");\n",
+     b"                    if (i >= s.Length) { }\n",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, "tick-emitter/nan-refusal", "a NaN script with an unterminated string was not refused as TICK_NAN_SHAPE TargetX"),
+    ("bd-w7-converter-1: the tokenizer's unread-character refusal is deleted (N-audit-1106-163)",
+     os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
+     b"                if (op == null) throw new Refusal(\"TICK_NAN_SHAPE: a character this pass does not read\");\n",
+     b"                if (op == null) { }\n",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, "tick-emitter/nan-refusal", "a NaN script with an unread character was not refused as TICK_NAN_SHAPE TargetX"),
+    ("bd-w7-converter-1: the sheet's no-grid refusal is deleted (N-audit-1106-163)",
+     os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
+     b"                    if (bestX == 0)\n                        throw new InvalidDataException(\"TICK_SHEET_NO_GRID: no grid of \"",
+     b"                    if (bestX < 0)\n                        throw new InvalidDataException(\"TICK_SHEET_NO_GRID: no grid of \"",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, "tick-emitter/sheet-layout", "26 distinct 768x768 frames were not refused as TICK_SHEET_NO_GRID"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

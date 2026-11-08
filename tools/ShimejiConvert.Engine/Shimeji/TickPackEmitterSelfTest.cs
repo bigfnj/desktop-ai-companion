@@ -1889,6 +1889,28 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     Refusal(fixture, c.Expected);
                     Require(!Directory.Exists(fixture.Output), "NaN refusal left output: " + c.Expected);
                 }
+            // N-audit-1106-163: the tokenizer's own refusals. A character this pass does not read (a lone '&') and a string
+            // that never closes each refuse as TICK_NAN_SHAPE; without either throw the tokenizer runs on into a null
+            // operator or past the end of the text, and the named refusal became an unhandled exception. Any exception
+            // is caught here and its type printed, so that regression reads as this check failing, not as a crash.
+            var shapes = new[] {
+                new { Label = "an unread character", Value = "${Math.random*2 & 1}", Expected = "TICK_NAN_SHAPE TargetX: a character this pass does not read" },
+                new { Label = "an unterminated string", Value = "${Math.random*2 + 'abc}", Expected = "TICK_NAN_SHAPE TargetX: an unterminated string" },
+            };
+            foreach (var shape in shapes)
+                using (var fixture = new Fixture())
+                {
+                    XDocument actions = BuildActions();
+                    actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Walk").SetAttributeValue("TargetX", shape.Value);
+                    fixture.Actions(actions);
+                    string outcome;
+                    try { TickPackEmitter.ConvertPack(fixture.Pack, fixture.Output); outcome = "accepted"; }
+                    catch (InvalidDataException error) { outcome = error.Message; }
+                    catch (Exception error) { outcome = error.GetType().Name + ": " + error.Message; }
+                    Require(outcome.IndexOf(shape.Expected, StringComparison.Ordinal) >= 0,
+                        "a NaN script with " + shape.Label + " was not refused as " + shape.Expected + " (" + outcome + ")");
+                    Require(!Directory.Exists(fixture.Output), "a NaN shape refusal left output: " + shape.Label);
+                }
             // Review D54-A: the lowered TargetX is also the action's variable, which another script reads by name. The
             // source's Condition sees NaN != 0 (true) facing left; a lowered one would see 0 != 0. Read in the same
             // action and in another one, it refuses.
@@ -2452,6 +2474,32 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     Require(!accepted && error != null && error.Contains("between 1 and " + TickPackEmitter.MaxTilesPerAxis + "."),
                         "the validator's tile-axis bound is not MaxTilesPerAxis (" + TickPackEmitter.MaxTilesPerAxis + "): " + error);
                 }
+            // N-audit-1106-163: and a member NO grid fits refuses by name. 26 distinct 768x768 frames: at most 5 fit across
+            // 4096 pixels, and 26 cells in 5 columns need 6 rows, 4608 pixels. Without the throw the search's empty answer
+            // (0 by 0) reached the Bitmap constructor, and the named refusal became an unhandled exception. Any exception
+            // is caught and its type printed, so that regression reads as this check failing.
+            using (var fixture = new Fixture())
+            {
+                var poses = new List<XElement>();
+                for (int i = 0; i < 26; i++)
+                {
+                    string name = "big" + i + ".png";
+                    fixture.Write("img/A/" + name, "");
+                    SavePng(Path.Combine(fixture.Pack, "img", "A", name), i % 2 == 1, 768, height: 768);
+                    poses.Add(Pose("/" + name, 1));
+                }
+                fixture.Actions(new XDocument(S("Mascot", S("ActionList", S("Action", A("Name", "Stand"), A("Type", "Stay"),
+                    S("Animation", poses))))));
+                fixture.Behaviors(new XDocument(S("Mascot", S("BehaviorList", S("Behavior", A("Name", "Main"),
+                    A("Action", "Stand"), A("Frequency", 1))))));
+                string outcome;
+                try { TickPackEmitter.ConvertPack(fixture.Pack, fixture.Output); outcome = "accepted"; }
+                catch (InvalidDataException error) { outcome = error.Message; }
+                catch (Exception error) { outcome = error.GetType().Name + ": " + error.Message; }
+                Require(outcome.IndexOf("TICK_SHEET_NO_GRID: no grid of 26 cells of 768 x 768", StringComparison.Ordinal) >= 0,
+                    "26 distinct 768x768 frames were not refused as TICK_SHEET_NO_GRID (" + outcome + ")");
+                Require(!Directory.Exists(fixture.Output), "a sheet no grid fits left output");
+            }
             // Review item 2: what the file API writes, the host accepts. A variant of 513 poses is past the schema's 512,
             // which the emitter does not count, so the host's validator refuses it, and nothing is written.
             using (var fixture = new Fixture())
