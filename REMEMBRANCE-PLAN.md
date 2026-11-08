@@ -2,12 +2,14 @@
 
 > ✅ **DELIVERED, and this doc is now a historical record.** Remembrance shipped and is published at
 > **1.0.0**; Reminder is published at **1.0.0** too. Both pause points at the end of "Build status" are
-> closed. It is kept in place rather than retired to `docs/` only because `BACKLOG.md` and `handoff.md`
-> link to it.
+> closed. It is kept in place rather than retired to `docs/` because
+> [`docs/HISTORY-post-1.0.0.md`](docs/HISTORY-post-1.0.0.md) links to it and `handoff.md` names it.
 >
-> ⚠️ **Every host and module version below is PRE-REBASE and no longer exists.** The 1.0.0 rebase reset
-> the series, so "Host ABI 1.9.0" and "Reminder 1.6.0" in this file map to the 1.0.0 host and Reminder
-> 1.0.0. The current host is 1.1.4. Do not copy a version number out of this file into a
+> ⚠️ **Every host and module version below is PRE-REBASE.** The 1.0.0 rebase reset the series, so "Host
+> ABI 1.9.0", "`v1.9.0`" and "Reminder 1.6.0" in this file mean the 1.0.0 host and Reminder 1.0.0. The
+> host number has since been reused for a different build: the post-rebase host 1.9.0 was tagged `v1.9.0`
+> on 2026-11-05, and the host has moved on since (the current version is in
+> [`ProductVersion.props`](ProductVersion.props)). Do not copy a version number out of this file into a
 > `MinHostVersion`; see [`docs/VERSIONING.md`](docs/VERSIONING.md).
 
 > A local "meeting memory" module: capture a meeting's audio, transcribe it offline, name it from the
