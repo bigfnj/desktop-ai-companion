@@ -30,7 +30,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
     /// PER SKIN, not per root (RA-386). One conf used to be found for the whole root and stamped on every
     /// sprite folder, so in a multi-character pack the richest character's sprites converted against
     /// whichever actions.xml the search met first: the maintainer's own Gengar archive paired Gengar_Shiny's
-    /// sprites with Gastly_Egg's conf and failed on "Sprite not found: egg1.png", Hornet's paired Hornet with
+    /// sprites with an egg skin's conf and failed on "Sprite not found: egg1.png", Hornet's paired Hornet with
     /// .Hornet_Needle, and 37 of the 56 multi-conf archives in the corpus mis-paired the same way. And a
     /// sibling-install pack (Alice/conf + Alice/img, Bob/conf + Bob/img) named every skin after the ROOT,
     /// because each sprite folder's leaf is literally "img"; on PetStudio's zip path the root is
