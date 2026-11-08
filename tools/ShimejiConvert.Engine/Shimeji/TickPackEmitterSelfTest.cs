@@ -291,7 +291,13 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
         }
 
         /// <summary>The emitted member passes the host's own document validator with every format feature enabled,
-        /// the check PackConversion applies; the paritypack verb writes without it, so this suite runs it.</summary>
+        /// the check PackConversion applies. ConvertPack has run the same check on the same text before writing
+        /// since 98d687d (TICK_OUTPUT_INVALID), and the paritypack verb writes through ConvertPack, so on a document
+        /// read back from ConvertPack's output this cannot fail while that check stands; it is a second line that
+        /// can fail only if ConvertPack's own check were removed and the emitter then wrote a member the host
+        /// refuses (N-audit-1106-162 corrected the earlier claim that
+        /// paritypack writes without it). On a document from PrepareMembers, which validates nothing, it is the
+        /// only validation.</summary>
         private static void Validate(XDocument document, string what)
         {
             XmlData.RootNode root;
