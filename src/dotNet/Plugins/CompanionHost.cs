@@ -503,7 +503,12 @@ namespace DesktopAICompanion.Plugins
             return handle is Remover;
         }
         public IModuleStorage GetStorage(string moduleId) { return new ModuleStorage(ModuleDataDir(moduleId)); }
-        public IModuleSettings GetSettings(string moduleId) { return new ModuleSettings(Path.Combine(ModuleDataDir(moduleId), "settings.json")); }
+        public IModuleSettings GetSettings(string moduleId)
+        {
+            // The module's own log line, through the same choke point as its IHost.Log, so a settings file that could
+            // not be read is reported under the module it belongs to (N-audit-1106-234).
+            return new ModuleSettings(Path.Combine(ModuleDataDir(moduleId), "settings.json"), message => Log(moduleId, message));
+        }
         // The legacy pair: the pet is discarded, because these callers never learn it. Wrapped into the same
         // list as the pet-aware pair so one priority order governs both.
         public IDisposable RegisterDropResponder(int priority, Func<bool> onDrop)
@@ -1440,25 +1445,66 @@ namespace DesktopAICompanion.Plugins
             public ModuleStorage(string dir) { DataDirectory = dir; }
             public string DataDirectory { get; private set; }
         }
-        private sealed class ModuleSettings : IModuleSettings
+        /// <summary>
+        /// A module's settings.json (N-audit-1106-234). Save replaces the file whole, through the atomic write the
+        /// download path uses (a temporary beside it, then File.Replace), because File.WriteAllText truncated the file
+        /// in place first: a save that failed or was cut short part-way left a damaged file, and Load then answered an
+        /// empty dictionary with no log line, so every setting of the module was back at its default and nothing said
+        /// why. Load now says so once per file per session, through the module's own log: a file that is not valid
+        /// JSON is called damaged and copied beside itself as settings.json.damaged before the module's next save
+        /// replaces it; a file that could not be read at all (locked, denied) is reported by its error type and is NOT
+        /// called damaged, because its contents may be fine. Internal for --module-host-selftest.
+        /// </summary>
+        internal sealed class ModuleSettings : IModuleSettings
         {
+            /// <summary>Files already reported this session, so a module that asks for its settings on every use
+            /// writes one line, not one per call.</summary>
+            private static readonly HashSet<string> ReportedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            internal const string DamagedSuffix = ".damaged";
             private readonly string _path;
             private readonly Dictionary<string, string> _d;
-            public ModuleSettings(string path) { _path = path; _d = Load(path); }
+            internal ModuleSettings(string path, Action<string> log) { _path = path; _d = Load(path, log); }
             public string Get(string key, string fallback) { string v; return _d.TryGetValue(key, out v) ? v : fallback; }
             public int GetInt(string key, int fallback) { string v; int n; return (_d.TryGetValue(key, out v) && int.TryParse(v, out n)) ? n : fallback; }
             public bool GetBool(string key, bool fallback) { string v; bool b; return (_d.TryGetValue(key, out v) && bool.TryParse(v, out b)) ? b : fallback; }
             public void Set(string key, string value) { _d[key] = value ?? ""; }
             public bool Save()
             {
-                try { File.WriteAllText(_path, JsonSerializer.Serialize(_d), new UTF8Encoding(false)); return true; }
+                try
+                {
+                    SecureDownload.WriteAllBytesAtomic(_path, new UTF8Encoding(false).GetBytes(JsonSerializer.Serialize(_d)));
+                    return true;
+                }
                 catch { return false; }
             }
-            private static Dictionary<string, string> Load(string path)
+            private static Dictionary<string, string> Load(string path, Action<string> log)
             {
                 try { if (File.Exists(path)) return JsonSerializer.Deserialize<Dictionary<string, string>>(File.ReadAllText(path)) ?? new Dictionary<string, string>(); }
-                catch { }
+                catch (JsonException)
+                {
+                    if (FirstReport(path))
+                    {
+                        string kept;
+                        try { File.Copy(path, path + DamagedSuffix, true); kept = "a copy was kept as settings.json" + DamagedSuffix; }
+                        catch (Exception copyError) { kept = "no copy could be kept (" + copyError.GetType().Name + ")"; }
+                        Report(log, "settings.json is damaged and could not be read, so this module starts from its default settings; " + kept + ".");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    if (FirstReport(path))
+                        Report(log, "settings.json could not be read (" + ex.GetType().Name + "), so this module starts from its default settings this time.");
+                }
                 return new Dictionary<string, string>();
+            }
+            private static bool FirstReport(string path)
+            {
+                lock (ReportedPaths) return ReportedPaths.Add(path ?? "");
+            }
+            private static void Report(Action<string> log, string message)
+            {
+                if (log == null) return;
+                try { log(message); } catch { }
             }
         }
     }

@@ -6503,6 +6503,19 @@ Assert-True (
     $w7h1FormCode -cmatch 'SetNextBorderAnimation\(CurrentAnimation\.ID, TNextAnimation\.TOnly\.WINDOW \| TNextAnimation\.TOnly\.WINDOW_BOTTOM, out chosenOnly, absenceIsNormal: true, plays: HangsFromUnderside\);'
 ) 'w8-host-1: the window-underside border roll declines a pick that would not hang before it sounds'
 
+# ---- burndown/w9-host-1 ----
+# N-audit-1106-234: a module's settings.json is replaced WHOLE on save (a temporary beside it, then File.Replace), because
+# File.WriteAllText truncated it in place first and a save cut short left a damaged file that the next load read as empty.
+# --module-host-selftest drives the load side (the damaged copy and the one log line); no reachable input makes an
+# in-place write fail half-way, so the write itself is pinned here, as the CALL and the absence of any in-place writer.
+$w9h1HostCode = Remove-LineComments $petHostSource
+$w9h1SettingsSave = Get-MethodBody $w9h1HostCode 'public bool Save()' @("`n            private ", "`n            public ", "`n            internal ")
+Assert-True ($w9h1SettingsSave.Length -gt 0) 'w9-host-1: the module settings Save was located'
+Assert-True (
+    $w9h1SettingsSave -cmatch 'SecureDownload\.WriteAllBytesAtomic\(_path, ' -and
+    $w9h1SettingsSave -cnotmatch 'File\.(WriteAll|Create|Open|AppendAll)'
+) 'w9-host-1: a module settings save replaces settings.json whole through the atomic write, never truncating it in place'
+
 # LAST, and deliberately:this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever

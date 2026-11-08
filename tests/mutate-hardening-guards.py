@@ -4939,6 +4939,15 @@ CASES = (
         b"out chosenOnly, absenceIsNormal: true);\n",
         "w8-host-1: the window-underside border roll declines a pick that would not hang before it sounds",
     ),
+    # ---- burndown/w9-host-1 ----
+    # N-audit-1106-234: a module settings save truncates settings.json in place again. "bd-w9-host-1:" for one --only.
+    (
+        "bd-w9-host-1: a module settings save writes settings.json in place again (N-audit-1106-234)",
+        os.path.join(REPO, "src", "dotNet", "Plugins", "CompanionHost.cs"),
+        b"                    SecureDownload.WriteAllBytesAtomic(_path, new UTF8Encoding(false).GetBytes(JsonSerializer.Serialize(_d)));\n",
+        b"                    File.WriteAllText(_path, JsonSerializer.Serialize(_d), new UTF8Encoding(false));\n",
+        "w9-host-1: a module settings save replaces settings.json whole through the atomic write",
+    ),
 )
 
 

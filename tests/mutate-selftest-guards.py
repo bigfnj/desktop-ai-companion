@@ -23897,6 +23897,24 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--hardening-selftest", "dp-hardening-selftest.txt",
      "hang: a window-wildcard pick under a window, which would not hang, is declined before its sound plays"),
+    # ---- burndown/w9-host-1 ----
+    # Host entries of burn-down wave 9. "bd-w9-host-1:" for one --only.
+    # N-audit-1106-234: a damaged settings.json is read as empty again with no line and no kept copy, or is reported on
+    # every read. --module-host-selftest drives the host's own ModuleSettings on a scratch folder.
+    ("bd-w9-host-1: a damaged settings.json is read as empty again with no line and no copy (N-audit-1106-234)",
+     os.path.join(REPO, "src", "dotNet", "Plugins", "CompanionHost.cs"),
+     b'                catch (JsonException)\n                {\n                    if (FirstReport(path))\n',
+     b'                catch (JsonException)\n                {\n                    if (false && FirstReport(path))\n',
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "settings damage: a damaged settings.json is reported in the module's log, naming the kept copy"),
+    ("bd-w9-host-1: a damaged settings.json is reported on every read (N-audit-1106-234)",
+     os.path.join(REPO, "src", "dotNet", "Plugins", "CompanionHost.cs"),
+     b'                lock (ReportedPaths) return ReportedPaths.Add(path ?? "");\n',
+     b'                lock (ReportedPaths) { ReportedPaths.Add(path ?? ""); return true; }\n',
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "settings damage: a second read of the same damaged file in one session adds no line"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
