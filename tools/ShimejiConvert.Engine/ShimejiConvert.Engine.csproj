@@ -28,7 +28,11 @@
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <LangVersion>7.3</LangVersion>
     <Deterministic>true</Deterministic>
-    <WarningLevel>4</WarningLevel>
+    <!-- No WarningLevel here, on purpose (N-bd-w6-tests-core-1-02), the rule src\Directory.Build.props states. For
+         a .NETCoreApp target the SDK sets it to the framework's major version, so this net10 project builds at 10
+         with the compiler's warning waves 5 to 10 on. The pin of 4 this line used to carry turned them all off,
+         for the engine and for the production sources it recompiles by link, so TreatWarningsAsErrors could
+         never fire on those classes here. tests\runtime-hardening-selftest.ps1 fails on a pin below the default. -->
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
   </PropertyGroup>

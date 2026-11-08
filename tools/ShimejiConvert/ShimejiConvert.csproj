@@ -21,7 +21,9 @@
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <LangVersion>7.3</LangVersion>
     <Deterministic>true</Deterministic>
-    <WarningLevel>4</WarningLevel>
+    <!-- No WarningLevel here, on purpose (N-bd-w6-tests-core-1-02): the SDK's default for this net10 target is 10,
+         which keeps the compiler's warning waves 5 to 10 on under TreatWarningsAsErrors. The engine's project
+         says the same; tests\runtime-hardening-selftest.ps1 fails on a pin below the default in either. -->
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
   </PropertyGroup>

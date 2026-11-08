@@ -4723,6 +4723,31 @@ CASES = (
         b"      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>\n    </None> -->\n  </ItemGroup>\n\n  <!-- The validator",
         "bd-w5-converter-1: PetStudio.csproj copies base-conf\\NOTICE.txt to its output",
     ),
+    # ---- burndown/w7-converter-1 ----
+    # N-bd-w6-tests-core-1-02: the converter CLI or engine pins a warning level below its framework's default again, in
+    # the shared group or in one configuration's, or a project stops treating warnings as errors.
+    # "bd-w7-converter-1:" for one --only.
+    (
+        "bd-w7-converter-1: the converter CLI pins WarningLevel 4 again (N-bd-w6-tests-core-1-02)",
+        os.path.join(REPO, "tools", "ShimejiConvert", "ShimejiConvert.csproj"),
+        b"    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>\n",
+        b"    <WarningLevel>4</WarningLevel>\n    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>\n",
+        "w7-converter-1: no converter project pins WarningLevel below its framework default",
+    ),
+    (
+        "bd-w7-converter-1: the converter engine's Release group pins WarningLevel 9 (N-bd-w6-tests-core-1-02)",
+        os.path.join(REPO, "tools", "ShimejiConvert.Engine", "ShimejiConvert.Engine.csproj"),
+        b"    <Optimize>true</Optimize>\n",
+        b"    <Optimize>true</Optimize>\n    <WarningLevel>9</WarningLevel>\n",
+        "w7-converter-1: no converter project pins WarningLevel below its framework default",
+    ),
+    (
+        "bd-w7-converter-1: the converter engine stops treating warnings as errors (N-bd-w6-tests-core-1-02)",
+        os.path.join(REPO, "tools", "ShimejiConvert.Engine", "ShimejiConvert.Engine.csproj"),
+        b"    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>\n",
+        b"    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>\n",
+        "w7-converter-1: the converter warning-level scan read the CLI and engine projects",
+    ),
 )
 
 
