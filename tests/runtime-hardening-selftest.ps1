@@ -6320,6 +6320,53 @@ Assert-True (([regex]::Matches($w7pVerifierCode, "-notmatch 'exited or closed it
     $w7pWaitAt -ge 0 -and $w7pWaitAt -lt $w7pSeedAt -and $w7pSeedAt -lt $w7pCallAt) (
     "w7-packaging-ci-1: the catalog verifier's dead-child legs accept either pipe and seed a waited-out child before the call (wait $w7pWaitAt, seed $w7pSeedAt, call $w7pCallAt)")
 
+# ---- burndown/w7-converter-1 ----
+# NO WARNING-LEVEL PIN BELOW THE SDK DEFAULT IN THE CONVERTER (N-bd-w6-tests-core-1-02): the same rule as src's and CoreTests'
+# above, for tools\ShimejiConvert (the CLI the gate runs) and tools\ShimejiConvert.Engine (the engine, which recompiles the
+# app's validators by link). Both pinned WarningLevel 4 on net10.0-windows, so the compiler's warning waves 5 to 10 were off
+# and TreatWarningsAsErrors could never fire on those classes there. The floor is each project's own target framework's major
+# version, the SDK's default for a .NETCoreApp target. XML comments are stripped first (each project explains the rule in
+# one). A Directory.Build.props or .targets in either project's folder, in tools\ or at the repo root is scanned too, since
+# MSBuild would import one. WITNESS: both projects were read, each still sets TreatWarningsAsErrors and names a netN target
+# framework of at least net5, so a scan that read nothing, or the wrong file, fails instead of passing.
+$w7cvProjects = @(
+    (Join-Path $repoRoot 'tools\ShimejiConvert\ShimejiConvert.csproj'),
+    (Join-Path $repoRoot 'tools\ShimejiConvert.Engine\ShimejiConvert.Engine.csproj'))
+$w7cvImports = @(foreach ($w7cvAt in @((Join-Path $repoRoot 'tools\ShimejiConvert'), (Join-Path $repoRoot 'tools\ShimejiConvert.Engine'), (Join-Path $repoRoot 'tools'), $repoRoot)) {
+    foreach ($w7cvName in @('Directory.Build.props', 'Directory.Build.targets')) {
+        $w7cvPath = Join-Path $w7cvAt $w7cvName
+        if (Test-Path -LiteralPath $w7cvPath -PathType Leaf) { $w7cvPath }
+    }
+})
+$w7cvRead = 0
+$w7cvFloor = 0
+$w7cvLowPins = @()
+foreach ($w7cvProject in $w7cvProjects) {
+    if (-not (Test-Path -LiteralPath $w7cvProject -PathType Leaf)) { continue }
+    $w7cvXml = [regex]::Replace((Get-Content -LiteralPath $w7cvProject -Raw), '(?s)<!--.*?-->', '')
+    $w7cvFramework = [regex]::Match($w7cvXml, '<TargetFramework>\s*net(\d{1,3})\.\d+(-[A-Za-z0-9.]+)?\s*</TargetFramework>')
+    if ($w7cvFramework.Success -and [int] $w7cvFramework.Groups[1].Value -ge 5 -and $w7cvXml -cmatch '<TreatWarningsAsErrors>true</TreatWarningsAsErrors>') {
+        $w7cvRead++
+        $w7cvMajor = [int] $w7cvFramework.Groups[1].Value
+        if ($w7cvFloor -eq 0 -or $w7cvMajor -lt $w7cvFloor) { $w7cvFloor = $w7cvMajor }
+    }
+}
+foreach ($w7cvFile in @($w7cvProjects + $w7cvImports)) {
+    if (-not (Test-Path -LiteralPath $w7cvFile -PathType Leaf)) { continue }
+    $w7cvXml = [regex]::Replace((Get-Content -LiteralPath $w7cvFile -Raw), '(?s)<!--.*?-->', '')
+    foreach ($w7cvPin in [regex]::Matches($w7cvXml, '<WarningLevel\b[^>]*>\s*([^<]*?)\s*</WarningLevel>')) {
+        $w7cvValue = $w7cvPin.Groups[1].Value
+        if ($w7cvValue -cnotmatch '^\d{1,5}$' -or [int] $w7cvValue -lt $w7cvFloor) {
+            $w7cvLowPins += ((Split-Path -Leaf (Split-Path -Parent $w7cvFile)) + '\' + (Split-Path -Leaf $w7cvFile) + '=' + $w7cvValue)
+        }
+    }
+}
+Assert-True ($w7cvRead -eq 2 -and $w7cvFloor -ge 5) (
+    "w7-converter-1: the converter warning-level scan read the CLI and engine projects (WITNESS: both set TreatWarningsAsErrors and a net5+ target framework; $w7cvRead of 2, floor net$w7cvFloor)")
+Assert-True ($w7cvLowPins.Count -eq 0) (
+    "w7-converter-1: no converter project pins WarningLevel below its framework default of $w7cvFloor" +
+    $(if ($w7cvLowPins.Count) { ' -- ' + ($w7cvLowPins -join ', ') } else { '' }))
+
 # LAST, and deliberately:this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever

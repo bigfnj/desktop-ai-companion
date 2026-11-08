@@ -99,7 +99,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             Console.Error.WriteLine("  classify <ConfDir> Parse a Shimeji conf dir (actions.xml + behaviors.xml) and print the");
             Console.Error.WriteLine("                     Group 1/2/3 fidelity census: what converts cleanly, what degrades,");
             Console.Error.WriteLine("                     and what is dropped as residue.");
-            Console.Error.WriteLine("  selftest [source-ir|tick-emitter|pack-conversion|sound-resolve|classic-emitter|cli-roundtrip|compositor]");
+            Console.Error.WriteLine("  selftest [source-ir|tick-emitter|pack-conversion|sound-resolve|classic-emitter|cli-roundtrip|compositor|classifier|bundle]");
             Console.Error.WriteLine("                     Run all engine self-tests or one focused synthetic group.");
             Console.Error.WriteLine("  paritypack <PackDir> <OutDir> [MainMember] [--recover-missing-next]");
             Console.Error.WriteLine("                     Test tooling: lower the supported literal tick subset and write each member");
@@ -419,6 +419,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             // The sprite compositor and its file loader on their own (N-audit-1106-161), without the emitter
             // suites that the aggregate and classic-emitter runs bundle with it.
             else if (group == "compositor") ok = CompositorSelfTest.Run(out detail);
+            // The parser and classifier fixture, and the Android bundle path, on their own (lane
+            // burndown/w7-converter-1), so a mutation case on either grades one suite rather than all thirteen.
+            else if (group == "classifier") ok = ClassifierSelfTest.Run(out detail);
+            else if (group == "bundle") ok = BundleSelfTest.Run(out detail);
             else if (group.StartsWith("pack-conversion/", StringComparison.Ordinal))
                 ok = PackConversionSelfTest.Run(out detail, group.Substring("pack-conversion/".Length));
             else if (group.StartsWith("tick-emitter/", StringComparison.Ordinal))

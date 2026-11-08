@@ -1847,6 +1847,19 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     if (wr.Residue != null && !wr.Residue.Notes.Exists(s => s.IndexOf("no travelling floor animation or jump into a ceiling can reach them", StringComparison.Ordinal) >= 0
                                                                           && s.IndexOf("ClimbWall", StringComparison.Ordinal) >= 0))
                         failures.Add("the left-out note does not name 'ClimbWall', so the Group2 wall action is accounted for nowhere");
+                    // ...and NO 'not attempted' note names a left-out region action (N-bd-w6-tests-harness-1-02). The
+                    // left-out note owns them and the accounting counts each once, under left out. With the region
+                    // skip in BuildResidue inverted, the left-out Group2 ClimbWall reached the unused-Group2 branch and
+                    // was printed as not attempted beside the note saying it was left out, and nothing here saw it:
+                    // the Degraded check above is a different list. By whole name, so 'ClimbWall' never matches inside
+                    // a longer action name.
+                    if (wr.Residue != null)
+                        foreach (string region in new[] { "GrabWall", "ClimbWall", "HangCeiling" })
+                            foreach (string note in wr.Residue.Notes)
+                                if (note.StartsWith("These animations are not attempted:", StringComparison.Ordinal)
+                                    && System.Text.RegularExpressions.Regex.IsMatch(note,
+                                        "(?<![A-Za-z0-9_])" + System.Text.RegularExpressions.Regex.Escape(region) + "(?![A-Za-z0-9_])"))
+                                    failures.Add("the left-out region action '" + region + "' is also listed in a 'These animations are not attempted' note: " + note);
                 }
 
                 // ---- MOUNT PREFIX SETS REPEATFROM ----

@@ -57,10 +57,12 @@ summary does not give those facts the warning glyph. The partial identity and va
 `PackConversion.cs:174,213,329`; the earlier citation to line 153 pointed at a startup-skipped error instead.
 Member-specific pack diagnostics use `MemberNotes`, rendered under "Notes for this image set:"; format-wide notes
 retain their separate heading, and dropped recovery entries retain their loss count. Returned roots are
-independent mutable copies; `EmittedXml` records the validated result before any caller edits. Studio already
-has whole-pack import, install, replacement and preview consumers (`modules/PetStudio/PackImport.cs:33-38`
-and `PetStudioWindow.cs:1662-1680,1691-1696`). They require whole-pack acceptance; this revision changes no
-module source or installation transaction.
+independent mutable copies; `EmittedXml` records the validated result before any caller edits. Companion Studio
+ships the whole-pack import, install, replacement and preview built on `ConvertPack` (`modules/PetStudio/PackImport.cs`:
+the class summary at :33-38, `InstallPackAsked` with its replace question at :386, `InstallPack` at :420 and `PreviewPack` at
+:530; the window's `ImportPackAsync` at `PetStudioWindow.cs:1344`, `InstallPackClicked` at :1706 and `PreviewPack` at
+:1737). Each requires whole-pack acceptance: `CanInstall` (:320-323), `InstallPack` (:424) and `PreviewPack` (:533)
+refuse a result whose `Accepted` is false.
 
 | Source action | Converter stage | Supported | Evidence available |
 |---|---|---|---|
