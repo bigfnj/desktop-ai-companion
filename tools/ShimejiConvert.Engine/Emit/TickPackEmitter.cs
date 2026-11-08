@@ -192,7 +192,11 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     || failure is ArgumentException || failure is ExternalException)
                 {
                     if (!captureRefusals) throw;
-                    prepared.Add(new PreparedMember { Name = member, Error = member + ": " + failure.Message });
+                    // N-shimeji-1106-08: the refusal as it was raised, with no "<member>: " prefix. Its one caller, the pack
+                    // API, files it under the member's report and prefixes its pack error with "Image set '<member>': ", so
+                    // the prefix added here made the line name the member twice before the diagnostic (which, like
+                    // TICK_NEXT_MISSING, may name it again, as it must for ConvertPack's throwing path).
+                    prepared.Add(new PreparedMember { Name = member, Error = failure.Message });
                 }
             }
             return prepared;

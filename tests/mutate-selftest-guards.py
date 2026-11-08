@@ -22910,6 +22910,13 @@ CASES = (
      b"            error = (matches.Length != 0 ? \"TICK_PACK_STARTUP_UNMAPPED\" : \"TICK_PACK_STARTUP_AMBIGUOUS\")\n",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
      SHIMEJI, "pack-conversion/startup-behaviour-refusal", "refusal did not identify TICK_PACK_STARTUP_UNMAPPED: image set 'Alpha' cannot resolve startup behaviour 'Absent'"),
+    # N-shimeji-1106-08: a preparation refusal carries its own "<member>: " prefix again, under the pack API's.
+    ("bd-w5-converter-1: a refused member's error is member-prefixed twice (N-shimeji-1106-08)",
+     os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
+     b"                    prepared.Add(new PreparedMember { Name = member, Error = failure.Message });\n",
+     b"                    prepared.Add(new PreparedMember { Name = member, Error = member + \": \" + failure.Message });\n",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, "pack-conversion/member-refusal-no-write", "a refused member's error names its image set twice before the diagnostic: Image set 'Bad': Bad: "),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

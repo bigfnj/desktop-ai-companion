@@ -43,7 +43,8 @@ namespace DesktopAICompanion.PetStudioModule
                                  //        The module's folder (and so petstudio.zip) carries base-conf\NOTICE.txt, the
                                  //        BSD notice of the Shimeji base behaviour it embeds. A skin whose pose image
                                  //        points outside its own img folder is refused by name instead of reading
-                                 //        that file into the pet.
+                                 //        that file into the pet. A refused image set's error names the set once at
+                                 //        its front instead of twice.
                                  // 1.4.0: converts far more Shimeji packs: Japanese-vocabulary documents, anonymous nested and
                                  //        instant embedded actions, hotspots and affordance offers, Toggleable behaviours, custom
                                  //        variables, ${} and #{} expressions, and the attributes and children the original program

@@ -276,6 +276,12 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     "refused member lost its residue diagnostic");
                 Require(result.Errors.Count == 1 && !result.Errors.Any(e => e.Contains("header/pack") || e.Contains("exactly one main member")),
                     "partial source diagnostic preview acquired spurious pack-validator errors");
+                // N-shimeji-1106-08: the refusal names its member once, in the pack API's own prefix, then the source key.
+                Require(result.Errors[0].StartsWith("Image set 'Bad': ", StringComparison.Ordinal)
+                    && !result.Errors[0].StartsWith("Image set 'Bad': Bad", StringComparison.Ordinal)
+                    && result.Errors[0].Contains("Image set 'Bad': actions.xml#/")
+                    && Member(result, "Bad").Error.StartsWith("actions.xml#/", StringComparison.Ordinal),
+                    "a refused member's error names its image set twice before the diagnostic: " + result.Errors[0]);
                 foreach (PackMemberConversionResult preview in result.Members.Where(m => m.Disposition == PackMemberDisposition.Prepared))
                     Require(preview.Root.Header.Pack == null && preview.Residue.MemberNotes.Any(n => n.Contains("diagnostic preview carries no pack role or visibility metadata"))
                         && !preview.Residue.MemberNotes.Any(n => n.Contains("remains hidden in the converted pack") || n.Contains("as visible in the converted pack")),
