@@ -384,6 +384,17 @@ try {
                 Write-Host ('  FAIL  {0} -- a FAIL/EXC line under a green exit' -f $flag) -ForegroundColor Red
                 continue
             }
+            # A DEGRADED line under a green exit is a pass that left a leg unexercised on this machine (N-bd-w12-review-02),
+            # and it goes on the console beside the verdict, on every run: the marker it is written in is deleted after a
+            # green run, and CI prints only this runner's console, so a degraded run used to read exactly as a full one.
+            # Not a failure: the rule is that a control that can run degraded says so on every run. Same two shapes as the
+            # skip above, plus the 'NOTE: DEGRADED:' spelling ModuleHostSelfTest writes.
+            $degraded = @(Select-String -LiteralPath $markerPath -Pattern '^\s*(\[[^\]]*\]\s*)?(NOTE:\s*)?DEGRADED:')
+            if ($degraded.Count -gt 0) {
+                Write-Host ('  ok    {0} -- DEGRADED ({1} leg(s) not exercised here)' -f $flag, $degraded.Count) -ForegroundColor Yellow
+                foreach ($line in $degraded) { Write-Host ('        {0}' -f $line.Line.Trim()) -ForegroundColor Yellow }
+                continue
+            }
         }
 
         Write-Host ('  ok    {0}' -f $flag) -ForegroundColor DarkGray

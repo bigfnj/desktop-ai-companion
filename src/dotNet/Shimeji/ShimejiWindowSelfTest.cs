@@ -582,7 +582,8 @@ namespace DesktopAICompanion.Shimeji
             string link = Path.Combine(pack, "img", "link");
             if (!TryMakeDirectoryLink(link, outside))
             {
-                log.AppendLine("NOTE: parity: the pack-link refusal is not exercised (no symlink or junction could be made here)");
+                // DEGRADED, so tests/Invoke-SelfTests.ps1 prints it beside the verdict (N-bd-w12-review-02).
+                log.AppendLine("DEGRADED: parity: the pack-link refusal is not exercised (no symlink or junction could be made here)");
                 return;
             }
             string refusal = null;

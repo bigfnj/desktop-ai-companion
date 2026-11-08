@@ -1039,11 +1039,23 @@ namespace DesktopAICompanion.Shimeji
         /// ShimejiWindowSelfTest, which hands it one with no stamp to see the run refused.</param>
         internal static int Execute(string[] args, int at, TextWriter log, System.Reflection.Assembly stamped)
         {
+            return Execute(args, at, log, stamped, AppPaths.IsDataRootOverridden);
+        }
+
+        /// <param name="isolated">Whether this process runs under an overridden test data root: AppPaths' answer, except in
+        /// ShimejiWindowSelfTest, which passes true to reach the converter refusals on every run (N-bd-w12-review-02). They
+        /// come after this gate, so without a test data root (CI, an unisolated gate) they were not exercised at all and
+        /// said so only in the marker. Its other legs call ParityRun.Run directly, which has no such gate.</param>
+        internal static int Execute(string[] args, int at, TextWriter log, System.Reflection.Assembly stamped, bool isolated)
+        {
             if (args.Length < at + 5)
             {
                 log.WriteLine("usage: " + Flag + " <scenario.json> <pets dir> <trace out> <converter exe>");
                 return 2;
             }
+            // N-bd-w12-review-03: the trace path is released before any refusal below, so a refused command leaves no
+            // file a caller could take for this run (ParityRun.ReleaseTracePath says why, and why not a refusal).
+            if (!ParityRun.ReleaseTracePath(args[at + 3], log)) return 2;
             // The build's identity first, before the data-root gate and before anything is read or a trace opened. A
             // missing or malformed revision is refused rather than written as a placeholder, which the comparer's non-empty
             // check would pass while it names nothing (contract review item 13), and it is never replaced by the product
@@ -1056,7 +1068,7 @@ namespace DesktopAICompanion.Shimeji
                     + " rebuild from a git checkout.");
                 return 2;
             }
-            if (!AppPaths.IsDataRootOverridden)
+            if (!isolated)
             {
                 log.WriteLine(Flag + " runs only under an overridden test data root (" + AppPaths.DataRootOverrideEnvironmentVariable + ").");
                 return 2;
@@ -1072,6 +1084,12 @@ namespace DesktopAICompanion.Shimeji
             catch (Exception e) when (ParityRun.IsArgumentFault(e))
             {
                 log.WriteLine("refused " + converter + ": the converter cannot be read: " + e.Message);
+                return 2;
+            }
+            catch (InvalidDataException e)
+            {
+                // N-bd-w12-shimeji-host-1-03: a converter folder that holds no code (ConverterSha256 says why).
+                log.WriteLine("refused " + converter + ": " + e.Message);
                 return 2;
             }
             var build = new Dictionary<string, string>(StringComparer.Ordinal)
@@ -1153,6 +1171,34 @@ namespace DesktopAICompanion.Shimeji
         }
 
         /// <summary>
+        /// N-bd-w12-review-03: remove an earlier FILE at the trace path before any refusal can happen, so whatever the
+        /// command answers, a file at that path afterwards is this run's trace or there is none. "Exit 2, no trace" held only
+        /// for a fresh path: every refusal left an existing file untouched, so a caller that reuses a path and reads it after
+        /// exit 2 read the last run as this one. The run owns its trace path (a complete run already overwrites it), so
+        /// releasing it is no new power over the caller's files; refusing an existing path was the rejected alternative, for
+        /// two reasons. No caller in the repository launches the command (the window self-test calls ParityRun.Run with a
+        /// fresh path per run), but the lane harnesses that do keep one output folder and rerun into it, and a refusal would
+        /// turn every rerun into exit 2 for a path the run is about to own anyway. And the oracle's producer already works
+        /// this way: oracle.py's v1() writes its v1-latest.json as "running" before any phase, so that "a failure must not
+        /// leave a previous successful v1-latest.json looking like the current run". A folder at the path is left (the
+        /// open below refuses it), and so is a link: deleting it would delete the caller's link, not the trace behind it.
+        /// One that cannot be removed (read-only, held open) is refused by name with exit 2, as an unwritable trace is.
+        /// </summary>
+        internal static bool ReleaseTracePath(string tracePath, TextWriter log)
+        {
+            try
+            {
+                if (File.Exists(tracePath) && (File.GetAttributes(tracePath) & FileAttributes.ReparsePoint) == 0) File.Delete(tracePath);
+                return true;
+            }
+            catch (Exception e) when (IsArgumentFault(e))
+            {
+                log.WriteLine("refused " + tracePath + ": the trace cannot be replaced: " + e.Message);
+                return false;
+            }
+        }
+
+        /// <summary>
         /// Every converted pet in <paramref name="petsDir"/>: its document validated and compiled, its map parsed, checked
         /// and bound. Null, with the refusal logged, when any is refused. A folder with animations.xml and no
         /// parity-map.json (or the reverse) is refused, not skipped: a member a Breed or Transform names that is absent
@@ -1216,6 +1262,9 @@ namespace DesktopAICompanion.Shimeji
         /// carrying the withheld totals and the event digest (<see cref="ParityTraceWriter"/>).</param>
         public static int Run(string scenarioPath, string petsDir, string tracePath, Dictionary<string, string> build, TextWriter log, bool traceOff = false)
         {
+            // N-bd-w12-review-03: released here too, for the callers that come in below the command (the window self-test);
+            // after ParityRunCommand.Execute released it, there is nothing left to release.
+            if (!ReleaseTracePath(tracePath, log)) return 2;
             // N-bd-w11-shimeji-host-1-01: a path argument that names nothing (this scenario file, the pets folder in
             // LoadPets, the trace's folder below) is refused by name with exit 2, its line and no trace, as a refused map or
             // pack is. It is the caller's argument error, not scenario-invalid: there is no scenario to judge. Unchecked,
@@ -1268,8 +1317,23 @@ namespace DesktopAICompanion.Shimeji
                 // header write, after the trace was opened and before the run's try, it left an empty trace and escaped the
                 // command as an exception. A footer-only trace was the refused alternative: with no header line the comparer
                 // reads it as missing-field, a file a later step could take for a run.
-                string packDir = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(scenarioPath)), scenario.Pack));
-                string packSha256;
+                //
+                // N-bd-w12-shimeji-host-1-02: a pack string no path can be made of (a NUL in it) is refused as the pack
+                // argument it is, by name with exit 2, its line and no trace, as the run's own path arguments are; it threw
+                // ArgumentException out of the command. Not scenario-invalid: CONTRACT section 1 has no rule on the pack's
+                // characters, and the comparer's validate_scenario does not refuse it, so calling it that would be a
+                // scenario rule only the host has. Named by the scenario that holds it, with the pack as JSON writes it,
+                // since the value cannot be printed or resolved as it stands.
+                string packDir, packSha256;
+                try
+                {
+                    packDir = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(scenarioPath)), scenario.Pack));
+                }
+                catch (Exception e) when (IsArgumentFault(e))
+                {
+                    log.WriteLine("refused " + scenarioPath + ": the pack " + JsonSerializer.Serialize(scenario.Pack) + " cannot be read: " + e.Message);
+                    return 2;
+                }
                 try
                 {
                     packSha256 = PackSha256(packDir);
@@ -1277,6 +1341,13 @@ namespace DesktopAICompanion.Shimeji
                 catch (InvalidDataException e)
                 {
                     log.WriteLine("refused " + packDir + ": " + e.Message);
+                    return 2;
+                }
+                catch (Exception e) when (IsArgumentFault(e))
+                {
+                    // A pack folder whose contents cannot be read (a file another process holds open, a folder that denies
+                    // listing) is the caller's argument fault too; unchecked, its IOException left the command unhandled.
+                    log.WriteLine("refused " + packDir + ": the pack cannot be read: " + e.Message);
                     return 2;
                 }
                 // The trace is opened last, so every refusal above leaves none. One that cannot be opened (its folder does
@@ -1588,10 +1659,17 @@ namespace DesktopAICompanion.Shimeji
 
         /// <summary>CONTRACT section 3, converterSha256: the converter's CODE, as a manifest in the pack form over its
         /// managed assemblies when given a directory (every *.dll in it, never an apphost, whose bytes do not change with
-        /// the code), or over the one file given (a script).</summary>
+        /// the code), or over the one file given (a script).
+        ///
+        /// N-bd-w12-shimeji-host-1-03: a folder with no *.dll is refused (InvalidDataException, by name with exit 2 in
+        /// ParityRunCommand.Execute). Its manifest is empty, and the hash of an empty manifest is a well-formed 64-hex value
+        /// that binds no converter code: every such folder, the wrong one included, would witness the same "converter".
+        /// </summary>
         public static string ConverterSha256(string path)
         {
             string[] files = Directory.Exists(path) ? Directory.GetFiles(path, "*.dll") : new[] { path };
+            if (files.Length == 0)
+                throw new InvalidDataException("the converter folder holds no *.dll, so its hash would bind no converter code");
             var rows = new List<KeyValuePair<string, string>>();
             foreach (string f in files) rows.Add(new KeyValuePair<string, string>(Path.GetFileName(f), Sha256(File.ReadAllBytes(f))));
             return ManifestSha256(rows);

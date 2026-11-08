@@ -503,8 +503,10 @@ namespace DesktopAICompanion.Shimeji
             };
             string link = Path.Combine(pack, "link"), outside = Path.Combine(root, "outside");
             Directory.CreateDirectory(outside);
+            // DEGRADED, not NOTE (N-bd-w12-review-02): tests/Invoke-SelfTests.ps1 prints a DEGRADED line beside the flag's
+            // verdict on every run, and deletes the marker a NOTE was buried in.
             if (!TryMakeDirectoryLink(link, outside))
-                log.AppendLine("NOTE: parity run: the linked-pack refusal is not exercised (no symlink or junction could be made here)");
+                log.AppendLine("DEGRADED: parity run: the linked-pack refusal is not exercised (no symlink or junction could be made here)");
             else
             {
                 string[] linked;
@@ -522,6 +524,27 @@ namespace DesktopAICompanion.Shimeji
                   && packless[2].Contains("pack-invalid: the pack " + Path.GetFullPath(Path.Combine(root, "no-such-pack")) + " is not a folder"),
                 "parity run: a pack that is not a folder is refused before the trace is opened, with exit 2 and no trace file (exit "
                 + packless[0] + ", trace " + (packless[1] == null ? "none" : "left with " + packless[1].Length + " chars") + ", " + packless[2].Trim() + ")");
+
+            // N-bd-w12-shimeji-host-1-02: a pack string no path can be made of (a NUL, written in the scenario as JSON's
+            // escape, char 92 then u0000) is refused by name as the unreadable argument it is, with exit 2, its line and no
+            // trace, and not as scenario-invalid, which CONTRACT section 1 does not make it. It threw ArgumentException out
+            // of the command, an unhandled exception's exit.
+            packName = "pack" + (char)92 + "u0000x";
+            string[] nulPack = goCaught();
+            packName = "pack";
+            check(nulPack[0] == "2" && nulPack[1] == null
+                  && nulPack[2].Contains("refused " + Path.Combine(root, "S-host-" + run + ".json") + ": the pack ")
+                  && nulPack[2].Contains(" cannot be read: ") && !nulPack[2].Contains("scenario-invalid"),
+                "parity run: a pack with a NUL in it is refused by name as an unreadable pack, not scenario-invalid, with exit 2 and no trace file (exit "
+                + nulPack[0] + ", trace " + (nulPack[1] == null ? "none" : "left") + ", " + nulPack[2].Trim() + ")");
+            // A pack whose contents cannot be read (here a file this process holds open with no sharing) is refused by name
+            // too; its IOException left the command unhandled.
+            string[] lockedPack;
+            using (new FileStream(Path.Combine(pack, "readme.txt"), FileMode.Open, FileAccess.Read, FileShare.None))
+                lockedPack = goCaught();
+            check(lockedPack[0] == "2" && lockedPack[1] == null && lockedPack[2].Contains("refused " + Path.GetFullPath(pack) + ": the pack cannot be read: "),
+                "parity run: a pack whose files cannot be read is refused by name, with exit 2 and no trace file (exit "
+                + lockedPack[0] + ", trace " + (lockedPack[1] == null ? "none" : "left") + ", " + lockedPack[2].Trim() + ")");
 
             // N-bd-w10-shimeji-host-1-01: a scenario that breaks CONTRACT section 1 is scenario-invalid, refused by name with
             // exit 2, its line and no trace file, before the pets or the pack are read, as the oracle refuses it before it
@@ -609,28 +632,80 @@ namespace DesktopAICompanion.Shimeji
             check(noFolder.Length == 0 && !Directory.Exists(absentFolder),
                 "parity run: a trace path in a folder that does not exist is refused by name, with exit 2, the folder not made ("
                 + (noFolder.Length == 0 ? "refused" : noFolder) + ")");
-            // The converter is the command's own argument, hashed for the build witness before the run, so it is driven
-            // through the command. The command refuses before that read outside a test data root, so this leg needs one
-            // and says so when it has none (the gate and CI run this self-test without it).
+            // N-bd-w12-review-02: IsArgumentFault's other two kinds get a leg each, so narrowing it to IOException fails a
+            // check: every leg above throws an IOException. A scenario path that is a folder throws UnauthorizedAccessException
+            // here; an empty converter path, below, throws ArgumentException.
+            string folderScenario = Path.Combine(root, "scenario-is-a-folder");
+            Directory.CreateDirectory(folderScenario);
+            string asFolder = argument(folderScenario, goodPets, Path.Combine(root, "trace-folder-scenario.jsonl"),
+                "refused " + folderScenario + ": the scenario cannot be read: ");
+            check(asFolder.Length == 0,
+                "parity run: a scenario path that is a folder (UnauthorizedAccessException) is refused by name, with exit 2 and no trace file ("
+                + (asFolder.Length == 0 ? "refused" : asFolder) + ")");
+
+            // N-bd-w12-review-03: a refused run leaves no file at its trace path, an earlier run's included, so "exit 2, no
+            // trace" holds for a reused path too; every refusal used to leave the earlier file as it was. WITNESS: a folder
+            // at the trace path is never removed, only refused.
+            string staleTrace = Path.Combine(root, "trace-stale.jsonl");
+            File.WriteAllText(staleTrace, "an earlier run's trace\n", new UTF8Encoding(false));
+            string overStale = argument(goodScenario, absentPets, staleTrace, "refused " + absentPets + ": the pets folder cannot be listed: ");
+            check(overStale.Length == 0,
+                "parity run: a refused run removes an earlier file at its trace path, so exit 2 leaves no trace of another run ("
+                + (overStale.Length == 0 ? "removed" : overStale) + ")");
+            string folderTrace = Path.Combine(root, "trace-is-a-folder");
+            Directory.CreateDirectory(folderTrace);
+            string atFolder = argument(goodScenario, goodPets, folderTrace, "refused " + folderTrace + ": the trace cannot be written: ");
+            check(atFolder.Length == 0 && Directory.Exists(folderTrace),
+                "parity run: WITNESS a folder at the trace path is refused and left where it is (" + (atFolder.Length == 0 ? "refused" : atFolder)
+                + ", folder " + (Directory.Exists(folderTrace) ? "kept" : "gone") + ")");
+
+            // The converter is the command's own argument, hashed for the build witness before the run, so its legs go
+            // through the command. They come after the command's test-data-root gate, so they pass isolated: true and run on
+            // every run (N-bd-w12-review-02). They used to need a data root, and without one (CI, run-gate.ps1 from an
+            // unisolated shell; tests/Invoke-IsolatedGate.ps1 sets one) said so only in the marker, under a plain 'ok'.
+            Func<string, string, string[]> command = (traceArg, converterArg) =>
+            {
+                var commandLog = new StringWriter();
+                int commandExit;
+                try
+                {
+                    commandExit = ParityRunCommand.Execute(new[] { ParityRunCommand.Flag, goodScenario, goodPets, traceArg, converterArg }, 0, commandLog,
+                        typeof(ParityRun).Assembly, true);
+                }
+                catch (Exception e)
+                {
+                    commandExit = -1;
+                    commandLog.Write("threw " + e.GetType().Name + ": " + e.Message);
+                }
+                return new[] { commandExit.ToString(CultureInfo.InvariantCulture), File.Exists(traceArg) ? "left" : "none", commandLog.ToString().Trim() };
+            };
             string absentConverter = Path.Combine(root, "absent-converter"), converterTrace = Path.Combine(root, "trace-absent-converter.jsonl");
-            var commandLog = new StringWriter();
-            int commandExit;
-            try
-            {
-                commandExit = ParityRunCommand.Execute(new[] { ParityRunCommand.Flag, goodScenario, goodPets, converterTrace, absentConverter }, 0, commandLog);
-            }
-            catch (Exception e)
-            {
-                commandExit = -1;
-                commandLog.Write("threw " + e.GetType().Name + ": " + e.Message);
-            }
-            if (!AppPaths.IsDataRootOverridden)
-                log.AppendLine("NOTE: parity run: the absent-converter refusal is not exercised (no test data root, so the command refuses"
-                    + " before it reads the converter: exit " + commandExit + ", " + commandLog.ToString().Trim() + ")");
-            else
-                check(commandExit == 2 && !File.Exists(converterTrace) && commandLog.ToString().Contains("refused " + absentConverter + ": the converter cannot be read: "),
-                    "parity run: a converter that does not exist is refused by name, with exit 2 and no trace file (exit " + commandExit + ", "
-                    + commandLog.ToString().Trim() + ")");
+            string[] noConverter = command(converterTrace, absentConverter);
+            check(noConverter[0] == "2" && noConverter[1] == "none" && noConverter[2].Contains("refused " + absentConverter + ": the converter cannot be read: "),
+                "parity run: a converter that does not exist is refused by name, with exit 2 and no trace file (exit " + noConverter[0] + ", " + noConverter[2] + ")");
+            string[] emptyConverter = command(Path.Combine(root, "trace-empty-converter.jsonl"), "");
+            check(emptyConverter[0] == "2" && emptyConverter[1] == "none" && emptyConverter[2].Contains("refused : the converter cannot be read: "),
+                "parity run: an empty converter path (ArgumentException) is refused by name, with exit 2 and no trace file (exit "
+                + emptyConverter[0] + ", " + emptyConverter[2] + ")");
+            // N-bd-w12-shimeji-host-1-03: a converter folder with no *.dll hashes to an empty manifest, a well-formed value
+            // that binds no code, so it is refused by name. WITNESS: the same folder with an assembly in it runs to a trace.
+            string codeless = Path.Combine(root, "converter-no-dll");
+            Directory.CreateDirectory(codeless);
+            File.WriteAllText(Path.Combine(codeless, "readme.txt"), "no code here\n", new UTF8Encoding(false));
+            string[] noCode = command(Path.Combine(root, "trace-no-dll.jsonl"), codeless);
+            check(noCode[0] == "2" && noCode[1] == "none" && noCode[2].Contains("refused " + codeless + ": the converter folder holds no *.dll"),
+                "parity run: a converter folder with no *.dll is refused by name, since its hash would bind no code, with exit 2 and no trace file (exit "
+                + noCode[0] + ", " + noCode[2] + ")");
+            File.WriteAllBytes(Path.Combine(codeless, "stand-in.dll"), new byte[] { 0x4D, 0x5A });
+            string[] withCode = command(Path.Combine(root, "trace-dll.jsonl"), codeless);
+            check(withCode[0] == "0" && withCode[1] == "left",
+                "parity run: WITNESS a converter folder holding a *.dll is hashed and the command runs to a complete trace (exit " + withCode[0] + ", trace " + withCode[1] + ")");
+            // N-bd-w12-review-03 through the command: a refusal before the run (here the converter's) removes an earlier file
+            // at the trace path too, because the command releases it before its first refusal.
+            File.WriteAllText(converterTrace, "an earlier run's trace\n", new UTF8Encoding(false));
+            string[] staleCommand = command(converterTrace, absentConverter);
+            check(staleCommand[0] == "2" && staleCommand[1] == "none",
+                "parity run: a command refused before the run removes an earlier file at its trace path too (exit " + staleCommand[0] + ", trace " + staleCommand[1] + ")");
 
             // CONTRACT v1.1 section 1: a left-button edge for a companion not active at dispatch is scenario-invalid.
             string[] absent = go(goodMap, ",{\"tick\":2,\"sid\":\"m1.b1\",\"press\":\"left\"}", xml, false);

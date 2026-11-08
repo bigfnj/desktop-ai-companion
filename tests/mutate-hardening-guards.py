@@ -5381,6 +5381,16 @@ CASES = (
         b"            RemovePendingBirthsOfInstalledType(tickHost, new Dictionary<string, CompanionTypeRegistry.Entry>(), id);\n",
         "w12-host-1: an uninstall first drops the births of the type still queued",
     ),
+    # ---- burndown/w13-shimeji-host-1 ----
+    # N-bd-w12-review-02: the self-test runner stops naming DEGRADED lines beside the verdict, so a run that left a leg
+    # unexercised prints a plain ok again and its note dies with the marker. "bd-w13-shimeji-host-1:" for one --only.
+    (
+        "bd-w13-shimeji-host-1: the self-test runner prints a plain ok over a DEGRADED marker (N-bd-w12-review-02)",
+        os.path.join(REPO, "tests", "Invoke-SelfTests.ps1"),
+        b"            if ($degraded.Count -gt 0) {\n",
+        b"            if ($false) {\n",
+        "w13-shimeji-host-1: the self-test runner reads DEGRADED lines from a green marker and names them beside the verdict",
+    ),
 )
 
 
