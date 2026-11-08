@@ -6706,7 +6706,6 @@ Assert-True ($ph2Factories.Count -eq 5 -and $ph2Unlisted.Count -eq 0 -and $ph2Go
     $(if ($ph2Unlisted.Count) { ' -- unlisted: ' + ($ph2Unlisted -join ' | ') } else { '' }) +
     $(if ($ph2Gone.Count) { ' -- listed but gone: ' + ($ph2Gone -join ' | ') } else { '' }))
 
-# LAST, and deliberately:this is the one assertion a BRANCH is expected to fail. Adding a source
 # ---- burndown/w9-tests-scripts-2 ----
 # NO C# SOURCE STARTS cmd.exe BY ITS BARE NAME (N-bd-w4-converter-1-03). With UseShellExecute=false a bare name reaches
 # CreateProcess, which searches the current directory ahead of System32, the order N-audit-1106-153 closed for ffmpeg.
@@ -6761,6 +6760,23 @@ Assert-True ($w10tsReportBody.Length -gt 0 -and $w10tsReportBody -cmatch 'Instal
     @([regex]::Matches($w10tsReportBody, 'InstalledApplicationTouched')).Count -eq 1 -and
     $w10tsReportBody -cmatch 'InstalledApplicationObservation = \$installedApplication\.Observation\n') (
     'w10-tests-scripts-2: the lifecycle report''s InstalledApplicationTouched is the observed value with its observation, never a literal')
+# THE DOC-COUNT BLOCK'S COMMENT APPEARS ONCE, BELOW EVERY LANE BLOCK (N-bd-w10-tests-scripts-2-01). A lane branched before a
+# fix to that comment's first line inserts its block between the old first line and the rest, and the merge keeps both:
+# 53c81415 (N-bd-w7-host-1-03) deleted one such stray copy, and the w9-tests-scripts-2 merge (274f4177) left another
+# above its own anchor, reading as the start of the last block with lane blocks still below it. Comments guard nothing,
+# so this file reads its own lines: exactly one starts with the comment's words, and no lane anchor follows it, which is
+# also the lane rule that nothing goes below the doc-count block. WITNESS: the anchors and the comment were found.
+$w10tsOwnLines = $hardeningOwnSource -split "`n"
+$w10tsMarks = @(); $w10tsLastAnchor = -1
+for ($w10tsAt = 0; $w10tsAt -lt $w10tsOwnLines.Count; $w10tsAt++) {
+    if ($w10tsOwnLines[$w10tsAt] -cmatch '^# LAST, and deliberately') { $w10tsMarks += $w10tsAt }
+    if ($w10tsOwnLines[$w10tsAt] -cmatch '^# ---- \S') { $w10tsLastAnchor = $w10tsAt }
+}
+Assert-True ($w10tsMarks.Count -ge 1 -and $w10tsLastAnchor -gt 0) (
+    "w10-tests-scripts-2: WITNESS this file's lane anchors and its doc-count comment were found ($($w10tsMarks.Count) comment lines)")
+Assert-True ($w10tsMarks.Count -eq 1 -and $w10tsMarks[0] -gt $w10tsLastAnchor) (
+    "w10-tests-scripts-2: the doc-count block's comment appears once, below every lane block" +
+    $(if ($w10tsMarks.Count -ne 1 -or $w10tsMarks[0] -le $w10tsLastAnchor) { " -- comment at line(s) $(($w10tsMarks | ForEach-Object { $_ + 1 }) -join ', '), last anchor at line $($w10tsLastAnchor + 1)" } else { '' }))
 
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that

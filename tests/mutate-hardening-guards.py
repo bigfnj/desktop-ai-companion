@@ -5112,6 +5112,23 @@ CASES = (
         b"$installedApplication = Compare-InstalledApplicationSnapshots $installedBefore (Get-InstalledApplicationSnapshot)\n",
         "w10-tests-scripts-2: the lifecycle snapshots the installed application once before its first MSI",
     ),
+    # N-bd-w10-tests-scripts-2-01: a merge leaves the doc-count comment's old first line above a lane block again (the
+    # shape 274f4177 left), or a lane block lands below the doc-count block.
+    (
+        "bd-w10-tests-scripts-2: a merge leaves a stray copy of the doc-count comment above a lane block (N-bd-w10-tests-scripts-2-01)",
+        HARDENING,
+        b"# ---- burndown/w9-tests-scripts-2 ----\n",
+        b"# LAST, and deliberately:this is the one assertion a BRANCH is expected to fail. Adding a source\n"
+        b"# ---- burndown/w9-tests-scripts-2 ----\n",
+        "w10-tests-scripts-2: the doc-count block's comment appears once, below every lane block",
+    ),
+    (
+        "bd-w10-tests-scripts-2: a lane block is placed below the doc-count block (N-bd-w10-tests-scripts-2-01)",
+        HARDENING,
+        b"Write-Host 'PASS: runtime hardening source invariants.'\n",
+        b"# ---- lane feature/below-the-count ----\nWrite-Host 'PASS: runtime hardening source invariants.'\n",
+        "w10-tests-scripts-2: the doc-count block's comment appears once, below every lane block",
+    ),
 )
 
 
