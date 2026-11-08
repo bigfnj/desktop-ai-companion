@@ -350,7 +350,8 @@ namespace DesktopAICompanion.Shimeji
                 _screenAreas.Add(new TickArea());
             }
             _workArea = Rect(scenario.GetProperty("workArea"));
-            // Environment.getScreenRect: the bounding rectangle of every screen.
+            // Environment.getScreenRect: the bounding rectangle of every screen. ParityRun.ScenarioInvalid refuses a scenario
+            // with none, for which these starting values would be the rectangle (N-bd-w11-shimeji-host-1-02).
             int l = int.MaxValue, t = int.MaxValue, r = int.MinValue, b = int.MinValue;
             foreach (int[] s in _screens)
             {
@@ -1357,7 +1358,8 @@ namespace DesktopAICompanion.Shimeji
         /// field, ticks a non-negative integer, rng.kind one of the three, one or more unique sids, a behavior for every start
         /// companion (a directed start runs no selection draw), and timelines in order inside 0..N with no tick-0 button
         /// edge. Then the kinds this run reads by name, which the comparer leaves to the producers: the id and pack strings,
-        /// a tape's values and a splitmix64 seed, and each start companion's imageSet, anchor and lookRight.
+        /// one or more screens, a tape's values and a splitmix64 seed, and each start companion's imageSet, anchor and
+        /// lookRight.
         /// </summary>
         internal static string ScenarioInvalid(JsonElement s)
         {
@@ -1402,6 +1404,13 @@ namespace DesktopAICompanion.Shimeji
             }
             if (s.GetProperty("id").ValueKind != JsonValueKind.String) return "id is not a string";
             if (s.GetProperty("pack").ValueKind != JsonValueKind.String) return "pack is not a string";
+            // N-bd-w11-shimeji-host-1-02: the desktop is the bounding rectangle of the screens (ParityEnvironment), and an
+            // empty list bounds nothing. Unrefused, the run went on over a rectangle built from Int32's limits, its width
+            // wrapped to 1 in this unchecked build, and wrote a complete trace. The oracle's runner refuses the same
+            // scenario (V1ScenarioRunner, V1_SCENARIO_INVALID no screens). CONTRACT section 1 and the comparer's
+            // validate_scenario say nothing about an empty list; this follows the oracle.
+            JsonElement screens = s.GetProperty("screens");
+            if (screens.ValueKind != JsonValueKind.Array || screens.GetArrayLength() == 0) return "screens is not a list of one or more screens";
             if (kind == "tape" && (!rng.TryGetProperty("values", out e) || e.ValueKind != JsonValueKind.Array)) return "a tape rng lacks its values list";
             if (kind == "splitmix64" && (!rng.TryGetProperty("seed", out e) || e.ValueKind != JsonValueKind.String)) return "a splitmix64 rng lacks its seed string";
             foreach (JsonElement m in mascots.EnumerateArray())

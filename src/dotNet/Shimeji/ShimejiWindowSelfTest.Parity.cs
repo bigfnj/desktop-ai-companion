@@ -569,6 +569,15 @@ namespace DesktopAICompanion.Shimeji
                 "parity run: a scenario the comparer refuses is refused too, with exit 2 and no trace file ("
                 + (ruled.Length == 0 ? "no behavior, a tick-0 click, ticks -1" : ruled.Trim()) + ")");
 
+            // N-bd-w11-shimeji-host-1-02: a scenario with no screens has no desktop, and the oracle's runner refuses it
+            // (V1_SCENARIO_INVALID no screens). Unrefused, the run went on over a bounding rectangle built from Int32's
+            // limits and wrote a trace.
+            string screenless = refused("no screens", edited(o => o["screens"] = new System.Text.Json.Nodes.JsonArray()),
+                "screens is not a list of one or more screens");
+            check(screenless.Length == 0,
+                "parity run: a scenario with no screens is refused as scenario-invalid, as the oracle refuses it, with exit 2 and no trace file ("
+                + (screenless.Length == 0 ? "refused" : screenless.Trim()) + ")");
+
             // N-bd-w11-shimeji-host-1-01: a path argument that names nothing is refused by name, with exit 2, its line and
             // no trace file, as a refused map or pack is. Unchecked, a scenario file or pets folder that did not exist, or a
             // trace in a folder that did not exist, threw FileNotFound or DirectoryNotFoundException out of the command,

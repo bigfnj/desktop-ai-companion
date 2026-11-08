@@ -24828,8 +24828,9 @@ CASES = (
     # ---- burndown/w12-shimeji-host-1 ----
     # N-bd-w11-shimeji-host-1-01: each path argument of --shimeji-parity-run that names nothing is refused by name with
     # exit 2 and no trace. Each case narrows one argument's catch filter to nothing, so that argument's exception escapes
-    # the command again and the --shimeji-window-selftest check that pins it fails. "bd-w12-shimeji-host-1:" for one
-    # --only.
+    # the command again and the --shimeji-window-selftest check that pins it fails. N-bd-w11-shimeji-host-1-02: a scenario
+    # with an empty screens list is scenario-invalid, as the oracle's runner has it; the case lets an empty list through.
+    # "bd-w12-shimeji-host-1:" for one --only.
     ("bd-w12-shimeji-host-1: a scenario file that does not exist escapes the command again (N-bd-w11-shimeji-host-1-01)",
      os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
      b'            catch (Exception e) when (IsArgumentFault(e))\n'
@@ -24870,6 +24871,13 @@ CASES = (
      HOST_CSPROJ, EXE,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
      'parity run: a converter that does not exist is refused by name, with exit 2 and no trace file'),
+    ("bd-w12-shimeji-host-1: an empty screens list runs to a trace again (N-bd-w11-shimeji-host-1-02)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'            if (screens.ValueKind != JsonValueKind.Array || screens.GetArrayLength() == 0) return "screens is not a list of one or more screens";\n',
+     b'            if (screens.ValueKind != JsonValueKind.Array) return "screens is not a list of one or more screens";\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity run: a scenario with no screens is refused as scenario-invalid, as the oracle refuses it'),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
