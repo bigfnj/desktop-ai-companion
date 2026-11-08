@@ -559,6 +559,26 @@ namespace DesktopAICompanion.Shimeji
             Directory.CreateDirectory(Path.Combine(pack, "img"));
             Directory.CreateDirectory(outside);
             File.WriteAllBytes(Path.Combine(pack, "img", "a.png"), new byte[] { 5 });
+
+            // N-bd-w10-shimeji-host-1-02: two entries that differ only in case are pack-invalid, as the comparer refuses them
+            // (a case-insensitive copy merges them into one file). This disk holds one spelling, so the listing names the
+            // second beside it as a case-sensitive folder would; both open the one file, which is what such a copy leaves.
+            Func<string, string[]> twinned = dir =>
+            {
+                var listed = new List<string>(Directory.GetFiles(dir));
+                if (listed.Contains(Path.Combine(dir, "a.png"))) listed.Add(Path.Combine(dir, "A.png"));
+                return listed.ToArray();
+            };
+            string twinRefusal = null, plainHash;
+            try { ParityRun.PackSha256(pack, twinned); }
+            catch (InvalidDataException e) { twinRefusal = e.Message; }
+            check(twinRefusal != null && twinRefusal.Contains("pack-invalid: the pack holds entries that differ only in case: img/a.png, img/A.png"),
+                "parity: the pack hash refuses entries that differ only in case, as the comparer does (" + (twinRefusal ?? "hashed it") + ")");
+            try { plainHash = ParityRun.PackSha256(pack); }
+            catch (InvalidDataException e) { plainHash = "refused: " + e.Message; }
+            check(plainHash.Length == 64 && plainHash == ParityRun.PackSha256(pack, Directory.GetFiles),
+                "parity: WITNESS the same pack, listed as the disk holds it, hashes (" + plainHash + ")");
+
             string link = Path.Combine(pack, "img", "link");
             if (!TryMakeDirectoryLink(link, outside))
             {

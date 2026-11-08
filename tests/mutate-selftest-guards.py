@@ -24646,6 +24646,57 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--wpf-options-selftest", "dp-wpf-options-selftest.txt",
      "tick switches: in the dark theme every switch row and the egg row draw their label as live ink"),
+    # ---- burndown/w11-shimeji-host-1 ----
+    # N-bd-w10-shimeji-host-1-01: a scenario that breaks CONTRACT section 1 is scenario-invalid, refused by name with exit
+    # 2 and no trace before the pets, the pack or the trace are touched. Each case takes one layer of that refusal away
+    # (the named check, the parse refusal, the readers' refusal, one of the comparer's rules) and must fail the
+    # --shimeji-window-selftest check that pins it. N-bd-w10-shimeji-host-1-02: the pack hash refuses entries that differ
+    # only in case, as the comparer does; the case takes that refusal out of the file walk. "bd-w11-shimeji-host-1:" for
+    # one --only.
+    ("bd-w11-shimeji-host-1: the named scenario check is skipped (N-bd-w10-shimeji-host-1-01)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'            refusal = ScenarioInvalid(s);\n'
+     b'            if (refusal != null) return null;\n',
+     b'            refusal = null;\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity run: a scenario missing a field is refused as scenario-invalid by name, with exit 2 and no trace file'),
+    ("bd-w11-shimeji-host-1: a scenario that is not JSON escapes the command as an exception (N-bd-w10-shimeji-host-1-01)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'            catch (JsonException e)\n'
+     b'            {\n'
+     b'                log.WriteLine("refused " + scenarioPath + ": scenario-invalid: the scenario is not JSON: " + e.Message);\n',
+     b'            catch (JsonException e) when (e == null)\n'
+     b'            {\n'
+     b'                log.WriteLine("refused " + scenarioPath + ": scenario-invalid: the scenario is not JSON: " + e.Message);\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity run: a scenario that is not JSON is refused as scenario-invalid, with exit 2 and no trace file'),
+    ("bd-w11-shimeji-host-1: a field the readers refuse escapes the command again (N-bd-w10-shimeji-host-1-01)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'            catch (Exception e) when (IsRefusal(e))\n'
+     b'            {\n'
+     b'                refusal = reading + " cannot be read: " + e.Message;\n',
+     b'            catch (Exception e) when (e is ArgumentNullException)\n'
+     b'            {\n'
+     b'                refusal = reading + " cannot be read: " + e.Message;\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity run: a scenario field the run cannot read is refused as scenario-invalid, with exit 2 and no trace file'),
+    ("bd-w11-shimeji-host-1: a tick-0 button edge runs to a trace again (N-bd-w10-shimeji-host-1-01)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                        return "a tick-0 press, release or click (button edges start at tick 1)";\n',
+     b'                        continue;\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity run: a scenario the comparer refuses is refused too, with exit 2 and no trace file'),
+    ("bd-w11-shimeji-host-1: entries that differ only in case are hashed again (N-bd-w10-shimeji-host-1-02)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                    RefuseCaseTwin(folded, Relative(packDir, f));\n',
+     b'',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity: the pack hash refuses entries that differ only in case, as the comparer does'),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

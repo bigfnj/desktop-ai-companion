@@ -441,6 +441,8 @@ namespace DesktopAICompanion.Shimeji
             string rng = directed;
             // The scenario's pack, the generated one unless a refusal check names another for its run and puts it back.
             string packName = "pack";
+            // The scenario's text as written, unless a scenario refusal check edits it for its run and puts it back.
+            Func<string, string> scenarioEdit = null;
             // One pets folder and scenario per run, so no run reads another's leftovers.
             Func<string, string, string, bool, string[]> go = (map, input, xmlText, traceOff) =>
             {
@@ -450,11 +452,12 @@ namespace DesktopAICompanion.Shimeji
                 if (xmlText != null) File.WriteAllText(Path.Combine(member, "animations.xml"), xmlText, new UTF8Encoding(false));
                 if (map != null) File.WriteAllText(Path.Combine(member, "parity-map.json"), map, new UTF8Encoding(false));
                 string scenario = Path.Combine(root, "S-host-" + run + ".json");
-                File.WriteAllText(scenario, "{\"schema\":\"shimeji-parity-scenario/1\",\"id\":\"S-host-" + run + "\",\"description\":\"generated\","
+                string scenarioText = "{\"schema\":\"shimeji-parity-scenario/1\",\"id\":\"S-host-" + run + "\",\"description\":\"generated\","
                     + "\"pack\":\"" + packName + "\",\"screens\":[{\"x\":0,\"y\":0,\"w\":1280,\"h\":720}],\"workArea\":{\"x\":0,\"y\":0,\"w\":1280,\"h\":680},"
                     + "\"dpiScale\":1.0,\"ticks\":8,\"rng\":" + rng + ",\"settings\":{},"
                     + "\"mascots\":[{\"sid\":\"m1\",\"imageSet\":\"Par\",\"behavior\":\"Walk\",\"anchor\":[640,680],\"lookRight\":false}],"
-                    + "\"activeWindow\":[{\"tick\":0,\"visible\":false}],\"input\":[{\"tick\":0,\"cursor\":[100,100]}" + input + "]}", new UTF8Encoding(false));
+                    + "\"activeWindow\":[{\"tick\":0,\"visible\":false}],\"input\":[{\"tick\":0,\"cursor\":[100,100]}" + input + "]}";
+                File.WriteAllText(scenario, scenarioEdit == null ? scenarioText : scenarioEdit(scenarioText), new UTF8Encoding(false));
                 string trace = Path.Combine(root, "trace" + run + ".jsonl");
                 var runLog = new StringWriter();
                 int exit = ParityRun.Run(scenario, pets, trace, build, runLog, traceOff);
@@ -517,6 +520,52 @@ namespace DesktopAICompanion.Shimeji
                   && packless[2].Contains("pack-invalid: the pack " + Path.GetFullPath(Path.Combine(root, "no-such-pack")) + " is not a folder"),
                 "parity run: a pack that is not a folder is refused before the trace is opened, with exit 2 and no trace file (exit "
                 + packless[0] + ", trace " + (packless[1] == null ? "none" : "left with " + packless[1].Length + " chars") + ", " + packless[2].Trim() + ")");
+
+            // N-bd-w10-shimeji-host-1-01: a scenario that breaks CONTRACT section 1 is scenario-invalid, refused by name with
+            // exit 2, its line and no trace file, before the pets or the pack are read, as the oracle refuses it before it
+            // writes anything. Read after the trace was opened and outside the run's try, a missing field threw out of the
+            // command and left an empty trace; a missing settings ran to a complete trace and a missing mascots to an error
+            // footer, neither of which any comparison can use. Each line names what fails: "" when every run is refused.
+            Func<string, Func<string, string>, string, string> refused = (what, edit, reason) =>
+            {
+                scenarioEdit = edit;
+                string[] r;
+                try { r = goCaught(); }
+                finally { scenarioEdit = null; }
+                string want = "refused " + Path.Combine(root, "S-host-" + run + ".json") + ": scenario-invalid: " + reason;
+                return r[0] == "2" && r[1] == null && r[2].Contains(want) ? ""
+                    : what + " (exit " + r[0] + ", trace " + (r[1] == null ? "none" : "left with " + r[1].Length + " chars") + ", " + r[2].Trim() + "); ";
+            };
+            Func<Action<System.Text.Json.Nodes.JsonObject>, Func<string, string>> edited = change => text =>
+            {
+                System.Text.Json.Nodes.JsonObject o = System.Text.Json.Nodes.JsonNode.Parse(text).AsObject();
+                change(o);
+                return o.ToJsonString();
+            };
+            string missing = "";
+            foreach (string field in new[] { "id", "pack", "screens", "workArea", "dpiScale", "ticks", "rng", "settings", "mascots" })
+                missing += refused("no " + field, edited(o => o.Remove(field)), "lacks '" + field + "'");
+            missing += refused("no rng.kind", edited(o => o["rng"] = new System.Text.Json.Nodes.JsonObject()), "rng.kind is not none, tape or splitmix64");
+            missing += refused("no anchor", edited(o => o["mascots"][0].AsObject().Remove("anchor")), "start companion 'm1' lacks its anchor [x, y]");
+            check(missing.Length == 0,
+                "parity run: a scenario missing a field is refused as scenario-invalid by name, with exit 2 and no trace file ("
+                + (missing.Length == 0 ? "id, pack, screens, workArea, dpiScale, ticks, rng, settings, mascots, rng.kind, anchor" : missing.Trim()) + ")");
+            string notJson = refused("not JSON", text => text.Substring(0, text.Length - 1), "the scenario is not JSON: ");
+            check(notJson.Length == 0,
+                "parity run: a scenario that is not JSON is refused as scenario-invalid, with exit 2 and no trace file (" + (notJson.Length == 0 ? "refused" : notJson.Trim()) + ")");
+            string unreadable = refused("a screen with no h", edited(o => o["screens"] = System.Text.Json.Nodes.JsonNode.Parse("[{\"x\":0,\"y\":0,\"w\":1280}]")),
+                "screens, workArea, activeWindow or input cannot be read: ");
+            check(unreadable.Length == 0,
+                "parity run: a scenario field the run cannot read is refused as scenario-invalid, with exit 2 and no trace file ("
+                + (unreadable.Length == 0 ? "refused" : unreadable.Trim()) + ")");
+            string ruled = refused("no behavior", edited(o => o["mascots"][0].AsObject().Remove("behavior")),
+                "start companion 'm1' names no behavior (a directed start runs no selection draw)")
+                + refused("a tick-0 click", edited(o => o["input"].AsArray().Add(System.Text.Json.Nodes.JsonNode.Parse("{\"tick\":0,\"sid\":\"m1\",\"click\":\"left\"}"))),
+                "a tick-0 press, release or click (button edges start at tick 1)")
+                + refused("ticks -1", edited(o => o["ticks"] = -1), "ticks is not a non-negative integer");
+            check(ruled.Length == 0,
+                "parity run: a scenario the comparer refuses is refused too, with exit 2 and no trace file ("
+                + (ruled.Length == 0 ? "no behavior, a tick-0 click, ticks -1" : ruled.Trim()) + ")");
 
             // CONTRACT v1.1 section 1: a left-button edge for a companion not active at dispatch is scenario-invalid.
             string[] absent = go(goodMap, ",{\"tick\":2,\"sid\":\"m1.b1\",\"press\":\"left\"}", xml, false);
