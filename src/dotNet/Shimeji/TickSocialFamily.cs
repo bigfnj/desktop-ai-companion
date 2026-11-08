@@ -48,17 +48,18 @@ namespace DesktopAICompanion.Shimeji
 
         /// <summary><c>target.get()</c> where the source dereferences it unguarded: a null target is a
         /// NullPointerException that nothing in the step catches, so the engine ends the companion instead.</summary>
-        internal static TickMascot Require(TickMascot target, string action)
+        internal static TickMascot Require(TickMascot target, TickAction action)
         {
-            if (target == null) throw new TickCantBeAliveException("action '" + action + "' has no scan target");
+            if (target == null) throw new TickCantBeAliveException("action '" + action.Name + "' has no scan target", TickFaultCause.OfMissingScanTarget(action));
             return target;
         }
 
         /// <summary>String.trim().isEmpty() as Java computes it: every character at or below U+0020 is trimmed. A null
-        /// value is the source's NullPointerException.</summary>
-        internal static bool IsBlank(string value, string action, string parameter)
+        /// value is the source's NullPointerException: parameter-invalid (null where a value is required), named by the
+        /// reading action's refKey and the key it read.</summary>
+        internal static bool IsBlank(string value, TickAction action, string parameter)
         {
-            if (value == null) throw new TickCantBeAliveException("action '" + action + "': " + parameter + " is null");
+            if (value == null) throw new TickCantBeAliveException("action '" + action.Name + "': " + parameter + " is null", TickFaultCause.OfParameter(action, parameter));
             foreach (char c in value)
                 if (c > ' ') return false;
             return true;
@@ -78,16 +79,18 @@ namespace DesktopAICompanion.Shimeji
             {
                 string own = action.EvalString("Behavior", null, "");
                 mascot.SetBehaviour(world.BuildBehaviourByName(mascot.Type, own, mascot), "forced");
-                if (target == null) throw new TickCantBeAliveException("there is no target to enter a behaviour");
+                if (target == null) throw new TickCantBeAliveException("there is no target to enter a behaviour", TickFaultCause.OfMissingScanTarget(action));
                 // ScanInteract reads TargetBehavior twice, once to test it and once to build it (ScanInteract.java:119-121).
-                if (!skipBlankTarget || !IsBlank(action.EvalString("TargetBehavior", null, ""), action.Name, "TargetBehavior"))
+                if (!skipBlankTarget || !IsBlank(action.EvalString("TargetBehavior", null, ""), action, "TargetBehavior"))
                     target.SetBehaviour(world.BuildBehaviourByName(target.Type, action.EvalString("TargetBehavior", null, ""), target), "partner");
                 if (action.EvalBool("TargetLook", null, false) && target.LookRight == mascot.LookRight)
                     target.LookRight = !mascot.LookRight;
             }
             catch (TickCantBeAliveException e)
             {
-                world.ReportFault(mascot, action.Name + ": a partner transition failed: " + e.Message);
+                // The arrive wrapper (CONTRACT 10.3.4); a TargetBehavior missing from the TARGET's member was typed with
+                // that member by the lookup that searched it.
+                world.ReportFault(mascot, action.Name + ": a partner transition failed: " + e.Message, e.Cause, TickFaultVia.Arrive);
             }
         }
 
@@ -106,7 +109,7 @@ namespace DesktopAICompanion.Shimeji
         internal static void ReadCharacteristics(TickAction action, ref bool breed, ref bool scan)
         {
             string characteristics = action.EvalString("Characteristics", null, "");
-            if (characteristics == null) throw new TickCantBeAliveException("action '" + action.Name + "': Characteristics is null");
+            if (characteristics == null) throw new TickCantBeAliveException("action '" + action.Name + "': Characteristics is null", TickFaultCause.OfParameter(action, "Characteristics"));
             foreach (string characteristic in characteristics.Split(','))
             {
                 if (string.Equals(characteristic, "Breed", StringComparison.Ordinal)) breed = true;
@@ -162,7 +165,7 @@ namespace DesktopAICompanion.Shimeji
             Mascot.Affordances.Clear();
             CheckGround();
 
-            TickMascot target = TickSocialFamily.Require(_target, Name);
+            TickMascot target = TickSocialFamily.Require(_target, this);
             int targetX = target.Anchor.X;
             int targetY = target.Anchor.Y;
 
@@ -176,7 +179,7 @@ namespace DesktopAICompanion.Shimeji
             }
             bool down = Mascot.Anchor.Y < targetY;
 
-            if (_turning && Time >= TickMotionFamily.Require(CurrentVariant(), Name).Duration) _turning = false;
+            if (_turning && Time >= TickMotionFamily.Require(CurrentVariant(), this).Duration) _turning = false;
 
             PlayPose(CurrentVariant());
 
@@ -235,7 +238,7 @@ namespace DesktopAICompanion.Shimeji
         {
             Mascot.Affordances.Clear();
 
-            TickMascot target = TickSocialFamily.Require(_target, Name);
+            TickMascot target = TickSocialFamily.Require(_target, this);
             int targetX = target.Anchor.X;
             int targetY = target.Anchor.Y;
 
@@ -299,7 +302,7 @@ namespace DesktopAICompanion.Shimeji
         {
             // The source evaluates the animation's duration first, then ActionBase.hasNext (ScanInteract.java:67-69);
             // both always run, in this order.
-            bool intime = Time < TickMotionFamily.Require(CurrentVariant(), Name).Duration;
+            bool intime = Time < TickMotionFamily.Require(CurrentVariant(), this).Duration;
             bool guard = BaseHasNext();
             // policy:scaninteract-precedence: the source returns (guard && turning) || intime, so animation time
             // bypasses Condition and Duration; the host requires the guard: guard && (turning || intime).
@@ -329,9 +332,9 @@ namespace DesktopAICompanion.Shimeji
                         Mascot.LookRight = Mascot.Anchor.X < _target.Anchor.X;
                     }
 
-                    if (_turning && Time >= TickMotionFamily.Require(CurrentVariant(), Name).Duration)
+                    if (_turning && Time >= TickMotionFamily.Require(CurrentVariant(), this).Duration)
                     {
-                        SetTime(Time - TickMotionFamily.Require(CurrentVariant(), Name).Duration);
+                        SetTime(Time - TickMotionFamily.Require(CurrentVariant(), this).Duration);
                         _turning = false;
                     }
                 }
@@ -339,8 +342,8 @@ namespace DesktopAICompanion.Shimeji
                 PlayPose(CurrentVariant());
 
                 if (!_turning
-                    && (Time == TickMotionFamily.Require(CurrentVariant(), Name).Duration - 1 || TickMotionFamily.Require(CurrentVariant(), Name).Duration == 1)
-                    && !TickSocialFamily.IsBlank(EvalString("Behavior", null, ""), Name, "Behavior"))
+                    && (Time == TickMotionFamily.Require(CurrentVariant(), this).Duration - 1 || TickMotionFamily.Require(CurrentVariant(), this).Duration == 1)
+                    && !TickSocialFamily.IsBlank(EvalString("Behavior", null, ""), this, "Behavior"))
                     TickSocialFamily.Arrive(World, this, Mascot, _target, true);
             }
         }
@@ -390,8 +393,8 @@ namespace DesktopAICompanion.Shimeji
 
             base.Tick();
 
-            if ((Time == TickMotionFamily.Require(CurrentVariant(), Name).Duration - 1 || TickMotionFamily.Require(CurrentVariant(), Name).Duration == 1)
-                && !TickSocialFamily.IsBlank(EvalString("Behavior", null, ""), Name, "Behavior"))
+            if ((Time == TickMotionFamily.Require(CurrentVariant(), this).Duration - 1 || TickMotionFamily.Require(CurrentVariant(), this).Duration == 1)
+                && !TickSocialFamily.IsBlank(EvalString("Behavior", null, ""), this, "Behavior"))
             {
                 try
                 {
@@ -399,7 +402,7 @@ namespace DesktopAICompanion.Shimeji
                 }
                 catch (TickCantBeAliveException e)
                 {
-                    World.ReportFault(Mascot, Name + ": its Behavior could not be entered: " + e.Message);
+                    World.ReportFault(Mascot, Name + ": its Behavior could not be entered: " + e.Message, e.Cause, TickFaultVia.Interact);
                 }
             }
         }
@@ -467,8 +470,8 @@ namespace DesktopAICompanion.Shimeji
             if (_scanEnabled) Mascot.Affordances.Clear();
             CheckGround();
 
-            int targetX = _scanEnabled ? TickSocialFamily.Require(_target, Name).Anchor.X : EvalInt("TargetX", DefaultTarget);
-            int targetY = _scanEnabled ? TickSocialFamily.Require(_target, Name).Anchor.Y : EvalInt("TargetY", DefaultTarget);
+            int targetX = _scanEnabled ? TickSocialFamily.Require(_target, this).Anchor.X : EvalInt("TargetX", DefaultTarget);
+            int targetY = _scanEnabled ? TickSocialFamily.Require(_target, this).Anchor.Y : EvalInt("TargetY", DefaultTarget);
 
             if (_scanEnabled)
             {
@@ -483,7 +486,7 @@ namespace DesktopAICompanion.Shimeji
             }
             bool down = Mascot.Anchor.Y < targetY;
 
-            if (_turning && Time >= TickMotionFamily.Require(CurrentVariant(), Name).Duration) _turning = false;
+            if (_turning && Time >= TickMotionFamily.Require(CurrentVariant(), this).Duration) _turning = false;
 
             PlayPose(CurrentVariant());
 
@@ -587,7 +590,7 @@ namespace DesktopAICompanion.Shimeji
             {
                 Mascot.Affordances.Clear();
 
-                TickMascot target = TickSocialFamily.Require(_target, Name);
+                TickMascot target = TickSocialFamily.Require(_target, this);
                 targetX = target.Anchor.X;
                 targetY = target.Anchor.Y;
 

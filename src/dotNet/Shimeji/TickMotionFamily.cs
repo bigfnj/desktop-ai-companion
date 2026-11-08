@@ -39,9 +39,10 @@ namespace DesktopAICompanion.Shimeji
 
         /// <summary>The variant a source <c>getAnimation().getDuration()</c> reads. The source dereferences a null
         /// animation and its manager thread dies; the engine ends the companion instead, as PlayPose does.</summary>
-        internal static TickVariantDef Require(TickVariantDef variant, string action)
+        internal static TickVariantDef Require(TickVariantDef variant, TickAction action)
         {
-            if (variant == null) throw new TickCantBeAliveException("action '" + action + "' has no variant whose condition holds");
+            // variant-missing where it arises, named by the initialised action's own refKey (CONTRACT 10.3.3).
+            if (variant == null) throw new TickCantBeAliveException("action '" + action.Name + "' has no variant whose condition holds", TickFaultCause.OfMissingVariant(action));
             return variant;
         }
 
@@ -302,7 +303,7 @@ namespace DesktopAICompanion.Shimeji
             PlayPose(animation);
 
             // The source looks the animation up again here (Regist.java:67).
-            if (Time + 1 >= TickMotionFamily.Require(CurrentVariant(), Name).Duration)
+            if (Time + 1 >= TickMotionFamily.Require(CurrentVariant(), this).Duration)
             {
                 Mascot.LookRight = World.Draw(Mascot, "builtin:regist-facing", "regist-facing") < 0.5;
                 throw new TickLostGroundException();
@@ -358,6 +359,8 @@ namespace DesktopAICompanion.Shimeji
         public TickMoveWithTurn(TickWorld world, TickActDef def, Dictionary<string, TickParamDef> incoming) : base(world, def, incoming)
         {
             // The source's constructor throws, ActionBuilder finds no usable constructor, and the behaviour cannot be built.
+            // A constructor fault: no reference context is carried into construction (the reference's refKey is set after
+            // it returns, C.2 H7), so it is unclassified, never typed with the declaration's key (CONTRACT 10.3.3, CH7).
             if (def.Variants.Length < 2) throw new TickCantBeAliveException("action '" + def.Name + "' (MoveWithTurn) needs at least two variants");
         }
 

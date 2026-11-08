@@ -1,8 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Globalization;
 using System.IO;
 using System.Text;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace DesktopAICompanion.Shimeji
 {
@@ -13,7 +16,9 @@ namespace DesktopAICompanion.Shimeji
         /// shimeji-parity-map/2 only, checks every mapping strictly, binds each emitted pose to its source position by the
         /// pose object, traces that position (also for an old member's pose kept after a Transform), refuses before it opens
         /// a trace, stops at a left-button edge for a companion that is not active, and proves a trace-on and a trace-off
-        /// run agree. Every map and pet here is generated; nothing is read from a real pack.
+        /// run agree. burndown/parity-host-2 moves it to trace/2 (CONTRACT section 10): the header, a tape outrun on 0.5
+        /// with tapeExhausted in every footer, and the observation proof judged by 10.5.3. Every map and pet here is
+        /// generated; nothing is read from a real pack.
         /// </summary>
         private static void CheckParityMapV2(Action<bool, string> check, string scratch, StringBuilder log)
         {
@@ -23,11 +28,72 @@ namespace DesktopAICompanion.Shimeji
                 CheckParityPoseBinding(check);
                 CheckParityPoseTrace(check);
                 CheckParityRunRefusals(check, Path.Combine(scratch, "parity-v2"), log);
+                CheckParityBuildRevision(check, Path.Combine(scratch, "parity-revision"));
+                CheckParityErrors(check);
             }
             catch (Exception e)
             {
                 check(false, "parity map/2: the host checks ran without an exception: " + e);
             }
+        }
+
+        /// <summary>
+        /// N-bd-parity-host-1-03: build.commit is the full source revision the project file stamped into its own metadata
+        /// value, never the informational (product) version and never a placeholder, and the command refuses a build
+        /// without one before it reads anything or opens a trace. This build's own stamp is required: the window self-test
+        /// runs from a git checkout (the gate, CI, the mutation harness), and a build with none could not run the parity
+        /// tooling at all.
+        /// </summary>
+        private static void CheckParityBuildRevision(Action<bool, string> check, string root)
+        {
+            Directory.CreateDirectory(root);
+            string refusal;
+            System.Reflection.Assembly own = typeof(ParityRun).Assembly;
+            string revision = ParityRunCommand.SourceRevision(own, out refusal);
+            string informational = InformationalVersionOf(own);
+            check(revision != null && ParityRunCommand.IsFullRevision(revision) && revision != informational,
+                "parity run: build.commit is this build's stamped 40-hex source revision, not its product version ("
+                + (revision ?? refusal) + "; product " + informational + ")");
+
+            // The runtime's own assembly has an informational version a fallback could take, and no stamp.
+            System.Reflection.Assembly unstamped = typeof(object).Assembly;
+            string fallback = InformationalVersionOf(unstamped);
+            string none = ParityRunCommand.SourceRevision(unstamped, out refusal);
+            check(!string.IsNullOrEmpty(fallback), "parity run: WITNESS the unstamped stand-in has an informational version a fallback could take (" + fallback + ")");
+            check(none == null && refusal != null && refusal.StartsWith("this build carries no source revision", StringComparison.Ordinal),
+                "parity run: a build with no source revision metadata is refused, never given its informational version ("
+                + (none == null ? refusal : "took " + none) + ")");
+
+            var accepted = new List<string>();
+            foreach (string value in new[] { "", "unknown", "selftest", "1.11.0", new string('0', 40), "ABCDEF0123456789ABCDEF0123456789ABCDEF01",
+                "abcdef0123456789abcdef0123456789abcdef0", "abcdef0123456789abcdef0123456789abcdef012", " bcdef0123456789abcdef0123456789abcdef01" })
+                if (ParityRunCommand.IsFullRevision(value)) accepted.Add("'" + value + "'");
+            check(accepted.Count == 0 && ParityRunCommand.IsFullRevision("abcdef0123456789abcdef0123456789abcdef01"),
+                "parity run: a placeholder, a version, the all-zero id, upper case, 39 or 41 characters are no source revision;"
+                + " 40 lowercase hex is (" + string.Join(", ", accepted) + ")");
+
+            // The command itself: exit 2, its line, and no trace, before the scenario (which does not exist) is read.
+            string trace = Path.Combine(root, "refused.jsonl");
+            var log = new StringWriter();
+            int exit;
+            try
+            {
+                exit = ParityRunCommand.Execute(new[] { ParityRunCommand.Flag, Path.Combine(root, "absent.json"), root, trace, root }, 0, log, unstamped);
+            }
+            catch (Exception e)
+            {
+                exit = -1;
+                log.Write("threw " + e.GetType().Name + ": " + e.Message);
+            }
+            check(exit == 2 && !File.Exists(trace) && log.ToString().StartsWith(ParityRunCommand.Flag + " refused: this build carries no source revision", StringComparison.Ordinal),
+                "parity run: the command refuses a build with no source revision with exit 2, its log line and no trace (exit " + exit + ", "
+                + log.ToString().Trim() + ")");
+        }
+
+        private static string InformationalVersionOf(System.Reflection.Assembly assembly)
+        {
+            var info = (System.Reflection.AssemblyInformationalVersionAttribute)Attribute.GetCustomAttribute(assembly, typeof(System.Reflection.AssemblyInformationalVersionAttribute));
+            return info == null ? null : info.InformationalVersion;
         }
 
         private static string ParPoseRef(string set, int action, int animation, int pose)
@@ -345,7 +411,7 @@ namespace DesktopAICompanion.Shimeji
             var unboundLog = new StringWriter();
             var unboundWriter = new ParityTraceWriter(unbound, new Dictionary<string, ParityMap> { { "Par", newMap } }) { Tick = 3 };
             unboundWriter.States(world);
-            int exit = ParityRun.Finish(unboundWriter, 3, "complete", unboundLog);
+            int exit = ParityRun.Finish(unboundWriter, 3, "complete", null, unboundLog);
             check(unbound.ToString().Contains("\"index\":null}") && exit == 1 && unbound.ToString().Contains("\"status\":\"error\"")
                   && unboundLog.ToString().Contains("tick 3 m1: applied pose has no source binding (member Old, which has no parity map)"),
                 "parity trace: an applied pose with no source binding ends the run in error with index null (exit " + exit + ", "
@@ -370,6 +436,9 @@ namespace DesktopAICompanion.Shimeji
                 { "commit", "selftest" }, { "exeSha256", new string('0', 64) }, { "engineSha256", new string('1', 64) }, { "converterSha256", new string('2', 64) },
             };
             int run = 0;
+            // The scenario's rng, directed unless a check sets a tape or a seed for its own runs and puts it back.
+            const string directed = "{\"kind\":\"none\"}";
+            string rng = directed;
             // One pets folder and scenario per run, so no run reads another's leftovers.
             Func<string, string, string, bool, string[]> go = (map, input, xmlText, traceOff) =>
             {
@@ -381,7 +450,7 @@ namespace DesktopAICompanion.Shimeji
                 string scenario = Path.Combine(root, "S-host-" + run + ".json");
                 File.WriteAllText(scenario, "{\"schema\":\"shimeji-parity-scenario/1\",\"id\":\"S-host-" + run + "\",\"description\":\"generated\","
                     + "\"pack\":\"pack\",\"screens\":[{\"x\":0,\"y\":0,\"w\":1280,\"h\":720}],\"workArea\":{\"x\":0,\"y\":0,\"w\":1280,\"h\":680},"
-                    + "\"dpiScale\":1.0,\"ticks\":8,\"rng\":{\"kind\":\"none\"},\"settings\":{},"
+                    + "\"dpiScale\":1.0,\"ticks\":8,\"rng\":" + rng + ",\"settings\":{},"
                     + "\"mascots\":[{\"sid\":\"m1\",\"imageSet\":\"Par\",\"behavior\":\"Walk\",\"anchor\":[640,680],\"lookRight\":false}],"
                     + "\"activeWindow\":[{\"tick\":0,\"visible\":false}],\"input\":[{\"tick\":0,\"cursor\":[100,100]}" + input + "]}", new UTF8Encoding(false));
                 string trace = Path.Combine(root, "trace" + run + ".jsonl");
@@ -423,63 +492,262 @@ namespace DesktopAICompanion.Shimeji
             check(right[0] == "0" && right[1] != null && right[1].Contains("\"status\":\"complete\""),
                 "parity run: WITNESS a right press on an absent companion reaches neither runtime and the run completes (exit " + right[0] + ")");
 
-            // CONTRACT v1.1 section 5: the same directed scenario traced and untraced. The final states, the draw and event
-            // totals, and the event digest must agree; the traced run's digest is recomputed from the lines it wrote.
+            // CONTRACT 10.1 and 10.2 (CH1): the host writes trace/2, and its header keeps trace/1's fields in their order.
+            string header = good[1] == null ? "" : good[1].Split('\n')[0];
+            string headerKeys = KeysOf(header);
+            check(header.StartsWith("{\"type\":\"header\",\"schema\":\"shimeji-parity-trace/2\",\"runtime\":\"host\",", StringComparison.Ordinal)
+                  && headerKeys == "type,schema,runtime,scenario,build,rng,tickMs,dpiScale,runId,startedUtc",
+                "parity run: the header declares shimeji-parity-trace/2 and no other header field changes (" + headerKeys + "; "
+                + (header.Length > 72 ? header.Substring(0, 72) : header) + ")");
+
+            // CONTRACT 10.4 and 10.5.1 (CH13, N-parity-1107-04): a draw past the tape's end yields 0.5 and the run steps on
+            // to tick N, its footer complete with tapeExhausted true and the exhaustion logged as information. The tape is
+            // sized from the directed run's own draw count, so one draw short stays one draw short if the pet changes.
+            List<string> directedDraws = Lines(good[1], "\"kind\":\"rng-draw\"");
+            int drawn = directedDraws.Count;
+            rng = Tape(drawn - 1);
+            string[] outrun = go(goodMap, "", xml, false);
+            rng = Tape(drawn);
+            string[] fullTape = go(goodMap, "", xml, false);
+            rng = "{\"kind\":\"splitmix64\",\"seed\":\"0x0123456789abcdef\"}";
+            string[] seeded = go(goodMap, "", xml, false);
+            rng = directed;
+            List<string> outrunDraws = Lines(outrun[1], "\"kind\":\"rng-draw\"");
+            string lastDraw = outrunDraws.Count == 0 ? "" : outrunDraws[outrunDraws.Count - 1];
+            check(drawn >= 1 && outrun[0] == "0" && outrun[1] != null
+                  && outrun[1].Contains("{\"type\":\"footer\",\"ticks\":8,\"status\":\"complete\",") && FooterFlag(outrun[1]) == "true"
+                  && Lines(outrun[1], "{\"type\":\"state\",\"tick\":8,").Count > 0 && outrunDraws.Count == drawn
+                  && lastDraw.Contains("\"occurrence\":" + drawn + ",\"value\":0.5,")
+                  && outrun[2].Contains("rng-tape-exhausted (information): the run drew past the end of its " + (drawn - 1) + "-value tape"),
+                "parity run: a one-draw-short tape steps to tick N, its footer complete with tapeExhausted true, the draw past the end 0.5"
+                + " and the exhaustion logged as information (exit " + outrun[0] + ", " + outrunDraws.Count + " of " + drawn + " draws, footer "
+                + LastFooter(outrun[1]) + ", last draw " + lastDraw + ")");
+            check(good[0] == "0" && FooterFlag(good[1]) == "false" && fullTape[0] == "0" && FooterFlag(fullTape[1]) == "false"
+                  && Lines(fullTape[1], "\"kind\":\"rng-draw\"").Count == drawn && seeded[0] == "0" && FooterFlag(seeded[1]) == "false"
+                  && !fullTape[2].Contains("rng-tape-exhausted") && !good[2].Contains("rng-tape-exhausted"),
+                "parity run: tapeExhausted is false for none, splitmix64 and a tape the run did not outrun (none " + FooterFlag(good[1])
+                + ", full tape " + FooterFlag(fullTape[1]) + ", splitmix64 " + FooterFlag(seeded[1]) + ")");
+            check(FooterFlag(absent[1]) == "false" && FooterFlag(right[1]) == "false",
+                "parity run: an aborted footer carries tapeExhausted too (aborted " + FooterFlag(absent[1]) + ", complete " + FooterFlag(right[1]) + ")");
+
+            // CONTRACT section 5 with 10.5.3 (CH14, CH20): the same directed scenario traced and untraced, and again with
+            // the tape outrun; the traced run's digest is recomputed from the lines it wrote.
             string[] on = go(goodMap, "", xml, false);
             string[] off = go(goodMap, "", xml, true);
-            CheckTraceOffProof(check, on[1], off[1]);
+            rng = Tape(drawn - 1);
+            string[] outrunOff = go(goodMap, "", xml, true);
+            rng = directed;
+            CheckTraceOffProof(check, on[1], off[1], outrun[1], outrunOff[1]);
         }
 
-        private static void CheckTraceOffProof(Action<bool, string> check, string on, string off)
+        /// <summary>A tape of <paramref name="values"/> values, each 0.25 (any value in [0, 1) serves the directed pet).</summary>
+        private static string Tape(int values)
         {
-            if (on == null || off == null)
+            var b = new StringBuilder("{\"kind\":\"tape\",\"values\":[");
+            for (int i = 0; i < values; i++) b.Append(i == 0 ? "0.25" : ",0.25");
+            return b.Append("]}").ToString();
+        }
+
+        /// <summary>The lines of a trace that contain <paramref name="part"/>; none for a run that wrote no trace.</summary>
+        private static List<string> Lines(string trace, string part)
+        {
+            var found = new List<string>();
+            if (trace == null) return found;
+            foreach (string line in trace.Split('\n'))
+                if (line.Contains(part)) found.Add(line);
+            return found;
+        }
+
+        /// <summary>A trace's footer line, the last one, or null when it has none (a run stopped before writing it).</summary>
+        private static string LastFooter(string trace)
+        {
+            List<string> footers = Lines(trace, "{\"type\":\"footer\"");
+            return footers.Count == 0 ? null : footers[footers.Count - 1];
+        }
+
+        /// <summary>A footer's tapeExhausted as written: "true", "false", "absent" when the footer has no such boolean, or
+        /// "no footer".</summary>
+        private static string FooterFlag(string trace)
+        {
+            string footer = LastFooter(trace);
+            if (footer == null) return "no footer";
+            using (JsonDocument f = JsonDocument.Parse(footer))
             {
-                check(false, "parity trace-on/off proof: both runs wrote a trace");
-                return;
+                JsonElement v;
+                if (!f.RootElement.TryGetProperty("tapeExhausted", out v)) return "absent";
+                return v.ValueKind == JsonValueKind.True ? "true" : v.ValueKind == JsonValueKind.False ? "false" : "absent";
             }
-            var onFinal = new List<string>();
-            var offStates = new List<string>();
-            var events = new StringBuilder();
-            string onFooter = null, offFooter = null;
-            int offEvents = 0, ticks = -1;
-            foreach (string line in on.Split('\n'))
+        }
+
+        /// <summary>A JSON object line's property names, in order, comma-joined; empty when it is not one.</summary>
+        private static string KeysOf(string line)
+        {
+            try
             {
-                if (line.StartsWith("{\"type\":\"event\"", StringComparison.Ordinal)) events.Append(line).Append('\n');
-                if (line.StartsWith("{\"type\":\"footer\"", StringComparison.Ordinal)) onFooter = line;
+                var keys = new List<string>();
+                using (JsonDocument d = JsonDocument.Parse(line))
+                    foreach (JsonProperty p in d.RootElement.EnumerateObject()) keys.Add(p.Name);
+                return string.Join(",", keys);
             }
-            foreach (string line in off.Split('\n'))
+            catch (JsonException) { return ""; }
+        }
+
+        private const string Proven = "proven";
+
+        /// <summary>
+        /// The host's section 5 observation proof, judged by CONTRACT 10.5.3 over one build's trace-on and trace-off runs of
+        /// one directed scenario: <see cref="Proven"/>; "unverified: why" when an artifact lacks what the proof needs; or
+        /// "failed: why" when a run did not complete or the two runs disagree. It compares the traced draw count with the
+        /// untraced unobservedDraws, the event totals, both tapeExhausted flags, the final states and the event digest,
+        /// and only complete runs can satisfy it. A trace-off run has no draw lines, so its tally and its flag come from
+        /// its footer alone: a run stopped before that footer has no durable tally and is unverified, and a footer with no
+        /// tapeExhausted is unverified too. Neither is ever read as false from the draw lines it withheld (CH20).
+        /// It never throws: an unreadable run fails the proof.
+        /// </summary>
+        internal static string JudgeObservationProof(string on, string off)
+        {
+            try
             {
-                if (line.StartsWith("{\"type\":\"state\"", StringComparison.Ordinal)) offStates.Add(line);
-                if (line.StartsWith("{\"type\":\"event\"", StringComparison.Ordinal)) offEvents++;
-                if (line.StartsWith("{\"type\":\"footer\"", StringComparison.Ordinal)) offFooter = line;
-            }
-            if (onFooter != null)
-            {
-                using (System.Text.Json.JsonDocument f = System.Text.Json.JsonDocument.Parse(onFooter)) ticks = f.RootElement.GetProperty("ticks").GetInt32();
-                foreach (string line in on.Split('\n'))
-                    if (line.StartsWith("{\"type\":\"state\",\"tick\":" + ticks + ",", StringComparison.Ordinal)) onFinal.Add(line);
-            }
-            int onDraws = -1, onEvents = -1, offDraws = -2, offWithheld = -2;
-            string offDigest = null;
-            if (onFooter != null && offFooter != null)
-                using (System.Text.Json.JsonDocument a = System.Text.Json.JsonDocument.Parse(onFooter))
-                using (System.Text.Json.JsonDocument b = System.Text.Json.JsonDocument.Parse(offFooter))
+                if (on == null || off == null) return "unverified: the " + (on == null ? "traced" : "untraced") + " run wrote no trace";
+                string onFooter = LastFooter(on), offFooter = LastFooter(off);
+                if (onFooter == null) return "unverified: the traced run has no footer";
+                if (offFooter == null)
+                    return "unverified: the untraced run has no footer, so no durable tally of what it withheld; nothing is read from its absent draw lines";
+                using (JsonDocument a = JsonDocument.Parse(onFooter))
+                using (JsonDocument b = JsonDocument.Parse(offFooter))
                 {
-                    onDraws = a.RootElement.GetProperty("draws").GetInt32();
-                    onEvents = a.RootElement.GetProperty("events").GetInt32();
-                    System.Text.Json.JsonElement v;
-                    if (b.RootElement.TryGetProperty("unobservedDraws", out v)) offDraws = v.GetInt32();
-                    if (b.RootElement.TryGetProperty("unobservedEvents", out v)) offWithheld = v.GetInt32();
-                    if (b.RootElement.TryGetProperty("eventSequenceSha256", out v)) offDigest = v.GetString();
+                    JsonElement f = a.RootElement, g = b.RootElement;
+                    string onStatus = FooterText(f, "status"), offStatus = FooterText(g, "status");
+                    if (onStatus != "complete" || offStatus != "complete")
+                        return "failed: only complete runs can prove it (traced " + onStatus + ", untraced " + offStatus + ")";
+                    int ticks, onDraws, onEvents, offDraws, offEvents;
+                    bool onFlag, offFlag;
+                    if (!FooterInt(f, "ticks", out ticks) || !FooterInt(f, "draws", out onDraws) || !FooterInt(f, "events", out onEvents))
+                        return "unverified: the traced footer lacks its ticks, draws or events";
+                    if (!FooterBool(f, "tapeExhausted", out onFlag)) return "unverified: the traced footer carries no tapeExhausted";
+                    string offDigest = FooterText(g, "eventSequenceSha256");
+                    if (!FooterInt(g, "unobservedDraws", out offDraws) || !FooterInt(g, "unobservedEvents", out offEvents) || offDigest == null)
+                        return "unverified: the untraced footer lacks unobservedDraws, unobservedEvents or eventSequenceSha256";
+                    if (!FooterBool(g, "tapeExhausted", out offFlag))
+                        return "unverified: the untraced footer carries no tapeExhausted, and false is never inferred from absent draw lines";
+                    // 10.5.3 compares the ACTUAL trace-on draw count, so the traced footer's totals are first held to the
+                    // lines the trace holds: its event lines, and among them the rng-draw ones. Compared only with each
+                    // other, two footers raised alike (one writer counter wrong on both runs) would agree and prove it.
+                    var events = new StringBuilder();
+                    int eventLines = 0, drawLines = 0;
+                    foreach (string line in Lines(on, "{\"type\":\"event\""))
+                    {
+                        events.Append(line).Append('\n');
+                        eventLines++;
+                        using (JsonDocument d = JsonDocument.Parse(line))
+                            if (FooterText(d.RootElement, "kind") == "rng-draw") drawLines++;
+                    }
+                    if (onDraws != drawLines || onEvents != eventLines)
+                        return "failed: the traced footer counts " + onDraws + " draws and " + onEvents + " events, its trace holds "
+                            + drawLines + " rng-draw lines and " + eventLines + " event lines";
+                    string onDigest = ParityRun.Sha256(Encoding.UTF8.GetBytes(events.ToString()));
+                    string onFinal = string.Join("\n", Lines(on, "{\"type\":\"state\",\"tick\":" + ticks + ","));
+                    string offStates = string.Join("\n", Lines(off, "{\"type\":\"state\""));
+                    if (onDraws != offDraws) return "failed: draws " + onDraws + " traced, " + offDraws + " withheld";
+                    if (onEvents != offEvents) return "failed: events " + onEvents + " traced, " + offEvents + " withheld";
+                    if (onFlag != offFlag) return "failed: tapeExhausted " + (onFlag ? "true" : "false") + " traced, " + (offFlag ? "true" : "false") + " untraced";
+                    if (onDigest != offDigest) return "failed: event digest " + onDigest + " traced, " + offDigest + " untraced";
+                    if (onFinal.Length == 0 || onFinal != offStates) return "failed: final states differ: " + onFinal + " VERSUS " + offStates;
+                    return Proven;
                 }
-            string onDigest = ParityRun.Sha256(Encoding.UTF8.GetBytes(events.ToString()));
-            check(onFinal.Count > 0 && onEvents > 0 && onDraws > 0 && offEvents == 0,
+            }
+            catch (Exception e)
+            {
+                return "failed: the proof could not read the runs (" + e.GetType().Name + ": " + e.Message + ")";
+            }
+        }
+
+        private static string FooterText(JsonElement footer, string name)
+        {
+            JsonElement v;
+            return footer.TryGetProperty(name, out v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+        }
+
+        private static bool FooterInt(JsonElement footer, string name, out int value)
+        {
+            JsonElement v;
+            value = 0;
+            return footer.TryGetProperty(name, out v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out value);
+        }
+
+        private static bool FooterBool(JsonElement footer, string name, out bool value)
+        {
+            JsonElement v;
+            value = false;
+            if (!footer.TryGetProperty(name, out v) || (v.ValueKind != JsonValueKind.True && v.ValueKind != JsonValueKind.False)) return false;
+            value = v.ValueKind == JsonValueKind.True;
+            return true;
+        }
+
+        /// <summary>A trace with the text of its footer line changed (the footer must hold <paramref name="from"/>);
+        /// null when it does not, so a check whose edit missed sees no artifact and cannot pass.</summary>
+        private static string EditFooter(string trace, string from, string to)
+        {
+            string footer = LastFooter(trace);
+            if (footer == null || !footer.Contains(from)) return null;
+            return trace.Replace(footer, footer.Replace(from, to));
+        }
+
+        /// <summary>A trace with its footer's integer <paramref name="field"/> raised by <paramref name="delta"/> (0 leaves it
+        /// as written, through the same edit); null when the footer has no such integer.</summary>
+        private static string Retally(string trace, string field, int delta)
+        {
+            string footer = LastFooter(trace);
+            if (footer == null) return null;
+            Match m = Regex.Match(footer, "\"" + field + "\":(\\d+)");
+            if (!m.Success) return null;
+            return EditFooter(trace, m.Value, "\"" + field + "\":" + (int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture) + delta).ToString(CultureInfo.InvariantCulture));
+        }
+
+        private static void CheckTraceOffProof(Action<bool, string> check, string on, string off, string outrunOn, string outrunOff)
+        {
+            int onDraws = Lines(on, "\"kind\":\"rng-draw\"").Count, onEvents = Lines(on, "{\"type\":\"event\"").Count;
+            int offEvents = Lines(off, "{\"type\":\"event\"").Count;
+            check(on != null && off != null && onEvents > 0 && onDraws > 0 && offEvents == 0,
                 "parity trace-on/off proof: WITNESS the directed run draws and writes events, and the untraced run writes none ("
                 + onDraws + " draws, " + onEvents + " events, " + offEvents + " untraced event lines)");
-            check(string.Join("\n", onFinal) == string.Join("\n", offStates) && onDraws == offDraws && onEvents == offWithheld && onDigest == offDigest,
-                "parity trace-on/off proof: the final states, the draw and event totals and the event digest agree (draws " + onDraws + "/" + offDraws
-                + ", events " + onEvents + "/" + offWithheld + ", digest " + onDigest + "/" + offDigest + ", final states "
-                + (string.Join("\n", onFinal) == string.Join("\n", offStates) ? "equal" : "differ: " + string.Join(" ", onFinal) + " VERSUS " + string.Join(" ", offStates)) + ")");
+            string verdict = JudgeObservationProof(on, off);
+            check(verdict == Proven,
+                "parity trace-on/off proof: the final states, the draw and event totals and the event digest agree, as do both"
+                + " tapeExhausted flags, on complete runs (" + verdict + ")");
+            string outrun = JudgeObservationProof(outrunOn, outrunOff);
+            check(outrun == Proven && FooterFlag(outrunOn) == "true" && FooterFlag(outrunOff) == "true",
+                "parity trace-on/off proof: over an outrun tape it holds, with tapeExhausted true on both footers (" + outrun
+                + ", traced " + FooterFlag(outrunOn) + ", untraced " + FooterFlag(outrunOff) + ")");
+
+            // The traced totals are the lines the trace holds (Codex review H2-01): both footers raised alike, by one event
+            // or one draw, are refused, while the same edit by zero (the unchanged twin, through the same helper) still
+            // proves it, so the refusals are the totals' and not the edit's.
+            string twin = JudgeObservationProof(Retally(on, "events", 0), Retally(off, "unobservedEvents", 0));
+            check(twin == Proven,
+                "parity trace-on/off proof: WITNESS the footer-retally helper changes nothing at +0 on both runs (" + twin + ")");
+            string moreEvents = JudgeObservationProof(Retally(on, "events", 1), Retally(off, "unobservedEvents", 1));
+            string moreDraws = JudgeObservationProof(Retally(on, "draws", 1), Retally(off, "unobservedDraws", 1));
+            check(moreEvents.StartsWith("failed: the traced footer counts", StringComparison.Ordinal)
+                  && moreDraws.StartsWith("failed: the traced footer counts", StringComparison.Ordinal),
+                "parity trace-on/off proof: footer totals raised alike on both runs fail it, held to the lines the traced run holds ("
+                + moreEvents + "; " + moreDraws + ")");
+
+            // CH14: the untraced footer's flag is compared, not taken on trust.
+            string forged = JudgeObservationProof(outrunOn, EditFooter(outrunOff, "\"tapeExhausted\":true", "\"tapeExhausted\":false"));
+            check(forged.StartsWith("failed: tapeExhausted", StringComparison.Ordinal),
+                "parity trace-on/off proof: a forged tapeExhausted on the untraced footer fails the proof (" + forged + ")");
+            // CH20: an untraced run with no durable tally proves nothing, and its flag is never inferred.
+            string cut = JudgeObservationProof(outrunOn, EditFooter(outrunOff, "{\"type\":\"footer\"", "{\"type\":\"cut\""));
+            check(cut.StartsWith("unverified: the untraced run has no footer", StringComparison.Ordinal),
+                "parity trace-on/off proof: an untraced run stopped before its footer tally is unverified, never proven (" + cut + ")");
+            string timedOut = JudgeObservationProof(outrunOn, EditFooter(outrunOff, "\"status\":\"complete\"", "\"status\":\"timeout\""));
+            check(timedOut.StartsWith("failed: only complete runs", StringComparison.Ordinal),
+                "parity trace-on/off proof: a timed-out untraced run cannot satisfy it, though its counters agree (" + timedOut + ")");
+            string flagless = JudgeObservationProof(on, EditFooter(off, ",\"tapeExhausted\":false", ""));
+            check(flagless.StartsWith("unverified: the untraced footer carries no tapeExhausted", StringComparison.Ordinal),
+                "parity trace-on/off proof: an untraced footer without tapeExhausted is unverified; false is never inferred ("
+                + flagless + ")");
         }
     }
 }

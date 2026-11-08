@@ -5026,6 +5026,65 @@ CASES = (
         b"            SettleAndSample(out settledGdi, out settledUser, out settledHandles);\n            WriteMarker(passed, failure);\n            try\n            {\n",
         "w9-host-1: a resource churn whose verdict write throws still arms its exit timer",
     ),
+    # ---- burndown/parity-host-2 ----
+    # CH16 of the trace/2 host matrix (CONTRACT-v1.2-trace2-consolidated.md Part D.3), and CH9's "type it from the
+    # message": each case puts one message classifier, or one code chosen outside the factories, into the engine, and
+    # the one CONDITION that guards that path must fail. "bd-parity-host-2:" for one --only.
+    (
+        "bd-parity-host-2: the startup wrapper types a foreign exception from its message (CH16, CH9)",
+        os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+        b'+ "the first behaviour could not be built: " + e.Message, own == null ? null : own.Cause, TickFaultVia.Startup);',
+        b'+ "the first behaviour could not be built: " + e.Message, own == null ? (e.Message.StartsWith("Value cannot be null",'
+        b' StringComparison.Ordinal) ? TickFaultCause.OfMissingBehaviour(type, behaviour) : null) : own.Cause, TickFaultVia.Startup);',
+        "bd-parity-host-2: no statement that forms a fault cause reads a message",
+    ),
+    (
+        "bd-parity-host-2: ReportFault classifies an untyped fault by its message (CH16)",
+        os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+        b'{ Observer.Fault(mascot, message, cause, via); }',
+        b'{ Observer.Fault(mascot, message, cause ?? Classify(mascot, message), via); }',
+        "bd-parity-host-2: the cause a site reports reaches the error object unchanged",
+    ),
+    (
+        "bd-parity-host-2: the trace writer spells a code of its own (CH16)",
+        os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+        b'.Str("code", cause == null ? TickFaultCause.Unclassified : cause.Code)',
+        b'.Str("code", cause == null ? "behavior-missing" : cause.Code)',
+        "bd-parity-host-2: no engine source spells an error code outside TickFaultCause's six constants",
+    ),
+    (
+        "bd-parity-host-2: a factory takes its code from an operand (CH16)",
+        os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+        b'return new TickFaultCause(ActionMissing, searched.Name, null, requested, null, null);',
+        b'return new TickFaultCause(requested, searched.Name, null, requested, null, null);',
+        "bd-parity-host-2: a fault code is set only by TickFaultCause's private constructor",
+    ),
+    # Codex review H2-02: a message classifier split across statements (the message copied to a local, a flag derived
+    # from it, a cause formed from the flag in a statement that names no message) passes the one-statement predicate;
+    # the real factories and the forwarding are kept, and the reviewed list of forming statements must fail.
+    (
+        "bd-parity-host-2: the startup wrapper types a foreign exception in a split statement (H2-02)",
+        os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+        b'                var own = e as TickCantBeAliveException;\n'
+        b'                ReportFault(m, (own != null ? "" : "internal fault: " + e.GetType().Name + ": ")\n'
+        b'                    + "the first behaviour could not be built: " + e.Message, own == null ? null : own.Cause, TickFaultVia.Startup);\n',
+        b'                var own = e as TickCantBeAliveException;\n'
+        b'                string diagnostic = e.Message;\n'
+        b'                bool lookedUp = diagnostic.StartsWith("Value cannot be null", StringComparison.Ordinal);\n'
+        b'                TickFaultCause typed = lookedUp ? TickFaultCause.OfMissingBehaviour(type, behaviour) : null;\n'
+        b'                ReportFault(m, (own != null ? "" : "internal fault: " + e.GetType().Name + ": ")\n'
+        b'                    + "the first behaviour could not be built: " + e.Message, own == null ? typed : own.Cause, TickFaultVia.Startup);\n',
+        "bd-parity-host-2: the statements that form a fault cause are exactly the reviewed list",
+    ),
+    (
+        "bd-parity-host-2: the arrive wrapper picks a cause by a flag taken from the message (H2-02)",
+        os.path.join(REPO, "src", "dotNet", "Shimeji", "TickSocialFamily.cs"),
+        b'                world.ReportFault(mascot, action.Name + ": a partner transition failed: " + e.Message, e.Cause, TickFaultVia.Arrive);\n',
+        b'                bool unnamed = e.Message.StartsWith("there is no target", StringComparison.Ordinal);\n'
+        b'                TickFaultCause picked = unnamed ? TickFaultCause.OfMissingScanTarget(action) : e.Cause;\n'
+        b'                world.ReportFault(mascot, action.Name + ": a partner transition failed: " + e.Message, picked, TickFaultVia.Arrive);\n',
+        "bd-parity-host-2: the statements that form a fault cause are exactly the reviewed list",
+    ),
 )
 
 

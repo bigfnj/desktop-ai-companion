@@ -81,7 +81,7 @@ namespace DesktopAICompanion
             public void DisposeRequested(TickMascot m, string reason) { Events.Add(m.Sid + " dispose-request " + reason); }
             public void Disposed(TickMascot m) { Events.Add(m.Sid + " disposed"); }
             public void RandomDrawn(TickMascot m, string site, double value, string purpose) { Draws.Add(site); }
-            public void Fault(TickMascot m, string message) { Faults.Add(m.Sid + ": " + message); Order.Add("fault"); }
+            public void Fault(TickMascot m, string message, TickFaultCause cause, string via) { Faults.Add(m.Sid + ": " + message); Order.Add("fault"); }
             /// <summary>Faults and birth refusals in the order they were reported (the two go to separate lists above).</summary>
             public readonly List<string> Order = new List<string>();
             public void Muted(TickMascot m, string clip) { Events.Add(m.Sid + " mute " + (clip ?? "-")); }

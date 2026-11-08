@@ -88,7 +88,7 @@ namespace DesktopAICompanion.Shimeji
                 // three times and then once as suppressed (TickFaultThrottle), so one broken pack cannot fill the rotating
                 // diagnostic log and push out the launch's record.
                 const string repeated = "selftest: the same fault, reported ten times";
-                for (int i = 0; i < 10; i++) host.Fault(stander, repeated);
+                for (int i = 0; i < 10; i++) host.Fault(stander, repeated, null, null);
                 string logText = log.ToString();
                 int logged = 0;
                 for (int at = logText.IndexOf(repeated, StringComparison.Ordinal); at >= 0; at = logText.IndexOf(repeated, at + 1, StringComparison.Ordinal)) logged++;
@@ -870,7 +870,7 @@ namespace DesktopAICompanion.Shimeji
                 var cleanLog = new StringWriter();
                 var cleanWriter = new ParityTraceWriter(cleanOut, new Dictionary<string, ParityMap>());
                 cleanWriter.BehaviourEntered(one, null, held.Name, "forced");
-                int cleanExit = ParityRun.Finish(cleanWriter, 7, "complete", cleanLog);
+                int cleanExit = ParityRun.Finish(cleanWriter, 7, "complete", null, cleanLog);
                 check(cleanWriter.ProvenanceFault == null && cleanExit == 0 && cleanOut.ToString().Contains("\"status\":\"complete\"")
                       && cleanLog.ToString().Length == 0,
                     "parity trace: WITNESS an attributable behaviour event leaves the run complete (exit " + cleanExit + ", "
@@ -881,7 +881,7 @@ namespace DesktopAICompanion.Shimeji
                 faultWriter.BehaviourEntered(one, "NoSuchBehaviour", held.Name, "forced");
                 check(faultWriter.ProvenanceFault != null && faultWriter.ProvenanceFault.Contains("from 'NoSuchBehaviour'"),
                     "parity trace: an unattributable behaviour name is recorded as a provenance fault (" + faultWriter.ProvenanceFault + ")");
-                int faultExit = ParityRun.Finish(faultWriter, 7, "complete", faultLog);
+                int faultExit = ParityRun.Finish(faultWriter, 7, "complete", null, faultLog);
                 string faultFooter = faultOut.ToString();
                 check(faultExit != 0 && faultFooter.Contains("\"type\":\"footer\",\"ticks\":7,\"status\":\"error\"")
                       && faultLog.ToString().Contains("parity trace: ") && faultLog.ToString().Contains("from 'NoSuchBehaviour'"),

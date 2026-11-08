@@ -196,6 +196,7 @@
     <Compile Include="dotNet\Shimeji\ShimejiWindowSelfTest.Limits.cs" />
     <Compile Include="dotNet\Shimeji\ShimejiWindowSelfTest.Host.cs" />
     <Compile Include="dotNet\Shimeji\ShimejiWindowSelfTest.Parity.cs" />
+    <Compile Include="dotNet\Shimeji\ShimejiWindowSelfTest.ParityErrors.cs" />
     <Compile Include="dotNet\Shimeji\ShimejiWindowSelfTest.Churn.cs" />
     <Compile Include="dotNet\AudioOutputSelfTest.cs" />
     <Compile Include="dotNet\SecuritySelfTest.cs" />
@@ -324,7 +325,26 @@
     <Error Condition="'$(_DacMarketingMajorMinor)' != '$(_DacFileMajorMinor)'"
            Text="ProductVersion.props: DesktopAICompanionVersion ($(DesktopAICompanionVersion)) and DesktopAICompanionAssemblyVersion ($(DesktopAICompanionAssemblyVersion)) disagree on major.minor. AssemblyVersion is what Contracts/ModuleKit/the exe stamp as FileVersion, and a Windows Installer upgrade SKIPS a file whose FileVersion did not change - so a mismatch ships new ABI types inside a DLL the installer refuses to replace. Bump both." />
   </Target>
-  <Target Name="GenerateDesktopAICompanionProductInfo" BeforeTargets="CoreCompile">
+  <!-- The full source revision a parity trace writes as build.commit (BACKLOG N-bd-parity-host-1-03; the CONTRACT v1.2
+       signature record makes it provenance, while the three hashes bind the artefacts). It is stamped as its OWN value,
+       AssemblyMetadata DesktopAICompanionSourceRevision, which only the parity run reads. The informational version
+       stays the product version, untouched: Application.ProductVersion, the module version gate and the log read it.
+       The SDK's SourceRevisionId is not used, because its targets append it to the informational version in some
+       configurations. git is asked on every build (neither this target nor the fragment target has Inputs or Outputs),
+       so a rebuild at another revision stamps the new one and a stale value cannot survive. With no git, outside a
+       checkout, or for any answer that is not 40 lowercase hex, the value is left out and the product still builds;
+       only the parity run refuses then. stderr goes to nul so an error text never reaches the value. -->
+  <Target Name="StampDesktopAICompanionSourceRevision">
+    <Exec Command="git rev-parse HEAD 2&gt;nul" WorkingDirectory="$(MSBuildProjectDirectory)" ConsoleToMSBuild="true" EchoOff="true"
+          IgnoreExitCode="true" IgnoreStandardErrorWarningFormat="true" StandardOutputImportance="low" StandardErrorImportance="low">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_DesktopAICompanionGitHead" />
+      <Output TaskParameter="ExitCode" PropertyName="_DesktopAICompanionGitExit" />
+    </Exec>
+    <PropertyGroup>
+      <_DesktopAICompanionSourceRevision Condition="'$(_DesktopAICompanionGitExit)' == '0' and $([System.Text.RegularExpressions.Regex]::IsMatch('$(_DesktopAICompanionGitHead)', '^[0-9a-f]{40}$'))">$(_DesktopAICompanionGitHead)</_DesktopAICompanionSourceRevision>
+    </PropertyGroup>
+  </Target>
+  <Target Name="GenerateDesktopAICompanionProductInfo" BeforeTargets="CoreCompile" DependsOnTargets="StampDesktopAICompanionSourceRevision">
     <PropertyGroup>
       <_DesktopAICompanionProductInfoFile>$(IntermediateOutputPath)DesktopAICompanion.ProductInfo.g.cs</_DesktopAICompanionProductInfoFile>
     </PropertyGroup>
@@ -352,6 +372,10 @@
       </_DesktopAICompanionAssemblyAttribute>
       <_DesktopAICompanionAssemblyAttribute Include="System.Reflection.AssemblyInformationalVersionAttribute">
         <_Parameter1>$(DesktopAICompanionVersion)</_Parameter1>
+      </_DesktopAICompanionAssemblyAttribute>
+      <_DesktopAICompanionAssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute" Condition="'$(_DesktopAICompanionSourceRevision)' != ''">
+        <_Parameter1>DesktopAICompanionSourceRevision</_Parameter1>
+        <_Parameter2>$(_DesktopAICompanionSourceRevision)</_Parameter2>
       </_DesktopAICompanionAssemblyAttribute>
     </ItemGroup>
     <WriteCodeFragment Language="C#"

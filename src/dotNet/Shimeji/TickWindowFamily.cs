@@ -271,8 +271,8 @@ namespace DesktopAICompanion.Shimeji
 
             // The source looks the animation up again for each test, the second only when the first fails
             // (MinimizeIE.java:40); a null animation is its NullPointerException, the companion's end here.
-            if (Time == TickMotionFamily.Require(CurrentVariant(), Name).Duration - 1
-                || TickMotionFamily.Require(CurrentVariant(), Name).Duration == 1)
+            if (Time == TickMotionFamily.Require(CurrentVariant(), this).Duration - 1
+                || TickMotionFamily.Require(CurrentVariant(), this).Duration == 1)
             {
                 TickWindowFamily.MinimizeActiveWindow(World, Mascot);
             }
