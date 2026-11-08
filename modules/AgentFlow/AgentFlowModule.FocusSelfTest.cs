@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
@@ -262,6 +263,90 @@ namespace DesktopAICompanion.AgentFlow
                         pass.PressedAny && FocusInt(state, "B", "approved") == 1 && FocusStr(state, null, "log") == "B"
                         && FocusStr(state, null, "focused") == "B"
                         && note != null && note.IndexOf("; " + CdpApprover.FocusMovedNote, StringComparison.Ordinal) > 0);
+                }
+            }
+
+            // ---- (d2) presses while the user works in another panel: one wait, after the sweep (N-audit-1106-111) -------------
+            // Each press made while another panel had focus slept FocusCheckAfterMs inside the sweep's open connection, whose
+            // lifetime is four timeouts: six seconds at the tick's 1500 ms, passed here as the tick passes it. Ten Codex cards
+            // in two panels, pressed while the user is in panel A, took the sweep past it, and the attach of the panel listed
+            // after them threw: "could not finish". E is that panel. The wait is counted through the pass's seam.
+            using (FakeFocusPage page = FakeFocusPage.TryCreate(out why))
+            {
+                page.AddFrame("A", "claude", "none");
+                page.AddFrame("C", "codex", "none");
+                page.AddFrame("D", "codex", "none");
+                page.AddFrame("E", "codex", "none");
+                page.UserIn("A");
+                using (var server = new FakeCdpServer(new[] { FocusTarget(page, "A", claudeMarker, "none"),
+                                                              FocusTarget(page, "C", codexMarker, CodexCardsOf("c", 5)),
+                                                              FocusTarget(page, "D", codexMarker, CodexCardsOf("d", 5)),
+                                                              FocusTarget(page, "E", codexMarker, "none") }))
+                {
+                    var waits = new List<int>();
+                    string note = FocusSweep(server, 1500, ms => waits.Add(ms), out pass);
+                    string state = page.State();
+                    probe.Check("(N-audit-1106-111) ten Codex cards in two panels, pressed while the user works in a third, all "
+                                + "finish inside the sweep's connection: no 'could not finish', ten press lines ("
+                                + pass.PressNotes.Count.ToString(CultureInfo.InvariantCulture) + "; " + (note ?? "<no note>") + ")",
+                        note != null && note.IndexOf("could not finish", StringComparison.Ordinal) < 0 && pass.PressNotes.Count == 10
+                        && FocusInt(state, "C", "approved") == 5 && FocusInt(state, "D", "approved") == 5);
+                    probe.Check("(N-audit-1106-111) ...and the look at where focus went waits once for the sweep, after it, not "
+                                + "once per press (" + string.Join(",", waits.ConvertAll(ms => ms.ToString(CultureInfo.InvariantCulture)).ToArray()) + ")",
+                        waits.Count == 1 && waits[0] == CdpApprover.FocusCheckAfterMs);
+                    probe.Check("WITNESS (N-audit-1106-111) focus never left the user's panel, and no press says it did ("
+                                + FocusBrief(state) + ")",
+                        FocusStr(state, null, "focused") == "A" && FocusStr(state, null, "log") == ""
+                        && note != null && note.IndexOf(CdpApprover.FocusMovedNote, StringComparison.Ordinal) < 0);
+                }
+            }
+
+            // ---- (d3) the Codex queue case: a later press in the same panel keeps the earlier press's record (N-audit-1106-111)
+            // The look is made after the sweep, so a second press in the pressed panel comes first. Focus moved there with the
+            // first press, so the second found it already there and queued no look of its own; with one record slot per
+            // window it overwrote the first press's, whose look then read 'other' and the move went unsaid.
+            using (FakeFocusPage page = FakeFocusPage.TryCreate(out why))
+            {
+                page.AddFrame("A", "claude", "none");
+                page.AddFrame("C", "codex", "reveal");
+                page.UserIn("A");
+                using (var server = new FakeCdpServer(new[] { FocusTarget(page, "A", claudeMarker, "none"),
+                                                              FocusTarget(page, "C", codexMarker, CodexCardsOf("e", 2)) }))
+                {
+                    FocusSweep(server, 4000, ms => { }, out pass);
+                    string state = page.State();
+                    probe.Check("(N-audit-1106-111) a press that took focus is still reported after a later press in the same "
+                                + "panel: the look finds its own act among the panel's (" + string.Join(" | ", pass.PressNotes.ToArray()) + ")",
+                        pass.PressNotes.Count == 2 && FocusInt(state, "C", "approved") == 2 && FocusStr(state, null, "focused") == "C"
+                        && pass.PressNotes[0].EndsWith("; " + CdpApprover.FocusMovedNote, StringComparison.Ordinal)
+                        && pass.PressNotes[1].IndexOf(CdpApprover.FocusMovedNote, StringComparison.Ordinal) < 0);
+                }
+            }
+
+            // ---- (d4) one move is one line: two looks in one panel answer about the same moment (N-audit-1106-111) ------------
+            // Both presses are made while the user is in panel A; focus reaches C only after both, as the look is on its way.
+            // The look goes to C's later press alone, which is the press focus moved after.
+            using (FakeFocusPage page = FakeFocusPage.TryCreate(out why))
+            {
+                page.AddFrame("A", "claude", "none");
+                page.AddFrame("C", "codex", "none");
+                page.UserIn("A");
+                bool moved = false;
+                Action<string> beforeLook = expression =>
+                {
+                    if (moved || expression.IndexOf("'was-focused'", StringComparison.Ordinal) < 0) return;
+                    moved = true;
+                    page.Run("__page.focusTo(__page.frames['C'].inner, __page.frames['C'].input); 'ok'");
+                };
+                using (var server = new FakeCdpServer(new[] { FocusTarget(page, "A", claudeMarker, "none"),
+                                                              FocusTarget(page, "C", codexMarker, CodexCardsOf("f", 2), beforeLook) }))
+                {
+                    FocusSweep(server, 4000, ms => { }, out pass);
+                    probe.Check("(N-audit-1106-111) focus that reached a panel after two presses there is said once, on the later "
+                                + "press's line (" + string.Join(" | ", pass.PressNotes.ToArray()) + ")",
+                        moved && pass.PressNotes.Count == 2
+                        && pass.PressNotes[0].IndexOf(CdpApprover.FocusMovedNote, StringComparison.Ordinal) < 0
+                        && pass.PressNotes[1].EndsWith("; " + CdpApprover.FocusMovedNote, StringComparison.Ordinal));
                 }
             }
 
@@ -710,6 +795,31 @@ namespace DesktopAICompanion.AgentFlow
             pass = new SweepPass(server.Port, mayPress, false, false, budget, () => true) { GuardFocus = ticket };
             bool sawPanel, sawBlind;
             return SweepOnce(server.Port, pass, budget, 4000, out sawPanel, out sawBlind);
+        }
+
+        /// <summary>One pressing, guarded sweep as the tick runs it, at <paramref name="timeoutMs"/>, with the deferred focus
+        /// look's wait handed to <paramref name="wait"/> (N-audit-1106-111).</summary>
+        private static string FocusSweep(FakeCdpServer server, int timeoutMs, Action<int> wait, out SweepPass pass)
+        {
+            var budget = new PressBudget();
+            pass = new SweepPass(server.Port, true, false, false, budget, () => true)
+            {
+                GuardFocus = new FocusGuardTicket { LeaseMs = CdpApprover.FocusGuardLeaseMs(10) },
+                FocusWait = wait,
+            };
+            bool sawPanel, sawBlind;
+            return SweepOnce(server.Port, pass, budget, timeoutMs, out sawPanel, out sawBlind);
+        }
+
+        /// <summary>A Codex read of <paramref name="count"/> cards with no element id, each its own fingerprint so the
+        /// repeat guard counts each apart: every press clicks the page's one card, as a queue's next card would be.</summary>
+        private static string CodexCardsOf(string prefix, int count)
+        {
+            var cards = new List<string>();
+            for (int i = 0; i < count; i++)
+                cards.Add("{\"tool\":\"\",\"header\":\"\",\"ext\":\"\",\"fp\":\"" + prefix + i.ToString("x7", CultureInfo.InvariantCulture)
+                          + "\",\"card\":\"\",\"fresh\":false,\"options\":[\"Deny\",\"Allow once\"],\"disabled\":[false,false]}");
+            return "{\"cards\":[" + string.Join(",", cards.ToArray()) + "],\"blind\":0}";
         }
 
         /// <summary>A target whose reads are canned and whose every other expression runs in <paramref name="page"/>

@@ -63,7 +63,8 @@ namespace DesktopAICompanion.AgentFlow
 
         /// <summary>How long after a press the detection looks at where focus went: Claude's plain path refocuses 100 ms
         /// after the card clears, and the next Codex card mounted 26 to 240 ms after a press (measured 2026-10-21, see
-        /// <see cref="QueueQuietMs"/>). Paid only when another agent panel had focus at the press.</summary>
+        /// <see cref="QueueQuietMs"/>). Paid ONCE per sweep, after the sweep has closed its connection, and only when a
+        /// press was made while another agent panel had focus (N-audit-1106-111, see <see cref="NoteFocusMoved"/>).</summary>
         internal const int FocusCheckAfterMs = 800;
 
         /// <summary>
@@ -189,17 +190,37 @@ namespace DesktopAICompanion.AgentFlow
   return String(removed);
 })()";
 
-        /// <summary>The act's own observation, for detection: called immediately before the click, it records on the acted
-        /// document's own window this press's id and whether the document lacked focus AT the act.</summary>
+        /// <summary>
+        /// The act's own observation, for detection: called immediately before the click, it records on the acted
+        /// document's own window this press's id and whether the document lacked focus AT the act.
+        ///
+        /// A SHORT HISTORY, NOT ONE SLOT (N-audit-1106-111). The look at where focus went runs once, at the END of the
+        /// sweep (<see cref="NoteFocusMoved"/>), and a Codex panel is pressed again before then whenever its queue is
+        /// followed. One slot (<c>w.__agentflowAction</c>) was overwritten by that later press, so the earlier press's look
+        /// read 'other' and its line was lost in exactly the queue case: the later press found focus already in its own
+        /// panel and asked for no look of its own. So each act is appended with its id, and the oldest is dropped past
+        /// <c>__ACT_HISTORY__</c> (<see cref="QueuePressesPerPanel"/>, the presses one panel takes in one sweep once its
+        /// queue is followed). A read that alone hands on more cards than that can push out the oldest records; their look
+        /// then answers 'other' and writes no line, never a wrong one, because a record is found by its id.
+        /// </summary>
         private const string FocusActPrelude = @"
   function agentflowNoteAct(d, action) {
     var w = d && d.defaultView;
     if (!w) return;
     var focused = false;
     try { focused = d.hasFocus(); } catch (e) { }
-    w.__agentflowAction = { id: action || '', background: !focused };
+    var acts = w.__agentflowActs;
+    if (!acts || typeof acts.push !== 'function') acts = w.__agentflowActs = [];
+    acts.push({ id: action || '', background: !focused });
+    while (acts.length > __ACT_HISTORY__) acts.shift();
   }
 ";
+
+        /// <summary>The act prelude's own token, filled in by both click builders before any page text goes in.</summary>
+        private static string FillActHistory(string expression)
+        {
+            return expression.Replace("__ACT_HISTORY__", QueuePressesPerPanel.ToString(CultureInfo.InvariantCulture));
+        }
 
         /// <summary>The round-4 guard installer, verbatim from a299c3c (round 6 migration test): its guard has no
         /// version, no lease and no timer, and is what the owner's app runs when this build arrives.</summary>
@@ -343,18 +364,19 @@ namespace DesktopAICompanion.AgentFlow
 })()";
 
         /// <summary>
-        /// The pressed panel, after the press, for action <c>__ACTION__</c>: 'moved' only when THIS action's record is on
-        /// this document's window, says the document lacked focus AT the act, and the document has focus now. 'other'
-        /// (another action's record, or none here), 'was-focused' (focus was already there at the act) or 'blurred'
-        /// otherwise. Reads only.
+        /// The pressed panel, after the press, for action <c>__ACTION__</c>: 'moved' only when THIS action's record is in
+        /// this document's window's history (see <see cref="FocusActPrelude"/>), says the document lacked focus AT the act,
+        /// and the document has focus now. 'other' (no record of this action here), 'was-focused' (focus was already there
+        /// at the act) or 'blurred' otherwise. Reads only.
         /// </summary>
         private const string FocusMovedTemplate = @"
 (function () {" + DocumentPrelude + @"
   var a = appDocument();
   if (!a.doc || !a.doc.defaultView) return 'gone';
   var d = a.doc, w = d.defaultView;
-  var act = w.__agentflowAction;
-  if (!act || act.id !== __ACTION__) return 'other';
+  var acts = w.__agentflowActs, act = null;
+  for (var ai = 0; acts && ai < acts.length; ai++) if (acts[ai] && acts[ai].id === __ACTION__) act = acts[ai];
+  if (!act) return 'other';
   if (!act.background) return 'was-focused';
   var focused = false;
   try { focused = d.hasFocus(); } catch (e) { }
@@ -389,20 +411,55 @@ namespace DesktopAICompanion.AgentFlow
         }
 
         /// <summary>
-        /// DETECTION ONLY, after a press that clicked while another agent panel had focus: wait
-        /// <see cref="FocusCheckAfterMs"/> and ask the pressed panel whether focus moved there after the act. The note,
-        /// for the press's one log line, is <see cref="FocusMovedNote"/> when it did and null otherwise. Nothing is ever
-        /// focused from here: there is no restore path, by decision (see the comment at the top of this file).
+        /// DETECTION ONLY, once per sweep: for the presses that clicked while another agent panel had focus
+        /// (<see cref="Click"/> hands each one's action id back instead of looking itself), wait
+        /// <see cref="FocusCheckAfterMs"/> ONCE through <paramref name="wait"/>, then ask each pressed panel, on one fresh
+        /// connection, whether focus moved there after the act, and set <see cref="FocusLook.Moved"/> where it did. The
+        /// caller (SweepPass, from SweepOnce) puts <see cref="FocusMovedNote"/> on that press's one log line. Nothing is
+        /// ever focused from here: there is no restore path, by decision (see the comment at the top of this file).
+        ///
+        /// AFTER THE SWEEP, NOT IN THE PRESS (N-audit-1106-111). Until this, each such press slept 800 ms inside Click, on
+        /// its own connection but while the sweep's connection stood open, and that connection's lifetime is fixed at four
+        /// timeouts (six seconds on the tick: see CdpSession). FollowQueue's budget is checked only before each read, and
+        /// nothing bounds the loop over one read's own cards, so a few Codex cards pressed while the user worked in
+        /// another panel outlived it and the sweep ended "could not finish", the tray amber. The caller runs this once
+        /// the sweep has closed its connection, so the wait is one per sweep whatever the number of presses, and it is
+        /// outside that lifetime. Refused: a sweep deadline below the lifetime, checked before every press and panel. It
+        /// would cut a queue short to keep a detection line, and one Click can itself take up to its own lifetime.
+        ///
+        /// ONE LOOK PER PANEL, for its LAST press made while another panel had focus. Every look answers about the same
+        /// moment now, so two looks in one panel would put one move on two lines. A press that found focus already in
+        /// its own panel queued no look, so focus found there now moved after the last queued press's act: that is the
+        /// line it belongs on. Its record is found by id in the panel's act history, which a later unqueued press in the
+        /// same panel (the Codex queue) no longer overwrites. Never throws.
         /// </summary>
-        private static string NoteFocusMoved(CdpSession session, string pressed, string action)
+        internal static void NoteFocusMoved(int port, IList<FocusLook> looks, int timeoutMs, Action<int> wait)
         {
+            if (looks == null || looks.Count == 0) return;
             try
             {
-                Thread.Sleep(FocusCheckAfterMs);
-                string moved = EvaluateIn(session, pressed, ForAction(FocusMovedTemplate, action));
-                return string.Equals(moved, "moved", StringComparison.Ordinal) ? FocusMovedNote : null;
+                var panels = new HashSet<string>(StringComparer.Ordinal);
+                var asked = new List<FocusLook>();
+                for (int i = looks.Count - 1; i >= 0; i--)
+                {
+                    FocusLook look = looks[i];
+                    if (look != null && !string.IsNullOrEmpty(look.Panel) && panels.Add(look.Panel)) asked.Add(look);
+                }
+                if (asked.Count == 0) return;
+                if (wait != null) wait(FocusCheckAfterMs);
+                else Thread.Sleep(FocusCheckAfterMs);
+                string browserUrl = BrowserSocketUrl(port, timeoutMs);
+                if (string.IsNullOrEmpty(browserUrl)) return;
+                using (var session = new CdpSession(browserUrl, timeoutMs))
+                {
+                    foreach (FocusLook look in asked)
+                    {
+                        string moved = EvaluateIn(session, look.Panel, ForAction(FocusMovedTemplate, look.Action));
+                        look.Moved = string.Equals(moved, "moved", StringComparison.Ordinal);
+                    }
+                }
             }
-            catch (Exception) { return null; }
+            catch (Exception) { }
         }
 
         /// <summary>Attach, evaluate one expression, detach, on one connection. Null on any failure.</summary>
@@ -417,6 +474,20 @@ namespace DesktopAICompanion.AgentFlow
             }
             catch (Exception) { return null; }
         }
+    }
+
+    /// <summary>
+    /// One press's deferred focus look (N-audit-1106-111): the press made while another agent panel had focus, as
+    /// <see cref="CdpApprover.NoteFocusMoved"/> takes it after the sweep. <see cref="Press"/> is the press's index in
+    /// SweepPass.PressNotes, so the line the look answers for is the press's own.
+    /// </summary>
+    internal sealed class FocusLook
+    {
+        public int Press;
+        public string Panel;
+        public string Action;
+        /// <summary>Set by the look: focus moved to this panel after this press's act.</summary>
+        public bool Moved;
     }
 
     /// <summary>

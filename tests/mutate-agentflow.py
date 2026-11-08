@@ -2666,17 +2666,21 @@ CASES = (
         "a press that found the user already in the card writes no detection line",
     ),
     (
+        # Re-pointed by bd-w7-agentflow-1 (N-audit-1106-111): the record is looked up by id in the window's act history,
+        # so taking another press's record is the lookup taking the latest act whatever its id.
         "agentflow-focus: the detection takes another press's record",
         FOCUS,
-        "  if (!act || act.id !== __ACTION__) return 'other';",
-        "  if (!act) return 'other';",
+        "  for (var ai = 0; acts && ai < acts.length; ai++) if (acts[ai] && acts[ai].id === __ACTION__) act = acts[ai];",
+        "  for (var ai = 0; acts && ai < acts.length; ai++) if (acts[ai]) act = acts[ai];",
         "the pressed panel's record answers only for its own press",
     ),
     (
+        # Re-pointed by bd-w7-agentflow-1 (N-audit-1106-111): the look is made once after the sweep and marks the
+        # press it answers for; the line is written from that mark.
         "agentflow-focus: the detection line is never written",
         FOCUS,
-        '                return string.Equals(moved, "moved", StringComparison.Ordinal) ? FocusMovedNote : null;',
-        "                return null;",
+        '                        look.Moved = string.Equals(moved, "moved", StringComparison.Ordinal);',
+        "                        look.Moved = false;",
         "a focus no in-page guard reaches (an extension's reveal) is reported",
     ),
     (
@@ -2793,10 +2797,11 @@ CASES = (
         "(N-fulltier-1107-03) a message to an existing Claude project is named",
     ),
     (
+        # Re-pointed by bd-w7-agentflow-1: the focus line left Decide's return (N-audit-1106-111), so this line ends it.
         "bd-w3-agentflow-1: a click that did not land carries the pressing reason again (N-audit-1106-096)",
         MODULE,
-        '                   + ": " + (pressed ? decision.Reason : NotPressedReason(decision, outcome))\n',
-        '                   + ": " + decision.Reason\n',
+        '                   + ": " + (pressed ? decision.Reason : NotPressedReason(decision, outcome));\n',
+        '                   + ": " + decision.Reason;\n',
         "(N-audit-1106-096) a click that did not land says it did not press",
     ),
     (
@@ -3037,6 +3042,48 @@ CASES = (
         "                if (type != null && (string.Equals(RowOf(type, rows), display, StringComparison.OrdinalIgnoreCase)"
         " || string.Equals(type.TypeId, display, StringComparison.OrdinalIgnoreCase)))",
         "(N-cxr-w34-04) a row is matched before a type id",
+    ),
+    # ---- burndown/w7-agentflow-1 ----
+    # "bd-w7-agentflow-1:" for one --only. N-audit-1106-111: the focus look is made once per sweep, after the sweep has
+    # closed its connection, and finds its press by id in the window's act history.
+    (
+        # The defect itself: each press made while another panel had focus waits the look's 800 ms again, inside the
+        # sweep's six-second connection, and ten such presses outlive it.
+        "bd-w7-agentflow-1: a press waits for the focus look inside the sweep again (N-audit-1106-111)",
+        CDP,
+        '                    if (elsewhere && string.Equals(result, "clicked", StringComparison.Ordinal)) focusLook = action;',
+        '                    if (elsewhere && string.Equals(result, "clicked", StringComparison.Ordinal)) { Thread.Sleep(FocusCheckAfterMs); focusLook = action; }',
+        "(N-audit-1106-111) ten Codex cards in two panels, pressed while the user works in a third",
+    ),
+    (
+        "bd-w7-agentflow-1: the focus look waits again for every panel it asks (N-audit-1106-111)",
+        FOCUS,
+        "                        string moved = EvaluateIn(session, look.Panel, ForAction(FocusMovedTemplate, look.Action));",
+        "                        if (wait != null) wait(FocusCheckAfterMs);\n"
+        "                        string moved = EvaluateIn(session, look.Panel, ForAction(FocusMovedTemplate, look.Action));",
+        "(N-audit-1106-111) ...and the look at where focus went waits once for the sweep",
+    ),
+    (
+        "bd-w7-agentflow-1: the act record is one slot again (N-audit-1106-111)",
+        FOCUS,
+        "    while (acts.length > __ACT_HISTORY__) acts.shift();",
+        "    while (acts.length > 1) acts.shift();",
+        "(N-audit-1106-111) a press that took focus is still reported after a later press in the same",
+    ),
+    (
+        "bd-w7-agentflow-1: every queued press in a panel is looked at (N-audit-1106-111)",
+        FOCUS,
+        "                    if (look != null && !string.IsNullOrEmpty(look.Panel) && panels.Add(look.Panel)) asked.Add(look);",
+        "                    if (look != null && !string.IsNullOrEmpty(look.Panel)) asked.Add(look);",
+        "(N-audit-1106-111) focus that reached a panel after two presses there is said once",
+    ),
+    (
+        "bd-w7-agentflow-1: the sweep's note is not rebuilt from the amended press lines (N-audit-1106-111)",
+        MODULE,
+        "            if (pass.NoteFocusMoved(timeoutMs) && string.Equals(note, joined, StringComparison.Ordinal))\n"
+        "                note = string.Join(\" | \", pass.PressNotes.ToArray());\n",
+        "            pass.NoteFocusMoved(timeoutMs);\n",
+        "a focus no in-page guard reaches (an extension's reveal) is reported on the press's",
     ),
 )
 

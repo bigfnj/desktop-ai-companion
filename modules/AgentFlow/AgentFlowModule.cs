@@ -233,6 +233,11 @@ namespace DesktopAICompanion.AgentFlow
                                  //        swaps it for the other pet (N-cxr-w34-04). Ticking or unticking Watch Codex
                                  //        while a check is reading the transcripts no longer leaves the Status card's
                                  //        sessions and Codex rows contradicting what that check read (N-cxr-w34-05).
+                                 //        Several prompts approved while you work in another agent panel no longer end
+                                 //        the check with "could not finish" and an amber tray: whether a pressed card
+                                 //        took focus is looked at once, after the presses, instead of after each one,
+                                 //        and a Codex card pressed after it in the same panel no longer hides that
+                                 //        line (N-audit-1106-111).
                                  // 1.12.3: agent cards no longer take focus while you work elsewhere (the owner's
                                  //        report of 2026-11-02; built with Codex's audit and review rounds, and a live
                                  //        re-test after the first version missed a Codex approval card taking focus as
@@ -1277,7 +1282,19 @@ namespace DesktopAICompanion.AgentFlow
                                       bool allProjects, bool similar, Func<bool> stillArmed,
                                       out bool pressed)
         {
+            string focusLook;
+            return Decide(port, view, budget, allProjects, similar, stillArmed, out pressed, out focusLook);
+        }
+
+        /// <summary>As above, and <paramref name="focusLook"/> is the press's action id when it clicked while another
+        /// agent panel had focus, for the one look at where focus went that the sweep makes after it has closed its
+        /// connection (N-audit-1106-111: SweepPass.FocusLooks, CdpApprover.NoteFocusMoved); null otherwise.</summary>
+        internal static string Decide(int port, PromptView view, PressBudget budget,
+                                      bool allProjects, bool similar, Func<bool> stillArmed,
+                                      out bool pressed, out string focusLook)
+        {
             pressed = false;
+            focusLook = null;
             if (view == null || view.Options.Count == 0) return null;
 
             PromptDecision decision = PromptOptions.Choose(view.Options, allProjects, similar);
@@ -1322,11 +1339,11 @@ namespace DesktopAICompanion.AgentFlow
             }
 
             // The card by its element id (1.12.0): a Codex panel can hold several, and this press is for this one.
-            // With the sweep's panel list (1.12.3), so a press that moves focus out of the panel the user is in says so.
-            string focusNote;
+            // With the sweep's panel list (1.12.3), so a press that moves focus out of the panel the user is in says so:
+            // on this press's line, put there after the sweep (N-audit-1106-111).
             string outcome = CdpApprover.Click(port, view.TargetId, decision.Index,
                                                decision.ChosenRaw, 1500, view.Agent, view.CardId, view.Panels,
-                                               out focusNote);
+                                               out focusLook);
             pressed = string.Equals(outcome, "clicked", StringComparison.Ordinal);
             // No NotePromptCleared on 'clicked' (RA-049). A click that ran is not evidence that the
             // card went away, and the card that stays after a click is the loop the repeat guard
@@ -1334,8 +1351,7 @@ namespace DesktopAICompanion.AgentFlow
             // fingerprint in the signature is what tells the 1.4.0 collision apart now, and the
             // sweep that finds nothing is the one clear left. See PressBudget.NotePromptCleared.
             return "auto-approve " + outcome + " for " + DescribeSubject(view)
-                   + ": " + (pressed ? decision.Reason : NotPressedReason(decision, outcome))
-                   + (focusNote != null ? "; " + focusNote : "");
+                   + ": " + (pressed ? decision.Reason : NotPressedReason(decision, outcome));
         }
 
         /// <summary>
@@ -1381,6 +1397,12 @@ namespace DesktopAICompanion.AgentFlow
         {
             var census = new SweepCensus();
             string note = CdpApprover.Sweep(port, pass.Handle, timeoutMs, out sawPanel, out sawBlind, census, pass.GuardFocus);
+            // The focus look the presses deferred (N-audit-1106-111): one wait, now that Sweep has closed its connection,
+            // whose fixed lifetime an 800 ms wait per press outlived. The sweep's joined press notes are rebuilt from the
+            // lines it amended; a sweep that ended in its failure line keeps that line.
+            string joined = pass.PressNotes.Count > 0 ? string.Join(" | ", pass.PressNotes.ToArray()) : null;
+            if (pass.NoteFocusMoved(timeoutMs) && string.Equals(note, joined, StringComparison.Ordinal))
+                note = string.Join(" | ", pass.PressNotes.ToArray());
             if (budget == null) return note;
             budget.EndSweep(census.Listed, census.Read);
             return note;
@@ -3087,6 +3109,14 @@ namespace DesktopAICompanion.AgentFlow
             /// log writes each press on its own line.</summary>
             public readonly List<string> PressNotes = new List<string>();
 
+            /// <summary>The presses made while another agent panel had focus, each with its line's index in
+            /// <see cref="PressNotes"/>, for the one look at where focus went after the sweep (N-audit-1106-111).</summary>
+            public readonly List<FocusLook> FocusLooks = new List<FocusLook>();
+
+            /// <summary>That look's one wait (N-audit-1106-111): Thread.Sleep; a seam so the self-test counts the waits a
+            /// sweep makes and how long each asks for.</summary>
+            public Action<int> FocusWait = Thread.Sleep;
+
             /// <summary>The two wider-grant opt-ins as of NOW (N-audit-1106-095), asked at each card's decision; null is
             /// "as snapshotted". Each can only narrow the tick's snapshot, never widen it: a box ticked mid-sweep takes
             /// effect at the next tick, a box unticked mid-sweep takes effect at the next card.</summary>
@@ -3111,18 +3141,21 @@ namespace DesktopAICompanion.AgentFlow
                 // switch that moved mid-read, is still on screen, and its count must outlive the sweep.
                 if (_budget != null && view != null) _budget.NoteSeen(view.TargetId, PressSignature(view));
                 string note;
+                string focusLook = null;
                 if (_mayPress)
                 {
                     // The opt-ins at the last look, as the switch is (N-audit-1106-095): Decide chooses the row from
                     // these and clicks with no round trip in between.
                     bool allProjects = _allProjects && (AllProjectsNow == null || AllProjectsNow());
                     bool similar = _similar && (SimilarNow == null || SimilarNow());
-                    note = Decide(_port, view, _budget, allProjects, similar, _stillArmed, out pressed);
+                    note = Decide(_port, view, _budget, allProjects, similar, _stillArmed, out pressed, out focusLook);
                 }
                 else
                     note = "a prompt is waiting for " + ScreenSubject(view)
                            + "; auto-approve is off, so it was left alone";
                 if (pressed) PressNotes.Add(note ?? "pressed a prompt");
+                if (pressed && focusLook != null)
+                    FocusLooks.Add(new FocusLook { Press = PressNotes.Count - 1, Panel = view.TargetId, Action = focusLook });
                 if (pressed) PressedAny = true;
                 // A card still settling is not announced YET (BUG-017): the next sweep reads it again, and it
                 // is said then if it is still unpressed. The note still goes to the log, so nothing is hidden.
@@ -3132,6 +3165,26 @@ namespace DesktopAICompanion.AgentFlow
                     Subject = ScreenSubject(view),
                 });
                 return note;
+            }
+
+            /// <summary>
+            /// The look the presses deferred (N-audit-1106-111), for <see cref="SweepOnce"/> to run once the sweep has
+            /// closed its connection: one wait through <see cref="FocusWait"/>, then CdpApprover.NoteFocusMoved, and
+            /// <see cref="CdpApprover.FocusMovedNote"/> appended to the line of each press it answered for. True when a
+            /// line changed. Nothing when no press was made while another panel had focus: no wait, no connection.
+            /// </summary>
+            internal bool NoteFocusMoved(int timeoutMs)
+            {
+                if (FocusLooks.Count == 0) return false;
+                CdpApprover.NoteFocusMoved(_port, FocusLooks, timeoutMs, FocusWait);
+                bool changed = false;
+                foreach (FocusLook look in FocusLooks)
+                {
+                    if (!look.Moved || look.Press < 0 || look.Press >= PressNotes.Count) continue;
+                    PressNotes[look.Press] = PressNotes[look.Press] + "; " + CdpApprover.FocusMovedNote;
+                    changed = true;
+                }
+                return changed;
             }
 
             /// <summary>
