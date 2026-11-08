@@ -22798,6 +22798,20 @@ CASES = (
          SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
          SHIMEJI, "tick-emitter/nashorn-binding-paths",
          "M2-binding-paths: an unproven scalar was accepted: engine: incoming-self-read"),
+
+    # ---- burndown/w6-shimeji-host-1 ----
+    ("bd-w6-shimeji-host-1: a fault's identity cuts at the first parenthesis, losing a parenthesised subject (N-cxr-w1-07)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickEnvironment.cs"),
+     b'            int open = message.LastIndexOf(" (", StringComparison.Ordinal);\n',
+     b'            int open = message.IndexOf(" (", StringComparison.Ordinal);\n',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "A fault's identity cut a parenthesised subject short"),
+    ("bd-w6-shimeji-host-1: a hex literal's written exponent saturates at a fixed bound again (N-cxr-w1-08)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickModel.cs"),
+     b'            long saturation = 4L * unsigned.Length + 1200;\n',
+     b'            long saturation = 100000;\n',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "A long hexadecimal literal's written exponent saturated before its digits' displacement"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

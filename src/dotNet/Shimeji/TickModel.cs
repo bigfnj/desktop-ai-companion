@@ -620,8 +620,16 @@ namespace DesktopAICompanion.Shimeji
             if (i < unsigned.Length && (unsigned[i] == '+' || unsigned[i] == '-')) down = unsigned[i++] == '-';
             long written = 0;
             int expDigits = 0;
+            // The written exponent is gathered only as far as it can still matter, and that bound comes from the digits
+            // (N-cxr-w1-08). Each digit gathered above moved the exponent by at most 4 bits either way (a zero after the
+            // point, or one past the gathered bits before it), so the digits' displacement is within 4 * Length; past
+            // that, plus 1200 for the double's whole range (2^-1075 to 2^1024) and the 60 gathered bits, a written
+            // exponent is infinity or zero however the digits move it, which is what Java answers there. A fixed bound
+            // (100000) saturated BEFORE the displacement was combined: a 1 then 250000 zero digits, p-1000000, is exactly
+            // 1 and read as infinity. A long holds it: Length is an int, so the bound and ten times it stay far under 2^63.
+            long saturation = 4L * unsigned.Length + 1200;
             for (; i < unsigned.Length && unsigned[i] >= '0' && unsigned[i] <= '9'; i++, expDigits++)
-                if (written < 100000) written = written * 10 + (unsigned[i] - '0');   // far past any double either way
+                if (written < saturation) written = written * 10 + (unsigned[i] - '0');
             if (expDigits == 0 || i != unsigned.Length) return false;
             exponent += down ? -written : written;
 

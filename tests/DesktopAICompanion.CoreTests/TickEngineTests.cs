@@ -638,6 +638,29 @@ namespace DesktopAICompanion
                     + v.Number.ToString("R", System.Globalization.CultureInfo.InvariantCulture));
             }
             AssertTrue(double.IsNegative(TickType.ParseLiteral("-0x0p0").Number), "A negative hexadecimal zero lost its sign.");
+            // N-cxr-w1-08: the written exponent combines with the digits' displacement before anything saturates. A 1
+            // then 250000 zero digits is 2^1000000, so p-1000000 makes it exactly 1 (and the mirror, a 1 at the 250000th
+            // place after the point, p1000000, is 1 too); a written exponent no digits could cancel is infinity or zero.
+            string zeros = new string('0', 250000);
+            var displaced = new[]
+            {
+                new KeyValuePair<string, double>("0x1" + zeros + "p-1000000", 1.0),
+                new KeyValuePair<string, double>("0x0." + zeros.Substring(1) + "1p1000000", 1.0),
+                new KeyValuePair<string, double>("0x1" + zeros + "p-999000", Math.Pow(2, 1000)),
+                // WITNESS (genuine overflow and underflow): past the double's range after the displacement is taken off.
+                new KeyValuePair<string, double>("0x1" + zeros + "p-998976", double.PositiveInfinity),
+                new KeyValuePair<string, double>("0x0." + zeros.Substring(1) + "1p998925", 0.0),
+                new KeyValuePair<string, double>("0x1p99999999999999999999", double.PositiveInfinity),
+                new KeyValuePair<string, double>("0x1p-99999999999999999999", 0.0),
+            };
+            foreach (KeyValuePair<string, double> c in displaced)
+            {
+                ScriptValue v = TickType.ParseLiteral(c.Key);
+                AssertTrue(v.Kind == ScriptValueKind.Number && v.Number.Equals(c.Value),
+                    "A long hexadecimal literal's written exponent saturated before its digits' displacement: '"
+                    + (c.Key.Length > 24 ? c.Key.Substring(0, 6) + "..." + c.Key.Substring(c.Key.Length - 12) : c.Key) + "' gave "
+                    + v.Kind + " " + v.Number.ToString("R", System.Globalization.CultureInfo.InvariantCulture));
+            }
             // WITNESS: no binary exponent is not a number in Java either, so these stay strings; decimals read as before.
             foreach (string s in new[] { "0x10", "0x1.8", "0xp1", "0x1p", "0x1.8p1x", "0x1..8p1" })
                 AssertTrue(TickType.ParseLiteral(s).Kind == ScriptValueKind.String,
