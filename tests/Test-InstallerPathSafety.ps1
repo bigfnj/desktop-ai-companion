@@ -48,6 +48,14 @@ try {
     Refuses { Assert-ScopedShutdownPath -Path (Join-Path $junction 'new-output') -TrustedRoot $repo }
     Refuses { & (Join-Path $repo 'installer\build-scoped-shutdown.ps1') -OutputDirectory $junction -CheckPathsOnly }
     Refuses { & (Join-Path $repo 'tests\Test-InstallerShutdown.ps1') -OutputDirectory $junction -SkipBuild -CheckPathsOnly }
+    # The other half (N-audit-1106-261): the same junction used AS the trusted root is accepted, because the root is the
+    # caller's boundary and only what lies below it is judged. The walk used to start at the drive root and refused this.
+    $linkedRootOutput = Join-Path $junction 'new-output'
+    $linkedRootRefusal = ''
+    $linkedRootAccepted = $null
+    try { $linkedRootAccepted = Assert-ScopedShutdownPath -Path $linkedRootOutput -TrustedRoot $junction }
+    catch { $linkedRootRefusal = $_.Exception.Message }
+    Check ($linkedRootAccepted -ceq $linkedRootOutput) "a junction used as the trusted root is accepted, and only what lies below it is judged ($linkedRootRefusal)"
     Check ((Get-FileHash -LiteralPath $sentinel -Algorithm SHA256).Hash -ceq $before) 'ordinary outside target bytes remain unchanged'
     Check (-not [IO.File]::Exists((Join-Path $outside 'ScopedShutdown.dll')) -and
         -not [IO.Directory]::Exists((Join-Path $outside 'new-output'))) 'no compiler output or descendant directory reaches the outside target'
