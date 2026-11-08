@@ -1176,11 +1176,15 @@ def timeout_footer_self_test(args, labels):
         assert footer["events"] == 3, "V1_TIMEOUT_EVENTS_WITNESS"
         assert footer["draws"] == 1, "V1_TIMEOUT_DRAWS_WITNESS"
         assert trace.read_bytes().startswith(prefix), "V1_TIMEOUT_PREFIX_WITNESS"
-        for payload in (b"", (json.dumps(header) + "\n").encode("utf-8")):
-            trace.write_bytes(payload)
-            assert v1_append_timeout_footer(trace, 3) == {"draws": 0, "states": 0, "events": 0}, "V1_TIMEOUT_ZERO_WITNESS"
-        trace.unlink()
-        assert v1_append_timeout_footer(trace, 3) == {"draws": 0, "states": 0, "events": 0}, "V1_TIMEOUT_ABSENT_WITNESS"
+        trace.write_bytes((json.dumps(header) + "\n").encode("utf-8"))
+        assert v1_append_timeout_footer(trace, 3) == {"draws": 0, "states": 0, "events": 0}, "V1_TIMEOUT_ZERO_WITNESS"
+        for missing in (False, True):
+            trace.write_bytes(b"")
+            if missing:
+                trace.unlink()
+            expect_refusal(lambda: v1_append_timeout_footer(trace, 3),
+                           "V1_TIMEOUT_TRACE_INVALID no header", "V1_TIMEOUT_NO_HEADER_WITNESS")
+            assert not trace.exists() if missing else trace.read_bytes() == b"", "V1_TIMEOUT_NO_HEADER_PREFIX_WITNESS"
         trace.write_bytes(prefix.rstrip(b"\n"))
         v1_append_timeout_footer(trace, 3)
         try:
@@ -1286,8 +1290,8 @@ def trace2_self_test(args, labels):
 
         copied = FunctionType(v1_run.__code__, dict(globals(), command=child,
                               validate_shared_output=lambda *unused: None), "v1_run")
-        for i, records in enumerate(([header], [header, {"type": "footer", "status": "complete"}])):
-            payload = ("\n".join(json.dumps(row) for row in records) + "\n").encode("utf-8")
+        for i, records in enumerate(([header], [header, {"type": "footer", "status": "complete"}], [])):
+            payload = (("\n".join(json.dumps(row) for row in records) + "\n").encode("utf-8") if records else b"")
             if i == 0:
                 payload += b"{"
             try:
@@ -1312,6 +1316,61 @@ def trace2_self_test(args, labels):
                                              root / "unrelated", "", root, {}, True),
                        "SYNTHETIC_UNRELATED_REFUSAL", "V2_TIMEOUT_REFUSAL_SCOPE_WITNESS")
         labels.append("trace2-timeout-prefix-refusal-is-scenario-local-and-unrelated-refusals-escape")
+
+        # The real batch/document boundary must record a named failure for the partial trace, not try to decode it.
+        shared = root / "document-inputs"
+        conf = shared / "pack" / "img" / "Alpha" / "conf"
+        conf.mkdir(parents=True)
+        for filename in ("actions.xml", "behaviors.xml"):
+            (conf / filename).write_bytes(b"<OriginalSyntheticFixture/>")
+        write_json(shared / (V1_DOCUMENT_SCENARIO + ".json"),
+                   {"id": V1_DOCUMENT_SCENARIO, "pack": "pack", "mascots": [{"imageSet": "Alpha"}]})
+        partial = root / "document-partial.jsonl"
+        partial.write_bytes((json.dumps(header) + "\n").encode("utf-8") + b'{"type":"event","tick":1')
+        document_runs = []
+
+        def document_child(*unused, **unused_keywords):
+            document_runs.append(True)
+            return {"scenario": V1_DOCUMENT_SCENARIO, "status": "timeout", "trace": str(partial),
+                    "detail": "V1_TIMEOUT_TRACE_INVALID cannot count an incomplete or malformed JSONL prefix"}
+
+        document_compare = SimpleNamespace(pack_preflight=lambda pack: [(path.relative_to(pack).as_posix(), path)
+                                          for path in Path(pack).rglob("*") if path.is_file()])
+        documents = FunctionType(v1_document_witnesses.__code__, dict(globals(), v1_run=document_child),
+                                 "v1_document_witnesses")
+        tool = root / "document-tool"
+        tool.mkdir()
+        for filename in ("oracle.py", V1_RUNNER):
+            (tool / filename).write_bytes(b"original synthetic tool identity")
+        document_args = SimpleNamespace(shared_root=shared, output_root=root / "document-output")
+        document_args.output_root.mkdir()
+        batch_namespace = dict(globals(), HERE=tool, check_source=lambda *unused: None,
+                               validate_shared_output=lambda *unused: None, comparer=lambda: document_compare,
+                               v1_prepare=lambda *unused: ({}, "", root, {}),
+                               v1_scenarios=lambda *unused: [shared / (V1_DOCUMENT_SCENARIO + ".json")],
+                               v1_run=document_child, v1_proof_case=lambda *unused: (None, "synthetic proof absent"),
+                               v1_document_witnesses=documents)
+        batch = FunctionType(v1.__code__, batch_namespace, "v1")
+        expect_refusal(lambda: batch(document_args), "V1_DOCUMENT_WITNESS", "V2_DOCUMENT_TIMEOUT_WITNESS")
+        output = next(document_args.output_root.glob("v1-*"))
+        document_record = json.loads((output / "document-witnesses.json").read_text(encoding="utf-8"))
+        batch_record = json.loads((output / "results.json").read_text(encoding="utf-8"))
+        assert (document_record["status"] == "fail" and len(document_record["cases"]) == len(V1_DOCUMENT_CASES)
+                and len(document_runs) == len(V1_DOCUMENT_CASES)
+                and all(case["problems"] for case in document_record["cases"])), "V2_DOCUMENT_TIMEOUT_RECORD_WITNESS"
+        assert (batch_record["failed_check"] == "document-witnesses" and batch_record["error_type"] == "Refusal"
+                and batch_record["error"].startswith("V1_DOCUMENT_WITNESS ")), "V2_DOCUMENT_TIMEOUT_BATCH_WITNESS"
+        # A complete trace still enters the document check. This catches a guard that accidentally skips all runs.
+        good_trace = root / "document-complete.jsonl"
+        keys = ["Alpha|img/Alpha/conf/behaviors.xml|/Mascot[1]/BehaviorList[1]/Behavior[1]",
+                "Alpha|img/Alpha/conf/actions.xml|/Mascot[1]/ActionList[1]/Action[1]"]
+        save(good_trace, [header, {"type": "state", "tick": 0, "sid": "m1", "actionStack": keys, "refKey": keys[-1]}])
+        complete_documents = FunctionType(v1_document_witnesses.__code__, dict(globals(), V1_DOCUMENT_CASES=("baseline",)),
+                                          "v1_document_witnesses")
+        complete_result = complete_documents(document_args, document_compare, root / "document-complete", "", root, {},
+                                            [{"scenario": V1_DOCUMENT_SCENARIO, "status": "complete", "trace": str(good_trace)}])
+        assert complete_result["status"] == "pass", "V2_DOCUMENT_COMPLETE_WITNESS"
+        labels.append("trace2-document-timeout-records-every-case-and-named-batch-refusal")
 
         on = [header] + draws + [{"type": "footer", "ticks": 4, "status": "complete", "draws": 2,
                                  "events": 2, "states": 0, "tapeExhausted": True}]
@@ -1354,6 +1413,24 @@ def trace2_self_test(args, labels):
         changed = copy.deepcopy(off)
         changed[0]["schema"] = "shimeji-parity-trace/1"
         expect_refusal(lambda: proof(on, changed), "V2_OBSERVATION_TALLY_REFUSAL", "V2_PROOF_BINDING_WITNESS")
+        changed = copy.deepcopy(off)
+        changed[0]["rng"] = {"kind": "tape", "values": []}
+        expect_refusal(lambda: proof(on, changed), "V2_OBSERVATION_TALLY_REFUSAL", "V2_PROOF_RNG_BINDING_WITNESS")
+        changed = copy.deepcopy(off)
+        changed[0]["scenario"]["sha256"] = "b" * 64
+        expect_refusal(lambda: proof(on, changed), "V2_OBSERVATION_TALLY_REFUSAL", "V2_PROOF_SCENARIO_BINDING_WITNESS")
+        changed = copy.deepcopy(off)
+        changed[-1]["draws"] = 1
+        expect_refusal(lambda: proof(on, changed), "V2_OBSERVATION_TALLY_REFUSAL", "V2_PROOF_OFF_DRAWS_WITNESS")
+        changed = copy.deepcopy(off)
+        changed[-1]["events"] = 1
+        expect_refusal(lambda: proof(on, changed), "V2_OBSERVATION_TALLY_REFUSAL", "V2_PROOF_OFF_EVENTS_WITNESS")
+        changed = copy.deepcopy(off)
+        changed.insert(-1, {"type": "event", "kind": "error", "tick": 1, "sid": "m1"})
+        expect_refusal(lambda: proof(on, changed), "V2_OBSERVATION_TALLY_REFUSAL", "V2_PROOF_OFF_EVENT_LINE_WITNESS")
+        changed = copy.deepcopy(off)
+        changed[-1]["unobservedDraws"] = -1
+        expect_refusal(lambda: proof(on, changed), "V2_OBSERVATION_TALLY_REFUSAL", "V2_PROOF_NEGATIVE_TALLY_WITNESS")
         for kind in ("none", "splitmix64"):
             mine, theirs = copy.deepcopy(on), copy.deepcopy(off)
             mine[0]["rng"] = theirs[0]["rng"] = {"kind": kind, "seed": "1"}
@@ -1685,6 +1762,18 @@ def mutate(args):
         ("bd-codex-parity-3: proof-runtime-binding", [('or on[0].get("runtime") ' + '!= off[0].get("runtime")', 'or False')], "V2_PROOF_BUILD_WITNESS")])
     legs.append(("bd-codex-parity-3: proof-off-status-class", [('        if footer.get("status") ' + '!= "complete":', '        if False:')], "V2_OFF_STATUS_CLASS_WITNESS"))
     legs.append(("bd-codex-parity-3: proof-off-run-status", [('                if off["status"] ' + '!= "complete":', '                if False:')], "V2_PROOF_OFF_RUN_WITNESS"))
+    legs.extend([
+        ("bd-codex-parity-3-review: document-timeout-status", [('if row["status"] == "complete" and ' +
+            'trace is not None and trace.is_file() else [])', 'if trace is not None and trace.is_file() else [])')], "V2_DOCUMENT_TIMEOUT_WITNESS"),
+        ("bd-codex-parity-3-review: timeout-no-header", [('    if not records:\n        raise Refusal("V1_TIMEOUT_TRACE_INVALID ' +
+            'no header in the recorded prefix")', '    if False:\n        raise Refusal("V1_TIMEOUT_TRACE_INVALID no header in the recorded prefix")')], "V1_TIMEOUT_NO_HEADER_WITNESS"),
+        ("bd-codex-parity-3-review: proof-rng-binding", [('or on[0].get("rng") ' + '!= off[0].get("rng")', 'or False')], "V2_PROOF_RNG_BINDING_WITNESS"),
+        ("bd-codex-parity-3-review: proof-scenario-binding", [('or on[0].get("scenario") ' + '!= off[0].get("scenario")', 'or False')], "V2_PROOF_SCENARIO_BINDING_WITNESS"),
+        ("bd-codex-parity-3-review: proof-off-draw-count", [('or off[-1].get("draws") ' + '!= 0', 'or False')], "V2_PROOF_OFF_DRAWS_WITNESS"),
+        ("bd-codex-parity-3-review: proof-off-event-count", [('or off[-1].get("events") ' + '!= 0', 'or False')], "V2_PROOF_OFF_EVENTS_WITNESS"),
+        ("bd-codex-parity-3-review: proof-off-event-line", [('or any(row.get("type") == "event" ' + 'for row in off)', 'or False')], "V2_PROOF_OFF_EVENT_LINE_WITNESS"),
+        ("bd-codex-parity-3-review: proof-negative-tally", [('if type(off[-1].get(key)) is not int or off[-1][key] ' +
+            '< 0:', 'if type(off[-1].get(key)) is not int:')], "V2_PROOF_NEGATIVE_TALLY_WITNESS")])
     if args.only:
         legs = [leg for leg in legs if args.only in leg[0]]
         if not legs:
@@ -2076,6 +2165,8 @@ def v1_append_timeout_footer(trace, ticks, observe=True):
         records = [json.loads(line) for line in prefix.decode("utf-8").splitlines() if line.strip()]
     except (UnicodeError, json.JSONDecodeError) as failure:
         raise Refusal("V1_TIMEOUT_TRACE_INVALID cannot count an incomplete or malformed JSONL prefix") from failure
+    if not records:
+        raise Refusal("V1_TIMEOUT_TRACE_INVALID no header in the recorded prefix")
     counts = {"draws": 0, "states": 0, "events": 0}
     for index, row in enumerate(records):
         if not isinstance(row, dict) or row.get("type") not in ("header", "state", "event"):
@@ -2532,7 +2623,7 @@ def v1_document_witnesses(args, compare, root, classpath, runner, build, rows=()
             row = v1_run(args, compare, fixture / path.name, root / "document-runs" / case, classpath, runner, build)
         trace = Path(row["trace"]) if row.get("trace") else None
         lines = ([json.loads(line) for line in trace.read_text(encoding="utf-8").splitlines() if line.strip()]
-                 if trace is not None and trace.is_file() else [])
+                 if row["status"] == "complete" and trace is not None and trace.is_file() else [])
         if spec["refusal"] is not None:
             problems = v1_document_refusal(row, spec["refusal"])
         elif row["status"] != "complete":
