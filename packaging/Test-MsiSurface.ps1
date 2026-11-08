@@ -188,8 +188,10 @@ Assert-MsiTrue ($reinstallMode.Count -eq 1 -and $reinstallMode[0][0] -like '*a*'
 # ...and the Property row is only a DEFAULT (N-audit-1106-035). The stock VerifyReadyDlg Repair button publishes
 # ReinstallMode=ecmus, and a published value beats the table, so the assertion above passed while a repair chosen
 # in setup never force-copied anything. Judged the way MSI runs the button: the events before the first EndDialog,
-# in Ordering order, and the value left standing is the one at the highest Ordering among them. A tie at that
-# Ordering is a failure too, because MSI leaves the order of rows sharing an Ordering unspecified.
+# in Ordering order, and the value left standing is the one at the highest Ordering among them. MSI leaves the order
+# of rows sharing an Ordering unspecified, so EVERY row at that Ordering must force-copy: a tie of two force-copy
+# modes (amus and amusv) passes, because whichever one MSI runs last force-copies, and a tie with any mode lacking
+# 'a' fails. What is pinned is "no possible winner skips the force-copy", not "exactly one winner" (N-cxr-w2-06).
 $repairModes = Get-MsiRows "SELECT ``Argument``,``Ordering`` FROM ``ControlEvent`` WHERE ``Dialog_`` = 'VerifyReadyDlg' AND ``Control_`` = 'Repair' AND ``Event`` = 'ReinstallMode'" 2
 $repairCloses = Get-MsiRows "SELECT ``Ordering`` FROM ``ControlEvent`` WHERE ``Dialog_`` = 'VerifyReadyDlg' AND ``Control_`` = 'Repair' AND ``Event`` = 'EndDialog'" 1
 $repairCloseAt = [int]::MaxValue

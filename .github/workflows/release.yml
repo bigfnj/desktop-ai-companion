@@ -209,8 +209,23 @@ jobs:
       # documents a release build.yml CANNOT pass: when a module's MinHostVersion waits on the version being cut,
       # Test-ModulePublishFreshness.ps1 is red until that module is published, which is only allowed after this
       # release ships. A gate on build.yml would refuse exactly that release and need an override that a tag push
-      # has no way to carry. The freshness check is the one build.yml step left out below, for that reason; every
-      # other check that judges the product rather than the repository's publish state is here.
+      # has no way to carry.
+      #
+      # WHAT THIS STEP RUNS IS A SUBSET of build.yml, not a copy (N-cxr-w2-05). This comment used to say the
+      # freshness check was the only build.yml step left out; it was one of several. Run here: the CoreTests,
+      # Invoke-SelfTests.ps1, Test-ModuleSelfTests.ps1, Invoke-OfflineScriptChecks.ps1, Test-AtomicPublish.ps1,
+      # Test-StagingPathSafety.ps1 and the source invariants (and, in their own steps above, the native installer
+      # shutdown checks and Test-IsolatedMsiLifecycle.ps1). Left to build.yml and the local gate:
+      #   - the repository's publish state and records: Test-ModuleSourceDiscovery.ps1, Test-ModulePublishFreshness.ps1
+      #     (red by design on the MinHostVersion release above), Test-ContentCatalogIntegrity.ps1 and
+      #     Test-BacklogClosingCriteria.ps1;
+      #   - the test tooling itself: the isolated-environment and cleanup checks, the two out-of-gate harness
+      #     compiles and Test-ModuleTemplate.ps1;
+      #   - three checks that DO judge shipped bytes: Test-AgentBroker.ps1 (the broker, TLS and worker harnesses),
+      #     the ShimejiConvert verify and selftest over Companions\, and companion-border-invariants.ps1.
+      # The last group is the honest gap: a tag on a commit build.yml never ran ships without them. What covers it
+      # today is docs\RELEASE-CHECKLIST.md step 3: the commit is pushed to master and build.yml is confirmed before
+      # the tag.
       #
       # AFTER the ZIP and the MSI are built and the certificate is gone from the store, on purpose. The self-tests
       # launch the built exe and write beside it, and the CoreTests build may touch the build tree; by now the
@@ -220,6 +235,18 @@ jobs:
       # The runners are the SAME scripts build.yml and tests\run-gate.ps1 call (Invoke-SelfTests.ps1 owns the flag
       # list, the marker map and the skip detection), so no list is copied here. Collect, then throw once, the
       # shape build.yml's product step uses, so one red runner does not hide the verdicts of the others.
+      #
+      # Pillow FIRST, in its own step, the same pin build.yml installs. Invoke-OfflineScriptChecks.ps1 runs the parity
+      # pack generator's --self-test and counts a Python without Pillow as a failure (d33aaec), so without this step
+      # every release stopped at the test step below with nothing published. After the key scrub, so no package
+      # install runs while the signing certificate is in the store. A source invariant reads both workflows and
+      # fails when the two pins differ or this step moves below the test step.
+      - name: Install the parity generator test dependency
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check "Pillow==12.3.0"
+          if ($LASTEXITCODE -ne 0) { throw "Pillow installation failed (exit $LASTEXITCODE)." }
+
       - name: Test the build being released
         shell: pwsh
         run: |

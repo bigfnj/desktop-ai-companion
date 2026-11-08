@@ -6083,6 +6083,58 @@ Assert-True ($w5Quiet -cmatch "(?m)^\`$fixture = Join-Path \`$PSScriptRoot 'quie
     $w5RefuseAt -ge 0 -and $w5CopyAt -gt $w5RefuseAt) (
     "w5-options-ui-1: Set-QuietSettings.ps1 copies quiet-settings.json to settings.json in the root it is given, after refusing a root that has one (refuse at $w5RefuseAt, copy at $w5CopyAt)")
 
+# ---- burndown/w5-packaging-ci-1 ----
+# EVERY WORKFLOW THAT RUNS THE OFFLINE CHECKS INSTALLS PILLOW FIRST, AT ONE PIN (found re-deriving N-cxr-w2-05). d33aaec made
+# tests\Invoke-OfflineScriptChecks.ps1 count a Python without Pillow as a failure and added the install step to build.yml
+# only; release.yml's 'Test the build being released' calls the same runner, so every release stopped there with nothing
+# published. Sliced per step with comment lines dropped (the w2-packaging-ci-1 shape above), so the prose cannot satisfy
+# it: in each workflow the FIRST step that installs a pinned Pillow and throws on a failed install must come before the
+# first step that calls the runner, both pins must be equal (one pin read from two files, not two copies trusted to
+# agree), and in release.yml the install comes after the signing-key scrub so no package install runs while the key is in
+# the store. WITNESS: both workflows still call the runner, so a slice that found nothing cannot pass.
+$w5pPins = @{}
+$w5pOrderFaults = @()
+$w5pRunnerFiles = 0
+$w5pReleasePillowAt = -1
+$w5pReleaseScrubAt = -1
+foreach ($w5pWorkflow in @('build.yml', 'release.yml')) {
+    $w5pSteps = @([regex]::Split((Get-Content -LiteralPath (Join-Path $repoRoot ('.github\workflows\' + $w5pWorkflow)) -Raw),
+        '(?m)^      - name:') | Select-Object -Skip 1 | ForEach-Object { $_ -replace '(?m)^[ \t]*#.*$', '' })
+    $w5pPillowAt = -1
+    $w5pRunnerAt = -1
+    for ($w5pIndex = 0; $w5pIndex -lt $w5pSteps.Count; $w5pIndex++) {
+        $w5pPin = [regex]::Match($w5pSteps[$w5pIndex],
+            '(?m)^          python -m pip install --disable-pip-version-check "Pillow==([0-9][0-9.]*)"\r?\n          if \(\$LASTEXITCODE -ne 0\) \{ throw ')
+        if ($w5pPin.Success -and $w5pPillowAt -lt 0) { $w5pPillowAt = $w5pIndex; $w5pPins[$w5pWorkflow] = $w5pPin.Groups[1].Value }
+        if ($w5pRunnerAt -lt 0 -and $w5pSteps[$w5pIndex] -cmatch 'tests\\Invoke-OfflineScriptChecks\.ps1') { $w5pRunnerAt = $w5pIndex }
+        if ($w5pWorkflow -ceq 'release.yml' -and $w5pSteps[$w5pIndex] -cmatch '\A Remove the signing certificate from the runner\r?\n') { $w5pReleaseScrubAt = $w5pIndex }
+    }
+    if ($w5pRunnerAt -ge 0) { $w5pRunnerFiles++ }
+    if ($w5pRunnerAt -ge 0 -and ($w5pPillowAt -lt 0 -or $w5pPillowAt -gt $w5pRunnerAt)) { $w5pOrderFaults += ($w5pWorkflow + ' (Pillow step ' + $w5pPillowAt + ', runner step ' + $w5pRunnerAt + ')') }
+    if ($w5pWorkflow -ceq 'release.yml') { $w5pReleasePillowAt = $w5pPillowAt }
+}
+Assert-True ($w5pRunnerFiles -eq 2) (
+    "w5-packaging-ci-1: WITNESS build.yml and release.yml both call Invoke-OfflineScriptChecks.ps1 (found $w5pRunnerFiles)")
+Assert-True ($w5pOrderFaults.Count -eq 0) (
+    'w5-packaging-ci-1: every workflow that runs the offline checks installs Pillow in an earlier step' +
+    $(if ($w5pOrderFaults.Count) { ' -- ' + ($w5pOrderFaults -join ', ') } else { '' }))
+Assert-True ($w5pPins.Count -eq 2 -and $w5pPins['build.yml'] -ceq $w5pPins['release.yml']) (
+    "w5-packaging-ci-1: build.yml and release.yml install one Pillow pin (build $($w5pPins['build.yml']), release $($w5pPins['release.yml']))")
+Assert-True ($w5pReleaseScrubAt -ge 0 -and $w5pReleasePillowAt -gt $w5pReleaseScrubAt) (
+    "w5-packaging-ci-1: release.yml installs Pillow after the signing key is scrubbed (scrub $w5pReleaseScrubAt, Pillow $w5pReleasePillowAt)")
+# CI RUNS THE MUTATION-INFRASTRUCTURE UNIT TESTS (N-bd-w2-tests-scripts-1-01). 256b90e wired tests\run_mutation_capture_checks.py
+# into the local gate only, so a green CI run said nothing about the byte capture and restore rules every harness grades
+# through. Same per-step slicing, comments dropped: exactly one build.yml step runs it and throws on its exit code, with no
+# if: or continue-on-error to skip or excuse it. WITNESS: the step-key pattern matches the module self-test step's if:.
+$w5pBuildSteps = @([regex]::Split((Get-Content -LiteralPath (Join-Path $repoRoot '.github\workflows\build.yml') -Raw),
+    '(?m)^      - name:') | Select-Object -Skip 1 | ForEach-Object { $_ -replace '(?m)^[ \t]*#.*$', '' })
+$w5pCaptureSteps = @($w5pBuildSteps | Where-Object {
+    $_ -cmatch '(?m)^          python -X utf8 \.\\tests\\run_mutation_capture_checks\.py\r?\n          if \(\$LASTEXITCODE -ne 0\) \{ throw ' })
+Assert-True (@($w5pBuildSteps | Where-Object { $_ -cmatch '\A Run each module''s own self-test\r?\n' -and $_ -cmatch '(?m)^        if: ' }).Count -eq 1) (
+    'w5-packaging-ci-1: WITNESS the step-key pattern matches the build.yml module self-test step''s if:')
+Assert-True ($w5pCaptureSteps.Count -eq 1 -and $w5pCaptureSteps[0] -cnotmatch '(?m)^        (if|continue-on-error): ') (
+    "w5-packaging-ci-1: build.yml runs run_mutation_capture_checks.py in one step that throws on its exit code and cannot be skipped (found $($w5pCaptureSteps.Count))")
+
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever

@@ -807,6 +807,16 @@ function Remove-DesktopAICompanionSafeDirectory {
     [void](Assert-DesktopAICompanionPathChainSafe `
         -Path $resolvedPath `
         -TrustedRoot $TrustedRoot)
+    # And no reparse point from the allowed root down to the target, the target included (N-audit-1106-264). The check
+    # above is CONTAINMENT, a string comparison that never looks at what the folders are, and this function used to
+    # test nothing else. A target that is itself a junction, or sits below one, names a tree somewhere else on the
+    # volume, and Remove-Item -Recurse -Force under Windows PowerShell 5.1 can recurse through a junction into it.
+    # The allowed root itself is not judged, the F218 rule Assert-DesktopAICompanionUnlinkedChain carries: the root is
+    # the caller's boundary. Test-StagingPathSafety.ps1 pins both refusals with a sentinel in the junction's target.
+    Assert-DesktopAICompanionUnlinkedChain `
+        -Path $resolvedPath `
+        -Root $resolvedAllowedRoot `
+        -Description 'The staging directory to delete'
     if (-not (Test-Path -LiteralPath $resolvedPath)) {
         return
     }
@@ -836,6 +846,12 @@ function Reset-DesktopAICompanionStagingDirectory {
     [void](Assert-DesktopAICompanionPathChainSafe `
         -Path $resolvedPath `
         -TrustedRoot $TrustedRoot)
+    # The same reparse walk Remove-DesktopAICompanionSafeDirectory runs, for the same Remove-Item below
+    # (N-audit-1106-264).
+    Assert-DesktopAICompanionUnlinkedChain `
+        -Path $resolvedPath `
+        -Root $resolvedAllowedRoot `
+        -Description 'The staging directory to reset'
 
     if (Test-Path -LiteralPath $resolvedPath) {
         Remove-Item -LiteralPath $resolvedPath -Recurse -Force

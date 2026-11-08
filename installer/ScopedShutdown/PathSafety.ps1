@@ -15,9 +15,14 @@ function Assert-ScopedShutdownPath {
         $full.IndexOf(':', 2) -ge 0 -or [IO.Path]::GetPathRoot($full) -notmatch '^[A-Za-z]:\\$') {
         throw 'native_output_scope_refused'
     }
-    $drive = [IO.Path]::GetPathRoot($full)
-    $current = $drive
-    foreach ($part in $full.Substring($drive.Length).Split('\')) {
+    # The reparse walk judges only the components BELOW the trusted root (N-audit-1106-261). It used to start at the
+    # drive root, so the checkout root and every folder above it were judged too, and a checkout reached through a
+    # junction (or one that IS a junction, as a runner's work folder can be) was refused as its own root. That is the
+    # case F218 settled for packaging\StagingPathSafety.ps1 on 2026-09-30: the root is the caller's boundary, so what it
+    # is made of is the caller's business, while a junction below it is still an escape and still refused. The path is
+    # already known to be strictly below the root (checked above), so there is always at least one component to judge.
+    $current = $root
+    foreach ($part in $full.Substring($root.Length + 1).Split('\')) {
         $current = Join-Path $current $part
         try { $attributes = [IO.File]::GetAttributes($current) }
         catch {

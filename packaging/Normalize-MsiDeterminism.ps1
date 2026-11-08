@@ -420,8 +420,11 @@ finally {
         # NOT recomputed from $stagingDirectory. $msiParent comes from the destination MSI path
         # above, which is an independent root; deriving it here with Split-Path -Parent
         # $stagingDirectory made the containment half of this guard a tautology, so the only thing
-        # standing between a wrong $stagingDirectory and Remove-Item -Recurse -Force was the reparse
-        # chain check. Every other call in this script passes the same independent root.
+        # standing between a wrong $stagingDirectory and Remove-Item -Recurse -Force was the
+        # trusted-root check, which is containment too (a string comparison). The guard now also walks
+        # for reparse points from $msiParent down to the target (N-audit-1106-264); that walk judges
+        # only what lies below the allowed root, so it is no substitute for the root being
+        # independent. Every other call in this script passes the same independent root.
         try {
             Remove-DesktopAICompanionSafeDirectory `
                 -Path $stagingDirectory `

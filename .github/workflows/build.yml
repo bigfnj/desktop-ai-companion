@@ -42,6 +42,17 @@ jobs:
           .\tests\Test-GateCacheCleanup.ps1
           .\tests\Test-CompletedWorkerBinaryCleanup.ps1
 
+      - name: Run the mutation-infrastructure unit tests
+        # tests\run-gate.ps1 has run these since 256b90e and CI did not (N-bd-w2-tests-scripts-1-01), so a push whose CI
+        # was green could still carry a regression in the byte capture, case plan, sharding or restore rules every mutation
+        # harness grades through, found only the next time a harness scored a mutant wrong. Synthetic files under a
+        # checkout-local scratch folder, no build and no repository file touched. Judged by the exit code, as the gate
+        # judges it; stderr is not redirected here, so unittest's report on stderr never becomes an error record.
+        shell: pwsh
+        run: |
+          python -X utf8 .\tests\run_mutation_capture_checks.py
+          if ($LASTEXITCODE -ne 0) { throw "run_mutation_capture_checks.py failed (exit $LASTEXITCODE)." }
+
       - name: Install the parity generator test dependency
         shell: pwsh
         run: |

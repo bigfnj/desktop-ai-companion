@@ -322,8 +322,8 @@ try {
     }
     catch {
         $junctionsAvailable = $false
-        Write-Warning ("Junctions could not be created under %TEMP%, so the two -RejectHardLinks " +
-                       "cases did not run: $($_.Exception.Message)")
+        Write-Warning ("Junctions could not be created under %TEMP%, so the -RejectHardLinks and " +
+                       "junction-delete cases did not run: $($_.Exception.Message)")
     }
 
     if ($junctionsAvailable) {
@@ -368,6 +368,36 @@ try {
                    "junctioned checkout: $($_.Exception.Message)")
         }
         Write-Host '  a junction as the declared ROOT is accepted (the root is the caller''s boundary)' -ForegroundColor DarkGray
+
+        # The two functions that end in Remove-Item -Recurse -Force, handed a junction (N-audit-1106-264). Their only
+        # guard was a containment check, which a junction inside the allowed root passes, so both went ahead; the
+        # sentinel sits in the junction's TARGET, so a refusal that arrives after Remove-Item followed the link into it
+        # reads REFUSED, BUT DELETED FIRST. One junction and target per case, so a case that wrongly goes ahead cannot
+        # change what the next one is handed. The third case reaches its target through the junction one level up.
+        $deleteTarget = New-ProbeDirectory 'deletetarget'
+        $deleteSentinel = New-Probe 'deletetarget\precious.bin'
+        $deleteJunction = Join-Path $linkRoot 'gone'
+        New-Item -ItemType Junction -Path $deleteJunction -Target $deleteTarget -ErrorAction Stop | Out-Null
+        Try-Refuse -Name 'Remove-SafeDirectory on a target that is a junction' `
+            -Expect 'is a reparse point' -Sentinel $deleteSentinel -Action {
+                Remove-DesktopAICompanionSafeDirectory `
+                    -Path $deleteJunction -AllowedRoot $linkRoot -TrustedRoot $scratch
+            }
+        $resetTarget = New-ProbeDirectory 'resettarget'
+        $resetTargetSentinel = New-Probe 'resettarget\precious.bin'
+        $resetJunction = Join-Path $linkRoot 'reset'
+        New-Item -ItemType Junction -Path $resetJunction -Target $resetTarget -ErrorAction Stop | Out-Null
+        Try-Refuse -Name 'Reset-StagingDirectory on a target that is a junction' `
+            -Expect 'is a reparse point' -Sentinel $resetTargetSentinel -Action {
+                Reset-DesktopAICompanionStagingDirectory `
+                    -Path $resetJunction -AllowedRoot $linkRoot -TrustedRoot $scratch
+            }
+        $belowSentinel = New-Probe 'linktarget\below\precious.bin'
+        Try-Refuse -Name 'Remove-SafeDirectory on a target below a junction' `
+            -Expect 'linked directory' -Sentinel $belowSentinel -Action {
+                Remove-DesktopAICompanionSafeDirectory `
+                    -Path (Join-Path $junction 'below') -AllowedRoot $linkRoot -TrustedRoot $scratch
+            }
     }
 }
 finally {
@@ -386,8 +416,8 @@ Write-Host ''
 Write-Host ("{0}/{1} refused." -f $fired, $cases)
 if (-not $junctionsAvailable) {
     # A control that can run degraded says so on EVERY run, rather than quietly covering less.
-    throw ('Staging path-safety checks ran DEGRADED: junctions were unavailable, so the two ' +
-           '-RejectHardLinks cases were skipped. Coverage narrowed silently is how this file came ' +
+    throw ('Staging path-safety checks ran DEGRADED: junctions were unavailable, so the -RejectHardLinks ' +
+           'and junction-delete cases were skipped. Coverage narrowed silently is how this file came ' +
            'to be needed in the first place.')
 }
 if ($fired -ne $cases) {
