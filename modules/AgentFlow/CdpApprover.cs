@@ -66,7 +66,7 @@ namespace DesktopAICompanion.AgentFlow
         public List<bool> Disabled = new List<bool>();
         /// <summary>Every agent panel the sweep that read this card listed (1.12.3), so a press can find the panel
         /// the user is working in, and say so on the press if focus then moved to the pressed card (no focus is ever
-        /// moved back: CdpApprover.NoteFocusMoved). Null
+        /// moved back: CdpApprover.NoteFocusMoved, once after the sweep since N-audit-1106-111). Null
         /// for a view built outside a sweep: the press then holds focus in the page and has no net.</summary>
         public List<string> Panels;
     }
@@ -486,7 +486,7 @@ namespace DesktopAICompanion.AgentFlow
         internal static string BuildCodexClick(int index, string expectedLabel, string cardId, string action)
         {
             // The hold's numbers and this module's own action id first: a label is page text and could spell a token.
-            return CodexClickTemplate
+            return FillActHistory(CodexClickTemplate)
                 .Replace("__ACTION__", JsonEncode(action ?? ""))
                 .Replace("__INDEX__", index.ToString(CultureInfo.InvariantCulture))
                 .Replace("__LABEL__", JsonEncode(expectedLabel ?? ""))
@@ -499,7 +499,7 @@ namespace DesktopAICompanion.AgentFlow
         {
             return string.Format(CultureInfo.InvariantCulture, ClickExpressionFormat,
                 index.ToString(CultureInfo.InvariantCulture), JsonEncode(expectedLabel ?? ""),
-                FocusActPrelude, JsonEncode(action ?? ""));
+                FillActHistory(FocusActPrelude), JsonEncode(action ?? ""));
         }
 
         private const string ClickExpressionFormat = @"
@@ -805,8 +805,11 @@ namespace DesktopAICompanion.AgentFlow
 
         /// <summary>
         /// The time one sweep may spend following queues, in all panels together, from the sweep's start
-        /// (1.12.0). Capped at twice the sweep's own timeout as well, so the follow always ends well inside the
-        /// sweep connection's lifetime (four timeouts; six seconds in production, where this is three).
+        /// (1.12.0). Capped at twice the sweep's own timeout as well, so the follow's own waits end well inside the
+        /// sweep connection's lifetime (four timeouts; six seconds in production, where this is three). The budget is
+        /// checked before each read, so what keeps a round's presses inside that lifetime too is that a press sleeps
+        /// nothing: the 800 ms focus look each press made while another panel had focus took 1.12.3's sweeps past it,
+        /// and runs once after the sweep since N-audit-1106-111 (see NoteFocusMoved).
         /// </summary>
         internal const int QueueBudgetMs = 3000;
         /// <summary>How long after a press the panel is watched for the next card. MEASURED 2026-10-21: the next
@@ -930,21 +933,22 @@ namespace DesktopAICompanion.AgentFlow
         public static string Click(int port, string targetId, int index, string expectedLabel,
                                    int timeoutMs, string agent, string cardId)
         {
-            string focusNote;
-            return Click(port, targetId, index, expectedLabel, timeoutMs, agent, cardId, null, out focusNote);
+            string focusLook;
+            return Click(port, targetId, index, expectedLabel, timeoutMs, agent, cardId, null, out focusLook);
         }
 
         /// <summary>
         /// As above, with focus detection (1.12.3): <paramref name="panels"/> is every agent panel the sweep
-        /// listed; when one of them other than the pressed one has focus before the press, the pressed panel is asked
-        /// afterwards whether focus moved there (see <see cref="NoteFocusMoved"/>). Nothing is ever moved back. Null
-        /// panels: the in-page hold only. <paramref name="focusNote"/> is non-null only when focus moved.
+        /// listed; when one of them other than the pressed one has focus before the press, and the press clicked,
+        /// <paramref name="focusLook"/> is this press's action id, for the look at where focus went that the sweep makes
+        /// once after it has closed its connection (<see cref="NoteFocusMoved"/>, N-audit-1106-111); null otherwise.
+        /// Nothing is ever moved back. Null panels: the in-page hold only.
         /// </summary>
         internal static string Click(int port, string targetId, int index, string expectedLabel,
                                      int timeoutMs, string agent, string cardId, IList<string> panels,
-                                     out string focusNote)
+                                     out string focusLook)
         {
-            focusNote = null;
+            focusLook = null;
             if (targetId == null || index < 0 || expectedLabel == null) return "gone";
             string browserUrl = BrowserSocketUrl(port, timeoutMs);
             if (string.IsNullOrEmpty(browserUrl)) return "gone";
@@ -966,8 +970,9 @@ namespace DesktopAICompanion.AgentFlow
                     try { result = session.Evaluate(sessionId, expression); }
                     finally { session.Detach(sessionId); }
                     if (string.IsNullOrEmpty(result)) return "gone";
-                    if (elsewhere && string.Equals(result, "clicked", StringComparison.Ordinal))
-                        focusNote = NoteFocusMoved(session, targetId, action);
+                    // No wait here (N-audit-1106-111): this press is inside the sweep's open connection, whose lifetime
+                    // is fixed, and the look waits FocusCheckAfterMs. The sweep makes it once, after closing.
+                    if (elsewhere && string.Equals(result, "clicked", StringComparison.Ordinal)) focusLook = action;
                     return result;
                 }
             }
