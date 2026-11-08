@@ -244,7 +244,7 @@ public sealed partial class PeerFederation : IPeerFederation
         var authorization = Current(peer); using var client = Client(Advert(peer));
         var directory = await Exchange<PeerDirectory>(client, HttpMethod.Get, "federation/directory", null, token, maximum: MaximumDirectoryBodyBytes,
             authorization: authorization, peerBrokerId: peer.BrokerId); Current(authorization);
-        if (directory.BrokerId != peer.BrokerId || directory.Sessions.Count > 512 || directory.Sessions.Any(s => s.Address.BrokerId != peer.BrokerId || s.IsPrivate))
+        if (!PeerDirectoryPolicy.IsValid(directory, peer.BrokerId, PeerDirectoryPolicy.WireMaximumSessions))
             throw new InvalidDataException("Peer directory contains invalid or transitive identities.");
         return directory;
     }

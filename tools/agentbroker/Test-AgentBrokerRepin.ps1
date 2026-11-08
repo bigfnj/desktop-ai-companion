@@ -918,6 +918,25 @@ function Set-RepinFixtureDacl([string]$Path, [Security.AccessControl.FileSecurit
     else { [IO.FileSystemAclExtensions]::SetAccessControl((New-Object IO.FileInfo $Path), $Acl) }
 }
 
+function Get-RepinFixtureAclState([Security.AccessControl.FileSecurity]$Acl) {
+    $descriptor = [Security.AccessControl.RawSecurityDescriptor]::new($Acl.GetSecurityDescriptorBinaryForm(), 0)
+    if ($null -eq $descriptor.Owner -or $null -eq $descriptor.Group -or $null -eq $descriptor.DiscretionaryAcl) {
+        throw 'REPIN_FIXTURE_ACL_STATE_INCOMPLETE'
+    }
+    $bytes = [byte[]]::new($descriptor.DiscretionaryAcl.BinaryLength)
+    $descriptor.DiscretionaryAcl.GetBinaryForm($bytes, 0)
+    # Preserve exact trustees, masks, ACE order/inheritance flags and protection. Auto-inheritance
+    # descriptor bookkeeping may be normalized by Windows; it does not replace this authority proof.
+    return [pscustomobject]@{ Owner = $descriptor.Owner.Value; Group = $descriptor.Group.Value
+        Protected = $Acl.AreAccessRulesProtected; Dacl = [Convert]::ToBase64String($bytes)
+        DescriptorText = $Acl.GetSecurityDescriptorSddlForm([Security.AccessControl.AccessControlSections]::Access) }
+}
+
+function Test-RepinFixtureAclState($Expected, $Actual) {
+    return $Expected.Owner -ceq $Actual.Owner -and $Expected.Group -ceq $Actual.Group -and
+        $Expected.Protected -eq $Actual.Protected -and $Expected.Dacl -ceq $Actual.Dacl
+}
+
 function Invoke-SelfTest {
     Write-Output 'WITNESS: REPIN_NATIVE_AUDIT_SELFTEST_EXECUTED'
     # Provider blocks below resolve $state dynamically from this function's scope, so fixtures can change it.
@@ -931,6 +950,29 @@ function Invoke-SelfTest {
     New-Item -ItemType Directory -Path $fixture | Out-Null
     $ownedFile = $null; $fixtureOwnedAcl = $null; $selfTestFailure = $null
     try {
+        function Fixture-State([string]$Sddl) {
+            $model = [Security.AccessControl.FileSecurity]::new()
+            $model.SetSecurityDescriptorSddlForm($Sddl)
+            return Get-RepinFixtureAclState $model
+        }
+        $inherited = Fixture-State 'O:BAG:BAD:(A;ID;FA;;;SY)(A;ID;FR;;;BU)'
+        $inheritedNormalized = Fixture-State 'O:BAG:BAD:AI(A;ID;FA;;;SY)(A;ID;FR;;;BU)'
+        Assert ($inherited.DescriptorText -cne $inheritedNormalized.DescriptorText) 'REPIN_FIXTURE_METADATA_AXIS: distinct descriptor text reaches the authority comparison'
+        Assert (Test-RepinFixtureAclState $inherited $inheritedNormalized) 'REPIN_FIXTURE_INHERITED_METADATA: identical inherited authority survives descriptor bookkeeping normalization'
+        $userModel = 'O:S-1-5-21-1-2-3-1001G:BUD:P(A;;FA;;;SY)(A;;FA;;;S-1-5-21-1-2-3-1001)'
+        $individual = Fixture-State $userModel
+        Assert (Test-RepinFixtureAclState $individual (Fixture-State $userModel)) 'REPIN_FIXTURE_USER_OWNER: individual-user authority is preserved'
+        $adminModel = 'O:BAG:BAD:P(A;;FA;;;SY)(A;;FR;;;BU)'
+        $admin = Fixture-State $adminModel
+        Assert (Test-RepinFixtureAclState $admin (Fixture-State $adminModel)) 'REPIN_FIXTURE_ADMIN_OWNER: Administrators ownership is preserved without assuming a user SID'
+        Assert (-not (Test-RepinFixtureAclState $admin (Fixture-State 'O:SYG:BAD:P(A;;FA;;;SY)(A;;FR;;;BU)'))) 'REPIN_FIXTURE_AUTHORITY_OWNER: changed ownership refuses'
+        Assert (-not (Test-RepinFixtureAclState $admin (Fixture-State 'O:BAG:BUD:P(A;;FA;;;SY)(A;;FR;;;BU)'))) 'REPIN_FIXTURE_AUTHORITY_GROUP: changed primary group refuses'
+        Assert (-not (Test-RepinFixtureAclState $admin (Fixture-State 'O:BAG:BAD:(A;;FA;;;SY)(A;;FR;;;BU)'))) 'REPIN_FIXTURE_AUTHORITY_PROTECTION: changed inheritance protection refuses'
+        Assert (-not (Test-RepinFixtureAclState $admin (Fixture-State 'O:BAG:BAD:P(A;;FA;;;SY)(A;;FW;;;BU)'))) 'REPIN_FIXTURE_AUTHORITY_MASK: changed granted rights refuse'
+        Assert (-not (Test-RepinFixtureAclState $admin (Fixture-State 'O:BAG:BAD:P(A;;FA;;;SY)(A;;FR;;;WD)'))) 'REPIN_FIXTURE_AUTHORITY_TRUSTEE: changed trustee refuses'
+        Assert (-not (Test-RepinFixtureAclState $inherited (Fixture-State 'O:BAG:BAD:AI(A;;FA;;;SY)(A;ID;FR;;;BU)'))) 'REPIN_FIXTURE_AUTHORITY_INHERITED_ACE: changed ACE inheritance refuses'
+        $ordered = Fixture-State 'O:BAG:BAD:P(D;;FW;;;BU)(A;;FA;;;BU)'
+        Assert (-not (Test-RepinFixtureAclState $ordered (Fixture-State 'O:BAG:BAD:P(A;;FA;;;BU)(D;;FW;;;BU)'))) 'REPIN_FIXTURE_AUTHORITY_ORDER: changed allow-deny order refuses'
         # A pin document in the exact shape the adapters embed, so the reader is exercised against the real format.
         $sources = Join-Path $fixture 'repo'
         New-Item -ItemType Directory -Path (Join-Path $sources 'tools\AgentBroker.Pins') | Out-Null
@@ -1222,7 +1264,19 @@ function Invoke-SelfTest {
         # Same DACL shape as a package file (only SYSTEM can write) but owned by this user: the owner alone refuses.
         $ownedFile = Join-Path $fixture 'user-owned.exe'
         [IO.File]::WriteAllText($ownedFile, 'synthetic')
-        $ownedOriginalSddl = (Get-Acl -LiteralPath $ownedFile).GetSecurityDescriptorSddlForm([Security.AccessControl.AccessControlSections]::Access)
+        # This new owned fixture has a deterministic protected baseline, independent of TEMP's
+        # inherited ACL or whether Windows assigned the owner to the user or Administrators.
+        $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+        try { $fixtureUser = $identity.User } finally { $identity.Dispose() }
+        $baseline = New-Object Security.AccessControl.FileSecurity
+        $baseline.SetAccessRuleProtection($true, $false)
+        foreach ($sid in @((New-Object Security.Principal.SecurityIdentifier('S-1-5-18')), $fixtureUser)) {
+            $baseline.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($sid, 'FullControl', 'Allow')))
+        }
+        Set-RepinFixtureDacl $ownedFile $baseline
+        $originalSecurity = Get-Acl -LiteralPath $ownedFile
+        $ownedOriginalState = Get-RepinFixtureAclState $originalSecurity
+        $ownedOriginalSddl = $originalSecurity.GetSecurityDescriptorSddlForm([Security.AccessControl.AccessControlSections]::Access)
         # Restore only the DACL. Persisting a full Get-Acl object can request SACL privilege on PowerShell5.1.
         $ownedOriginalAcl = New-Object Security.AccessControl.FileSecurity
         $ownedOriginalAcl.SetSecurityDescriptorSddlForm($ownedOriginalSddl, [Security.AccessControl.AccessControlSections]::Access)
@@ -1236,8 +1290,11 @@ function Invoke-SelfTest {
             Assert (-not (Test-DefaultProtectedFile $ownedFile)) 'protected-location check refuses a user-owned file even when only SYSTEM can write'
         }
         finally { Set-RepinFixtureDacl $ownedFile $ownedOriginalAcl }
-        $restoredSddl = (Get-Acl -LiteralPath $ownedFile).GetSecurityDescriptorSddlForm([Security.AccessControl.AccessControlSections]::Access)
-        Assert ($restoredSddl -ceq $ownedOriginalSddl) 'REPIN_FIXTURE_ACL_RESTORED: the owned protected-DACL fixture is writable by its original owner before cleanup'
+        $restoredState = Get-RepinFixtureAclState (Get-Acl -LiteralPath $ownedFile)
+        Assert (Test-RepinFixtureAclState $ownedOriginalState $restoredState) 'REPIN_FIXTURE_ACL_RESTORED: original owner, group, protection and ordered DACL are restored before cleanup'
+        $writeMarker = 'restored-' + [guid]::NewGuid().ToString('N')
+        [IO.File]::AppendAllText($ownedFile, $writeMarker)
+        Assert ([IO.File]::ReadAllText($ownedFile) -ceq ('synthetic' + $writeMarker)) 'REPIN_FIXTURE_WRITE_RESTORED: the restored owned fixture accepts a real write and readback'
         [IO.File]::Delete($ownedFile)
         Assert (-not [IO.File]::Exists($ownedFile)) 'REPIN_FIXTURE_FILE_REMOVED: the protected-file probe leaves no owned executable fixture'
 

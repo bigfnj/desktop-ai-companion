@@ -2,6 +2,8 @@
 
 Each original scoped finding has one disposition and a portable engineering record. The separate campaign validation ledger records combined tests, installed acceptance and publication.
 
+The original 89 rows below retain their 1.9.0 closure proof. The later [1.9.1 audit follow-up](agentbroker-postpush-followup-191-20261108.md) adds four FIXED findings with separate code, contract and named-control evidence. The combined inventory is 93: 81 FIXED, 9 CLOSED-VERIFIED and 3 DECLINED-MEASURED. Integrated 1.9.1 regression and installed acceptance passed. Final publication, hosted CI and the audit of the published delta remain separate release checks recorded by the campaign report.
+
 | Finding | Disposition | Engineering record |
 | --- | --- | --- |
 | N-audit-1106-001 | CLOSED-VERIFIED | [agentbroker-postpush-native-20261107.md](agentbroker-postpush-native-20261107.md) |

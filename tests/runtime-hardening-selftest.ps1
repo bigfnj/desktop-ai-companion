@@ -4923,11 +4923,11 @@ Assert-True ($briNotRunNamesAt -ge 0 -and $briNotRunAt -gt $briNotRunNamesAt -an
     $briRunner.IndexOf("`n", $briRunner.IndexOf("`n", $briNotRunAt, [StringComparison]::Ordinal) + 1, [StringComparison]::Ordinal) -gt $briNotRunJoinAt -and
     -not $briRunner.Contains('=1 -- $($r.RealInputSkips[0])")')) (
     "blinkingled-resume: Test-ModuleSelfTests.ps1's SELFTEST-NOT-RUN: line names every check a module did not run, joined from all its SKIPPED lines, not the first alone (found at $briNotRunNamesAt, $briNotRunAt, $briNotRunJoinAt)")
-$briRealInputLine = [regex]::Match($briRunner, 'if \(-not \$noRealInputRequested\) \{\s*Write-Host "REAL INPUT: DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT is not 1, so blinkingled''s self-test makes one pair of real Scroll Lock presses"\s*\}')
+$briRealInputLine = [regex]::Match($briRunner, 'if \(-not \$noRealInputRequested -and \$Covered -contains ''blinkingled''\) \{\s*Write-Host "REAL INPUT: DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT is not 1, so blinkingled''s self-test makes one pair of real Scroll Lock presses"\s*\}')
 $briFirstModuleAt = $briRunner.IndexOf('foreach ($id in $Covered) {', [StringComparison]::Ordinal)
 Assert-True ($briRealInputLine.Success -and $briFirstModuleAt -gt $briRealInputLine.Index -and
     $briRunner.IndexOf('$noRealInputRequested = (', [StringComparison]::Ordinal) -lt $briRealInputLine.Index) (
-    "blinkingled-resume: Test-ModuleSelfTests.ps1 prints its REAL INPUT line when DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT is not 1, before the first module runs (found at $($briRealInputLine.Index), first module at $briFirstModuleAt)")
+    "blinkingled-resume: Test-ModuleSelfTests.ps1 prints its REAL INPUT line when DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT is not 1 and blinkingled is selected, before the first module runs (found at $($briRealInputLine.Index), first module at $briFirstModuleAt)")
 
 # ---- lane feature/stale-pet-xml ----
 # (invariants added by lane feature/stale-pet-xml go directly below this line)

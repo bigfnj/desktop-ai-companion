@@ -41,7 +41,8 @@ public sealed partial class AgentBrokerModule : IModule
     {
         Id = "agentbroker",
         Name = "AgentBroker",
-        Version = "1.9.0",   // 1.9.0: authenticated certificate renewal and post-push reliability repairs.
+        Version = "1.9.1",   // 1.9.1: peer-directory boundary validation and installed-health port support.
+                             // 1.9.0: authenticated certificate renewal and post-push reliability repairs.
                              //        Exact-incarnation delivery and the host ABI floor are unchanged.
                              // 1.8.0: arrival-cursor inbox reads, report-only native recovery, exact-address declarations,
                              //        independent discovery, delivery diagnostics and a supported one-request client.

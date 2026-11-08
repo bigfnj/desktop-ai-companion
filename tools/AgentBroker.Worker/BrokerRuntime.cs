@@ -1,4 +1,5 @@
 using AgentBroker.Core;
+using AgentBroker.Worker.Federation;
 using System.Collections.Concurrent;
 using System.Runtime.ExceptionServices;
 
@@ -170,7 +171,7 @@ public sealed partial class BrokerRuntime(BrokerStore store, IPeerFederation fed
                         // The outer wait preserves the whole-directory deadline even if a transport
                         // takes longer to observe cancellation. Late results cannot publish sessions.
                         var remote = await federation.GetDirectoryAsync(peer, peerToken).WaitAsync(peerToken);
-                        if (remote.BrokerId != peer.BrokerId || remote.Sessions.Count > 256) return;
+                        if (!PeerDirectoryPolicy.HasValidShape(remote, peer.BrokerId, PeerDirectoryPolicy.ListingMaximumSessions)) return;
                         directories[peer.BrokerId] = remote.Sessions.Where(s => s.Address.BrokerId == peer.BrokerId &&
                             !s.IsPrivate && s.LeaseUntil > DateTimeOffset.UtcNow).Take(256).ToArray();
                     }

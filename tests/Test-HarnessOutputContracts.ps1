@@ -38,7 +38,7 @@ $tables = @($floorNodes[0].Right.FindAll({ param($node) $node -is [Management.Au
 $assertionFloors = $tables[0].SafeGetValue()
 Check ($assertionFloors.Count -eq 7 -and $assertionFloors.Core -eq 408 -and $assertionFloors.Relay -eq 40 -and
     $assertionFloors.Claude -eq 212 -and $assertionFloors.Desktop -eq 594 -and $assertionFloors.Adapter -eq 84 -and
-    $assertionFloors.Network -eq 250 -and $assertionFloors.Worker -eq 1590) 'BROKER_FINAL_INVENTORY_FLOORS'
+    $assertionFloors.Network -eq 250 -and $assertionFloors.Worker -eq 1613) 'BROKER_FINAL_INVENTORY_FLOORS'
 $calls = @($syntax.FindAll({ param($node)
     $node -is [Management.Automation.Language.AssignmentStatementAst] -and
     @($node.Right.FindAll({ param($inner) $inner -is [Management.Automation.Language.CommandAst] -and
@@ -59,6 +59,7 @@ $moduleCalls = @($moduleSyntax.FindAll({ param($node)
 Check ($errors.Count -eq 0 -and $moduleCalls.Count -eq 1) 'MODULE_ACTUAL_COUNTER_HAS_ONE_AUTHORITY'
 $r = [pscustomobject]@{ Lines = @('PASS: host convention','[other] PASS: foreign assertion','RESULT=PASS') }
 $id = 'agentbroker'
+$minimum = 0
 $assertions = -1
 . ([scriptblock]::Create($moduleCalls[0].Extent.Text))
 Check ($assertions -eq 0) 'MODULE_ACTUAL_CALLER_EXCLUDES_HOST_AND_FOREIGN_ASSERTIONS'
@@ -84,4 +85,5 @@ $ciCalls = @($ciSyntax.FindAll({ param($node)
 Check ($block.Success -and $errors.Count -eq 0 -and $ciCalls.Count -eq 1 -and
     $ciCalls[0].Parent -is [Management.Automation.Language.NamedBlockAst]) 'CORE_CI_DIRECT_GUARD_REQUIRED'
 Refuses { . ([scriptblock]::Create($ciCalls[0].Extent.Text)) } 'CORE_CI_ACTUAL_CALLER_REFUSES_REGISTRATION_LOSS'
+& (Join-Path $PSScriptRoot 'Test-ModuleAssertionContracts.ps1')
 Write-Output "HarnessOutputChecks=$checks"

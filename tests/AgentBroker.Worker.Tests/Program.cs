@@ -33,6 +33,16 @@ if (args.SequenceEqual(["--certificate-continuity-only"]) ||
     }
     catch (Exception error) { Console.Error.WriteLine(error); Console.WriteLine("RESULT=FAIL"); return 1; }
 }
+if (args.SequenceEqual(["--directory-shape-only"]) || args.SequenceEqual(["--directory-shape-policy-only"]))
+{
+    try
+    {
+        if (args[0] == "--directory-shape-policy-only") PeerDirectoryShapeChecks.PureContracts(Check);
+        else await PeerDirectoryShapeChecks.RunAsync(Check);
+        Console.WriteLine($"RESULT=PASS assertions={assertions}"); return 0;
+    }
+    catch (Exception error) { Console.Error.WriteLine(error); Console.WriteLine("RESULT=FAIL"); return 1; }
+}
 if (args.SequenceEqual(["--claim-contract-only"]))
 {
     try { await DeliveryClaimContractChecks.RunAsync(Check); Console.WriteLine($"RESULT=PASS assertions={assertions}"); return 0; }
@@ -441,6 +451,7 @@ try
         await BrokerIdentityRenewalChecks.RunAsync(Check);
         await CertificateRenewalLifecycleChecks.RunAsync(Check);
         await DeliveryClaimContractChecks.RunAsync(Check);
+        await PeerDirectoryShapeChecks.RunAsync(Check);
         FirewallSetupChecks.Run(Check);
         MessageLifetimeOptionChecks.Run(Check);
         await PollingLeaseChecks.RunAsync(Check);

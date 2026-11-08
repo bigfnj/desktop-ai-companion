@@ -15,7 +15,9 @@
 
     Two halves, and the second is the one that keeps this honest:
 
-      COVERED   must report RESULT=PASS, with at least one PASS: assertion line and NO SKIP: line.
+      COVERED   must report RESULT=PASS, with tagged assertion evidence and NO SKIP: line.
+                Evidence is individual PASS: lines or the module's own "N checks passed" total.
+                Recorded module-specific floors also refuse an assertion inventory that shrank.
                 These are the modules whose module class exposes
                 `static bool SelfTest(out string detail)`, so the host runs their own assertions.
                 All three rules are graded: a PASS carrying no assertions is a check that ran nothing,
@@ -55,7 +57,9 @@
 param(
     [string]$RepoRoot = '',
     # The limit for every module that has none of its own in $ModuleTimeoutSeconds below.
-    [int]$TimeoutSeconds = 180
+    [int]$TimeoutSeconds = 180,
+    # All built ids must remain catalogued; a scoped run requires only its selected ids built.
+    [string[]]$Only = @()
 )
 
 $ErrorActionPreference = 'Stop'
@@ -90,6 +94,7 @@ $Covered = @('agentbroker', 'agentflow', 'aibrain', 'blinkingled', 'fortunes', '
 # before it times out. A caller's larger -TimeoutSeconds still wins (Get-ModuleTimeoutSeconds), so this can only lengthen
 # a module's limit, never shorten it below what the caller asked for.
 $ModuleTimeoutSeconds = @{ 'fortunes' = 300 }
+$moduleAssertionFloors = @{ 'agentbroker' = 385 }
 
 # The EXACT set of failures each uncovered module is expected to report -- not merely "it failed",
 # and not just its first failure. The first draft of this file matched the first FAIL line only, and
@@ -137,6 +142,17 @@ $realInputModules = @{
 $realInputRecordPattern = '^realKeypresses=(\d+) withheld=(\d+) started=(\d+) shutDown=(\d+)$'
 $noRealInputMeasured = @()
 
+function Select-ModuleTestIds([string[]]$Requested, [string[]]$Known) {
+    $selected = @($Requested | ForEach-Object {
+        if ([string]::IsNullOrWhiteSpace($_)) { throw 'Test-ModuleSelfTests.ps1: module selection contains an empty id.' }
+        $_.ToLowerInvariant()
+    } | Sort-Object -Unique)
+    if ($selected.Count -eq 0 -or @($selected | Where-Object { $Known -notcontains $_ }).Count -gt 0) {
+        throw 'Test-ModuleSelfTests.ps1: module selection must name known built modules.'
+    }
+    return $selected
+}
+
 $exe = Join-Path $RepoRoot 'build\DesktopAICompanionPortable\bin\Release\x64\DesktopAICompanion.exe'
 if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
     throw "The Release host is not built, so no module self-test can run: $exe"
@@ -150,8 +166,9 @@ if ($built.Count -eq 0) { throw "No built modules found under $modulesRoot" }
 # A NEW module must land in one list or the other. Without this the file would keep passing while
 # quietly testing a shrinking fraction of what ships.
 $known = @($Covered + @($Uncovered.Keys) | Sort-Object)
+$selected = if ($Only.Count -gt 0) { @(Select-ModuleTestIds $Only $known) } else { $known }
 $unlisted = @($built | Where-Object { $known -notcontains $_ })
-$missing = @($known | Where-Object { $built -notcontains $_ })
+$missing = @($selected | Where-Object { $built -notcontains $_ })
 if ($unlisted.Count -gt 0) {
     throw ("Built module(s) appear in neither the COVERED nor the UNCOVERED list in this file: " +
            ($unlisted -join ', ') + ". Add a SelfTest and put it in COVERED, or record it in UNCOVERED.")
@@ -159,6 +176,16 @@ if ($unlisted.Count -gt 0) {
 if ($missing.Count -gt 0) {
     throw ("This file lists module(s) that are not built: " + ($missing -join ', ') +
            '. Remove them, or find out why build.ps1 stopped producing them.')
+}
+
+if ($Only.Count -gt 0) {
+    $Covered = @($Covered | Where-Object { $selected -contains $_ })
+    $selectedUncovered = [ordered]@{}
+    foreach ($id in $Uncovered.Keys) {
+        if ($selected -contains $id) { $selectedUncovered[$id] = $Uncovered[$id] }
+    }
+    $Uncovered = $selectedUncovered
+    Write-Host ('MODULE SELECTION: ' + ($selected -join ', ') + '; built ids are catalogued and all selected modules are built.')
 }
 
 function Get-ModuleTimeoutSeconds([string]$Id) {
@@ -198,7 +225,7 @@ function Invoke-ModuleSelfTest([string]$Id) {
     # environment.txt say how close a module came to it.
     $limit = Get-ModuleTimeoutSeconds $Id
     $watch = [Diagnostics.Stopwatch]::StartNew()
-    $process = Start-Process -FilePath $exe -ArgumentList "--module-selftest=$Id" -PassThru
+    $process = Start-Process -FilePath $exe -ArgumentList "--module-selftest=$Id" -PassThru -WindowStyle Hidden
     $exited = $process.WaitForExit($limit * 1000)
     $watch.Stop()
     $moduleTimings[$Id] = [pscustomobject]@{ Seconds = [Math]::Round($watch.Elapsed.TotalSeconds, 1); Limit = $limit; Exited = $exited }
@@ -623,7 +650,7 @@ if ($documentsWatchSelfCheck.Count -eq 0) { Write-Host 'DOCUMENTS WATCH SELF-CHE
 # Said on every run that presses, before the first module runs, as tests\mutate-selftest-guards.py says it at its start:
 # a run without the variable makes Blinking LED's real presses, and until the final round of lane
 # feature/blinkingled-resume nothing here said so (with it at 1 the OK line, SELFTEST-NOT-RUN: and the summary say so).
-if (-not $noRealInputRequested) {
+if (-not $noRealInputRequested -and $Covered -contains 'blinkingled') {
     Write-Host "REAL INPUT: DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT is not 1, so blinkingled's self-test makes one pair of real Scroll Lock presses"
 }
 
@@ -659,7 +686,8 @@ try {
         # night it was written.
         #
         # Only this module's tagged assertions count. Host convention PASS lines also exist for an empty SelfTest.
-        $assertions = Get-ModuleAssertionCount $r.Lines $id
+        $minimum = if ($r.Result -ne 'PASS') { 0 } elseif ($moduleAssertionFloors.ContainsKey($id)) { [int]$moduleAssertionFloors[$id] } else { 1 }
+        $assertions = Get-ModuleAssertionCount $r.Lines $id $minimum
         # The real-input rules first and on their own: a run that sent real input, or cannot show it sent none, is a problem
         # whatever else it reports, and is never also printed as OK.
         $realInputProblem = $null
@@ -718,7 +746,7 @@ try {
                 Write-Output "SELFTEST-NO-REAL-INPUT: $id : $measured"
             }
             $timing = $moduleTimings[$id]
-            Write-Host ("  OK   {0,-12} PASS ({1} assertion line(s)) in {2} s of its {3} s limit{4}" -f $id, $assertions,
+            Write-Host ("  OK   {0,-12} PASS ({1} assertion(s)) in {2} s of its {3} s limit{4}" -f $id, $assertions,
                         $timing.Seconds.ToString('0.0', [Globalization.CultureInfo]::InvariantCulture), $timing.Limit, $notRunNote)
         }
     }

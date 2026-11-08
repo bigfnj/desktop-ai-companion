@@ -318,7 +318,7 @@ The first default-branch push was reviewed in parallel. Follow-up fixes reject e
 
 The packaging smoke passed against rebuilt outputs; committed-ZIP SHA validation and the installed DLL/runtime proof were separate checks. Rebuilding can change informational revision metadata and ZIP timestamps, so those artifacts were not claimed to be byte-identical. Two physical-key checks were withheld, with zero keypresses measured. The development-only test module retains its previously declared gaps. Passive resource observations are bounded samples, not proof of leak freedom.
 
-Use `tools/agentbroker/Install-LocalAgentBroker.ps1 -SelfTest` to repeat updater fixture checks, or `tools/agentbroker/Test-LocalAgentBrokerHealth.ps1 -WorkerProcessId <exact PID> -SampleSeconds 30` for read-only installed health and resource counters. The latter opens no settings, message store, native credentials or client configuration.
+Use `tools/agentbroker/Install-LocalAgentBroker.ps1 -SelfTest` to repeat updater fixture checks, or `tools/agentbroker/Test-LocalAgentBrokerHealth.ps1 -WorkerProcessId <exact PID> -SampleSeconds 30` for read-only installed health and resource counters. If configured ports differ from the defaults, pass `-LoopbackPort <local port> -LanPort <LAN port>` explicitly; defaults are 7432 and 7433. The helper opens no settings, message store, native credentials or client configuration.
 
 ### Status and client-setup correction
 

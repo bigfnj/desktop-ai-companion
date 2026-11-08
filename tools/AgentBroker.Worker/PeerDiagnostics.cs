@@ -1,5 +1,6 @@
 using AgentBroker.Core;
 using AgentBroker.Protocol;
+using AgentBroker.Worker.Federation;
 using System.Collections.Concurrent;
 using System.Net;
 using System.Security.Authentication;
@@ -38,9 +39,7 @@ public static class PeerDiagnostics
                     stop.ThrowIfCancellationRequested();
                     if (!runtime.Store.IsPeerAuthorized(authorization))
                         results[peer.BrokerId] = Failure(peer, "trust_changed");
-                    else if (directory is null || directory.BrokerId != peer.BrokerId || directory.Sessions is null ||
-                        directory.Sessions.Count > 256 || directory.Sessions.Any(session => session is null ||
-                            session.Address is null || session.Address.BrokerId != peer.BrokerId || session.IsPrivate))
+                    else if (!PeerDirectoryPolicy.IsValid(directory, peer.BrokerId, PeerDirectoryPolicy.ListingMaximumSessions))
                         results[peer.BrokerId] = Failure(peer, "invalid_directory");
                     else
                         results[peer.BrokerId] = new(peer.BrokerId, peer.Endpoint, peer.CertificateSha256,
