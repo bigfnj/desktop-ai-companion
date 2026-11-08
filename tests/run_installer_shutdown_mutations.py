@@ -230,12 +230,16 @@ def self_test() -> int:
                     os.chmod(path, stat.S_IWRITE | stat.S_IREAD)
             shutil.rmtree(folder)
     # main() itself (Codex recheck 2026-11-02): the cases above cover the helper, not main's call to it, so removing that
-    # call, guarding it with "if False" or moving it after the final build all passed them.
-    main_cases = (("main-restores-before-final-build", False), ("main-missing-earlier-source", True))
-    for case, missing_earlier in main_cases:
+    # call, guarding it with "if False" or moving it after the final build all passed them. The same held for main's
+    # refusal of an unlabelled variant (N-bd-w2-tests-scripts-1-02): every-variant-names-its-label covers the helper and
+    # the VARIANTS data, so deleting main's call to the refusal passed every case here; main_refusal_case runs main.
+    main_cases = (("main-restores-before-final-build", lambda folder: main_wiring_case(folder, False)),
+                  ("main-missing-earlier-source", lambda folder: main_wiring_case(folder, True)),
+                  ("main-refuses-an-unlabelled-variant", main_refusal_case))
+    for case, run_case in main_cases:
         folder = Path(tempfile.mkdtemp(prefix="installer-shutdown-main-selftest-"))
         try:
-            main_wiring_case(folder, missing_earlier)
+            run_case(folder)
             print("PASS " + case)
         except Exception as error:  # every case runs; each failure is named
             failed.append(case)
@@ -342,6 +346,60 @@ def main_wiring_case(folder: Path, missing_earlier: bool) -> None:
             raise AssertionError("the first final build saw a source that was not original")
         if returned != original:
             raise AssertionError("a source was not original when main returned")
+
+
+def main_refusal_case(folder: Path) -> None:
+    """Run the REAL main() with --apply over one synthetic variant that names no label: it must refuse before anything.
+
+    The source exists and holds the variant's anchor, so without the refusal main would go on to back it up, mutate it
+    and start the (fake) builds; the refusal is the only thing that stops it. Checked as an outcome: exit 2, the refusal
+    names the variant, no child process was started, no evidence folder was made and the source is untouched. main's
+    globals are patched as in main_wiring_case and always put back; any path outside folder is refused.
+    """
+    import contextlib
+    import io
+    from types import SimpleNamespace
+    name = "synthetic/Unlabelled.cpp"
+    (folder / name).parent.mkdir(parents=True, exist_ok=True)
+    (folder / name).write_bytes(b"synthetic original line\n")
+    original = (folder / name).read_bytes()
+    variants = (("synthetic-unlabelled", "paths", name, "synthetic original line", "synthetic MUTATED line", None),)
+    started = []
+
+    class FakeProcess:
+        def __init__(self, argv, cwd, stdin, stdout, stderr):
+            started.append(argv[0])
+
+        def wait(self, timeout=None):
+            return 0
+
+    def confined(path: Path) -> None:
+        if not Path(path).resolve().is_relative_to(folder.resolve()):
+            raise RuntimeError("Self-test refused a path outside its synthetic root: " + str(path))
+
+    module = globals()
+    patches = {"ROOT": folder, "VARIANTS": variants, "BUILD": folder / "synthetic-build.ps1",
+               "CHECKS": folder / "synthetic-checks.exe", "healthy_count": lambda: 1, "refuse_links": confined,
+               "subprocess": SimpleNamespace(Popen=FakeProcess, DEVNULL=subprocess.DEVNULL,
+                                             TimeoutExpired=subprocess.TimeoutExpired)}
+    saved = {key: module[key] for key in patches}
+    module.update(patches)
+    errors = io.StringIO()
+    try:
+        if module["ROOT"] is not folder or module["subprocess"].Popen is not FakeProcess:
+            raise AssertionError("the self-test could not redirect main; nothing was run")
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(errors):
+            code = main(["--apply"])
+    finally:
+        module.update(saved)
+    if code != 2 or "no label: synthetic-unlabelled" not in errors.getvalue():
+        raise AssertionError("main did not refuse the unlabelled variant: exit %s, %r" % (code, errors.getvalue()))
+    if started:
+        raise AssertionError("main started a child for an unlabelled variant: " + ", ".join(map(str, started)))
+    if (folder / "build").exists():
+        raise AssertionError("main made an evidence folder for an unlabelled variant")
+    if (folder / name).read_bytes() != original:
+        raise AssertionError("main changed the source of an unlabelled variant")
 
 
 def main(argv: list[str] | None = None) -> int:

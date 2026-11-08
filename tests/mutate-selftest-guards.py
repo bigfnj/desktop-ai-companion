@@ -23897,6 +23897,16 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--hardening-selftest", "dp-hardening-selftest.txt",
      "hang: a window-wildcard pick under a window, which would not hang, is declined before its sound plays"),
+
+    # ---- burndown/w9-tests-scripts-2 ----
+    # N-bd-w2-tests-scripts-1-02. The installer shutdown runner's main() no longer refuses an unlabelled variant, so a
+    # None label reaches the builds again and only the verdict's guard is left; main_refusal_case runs main itself.
+    ("bd-w9-tests-scripts-2: the installer runner's main plans an unlabelled variant (N-bd-w2-tests-scripts-1-02)",
+     INSTALLER_SHUTDOWN_RUNNER_PY,
+     b'    unlabelled = unlabelled_variants(selected)\n    if unlabelled:\n',
+     b'    unlabelled = unlabelled_variants(selected)\n    if False:\n',
+     None, None,
+     MUTATION_UNITTESTS, None, 'test_the_installer_runner_main_refuses_an_unlabelled_variant'),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
