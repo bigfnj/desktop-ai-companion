@@ -22,7 +22,9 @@
     The mutation tooling's own checks joined on 2026-11-07 (N-audit-1106-344, N-release-180-02): the agentflow and
     diagnostics harnesses' --check-patterns, the installer-shutdown and tolerant-note runners' --self-test, and the shard
     controller's -SelfTest, remainder and TEMP-budget checks, each in a child judged by its exit code. They read the
-    repository and build nothing; the TEMP-budget check creates and removes synthetic folders under TEMP.
+    repository and build nothing; the TEMP-budget check creates and removes synthetic folders under TEMP. The isolated
+    MSI API logging probe's facade and orchestration suites joined that PowerShell 7 list on 2026-11-08
+    (N-audit-1106-367, N-audit-1106-368): in-memory fakes only, no MSI, registry, process or GUI access.
 
     The bundled fortune corpus joined the same day (N-audit-1106-137): src\Fortunes\build-corpus.sh --check, run in
     Git Bash located from git itself and judged by its exit code; it writes only a staging folder beside the corpus,
@@ -210,10 +212,17 @@ $mutationPython = @(
     @('mutate-diagnostics.py', '--check-patterns'),
     @('run_installer_shutdown_mutations.py', '--self-test'),
     @('run_codex_tolerant_note_mutations.py', '--self-test'))
+# The isolated MSI API logging probe's two in-memory suites share the PowerShell 7 loop (N-audit-1106-367,
+# N-audit-1106-368): both are #requires 7 (the facade test compiles its fake with Add-Type), so they cannot run in this
+# process, and nothing else called them, so their checks of tools\agentbroker\Test-IsolatedMsiApiLogging.ps1 and
+# Invoke-IsolatedMsiApiLoggingCase.ps1 guarded nothing unless run by hand. Each parses its source and dot-sources the
+# functions it tests; neither runs a probe entry point, an MSI, a registry write or a child process.
 $mutationPwsh = @(
     @('..\tools\agentbroker\Invoke-MutationShards.ps1', '-SelfTest'),
     @('Test-MutationShardRemainder.ps1', ''),
-    @('Test-MutationTempBudget.ps1', ''))
+    @('Test-MutationTempBudget.ps1', ''),
+    @('Test-IsolatedMsiApiLogging.ps1', ''),
+    @('Test-IsolatedMsiApiLoggingCase.ps1', ''))
 $python = @(Get-Command -Name 'python' -CommandType Application -ErrorAction SilentlyContinue) | Select-Object -First 1
 foreach ($check in $mutationPython) {
     $label = ($check[0] + ' ' + $check[1])

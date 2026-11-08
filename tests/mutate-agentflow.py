@@ -52,6 +52,8 @@ import re
 import shutil
 import subprocess
 from mutation_process import run_bytes, run_text, utf8_stdio
+from mutation_journal import JournalError, RestoreJournal, journal_path, repaired_loaded_module
+from mutation_process import run_bytes, run_text
 import sys
 import time
 import uuid
@@ -75,6 +77,11 @@ EXE = os.path.join(REPO, "build", "DesktopAICompanionPortable", "bin", "Release"
 RUN_TEMP = None
 MARKER = None
 CHILD_ENV = None
+# The on-disk restore record (tests/mutation_journal.py, N-bd-w6-tests-harness-1-01), set in main() like RUN_TEMP. A
+# hard kill runs no finally, so restore() alone left the mutant in the tree with its original text only in the dead
+# process's memory; the shard controller's git diff noticed, a direct --only run did not. None when score() is driven by
+# a unit test, so a test never touches the record of a real run going on in the same tree.
+JOURNAL = None
 
 SPLITTER = os.path.join(MODULE_DIR, "CommandSplitter.cs")
 RULES = os.path.join(MODULE_DIR, "PermissionRules.cs")
@@ -3266,11 +3273,29 @@ def line_ending_variant(base, old, new):
         return crlf_old, crlf_new
     return old, new
 
+def repair_stranded_mutant():
+    """Put back a mutant a hard-killed run left (N-bd-w6-tests-harness-1-01). Returns None to go on, or the exit code to
+    stop with: 2 when the record cannot be acted on, or when the file it put back is one this process already imported,
+    which would run the rest as the mutant."""
+    try:
+        lines, repaired = JOURNAL.repair()
+    except JournalError as error:
+        print("REFUSED: " + str(error))
+        return 2
+    for line in lines:
+        print(line)
+    if repaired_loaded_module(repaired, sys.modules):
+        print("STOPPED: this run loaded that file as the mutant; run the harness again")
+        return 2
+    return None
+
+
 def main():
     global RUN_TEMP, MARKER, CHILD_ENV
     # Before anything is printed: the module report lines this harness quotes can carry the pane's markers, which a
     # redirected cp1252 stdout cannot encode (N-bd-w7-aibrain-1-03; mutation_process.utf8_stdio says why UTF-8).
     utf8_stdio()
+    global RUN_TEMP, MARKER, CHILD_ENV, JOURNAL
     parser = argparse.ArgumentParser()
     add_selection_arguments(parser)
     parser.add_argument("--check-patterns", action="store_true",
@@ -3287,6 +3312,12 @@ def main():
         print(plan.json())
         return 0
     print("CASEPLAN " + plan.summary())
+    # Before score() reads any target as its baseline: put back a mutant a hard-killed run left
+    # (N-bd-w6-tests-harness-1-01), the same first act as the guard and diagnostics harnesses.
+    JOURNAL = RestoreJournal(journal_path(__file__))
+    stopped = repair_stranded_mutant()
+    if stopped is not None:
+        return stopped
     # Short on purpose: a self-test's own temp paths sit below this, and one of them (the fortunes
     # VectorCache fallback probe) reaches MAX_PATH once TEMP itself is ~107 characters. Measured 2026-09-29.
     RUN_TEMP = os.path.join(os.environ.get("TEMP", "."), "dp-maf-" + uuid.uuid4().hex[:12])
@@ -3349,6 +3380,9 @@ def score(plan):
     def restore():
         for target, text in baseline.items():
             write(target, text)
+        # Only once every original is back; clear() removes nothing this run did not record.
+        if JOURNAL is not None:
+            JOURNAL.clear()
 
     # ---- BASELINE MUST BE GREEN FIRST -------------------------------------------------
     # 20/20 was once reported against a red baseline in this repo, and only the gate
@@ -3386,7 +3420,13 @@ def score(plan):
                 continue
 
             before_stamp = os.path.getmtime(DLL) if os.path.isfile(DLL) else 0.0
-            write(path, source.replace(find_v, replace_v))
+            mutant = source.replace(find_v, replace_v)
+            # ON DISK before the mutant is (N-bd-w6-tests-harness-1-01): main() repairs from the record at the start of
+            # the next run. As bytes, the way read() and write() turn text into the file (plain utf-8, newline=""), so
+            # the record's original is the file's own bytes and a BOM read as U+FEFF goes back as it came.
+            if JOURNAL is not None:
+                JOURNAL.record(path, source.encode("utf-8"), mutant.encode("utf-8"), name)
+            write(path, mutant)
             # A same-second rebuild can leave the timestamp unchanged on a coarse
             # filesystem clock, which would read as "never rebuilt".
             time.sleep(1.1)

@@ -69,7 +69,11 @@ class HardeningDriverTests(unittest.TestCase):
                     self.harness.DOC_COUNT_DRIFT)
             runs = [(1, baseline), (1, mutant_output)]
             console = io.StringIO()
-            with patch.object(self.harness, "CASES", (case,)), \
+            # main() keeps its restore record beside the harness (N-bd-w6-tests-harness-1-01); here it goes in the
+            # temporary folder, so this test never reads or leaves the record of a real run in the same tree. A mutant
+            # that stops clearing it left one there, which then refused every later run of the harness.
+            with patch.object(self.harness, "journal_path", return_value=str(Path(folder, "hardening.restore-journal.json"))), \
+                 patch.object(self.harness, "CASES", (case,)), \
                  patch.object(self.harness, "run", side_effect=runs), \
                  patch.object(self.harness.sys, "argv", ["mutate-hardening-guards.py"]), \
                  contextlib.redirect_stdout(console):

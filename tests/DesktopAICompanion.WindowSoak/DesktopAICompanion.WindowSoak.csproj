@@ -29,7 +29,12 @@
     <EnableDefaultItems>false</EnableDefaultItems>
     <LangVersion>7.3</LangVersion>
     <Deterministic>true</Deterministic>
-    <WarningLevel>4</WarningLevel>
+    <!-- No WarningLevel here, on purpose (N-bd-w6-tests-core-1-01), the rule src\Directory.Build.props states for src
+         (N-audit-1106-136) and CoreTests' project repeats. For a .NETCoreApp target the SDK sets it to the target
+         framework's major version, so net10.0-windows builds at 10 with the compiler's warning waves 5 to 10 on. This
+         project used to pin 4, the .NET Framework value, which switched every wave off here, so the setting below
+         could never turn one of those warnings into an error. tests\runtime-hardening-selftest.ps1 fails on a pin
+         below the default. -->
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <!-- Keep the flat bin\<Config> layout the soak script and the release checklist expect. -->
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
