@@ -1120,7 +1120,8 @@ namespace DesktopAICompanion.Shimeji
         }
 
         /// <summary>What a map, document or compile refusal can throw: each is the pet's fault, reported with its file
-        /// and exit 2, never an unhandled exception out of the command.</summary>
+        /// and exit 2, never an unhandled exception out of the command. A scenario's readers throw the same kinds, and
+        /// <see cref="ReadScenario"/> refuses them as scenario-invalid.</summary>
         private static bool IsRefusal(Exception e)
         {
             return e is InvalidDataException || e is JsonException || e is FormatException || e is InvalidOperationException
@@ -1182,8 +1183,33 @@ namespace DesktopAICompanion.Shimeji
         public static int Run(string scenarioPath, string petsDir, string tracePath, Dictionary<string, string> build, TextWriter log, bool traceOff = false)
         {
             byte[] scenarioBytes = File.ReadAllBytes(scenarioPath);
-            using (JsonDocument doc = JsonDocument.Parse(scenarioBytes))
+            // N-bd-w10-shimeji-host-1-01: a scenario that is not JSON, lacks a field or holds one the run cannot read is
+            // scenario-invalid (CONTRACT sections 1 and 6), refused here with exit 2, its line and no trace, before the
+            // pets and the pack are read. The oracle refuses the same scenario before it writes anything (oracle.py v1_run
+            // calls the comparer's validate_scenario first), and 10.7 decides a scenario refused from the scenario alone
+            // before either trace is read, so there is no run to abort. The refused alternative was an aborted run with a
+            // complete footer: the header needs the id, rng and dpiScale such a scenario may lack, and a trace with no
+            // header line is missing-field to the comparer. Read where the trace was already open and outside the run's
+            // try, a missing field threw KeyNotFoundException out of the command and left an empty trace.
+            JsonDocument doc;
+            try
             {
+                doc = JsonDocument.Parse(scenarioBytes);
+            }
+            catch (JsonException e)
+            {
+                log.WriteLine("refused " + scenarioPath + ": scenario-invalid: the scenario is not JSON: " + e.Message);
+                return 2;
+            }
+            using (doc)
+            {
+                string refusal;
+                Scenario scenario = ReadScenario(doc.RootElement, out refusal);
+                if (scenario == null)
+                {
+                    log.WriteLine("refused " + scenarioPath + ": scenario-invalid: " + refusal);
+                    return 2;
+                }
                 // Every map is parsed, compiled and applied before the trace file is opened, so a refused map leaves no
                 // trace behind, not even an empty one a later step could take for a run.
                 List<KeyValuePair<TickType, ParityMap>> pets = LoadPets(petsDir, log);
@@ -1195,7 +1221,7 @@ namespace DesktopAICompanion.Shimeji
                 // header write, after the trace was opened and before the run's try, it left an empty trace and escaped the
                 // command as an exception. A footer-only trace was the refused alternative: with no header line the comparer
                 // reads it as missing-field, a file a later step could take for a run.
-                string packDir = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(scenarioPath)), doc.RootElement.GetProperty("pack").GetString()));
+                string packDir = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(scenarioPath)), scenario.Pack));
                 string packSha256;
                 try
                 {
@@ -1209,15 +1235,142 @@ namespace DesktopAICompanion.Shimeji
                 using (var trace = new StreamWriter(tracePath, false, new UTF8Encoding(false)))
                 {
                     trace.NewLine = "\n";
-                    return Run(doc.RootElement, scenarioBytes, packSha256, pets, trace, build, log, traceOff);
+                    return Run(scenario, scenarioBytes, packSha256, pets, trace, build, log, traceOff);
                 }
             }
         }
 
-        private static int Run(JsonElement s, byte[] scenarioBytes, string packSha256, List<KeyValuePair<TickType, ParityMap>> pets,
+        /// <summary>The scenario's schema (CONTRACT section 1).</summary>
+        internal const string ScenarioSchema = "shimeji-parity-scenario/1";
+
+        /// <summary>The fields CONTRACT section 1 requires, as the comparer's validate_scenario lists them.</summary>
+        private static readonly string[] ScenarioFields = { "id", "pack", "screens", "workArea", "dpiScale", "ticks", "rng", "settings", "mascots" };
+
+        /// <summary>What a run reads from its scenario outside the run's try: all of it is read before the trace file is
+        /// opened (<see cref="ReadScenario"/>), so nothing the scenario holds can fail between the header and the footer
+        /// except inside the try, where a failure is the run's and is written as one.</summary>
+        private sealed class Scenario
+        {
+            public JsonElement Root;
+            public string Id, Pack, Rng;
+            public double DpiScale;
+            public int Ticks;
+            public ParityEnvironment Environment;
+            public ParityRandom Random;
+            public ParitySettings Settings;
+        }
+
+        /// <summary>The scenario as the run reads it, or null with why it is scenario-invalid in <paramref name="refusal"/>.
+        /// <see cref="ScenarioInvalid"/> names a missing or mistyped field; the readers then run here rather than after the
+        /// trace is opened, and anything they still refuse (a screen with no "h", a tape value that is no number, a seed
+        /// that is no hex) is scenario-invalid too, named by what was being read.</summary>
+        private static Scenario ReadScenario(JsonElement s, out string refusal)
+        {
+            refusal = ScenarioInvalid(s);
+            if (refusal != null) return null;
+            string reading = "screens, workArea, activeWindow or input";
+            try
+            {
+                var read = new Scenario { Root = s, Environment = new ParityEnvironment(s) };
+                reading = "rng";
+                read.Random = new ParityRandom(s.GetProperty("rng"));
+                // Re-serialised compactly: the scenario's own text may be indented, and a trace is one object per line.
+                read.Rng = JsonSerializer.Serialize(s.GetProperty("rng"));
+                reading = "settings or typeSettings";
+                read.Settings = new ParitySettings(s);
+                reading = "dpiScale";
+                read.DpiScale = s.GetProperty("dpiScale").GetDouble();
+                read.Id = s.GetProperty("id").GetString();
+                read.Pack = s.GetProperty("pack").GetString();
+                read.Ticks = s.GetProperty("ticks").GetInt32();
+                return read;
+            }
+            catch (Exception e) when (IsRefusal(e))
+            {
+                refusal = reading + " cannot be read: " + e.Message;
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Why the scenario breaks CONTRACT section 1, or null. These are the comparer's validate_scenario rules, in its order
+        /// and with its words, since the oracle applies that function before it writes anything: the schema, every required
+        /// field, ticks a non-negative integer, rng.kind one of the three, one or more unique sids, a behavior for every start
+        /// companion (a directed start runs no selection draw), and timelines in order inside 0..N with no tick-0 button
+        /// edge. Then the kinds this run reads by name, which the comparer leaves to the producers: the id and pack strings,
+        /// a tape's values and a splitmix64 seed, and each start companion's imageSet, anchor and lookRight.
+        /// </summary>
+        internal static string ScenarioInvalid(JsonElement s)
+        {
+            JsonElement e;
+            if (s.ValueKind != JsonValueKind.Object || !s.TryGetProperty("schema", out e) || e.ValueKind != JsonValueKind.String
+                || e.GetString() != ScenarioSchema)
+                return "schema is not " + ScenarioSchema;
+            foreach (string field in ScenarioFields)
+                if (!s.TryGetProperty(field, out e)) return "lacks '" + field + "'";
+            int ticks;
+            if (!Integer(s.GetProperty("ticks"), out ticks) || ticks < 0) return "ticks is not a non-negative integer";
+            JsonElement rng = s.GetProperty("rng");
+            string kind = rng.ValueKind == JsonValueKind.Object && rng.TryGetProperty("kind", out e) && e.ValueKind == JsonValueKind.String ? e.GetString() : null;
+            if (kind != "none" && kind != "tape" && kind != "splitmix64") return "rng.kind is not none, tape or splitmix64";
+            JsonElement mascots = s.GetProperty("mascots");
+            if (mascots.ValueKind != JsonValueKind.Array || mascots.GetArrayLength() == 0) return "mascots need one or more unique sids";
+            var sids = new HashSet<string>(StringComparer.Ordinal);
+            foreach (JsonElement m in mascots.EnumerateArray())
+                if (m.ValueKind != JsonValueKind.Object || !m.TryGetProperty("sid", out e) || e.ValueKind != JsonValueKind.String
+                    || e.GetString().Length == 0 || !sids.Add(e.GetString()))
+                    return "mascots need one or more unique sids";
+            foreach (JsonElement m in mascots.EnumerateArray())
+                if (!m.TryGetProperty("behavior", out e) || e.ValueKind != JsonValueKind.String || e.GetString().Length == 0)
+                    return "start companion '" + m.GetProperty("sid").GetString() + "' names no behavior (a directed start runs no selection draw)";
+            foreach (string timeline in new[] { "input", "activeWindow" })
+            {
+                if (!s.TryGetProperty(timeline, out e)) continue;
+                if (e.ValueKind != JsonValueKind.Array) return timeline + " is not a list of entries";
+                int last = -1;
+                foreach (JsonElement entry in e.EnumerateArray())
+                {
+                    JsonElement t;
+                    int tick;
+                    bool has = entry.ValueKind == JsonValueKind.Object && entry.TryGetProperty("tick", out t);
+                    if (!has || !Integer(entry.GetProperty("tick"), out tick) || tick < 0 || tick > ticks || tick < last)
+                        return timeline + " entry tick " + (has ? entry.GetProperty("tick").GetRawText() : "(none)") + " is out of order or outside 0.." + ticks;
+                    last = tick;
+                    if (timeline == "input" && tick == 0
+                        && (entry.TryGetProperty("press", out t) || entry.TryGetProperty("release", out t) || entry.TryGetProperty("click", out t)))
+                        return "a tick-0 press, release or click (button edges start at tick 1)";
+                }
+            }
+            if (s.GetProperty("id").ValueKind != JsonValueKind.String) return "id is not a string";
+            if (s.GetProperty("pack").ValueKind != JsonValueKind.String) return "pack is not a string";
+            if (kind == "tape" && (!rng.TryGetProperty("values", out e) || e.ValueKind != JsonValueKind.Array)) return "a tape rng lacks its values list";
+            if (kind == "splitmix64" && (!rng.TryGetProperty("seed", out e) || e.ValueKind != JsonValueKind.String)) return "a splitmix64 rng lacks its seed string";
+            foreach (JsonElement m in mascots.EnumerateArray())
+            {
+                string sid = "start companion '" + m.GetProperty("sid").GetString() + "'";
+                int x;
+                if (!m.TryGetProperty("imageSet", out e) || e.ValueKind != JsonValueKind.String) return sid + " lacks its imageSet string";
+                if (!m.TryGetProperty("anchor", out e) || e.ValueKind != JsonValueKind.Array || e.GetArrayLength() != 2
+                    || !Integer(e[0], out x) || !Integer(e[1], out x))
+                    return sid + " lacks its anchor [x, y]";
+                if (!m.TryGetProperty("lookRight", out e) || (e.ValueKind != JsonValueKind.True && e.ValueKind != JsonValueKind.False))
+                    return sid + " lacks its lookRight boolean";
+            }
+            return null;
+        }
+
+        /// <summary>A JSON integer that fits Int32, as the run's readers take one (GetInt32 refuses 5.0 and 1e0).</summary>
+        private static bool Integer(JsonElement e, out int value)
+        {
+            value = 0;
+            return e.ValueKind == JsonValueKind.Number && e.TryGetInt32(out value);
+        }
+
+        private static int Run(Scenario scenario, byte[] scenarioBytes, string packSha256, List<KeyValuePair<TickType, ParityMap>> pets,
             TextWriter trace, Dictionary<string, string> build, TextWriter log, bool traceOff)
         {
             {
+                JsonElement s = scenario.Root;
                 var maps = new Dictionary<string, ParityMap>(StringComparer.Ordinal);
                 var types = new List<TickType>();
                 foreach (KeyValuePair<TickType, ParityMap> pet in pets)
@@ -1226,17 +1379,13 @@ namespace DesktopAICompanion.Shimeji
                     types.Add(pet.Key);
                 }
 
-                var env = new ParityEnvironment(s);
-                var random = new ParityRandom(s.GetProperty("rng"));
-                var settings = new ParitySettings(s);
+                ParityRandom random = scenario.Random;
                 var writer = new ParityTraceWriter(trace, maps, traceOff);
-                writer.Header(s.GetProperty("id").GetString(), Sha256(scenarioBytes), packSha256, build,
-                    // Re-serialised compactly: the scenario's own text may be indented, and a trace is one object per line.
-                    JsonSerializer.Serialize(s.GetProperty("rng")), s.GetProperty("dpiScale").GetDouble());
+                writer.Header(scenario.Id, Sha256(scenarioBytes), packSha256, build, scenario.Rng, scenario.DpiScale);
 
-                var world = new TickWorld(env, random, settings, writer);
+                var world = new TickWorld(scenario.Environment, random, scenario.Settings, writer);
                 foreach (TickType t in types) world.AddType(t);
-                int ticks = s.GetProperty("ticks").GetInt32();
+                int ticks = scenario.Ticks;
                 string status = "complete";
                 // CONTRACT v1.1 section 1: a left-button edge for a companion that is not active at dispatch is a scenario
                 // error (the oracle refuses it the same way). Only this run sets the hook: the product drops such an edge.
@@ -1333,9 +1482,18 @@ namespace DesktopAICompanion.Shimeji
         /// below threw FileNotFoundException, which no refusal catches.</summary>
         public static string PackSha256(string packDir)
         {
+            return PackSha256(packDir, Directory.GetFiles);
+        }
+
+        /// <param name="listFiles">The files of one folder: Directory.GetFiles, except in ShimejiWindowSelfTest, which lists a
+        /// second spelling beside a file as a case-sensitive folder would. A case-insensitive disk cannot hold both, and
+        /// making a folder case-sensitive needs a right a self-test does not have.</param>
+        internal static string PackSha256(string packDir, Func<string, string[]> listFiles)
+        {
             if (!Directory.Exists(packDir)) throw new InvalidDataException("pack-invalid: the pack " + packDir + " is not a folder");
             if (IsLink(packDir)) throw new InvalidDataException("pack-invalid: the pack " + packDir + " is a link");
             var files = new List<string>();
+            var folded = new Dictionary<string, string>(StringComparer.Ordinal);
             var dirs = new Stack<string>();
             dirs.Push(packDir);
             while (dirs.Count > 0)
@@ -1344,11 +1502,13 @@ namespace DesktopAICompanion.Shimeji
                 foreach (string d in Directory.GetDirectories(dir))
                 {
                     if (IsLink(d)) throw new InvalidDataException("pack-invalid: the pack holds a link: " + Relative(packDir, d));
+                    RefuseCaseTwin(folded, Relative(packDir, d));
                     dirs.Push(d);
                 }
-                foreach (string f in Directory.GetFiles(dir))
+                foreach (string f in listFiles(dir))
                 {
                     if (IsLink(f)) throw new InvalidDataException("pack-invalid: the pack holds a link: " + Relative(packDir, f));
+                    RefuseCaseTwin(folded, Relative(packDir, f));
                     files.Add(f);
                 }
             }
@@ -1376,6 +1536,27 @@ namespace DesktopAICompanion.Shimeji
             var text = new StringBuilder();
             foreach (KeyValuePair<string, string> r in rows) text.Append(r.Value).Append("  ").Append(r.Key).Append('\n');
             return Sha256(Encoding.UTF8.GetBytes(text.ToString()));
+        }
+
+        /// <summary>
+        /// N-bd-w10-shimeji-host-1-02, the comparer's rule (compare.py pack_preflight, review W123 F4): two entries that differ
+        /// only in case (a pack built in a case-sensitive folder) are one file or folder to a case-insensitive copy, which
+        /// keeps the first name and the last bytes, so the copied pack no longer matches its manifest. The comparer refuses
+        /// such a pack as pack-invalid before it reads either trace; unrefused here, the host hashed it and wrote a trace
+        /// for a pack no verdict can use. Both the upper and the lower form are keys, as the comparer tries upper() and
+        /// casefold(). These are .NET's simple case mappings, which is how a case-insensitive disk compares names; Python's
+        /// full mappings also refuse a few pairs a disk keeps apart (sharp s and "ss"), which the host hashes and the
+        /// comparer still refuses, so no verdict differs.
+        /// </summary>
+        private static void RefuseCaseTwin(Dictionary<string, string> folded, string relative)
+        {
+            foreach (string key in new[] { relative.ToUpperInvariant(), relative.ToLowerInvariant() })
+            {
+                string other;
+                if (!folded.TryGetValue(key, out other)) folded[key] = relative;
+                else if (other != relative)
+                    throw new InvalidDataException("pack-invalid: the pack holds entries that differ only in case: " + other + ", " + relative);
+            }
         }
 
         private static bool IsLink(string path)
