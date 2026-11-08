@@ -255,6 +255,24 @@ namespace DesktopAICompanion.FortunesModule
                 ok &= Check(sb, "a tagged row that decodes to a control character is refused",
                     !ValidatePack(rowA + "\nprobe\tlife\tquip\tgeneral\t0\tA tab&#9;hides inside this fortune text.", out rows, out why));
 
+                // ---- a plain pack's dropped entries are counted (N-audit-1106-212) ----
+                // One entry too short, one too long, and one whose only fault is a control character (BEL is not
+                // whitespace, so the collapse leaves it in): three left out of a pack that still loads two. Blank
+                // lines, the empty blocks a `%` separator makes and the trailing newline are not entries at all.
+                string tooLong = "This entry runs on far too long for a bubble: " + new string('o', 280);
+                int leftOut;
+                ok &= Check(sb, "a loadable plain pack counts the entries it left out for length or a control character (N-audit-1106-212)",
+                    ValidatePack("A first fortune that loads fine.\nshort\n" + tooLong + "\n\nA bell \u0007 rings inside this entry.\n" +
+                                 "A second fortune that loads fine.\n", out rows, out why, out leftOut) &&
+                    rows == 2 && leftOut == 3);
+                ok &= Check(sb, "WITNESS blank lines, empty %-separated blocks and the trailing newline are not counted as left out (N-audit-1106-212)",
+                    ValidatePack("A first fortune that loads fine.\n\n\nA second fortune that loads fine.\n", out rows, out why, out leftOut) &&
+                    rows == 2 && leftOut == 0 &&
+                    ValidatePack("%\nA first fortune that loads fine.\n%\n\n%\nA second fortune\nspanning two lines.\n%\n", out rows, out why, out leftOut) &&
+                    rows == 2 && leftOut == 0);
+                ok &= Check(sb, "a plain pack with no entry that loads is refused and reports none left out, since the refusal is the news (N-audit-1106-212)",
+                    !ValidatePack("short\n" + tooLong + "\n", out rows, out why, out leftOut) && leftOut == 0);
+
                 // ---- one bad file in the folder (F129) ----
                 string folder = Path.Combine(Path.GetTempPath(),
                     "DesktopAICompanion-fortune-folder-" + Guid.NewGuid().ToString("N"));
@@ -309,6 +327,23 @@ namespace DesktopAICompanion.FortunesModule
                         empty, 4, 4096, 40, 100, out skips);
                     ok &= Check(sb, "an empty pack file is counted as malformed, and a valid one the byte budget cannot hold as oversized",
                         budgeted.Count == 1 && skips.Malformed == 1 && skips.Oversized == 1 && skips.Unreadable == 0);
+
+                    // N-audit-1106-212, the loader's half: entries a LOADED plain pack dropped are counted for the
+                    // log line, apart from the refused-file counts the pane's note is worded from (a pack that
+                    // loaded is not a skipped pack). Two packs load; one of them dropped two entries.
+                    string leftOutDir = Path.Combine(folder, "left-out");
+                    Directory.CreateDirectory(leftOutDir);
+                    File.WriteAllText(Path.Combine(leftOutDir, "a-drops-two.txt"),
+                        "A plain fortune that loads from this pack.\nshort\n" + new string('o', 300) + "\n", utf8);
+                    File.WriteAllText(Path.Combine(leftOutDir, "b-drops-none.txt"),
+                        "Another plain fortune that loads, nothing dropped.\n\n", utf8);
+                    List<FortuneEntry> withLeftOut = FortuneProvider.LoadCustomDirectoryForDiagnostics(leftOutDir, out skips);
+                    ok &= Check(sb, "the loader counts a loaded plain pack's dropped entries, outside the refused-file counts (N-audit-1106-212)",
+                        withLeftOut.Count == 2 && skips.RowsLeftOut == 2 && skips.PacksWithRowsLeftOut == 1 &&
+                        skips.Total == 0 && FortunesModule.SkippedPacksNote(skips) == "");
+                    ok &= Check(sb, "the left-out log line carries counts, never a name (N-audit-1106-212)",
+                        FortuneProvider.DescribeRowsLeftOut(skips) ==
+                        "pack entries left out: entries=2 packs=1 (each under 8 or over 280 characters, or holding a control character)");
 
                     // The importer's half of F129: a file the loader refuses holds no slot and no bytes in
                     // the admission either. Two existing files, one junk (200 bytes of invalid UTF-8) and
@@ -2204,6 +2239,22 @@ namespace DesktopAICompanion.FortunesModule
                         ok &= Check(sb, "the import validated no existing pack again (the loader's parses were reused)",
                             FortuneFileImporter.ExistingPacksValidatedForDiagnostics == validatedBefore);
 
+                        // N-audit-1106-212: a plain pack that drops entries says how many in the import status, and
+                        // the folder parse its rebuild makes logs the count. The pack above ends in a newline and
+                        // dropped nothing, so its status says nothing about it.
+                        ok &= Check(sb, "WITNESS an imported pack that dropped nothing says nothing about entries left out (N-audit-1106-212)",
+                            imported == "Imported 1 pack.");
+                        string dropsSome = Path.Combine(storage.DataDirectory, "drops-some.txt");
+                        File.WriteAllText(dropsSome, "A pack line that loads, long enough to count.\nshort\n" +
+                            new string('o', 300) + "\n", utf8);
+                        host.PickedFiles = new List<string> { dropsSome };
+                        string importedLeftOut = import.InvokeAsync().GetAwaiter().GetResult() ?? "";
+                        host.PickedFiles = new List<string>();
+                        ok &= Check(sb, "an imported plain pack that dropped entries says how many in the status (N-audit-1106-212)",
+                            importedLeftOut == "Imported 1 pack. 2 entries were left out (a fortune must be 8 to 280 characters of plain text).");
+                        ok &= Check(sb, "the folder parse after that import logs the dropped count once, counts only (N-audit-1106-212)",
+                            CountLines(host.LoggedLines, "fortunes: pack entries left out: entries=2 packs=1 ") == 1);
+
                         // RA-101: a rejected file is NAMED in the status, so the user knows which of the files
                         // they picked to fix. The name is the user's own screen; the log carries none of it.
                         string junkSource = Path.Combine(storage.DataDirectory, "not-a-pack.txt");
@@ -2278,6 +2329,22 @@ namespace DesktopAICompanion.FortunesModule
                         ok &= Check(sb, "the download's content validation ran on a pool thread, not the one that pressed the button",
                             module.LastDownloadValidationThreadForDiagnostics != 0 &&
                             module.LastDownloadValidationThreadForDiagnostics != testThread);
+
+                        // N-audit-1106-212, the download's half: a catalog pack that drops an entry says so, in the
+                        // singular. The pack above ends in a newline and dropped nothing.
+                        ok &= Check(sb, "WITNESS a downloaded pack that dropped nothing says nothing about entries left out (N-audit-1106-212)",
+                            downloaded == "Downloaded 1 pack.");
+                        host.CatalogItems[CatalogKinds.Pack] = new List<CatalogItem>
+                        {
+                            new CatalogItem { Id = "droppack", Name = "Drop Pack", Bytes = 10, Count = 1 },
+                        };
+                        host.CatalogPayloads[CatalogKinds.Pack + "/droppack"] =
+                            utf8.GetBytes("A catalog line that loads, long enough.\ntiny\n");
+                        check.InvokeAsync().GetAwaiter().GetResult();
+                        AllRow(available, true);
+                        string downloadedLeftOut = download.InvokeAsync().GetAwaiter().GetResult() ?? "";
+                        ok &= Check(sb, "a downloaded plain pack that dropped an entry says so in the status (N-audit-1106-212)",
+                            downloadedLeftOut == "Downloaded 1 pack. 1 entry was left out (a fortune must be 8 to 280 characters of plain text).");
                     }
                 }
                 catch (Exception ex)
@@ -3491,6 +3558,14 @@ namespace DesktopAICompanion.FortunesModule
             return FortuneProvider.TryValidateCustomPackBytes(
                 new UTF8Encoding(false).GetBytes(content), "dadjokes",
                 FortunePackLoadPolicy.MaximumEntries, out rows, out error);
+        }
+
+        /// <summary>As above, with the count of entries a loadable plain pack left out (N-audit-1106-212).</summary>
+        private static bool ValidatePack(string content, out int rows, out string error, out int leftOut)
+        {
+            return FortuneProvider.TryValidateCustomPackBytes(
+                new UTF8Encoding(false).GetBytes(content), "plainprobe",
+                FortunePackLoadPolicy.MaximumEntries, out rows, out error, out leftOut);
         }
 
         private static bool Check(StringBuilder sb, string name, bool cond) { sb.AppendLine((cond ? "PASS: " : "FAIL: ") + name); return cond; }
