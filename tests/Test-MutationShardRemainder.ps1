@@ -44,8 +44,10 @@ foreach ($change in @('pin', 'digest', 'count', 'id', 'index', 'fraction', 'part
 }
 Refuses { Assert-MixedShardCoverage $whole @($import) @($scheduled[0..4]) $pin } 'mixed union refuses a gap' 'remainder_case_gap'
 Refuses { Assert-MixedShardCoverage $whole @($import) @($scheduled + (Shard 1 8)) $pin } 'mixed union refuses an overlap' 'remainder_case_overlap'
-Refuses { Assert-MixedShardCoverage $whole @() $scheduled $pin } 'mixed union requires a completed import'
-Refuses { Assert-MixedShardCoverage $whole @($import) @() $pin } 'mixed union requires scheduled work'
+# By its code (N-audit-1106-370): both fixtures also leave a coverage gap, so with any refusal accepted they passed with
+# the remainder_selection_empty guard deleted, refused by remainder_case_gap instead.
+Refuses { Assert-MixedShardCoverage $whole @() $scheduled $pin } 'mixed union requires a completed import' 'remainder_selection_empty'
+Refuses { Assert-MixedShardCoverage $whole @($import) @() $pin } 'mixed union requires scheduled work' 'remainder_selection_empty'
 Assert-RemainderOptions '' @() @() 4 $false $false
 Assert-RemainderOptions 'synthetic' @(1) @(2, 3, 4, 6, 7, 8) 8 $false $false
 Check $true 'normal defaults and read-only remainder selection are valid'
