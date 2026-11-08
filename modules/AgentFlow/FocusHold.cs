@@ -429,8 +429,8 @@ namespace DesktopAICompanion.AgentFlow
         public int LeaseMs = CdpApprover.FocusGuardLeaseFloorMs;
         public readonly List<string> Installed = new List<string>();
         public readonly List<KeyValuePair<string, string>> Failed = new List<KeyValuePair<string, string>>();
-        /// <summary>Panels whose protection could not be confirmed (round 6): the attach was refused, the read threw, or no
-        /// answer came. Not proof of a failed install.</summary>
+        /// <summary>Panels whose protection could not be confirmed (round 6): the attach was refused or threw
+        /// (N-agentflow-focus-02), the read threw, or no answer came. Not proof of a failed install.</summary>
         public readonly List<KeyValuePair<string, string>> Unconfirmed = new List<KeyValuePair<string, string>>();
         /// <summary>Every agent panel the sweep listed (N-audit-1106-101), so the once-per-panel "not protected" lines can
         /// forget a panel that has closed. Empty when the sweep listed none or never ran, as PressBudget.EndSweep reads it.</summary>

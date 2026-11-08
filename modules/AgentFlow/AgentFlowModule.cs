@@ -217,7 +217,18 @@ namespace DesktopAICompanion.AgentFlow
                                  //        off (N-audit-1106-107). Two installed pets with the same name are two rows
                                  //        in the pet dropdown, each with its id, and either can be chosen and kept
                                  //        (N-audit-1106-109). Panels that closed no longer stay in the focus guard's
-                                 //        once-per-panel memory (N-audit-1106-101).
+                                 //        once-per-panel memory (N-audit-1106-101). The pane's "About Codex" note says
+                                 //        Codex prompts are clicked for you only in auto-approve; in the other modes it
+                                 //        says auto-approve covers them and is not the mode chosen (N-audit-1106-110).
+                                 //        A permission rule's * now spans a line break, so a multi-line command an
+                                 //        allow rule covers (a commit message through a heredoc) is no longer read as
+                                 //        a blocked prompt, and it is counted as approved (N-audit-1106-112). An
+                                 //        argv.json that asks for a different port from the one AgentFlow reads says
+                                 //        so, instead of reading as connected while nothing could be read, and the
+                                 //        Enable rewrite it offers names AgentFlow's port (N-audit-1106-114). A panel
+                                 //        whose connection fails at the attach is named once in the log as not
+                                 //        confirmed protected from taking focus, as a refused attach already was
+                                 //        (N-agentflow-focus-02).
                                  // 1.12.3: agent cards no longer take focus while you work elsewhere (the owner's
                                  //        report of 2026-11-02; built with Codex's audit and review rounds, and a live
                                  //        re-test after the first version missed a Codex approval card taking focus as
@@ -1033,7 +1044,9 @@ namespace DesktopAICompanion.AgentFlow
                 {
                     if (ShouldProbePort())
                     {
-                        SetupReport report = VsCodeSetup.Inspect(argvPathNow, 200);
+                        // Against the port every sweep below uses (N-audit-1106-114): argv.json naming another port is
+                        // OtherPort, not Listening, so a VS Code answering on that port no longer reads as connected.
+                        SetupReport report = VsCodeSetup.Inspect(argvPathNow, 200, cdpPort);
                         // Published as a whole, freshly-built instance. Inspect fills it locally
                         // and returns it, so nothing else can observe a half-written report.
                         _setupCache = report;
@@ -3185,9 +3198,10 @@ namespace DesktopAICompanion.AgentFlow
         {
             if (System.Threading.Interlocked.CompareExchange(ref _setupProbeInFlight, 1, 0) != 0) return;
             string argvPath = ArgvPath;
+            int expectedPort = CdpPort;
             Task.Run(() =>
             {
-                try { _setupCache = VsCodeSetup.Inspect(argvPath, 250); }
+                try { _setupCache = VsCodeSetup.Inspect(argvPath, 250, expectedPort); }
                 catch (Exception) { }
                 finally { System.Threading.Interlocked.Exchange(ref _setupProbeInFlight, 0); }
             });
@@ -3266,6 +3280,9 @@ namespace DesktopAICompanion.AgentFlow
                     // Its own sentence, not folded into On. "Waiting for a VS Code restart" is what
                     // this said before the state existed, and no restart could ever have fixed it.
                     return "Set up but INERT. " + report.Detail;
+                case SetupState.OtherPort:
+                    // Not On ("waiting for a restart"): no restart helps while argv.json names another port.
+                    return "Set up for another port. " + report.Detail;
                 case SetupState.Unreadable:
                     return "Cannot use " + (report.Path ?? "argv.json") + ": " + report.Detail;
                 default:
@@ -3415,7 +3432,7 @@ namespace DesktopAICompanion.AgentFlow
             // user chose a file and is owed a verdict about that file, not a "checking..." that
             // resolves into a pane they have already stopped looking at. `path` is a local from the
             // picker, so unlike the tick this reads nothing from the settings dictionary.
-            SetupReport report = VsCodeSetup.Inspect(path, 250);
+            SetupReport report = VsCodeSetup.Inspect(path, 250, CdpPort);
             _setupCache = report;
             if (report.State == SetupState.Unreadable)
                 return Task.FromResult("\u2717 That file cannot be used: " + report.Detail);
@@ -4206,6 +4223,20 @@ namespace DesktopAICompanion.AgentFlow
                 !PermissionRules.RuleMatches("Bash(git *)", "Bash(rm -rf /)"));
             probe.Check("a regex metacharacter in a rule is a literal",
                 !PermissionRules.RuleMatches("Bash(a.c)", "Bash(abc)"));
+
+            // N-audit-1106-112: a `*` spans a line break. A command part keeps its line breaks inside quotes or a
+            // substitution, and the commonest case is a commit message written through a heredoc. The splitter is in the
+            // EvaluateCall leg, so the shape that reaches the rules is the one a transcript carries.
+            string heredocCommit = "git commit -m \"$(cat <<'EOF'\nsubject line\n\nbody line\nEOF\n)\"";
+            probe.Check("WITNESS (N-audit-1106-112) a prefix rule covers a command whose quoted argument spans lines",
+                PermissionRules.RuleMatches("Bash(git commit *)", "Bash(" + heredocCommit + ")"));
+            probe.Check("(N-audit-1106-112) a mid-rule wildcard spans a line break too",
+                PermissionRules.RuleMatches("Bash(git commit * --no-verify)", "Bash(git commit -m \"a\nb\" --no-verify)")
+                && !PermissionRules.RuleMatches("Bash(git commit * --no-verify)", "Bash(git commit -m \"a\nb\")"));
+            var commits = new RuleSet();
+            commits.Allow.Add("Bash(git commit:*)");
+            probe.Check("(N-audit-1106-112) a heredoc commit the user allowed is would-allow through EvaluateCall, not a blocked prompt",
+                PermissionRules.EvaluateCall("Bash", heredocCommit, null, commits) == RuleVerdict.WouldAllow);
 
             // RA-011: a PAREN-LESS rule is the whole tool, Claude Code's documented meaning and what the
             // Python harness has always computed. This class compiled `Edit` to the anchored literal
@@ -5247,6 +5278,38 @@ namespace DesktopAICompanion.AgentFlow
             probe.Check("a missing argv.json reports NotFound and says what to do",
                 missing.State == SetupState.NotFound
                 && !string.IsNullOrEmpty(missing.Detail));
+
+            // N-audit-1106-114: Inspect probed whatever port argv.json named, the tick read Listening as "answering", and
+            // every sweep went to the cdpPort setting. Inspected against the module's port, argv.json naming another one
+            // is OtherPort, never probed, and every rewrite it offers is to the port Enable writes. Port 1 on loopback:
+            // OtherPort and Inert return before the probe, and only the witness probes it, for at most 100 ms.
+            string otherDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "dp-agentflow-argv-" + Guid.NewGuid().ToString("N"));
+            System.IO.Directory.CreateDirectory(otherDir);
+            try
+            {
+                string quotedOther = System.IO.Path.Combine(otherDir, "argv-quoted.json");
+                System.IO.File.WriteAllText(quotedOther, "{\n\t\"" + VsCodeSetup.PortKey + "\": \"1\"\n}\n");
+                string numberOther = System.IO.Path.Combine(otherDir, "argv-number.json");
+                System.IO.File.WriteAllText(numberOther, "{\n\t\"" + VsCodeSetup.PortKey + "\": 1\n}\n");
+                SetupReport other = VsCodeSetup.Inspect(quotedOther, 100, 9321);
+                probe.Check("(N-audit-1106-114) argv.json asking for another port than the module reads is OtherPort, not "
+                            + "Listening, and offers the rewrite to the module's port (" + other.State + ": " + other.Detail + ")",
+                    other.State == SetupState.OtherPort && other.Port == 1
+                    && other.Detail.IndexOf("\"9321\"", StringComparison.Ordinal) >= 0);
+                SetupReport same = VsCodeSetup.Inspect(quotedOther, 100, 1);
+                probe.Check("WITNESS (N-audit-1106-114) the same file inspected against its own port is not OtherPort ("
+                            + same.State + ")",
+                    same.State == SetupState.On || same.State == SetupState.Listening);
+                SetupReport numbered = VsCodeSetup.Inspect(numberOther, 100, 9321);
+                probe.Check("(N-audit-1106-114) the Inert sentence offers the rewrite to the port Enable writes, not the one "
+                            + "argv.json names (" + numbered.Detail + ")",
+                    numbered.State == SetupState.Inert && numbered.Detail.IndexOf("\"9321\"", StringComparison.Ordinal) >= 0
+                    && numbered.Detail.IndexOf("\"1\"", StringComparison.Ordinal) < 0);
+            }
+            finally
+            {
+                try { System.IO.Directory.Delete(otherDir, true); } catch (Exception) { }
+            }
             return true;
         }
 
@@ -5830,13 +5893,11 @@ namespace DesktopAICompanion.AgentFlow
             // left. Real clicks over the wire, so 'clicked' is the CDP layer's answer and not a stub's.
             const string PromptJsonFp = "{\"tool\":\"Bash\",\"header\":\"ls\",\"ext\":\"\",\"fp\":\"0badf00d\","
                                         + "\"options\":[\"Yes\",\"No\"]}";
-            using (var wedged = new FakeCdpServer(new[]
+            var wedgedTarget = new FakeCdpServer.Target
             {
-                new FakeCdpServer.Target
-                {
-                    Id = "claude-1", Url = claudeUrl, EvaluateResult = PromptJsonFp, ClickResult = "clicked",
-                },
-            }))
+                Id = "claude-1", Url = claudeUrl, EvaluateResult = PromptJsonFp, ClickResult = "clicked",
+            };
+            using (var wedged = new FakeCdpServer(new[] { wedgedTarget }))
             {
                 PromptView card = CdpApprover.Parse("claude-1", PromptJsonFp);
                 card.Agent = CdpApprover.AgentClaude;
@@ -5867,16 +5928,26 @@ namespace DesktopAICompanion.AgentFlow
                 }
                 probe.Check("WITNESS one more same-labelled prompt than the repeat cap, each on its own card, is that many prompts, and every one is pressed",
                     through == PressBudget.MaxIdenticalPresses + 1);
-                // ...and a card that goes away between clicks (a sweep that found nothing) never trips it.
+                // ...and a card that goes away between clicks (a sweep that found nothing) never trips it. Swept as the
+                // tick sweeps (N-bd-w4-agentflow-1-01): SweepOnce presses the card, and the next SweepOnce reads the
+                // panel with no prompt in it, so the budget's own EndSweep is what forgets the count. This modelled the
+                // empty sweep with NotePromptCleared, which no shipped code calls, so it stayed green whatever EndSweep did.
                 var clearedBudget = new PressBudget();
                 int afterClears = 0;
                 for (int i = 0; i < PressBudget.MaxIdenticalPresses + 1; i++)
                 {
-                    Decide(wedged.Port, card, clearedBudget, false, false, out pressedNow);
-                    if (pressedNow) afterClears++;
-                    clearedBudget.NotePromptCleared();
+                    bool clearedPanel, clearedBlind;
+                    wedgedTarget.EvaluateResult = PromptJsonFp;
+                    var pressing = new SweepPass(wedged.Port, true, false, false, clearedBudget, () => true);
+                    SweepOnce(wedged.Port, pressing, clearedBudget, 4000, out clearedPanel, out clearedBlind);
+                    if (pressing.PressedAny) afterClears++;
+                    wedgedTarget.EvaluateResult = "none";
+                    SweepOnce(wedged.Port, new SweepPass(wedged.Port, true, false, false, clearedBudget, () => true),
+                              clearedBudget, 4000, out clearedPanel, out clearedBlind);
                 }
-                probe.Check("...while the same card seen again after an empty sweep is a new prompt and never trips the cap",
+                probe.Check("(N-bd-w4-agentflow-1-01) ...while the same card seen again after an empty sweep is a new prompt and never "
+                            + "trips the cap, through the sweep's own EndSweep ("
+                            + afterClears.ToString(CultureInfo.InvariantCulture) + " pressed)",
                     afterClears == PressBudget.MaxIdenticalPresses + 1);
             }
 
@@ -8730,8 +8801,16 @@ namespace DesktopAICompanion.AgentFlow
                 // A Header renders Label plus an OPTIONAL paragraph, so a missing value degrades to
                 // a bold line rather than to nothing. Fine in general; not fine for this one, which
                 // is the sentence that stops someone thinking Codex is unsupported.
-                probe.Check("WITNESS the Codex note still says its prompts ARE clicked for you",
-                    shown["aboutCodex"].IndexOf("clicked for you", StringComparison.Ordinal) >= 0);
+                // N-audit-1106-110: and it says so only where it is true. This module is in Off, where nothing is
+                // clicked, and the note told every user "Codex prompts are clicked for you already" whatever the mode.
+                probe.Check("WITNESS the Codex note still says auto-approve covers Codex prompts",
+                    shown["aboutCodex"].IndexOf("Auto-approve clicks Codex prompts", StringComparison.Ordinal) >= 0);
+                probe.Check("(N-audit-1106-110) outside auto-approve the Codex note does not say its prompts are clicked for you already",
+                    shown["aboutCodex"].IndexOf("clicked for you already", StringComparison.Ordinal) < 0);
+                module._settings.Set(SettingMode, AgentMode.AutoApprove);
+                probe.Check("WITNESS (N-audit-1106-110) in auto-approve the Codex note says its prompts are clicked for you already",
+                    module.CodexNoteForSelfTest().IndexOf("clicked for you already", StringComparison.Ordinal) >= 0);
+                module._settings.Set(SettingMode, AgentMode.Off);
                 probe.Check("the watch section tells the user it is not auto-approve",
                     shown["watchIntro"].IndexOf("NOT auto-approve", StringComparison.Ordinal) >= 0);
 

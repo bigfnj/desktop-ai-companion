@@ -126,7 +126,8 @@ namespace DesktopAICompanion.AgentFlow
         /// figure and its reset beside a red connection row. One OnTick INLINE, as SelfCheckTickBeat runs it, with the
         /// rows holding what an answering read left and the watch marked as having just read; argv.json points at a
         /// file that does not exist, so the port answers NotFound without a socket. Mode Notify, both watches off, empty
-        /// transcript roots: nothing real is read.
+        /// transcript roots: nothing real is read. Then (N-audit-1106-114) two more inline ticks against a fake VS Code
+        /// and an argv.json in the same temporary folder naming its port.
         /// </summary>
         private static bool SelfCheckLimitWhenPortGone(SelfTestProbe probe)
         {
@@ -187,6 +188,32 @@ namespace DesktopAICompanion.AgentFlow
                     probe.Check("(N-audit-1106-094) ...and the first tick that finds the port again reads the panels at once, not up to a "
                                 + "minute later",
                         module._limitWatch.DueToRead(readAt.AddSeconds(1)));
+
+                    // N-audit-1106-114, on the same inline tick: argv.json names a port a fake VS Code answers on. Inspected
+                    // without the module's own port, the tick read that answer as "the port answers" while every sweep went
+                    // to the cdpPort setting. With cdpPort the same port, it answers; with cdpPort another one, it does not.
+                    using (var editor = new FakeCdpServer(new[]
+                    {
+                        new FakeCdpServer.Target { Id = "claude-1", Url = "vscode-webview://c?" + CdpApprover.ClaudeTargetMarker, EvaluateResult = "none" },
+                    }))
+                    {
+                        string argv = System.IO.Path.Combine(root, "argv.json");
+                        System.IO.File.WriteAllText(argv, "{\n\t\"" + VsCodeSetup.PortKey + "\": \""
+                                                          + editor.Port.ToString(CultureInfo.InvariantCulture) + "\"\n}\n");
+                        module._settings.Set(SettingArgvPath, argv);
+                        module._settings.Set(SettingCdpPort, editor.Port.ToString(CultureInfo.InvariantCulture));
+                        module.OnTick(null, EventArgs.Empty);
+                        bool sameAnswers = module._portAnswering;
+                        int elsewhere = editor.Port == 65535 ? 65534 : editor.Port + 1;
+                        module._settings.Set(SettingCdpPort, elsewhere.ToString(CultureInfo.InvariantCulture));
+                        module.OnTick(null, EventArgs.Empty);
+                        SetupReport seen = module._setupCache;
+                        probe.Check("WITNESS (N-audit-1106-114) the tick reads argv.json naming the module's own port, answering, as answering",
+                            sameAnswers);
+                        probe.Check("(N-audit-1106-114) the tick reads argv.json naming another port as not answering, though VS Code "
+                                    + "answers there (" + (seen != null ? seen.State.ToString() : "<none>") + ")",
+                            !module._portAnswering && seen != null && seen.State == SetupState.OtherPort);
+                    }
                 }
             }
             catch (Exception exception)

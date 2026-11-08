@@ -645,7 +645,18 @@ namespace DesktopAICompanion.AgentFlow
                     {
                         string targetId = item.Key;
                         string agent = item.Value;
-                        string sessionId = session.Attach(targetId);
+                        string sessionId;
+                        // An attach that THROWS is counted for its panel as unconfirmed, as one that answers null is just
+                        // below and as a read that throws is (N-agentflow-focus-02): it went to the generic sweep failure
+                        // line alone, so the guard's once-per-panel line never named the panel. The throw is still
+                        // rethrown, as the read's is: it comes from the connection itself, so the panels after this one
+                        // could not be reached on it, and "the sweep could not finish" stays the sweep's answer.
+                        try { sessionId = session.Attach(targetId); }
+                        catch (Exception)
+                        {
+                            if (guard != null) guard.Unconfirmed.Add(new KeyValuePair<string, string>(targetId, agent));
+                            throw;
+                        }
                         if (sessionId == null)
                         {
                             if (guard != null) guard.Unconfirmed.Add(new KeyValuePair<string, string>(targetId, agent));

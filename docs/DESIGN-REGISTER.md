@@ -5330,7 +5330,8 @@ its panel and did not see its card, or when its panel is no longer listed; a pan
 that failed, a page that answered nothing, a card this build cannot read) keeps its counts, because not seeing a card is
 not seeing it gone. `SweepPass.Handle` marks every card it reads as seen, pressed or not, so a stood-down card that reads
 disabled for one sweep keeps its count. A stand-down now holds one card, and the other panels go on being pressed.
-`NotePromptCleared`, which cleared everything when a whole sweep found nothing, stays for the assertions only.
+`NotePromptCleared`, which cleared everything when a whole sweep found nothing, stays only for the RA-049 mutation case,
+which calls it to put the 1.4.0 clear-on-click back; no assertion calls it since N-bd-w4-agentflow-1-01.
 
 **Every panel in one sweep, one press per panel.** RA-047 kept a press as the end of the pass on the ground that one click
 per tick was the cadence the budget and the log were built around. With the count per card that ground is gone, so the

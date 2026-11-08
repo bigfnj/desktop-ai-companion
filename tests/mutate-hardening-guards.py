@@ -4190,8 +4190,9 @@ CASES = (
     (
         "bd-w2-tests-scripts-1: the AgentFlow tick worker reads the live argv path (N-audit-1106-355)",
         os.path.join(REPO, "modules", "AgentFlow", "AgentFlowModule.cs"),
-        b"VsCodeSetup.Inspect(argvPathNow, 200);",
-        b'VsCodeSetup.Inspect(_settings.Get(SettingArgvPath, ""), 200);',
+        # Re-pointed by burndown/w5-agentflow-1: the tick's Inspect takes the module's port too since N-audit-1106-114.
+        b"VsCodeSetup.Inspect(argvPathNow, 200, cdpPort);",
+        b'VsCodeSetup.Inspect(_settings.Get(SettingArgvPath, ""), 200, cdpPort);',
         "w2-tests-scripts-1: every VsCodeSetup.Inspect call in the AgentFlow tick",
     ),
     # N-bd-tests-harness-1-01: the gate calls the mutation unit tests but no longer reads their exit code.

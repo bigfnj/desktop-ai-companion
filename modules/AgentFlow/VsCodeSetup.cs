@@ -31,6 +31,13 @@ namespace DesktopAICompanion.AgentFlow
         /// this exact shape "the kind of failure that looks like success" and then did not detect it.
         /// </summary>
         Inert = 5,
+        /// <summary>
+        /// Found, asks for a port in the form VS Code honours, and it is not the port AgentFlow reads (N-audit-1106-114).
+        /// Inspect probed whatever port argv.json named and the tick took a Listening answer as "the port answers", while
+        /// every sweep, usage read and pause went to the cdpPort setting: VS Code on 9222 read as connected with nothing
+        /// readable. Not probed, for the reason Inert is not: an answer there says nothing about the port this module uses.
+        /// </summary>
+        OtherPort = 6,
     }
 
     /// <summary>The result of looking, or of editing.</summary>
@@ -507,8 +514,19 @@ namespace DesktopAICompanion.AgentFlow
             catch { return false; }
         }
 
-        /// <summary>Look, and report. Never writes.</summary>
+        /// <summary>Look, and report. Never writes. No port is expected: whatever argv.json names is probed.</summary>
         public static SetupReport Inspect(string overridePath, int probeTimeoutMilliseconds)
+        {
+            return Inspect(overridePath, probeTimeoutMilliseconds, 0);
+        }
+
+        /// <summary>
+        /// Look, and report, against the port the module reads, <paramref name="expectedPort"/> (its cdpPort setting;
+        /// 0 for none). A port argv.json names that is not that one is <see cref="SetupState.OtherPort"/>, never probed,
+        /// and every sentence that offers the rewrite names the port "Enable" writes, which is this one
+        /// (N-audit-1106-114): the Inert sentence promised a rewrite to the port argv.json named.
+        /// </summary>
+        public static SetupReport Inspect(string overridePath, int probeTimeoutMilliseconds, int expectedPort)
         {
             // IsVsCodeRunning() is NOT called here any more. The field nobody read cost a
             // full process enumeration on every Inspect, which runs on each pane open. The
@@ -556,6 +574,8 @@ namespace DesktopAICompanion.AgentFlow
                 report.Detail = "found " + path + "; it does not ask for a debugging port.";
                 return report;
             }
+            // The port "Enable" writes: the module's own, when the caller named it.
+            int rewriteTo = expectedPort > 0 ? expectedPort : report.Port;
             if (!quoted)
             {
                 // Do NOT probe. The port was never requested as far as VS Code is concerned, so
@@ -565,7 +585,17 @@ namespace DesktopAICompanion.AgentFlow
                 report.Detail = "argv.json names port " + report.Port + " as a NUMBER, and VS Code "
                                 + "only honours a quoted string, so it is ignored at every launch. "
                                 + "Press \u201c" + AgentFlowModule.EnableLabel + "\u201d to rewrite it as \""
-                                + report.Port.ToString(CultureInfo.InvariantCulture)
+                                + rewriteTo.ToString(CultureInfo.InvariantCulture)
+                                + "\", then restart VS Code.";
+                return report;
+            }
+            if (expectedPort > 0 && report.Port != expectedPort)
+            {
+                report.State = SetupState.OtherPort;
+                report.Detail = "argv.json asks for port " + report.Port + ", and AgentFlow reads port "
+                                + expectedPort.ToString(CultureInfo.InvariantCulture) + ", so nothing there can be read. "
+                                + "Press \u201c" + AgentFlowModule.EnableLabel + "\u201d to rewrite it as \""
+                                + expectedPort.ToString(CultureInfo.InvariantCulture)
                                 + "\", then restart VS Code.";
                 return report;
             }

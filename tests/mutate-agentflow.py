@@ -2924,6 +2924,75 @@ CASES = (
         ("(N-audit-1106-109) two installed pets with the same name are two rows",
          "(N-audit-1106-109) ...and a stored choice of the second is shown as itself"),
     ),
+    # ---- burndown/w5-agentflow-1 ----
+    # "bd-w5-agentflow-1:" for one --only.
+    (
+        # The read-without-the-card half of EndSweep goes, the closed-panel half stays: only an empty sweep that READ the
+        # panel can tell this apart, which is what the rewritten SelfCheckApprover witness now drives.
+        "bd-w5-agentflow-1: EndSweep keeps a card its panel was read without (N-bd-w4-agentflow-1-01)",
+        BUDGETPRESS,
+        "                if (!stillListed || (wasRead && !_seen.Contains(entry.Key))) gone.Add(entry.Key);",
+        "                if (!stillListed) gone.Add(entry.Key);",
+        "(N-bd-w4-agentflow-1-01) ...while the same card seen again after an empty sweep is a new prompt",
+    ),
+    (
+        "bd-w5-agentflow-1: the About Codex note claims clicks in every mode again (N-audit-1106-110)",
+        PANE,
+        "            string opening = AgentMode.Presses(Mode)\n",
+        "            string opening = true\n",
+        "(N-audit-1106-110) outside auto-approve the Codex note does not say its prompts are clicked for you already",
+    ),
+    (
+        "bd-w5-agentflow-1: a prefix rule's * stops at a line break again (N-audit-1106-112)",
+        RULES,
+        "inner.Length - 2)) + \"( [\\\\s\\\\S]*)?\\\\)\";",
+        "inner.Length - 2)) + \"( .*)?\\\\)\";",
+        ("WITNESS (N-audit-1106-112) a prefix rule covers a command whose quoted argument spans lines",
+         "(N-audit-1106-112) a heredoc commit the user allowed is would-allow through EvaluateCall"),
+    ),
+    (
+        "bd-w5-agentflow-1: a mid-rule * stops at a line break again (N-audit-1106-112)",
+        RULES,
+        "            return EscapeLiteral(normalized).Replace(\"*\", \"[\\\\s\\\\S]*\");",
+        "            return EscapeLiteral(normalized).Replace(\"*\", \".*\");",
+        "(N-audit-1106-112) a mid-rule wildcard spans a line break too",
+    ),
+    (
+        "bd-w5-agentflow-1: Inspect probes a port argv.json names that the module does not read (N-audit-1106-114)",
+        VSCODE,
+        "            if (expectedPort > 0 && report.Port != expectedPort)\n",
+        "            if (false)\n",
+        "(N-audit-1106-114) argv.json asking for another port than the module reads is OtherPort",
+    ),
+    (
+        "bd-w5-agentflow-1: the Inert sentence offers the rewrite to argv.json's own port again (N-audit-1106-114)",
+        VSCODE,
+        "                                + rewriteTo.ToString(CultureInfo.InvariantCulture)\n",
+        "                                + report.Port.ToString(CultureInfo.InvariantCulture)\n",
+        "(N-audit-1106-114) the Inert sentence offers the rewrite to the port Enable writes",
+    ),
+    (
+        "bd-w5-agentflow-1: the tick inspects argv.json without the module's port (N-audit-1106-114)",
+        MODULE,
+        "                        SetupReport report = VsCodeSetup.Inspect(argvPathNow, 200, cdpPort);\n",
+        "                        SetupReport report = VsCodeSetup.Inspect(argvPathNow, 200);\n",
+        "(N-audit-1106-114) the tick reads argv.json naming another port as not answering",
+    ),
+    (
+        # N-agentflow-focus-01 (A0304): the existing focus case on this line keeps the isTrusted test in its replacement.
+        "bd-w5-agentflow-1: the gesture allowance opens on an untrusted press (N-agentflow-focus-01)",
+        FOCUS,
+        "    if (!e || !e.isTrusted) return;\n    g.allowUntil = now() + __GESTURE_MS__;",
+        "    if (!e) return;\n    g.allowUntil = now() + __GESTURE_MS__;",
+        "(N-agentflow-focus-01) a pointer press the card's own script dispatches opens no gesture allowance",
+    ),
+    (
+        "bd-w5-agentflow-1: an attach that throws is not counted as unconfirmed (N-agentflow-focus-02)",
+        CDP,
+        "                            if (guard != null) guard.Unconfirmed.Add(new KeyValuePair<string, string>(targetId, agent));\n                            throw;",
+        "                            throw;",
+        "(N-agentflow-focus-02) a panel whose attach throws is reported once as unconfirmed",
+    ),
 )
 
 
