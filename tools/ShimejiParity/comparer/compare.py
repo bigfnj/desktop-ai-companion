@@ -385,7 +385,8 @@ def load_trace(source, expected_runtime=None, defer_run_failure=False):
         v = e["value"]
         if not isinstance(v, (int, float)) or isinstance(v, bool) or not 0 <= v < 1:
             raise Unjudgeable("rng-invalid", f"{runtime}: tick {e['tick']}: rng-draw value {v!r} is outside [0, 1)")
-        k = e["occurrence"]
+        # Sequence equality already established the exact value; trace/2 also checked the wire type.
+        k = int(e["occurrence"])
         if tape is not None and k <= len(tape) and v != tape[k - 1]:
             raise Unjudgeable("rng-invalid", f"{runtime}: tick {e['tick']}: draw {k} recorded {v!r}, the tape holds {tape[k - 1]!r}")
         if trace2 and tape is not None and k > len(tape) and v != 0.5:
@@ -1910,6 +1911,19 @@ def _trace2_check(name):
             bad = copy.deepcopy(pair)
             next(row for row in bad[1] if row.get("kind") == "rng-draw")["occurrence"] = occurrence
             require(compare(*bad), "missing-field", "unjudgeable", "occurrence type " + repr(occurrence))
+        legacy = _reference({"kind": "tape", "values": [0.5]})
+        require(compare(*legacy), detail="WITNESS trace1 integer occurrence")
+        for sides in ((0,), (1,), (0, 1)):
+            numeric = copy.deepcopy(legacy)
+            for side in sides:
+                next(row for row in numeric[side] if row.get("kind") == "rng-draw")["occurrence"] = 1.0
+            require(compare(*numeric), detail="trace1 numeric occurrence " + repr(sides))
+        fractional = copy.deepcopy(legacy)
+        next(row for row in fractional[1] if row.get("kind") == "rng-draw")["occurrence"] = 1.5
+        require(compare(*fractional), "malformed", "unjudgeable", "trace1 fractional occurrence is checked before indexing")
+        boolean = copy.deepcopy(legacy)
+        next(row for row in boolean[1] if row.get("kind") == "rng-draw")["occurrence"] = True
+        require(compare(*boolean), "event-mismatch", "fail", "trace1 boolean event identity remains distinct")
     elif name == "T2 lookahead":
         for codes in (("behavior-missing", "behavior-missing"), ("unclassified", "behavior-missing"),
                       ("behavior-missing", "unclassified"), ("unclassified", "unclassified")):
