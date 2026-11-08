@@ -4444,6 +4444,24 @@ CASES = (
         b" else { $gitBash = (Get-Command -Name 'bash').Source }\n",
         "w5-contracts-1: the offline script checks never call or look up a bare bash",
     ),
+    # ---- burndown/w5-host-1 ----
+    # Host code, burn-down wave 5. "bd-w5-host-1:" for one --only.
+    # N-shimeji-host-05: the app's spawn path shows a new tick companion's window before its first frame again.
+    (
+        "bd-w5-host-1: SpawnTickPet shows the window before its first frame (N-shimeji-host-05)",
+        os.path.join(REPO, "src", "dotNet", "StartUp.cs"),
+        b"                    pet.OpenHiddenForTick(petXml.spriteWidth, petXml.spriteHeight);\n",
+        b"                    pet.Show(petXml.spriteWidth, petXml.spriteHeight);\n",
+        "w5-host-1: a spawned or born tick companion's window opens hidden",
+    ),
+    # N-shimeji-host-05: the birth path shows a born companion's window before its first frame again.
+    (
+        "bd-w5-host-1: OpenBornTickPet shows the window before its first frame (N-shimeji-host-05)",
+        os.path.join(REPO, "src", "dotNet", "StartUp.cs"),
+        b"p.OpenHiddenForTick(type.Sprites.spriteWidth, type.Sprites.spriteHeight);",
+        b"p.Show(type.Sprites.spriteWidth, type.Sprites.spriteHeight);",
+        "w5-host-1: a spawned or born tick companion's window opens hidden",
+    ),
 )
 
 

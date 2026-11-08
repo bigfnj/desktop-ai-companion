@@ -659,8 +659,9 @@ namespace DesktopAICompanion.Plugins
                 public DirStorage(string dir) { DataDirectory = dir; }
                 public string DataDirectory { get; private set; }
             }
-            /// <summary>A fresh store per call, EMPTY except for one seed: the Fortunes module's smart picker is
-            /// OFF (RA-284; R-026's mechanism). An empty store means smart ON, and this flag's load then warmed the
+            /// <summary>One store per module id, made by RecordingHost.GetSettings at that id's first call and kept
+            /// across calls (the bulk-selection checks save and re-read through it), seeded EMPTY except for one
+            /// value: the Fortunes module's smart picker is OFF (RA-284; R-026's mechanism). An empty store means smart ON, and this flag's load then warmed the
             /// whole corpus on every core until Shutdown cancelled it. Nothing here asserts a smart pick, so
             /// nothing is lost. The seed is keyed by name; a module that never reads it sees an empty store.</summary>
             private sealed class MemSettings : IModuleSettings

@@ -208,6 +208,9 @@ namespace DesktopAICompanion.Plugins
             internal long Revision;
             internal string State = "";
             internal string Sealed = "";
+            /// <summary>How many times the unseal cache had been let go when this envelope's read began (ForgetUnsealed's
+            /// count): a read that unsealed it caches the plaintext only if no commit let go since (N-audit-1106-236).</summary>
+            internal long ForgetsAtRead;
         }
 
         internal enum FileRead { Missing, Read, Unavailable }
@@ -235,7 +238,9 @@ namespace DesktopAICompanion.Plugins
 
         private Envelope ReadEnvelope()
         {
-            var envelope = new Envelope();
+            // Stamped BEFORE the file is read: a commit that lands between this read and the unseal below lets go of the
+            // cache after the stamp, so the stale envelope's plaintext is not put back (N-audit-1106-236).
+            var envelope = new Envelope { ForgetsAtRead = ForgetsNow() };
             string path = EnvelopePath;
             string text;
             FileRead read = TryReadShared(path, out text);
@@ -278,6 +283,13 @@ namespace DesktopAICompanion.Plugins
         private string _unsealedFrom;
         private HostCredentialState _unsealedState;
         private string _unsealedValue;
+        private long _forgets;   // how many times ForgetUnsealed ran; read under _unsealSync
+
+        private long ForgetsNow() { lock (_unsealSync) return _forgets; }
+
+        /// <summary>Self-test: runs inside a read after its unseal and before it caches, where a commit racing that read
+        /// lands. Null in production.</summary>
+        internal Action BeforeCacheForDiagnostics;
 
         /// <summary>How many times a sealed value was handed to DPAPI: the self-test's view of the cache above.</summary>
         internal int UnsealsForDiagnostics;
@@ -306,6 +318,7 @@ namespace DesktopAICompanion.Plugins
                 _unsealedFrom = null;
                 _unsealedState = HostCredentialState.None;
                 _unsealedValue = null;
+                _forgets++;
             }
         }
 
@@ -347,11 +360,21 @@ namespace DesktopAICompanion.Plugins
             {
                 state = HostCredentialState.Unreadable;
             }
+            Action beforeCache = BeforeCacheForDiagnostics;
+            if (beforeCache != null) beforeCache();
             lock (_unsealSync)
             {
-                _unsealedFrom = envelope.Sealed;
-                _unsealedState = state;
-                _unsealedValue = unsealedValue;
+                // Only if nothing let go of the cache since this envelope was read (N-audit-1106-236). Reads take no lock,
+                // so a read can see the old envelope, lose the race to a save or a Remove whose ForgetUnsealed then runs,
+                // and finish its unseal after it: caching here unconditionally put the replaced or removed token's
+                // plaintext back, held until some later read replaced it. Keyed on the count rather than compared with
+                // the file, because the file may already hold the new envelope and a second read would race again.
+                if (_forgets == envelope.ForgetsAtRead)
+                {
+                    _unsealedFrom = envelope.Sealed;
+                    _unsealedState = state;
+                    _unsealedValue = unsealedValue;
+                }
             }
             value = unsealedValue;
             return state;

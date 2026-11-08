@@ -83,7 +83,7 @@ namespace DesktopAICompanion.Shimeji
                 host = new TickHost(t =>
                     {
                         var form = new FormCompanion(new Animations(t.Sprites), t.Sprites);
-                        form.Show(t.Type.CellWidth, t.Type.CellHeight);
+                        form.OpenHiddenForTick(t.Type.CellWidth, t.Type.CellHeight);
                         return form;
                     },
                     form => form.Close(),

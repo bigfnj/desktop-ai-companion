@@ -57,7 +57,7 @@ namespace DesktopAICompanion.Shimeji
                 host = new TickHost(t =>
                     {
                         var form = new FormCompanion(new Animations(t.Sprites), t.Sprites);
-                        form.Show(t.Type.CellWidth, t.Type.CellHeight);
+                        form.OpenHiddenForTick(t.Type.CellWidth, t.Type.CellHeight);
                         return form;
                     },
                     form => { closed.Add(form); form.Close(); },
@@ -75,6 +75,7 @@ namespace DesktopAICompanion.Shimeji
                 CheckStoredSwitches(check, host, scratch);
                 CheckPutWindowsBack(check, host);
                 CheckOneMove(check, sprites, frames[0]);
+                CheckFirstShow(check, sprites, frames[0]);
 
                 Rectangle work = System.Windows.Forms.Screen.PrimaryScreen.WorkingArea;
                 int x = work.Left + work.Width / 2, floor = work.Bottom;
@@ -318,6 +319,35 @@ namespace DesktopAICompanion.Shimeji
         }
 
         /// <summary>
+        /// A new tick window is first seen with its first frame, at that frame's place (N-shimeji-host-05). Show(w, h) made
+        /// it visible at the form's default place before any image, which a window poll counted as a visible 64x64 window;
+        /// the tick opener (the one StartUp's spawn and birth paths and this test's host factories call) leaves it hidden
+        /// with a handle, and RenderTick shows it. The WITNESS is that the first frame shows it at all. Drawn at opacity 0.
+        /// </summary>
+        private static void CheckFirstShow(Action<bool, string> check, Xml sprites, Bitmap frame)
+        {
+            using (var form = new FormCompanion(new Animations(sprites), sprites))
+            {
+                var shownAt = new List<Rectangle>();
+                EventHandler record = delegate { if (form.Visible) shownAt.Add(form.Bounds); };
+                form.VisibleChanged += record;
+                form.OpenHiddenForTick(64, 64);
+                bool hiddenBefore = !form.Visible && form.IsHandleCreated && shownAt.Count == 0;
+                Rectangle work = System.Windows.Forms.Screen.PrimaryScreen.WorkingArea;
+                var target = new Rectangle(work.Left + 120, work.Top + 120, 64, 64);
+                form.RenderTick(frame, target.X, target.Y, target.Width, target.Height, true, 0.0);
+                form.VisibleChanged -= record;
+                string shown = shownAt.Count == 0 ? "never" : string.Join(", ", shownAt.ConvertAll(r => r.ToString()).ToArray());
+                check(form.Visible && shownAt.Count > 0,
+                    "first show: WITNESS a new tick window is shown by its first frame (" + shown + ")");
+                check(hiddenBefore && shownAt.Count == 1 && shownAt[0] == target,
+                    "first show: a new tick window stays hidden until its first frame and is first seen at that frame's place ("
+                    + (hiddenBefore ? "hidden" : "shown") + " before; shown at " + shown + "; frame at " + target + ")");
+                form.Close();
+            }
+        }
+
+        /// <summary>
         /// The tray's "Put windows back", through the window seam with a fake record, so no real window is touched: hidden
         /// with nothing to put back, shown with a count when something was moved, its action goes through the record once
         /// and says how many went back, and it hides again after.
@@ -504,7 +534,7 @@ namespace DesktopAICompanion.Shimeji
                 host = new TickHost(t =>
                     {
                         var form = new FormCompanion(new Animations(t.Sprites), t.Sprites);
-                        form.Show(t.Type.CellWidth, t.Type.CellHeight);
+                        form.OpenHiddenForTick(t.Type.CellWidth, t.Type.CellHeight);
                         return form;
                     },
                     form => form.Close(),
@@ -576,7 +606,7 @@ namespace DesktopAICompanion.Shimeji
                 host = new TickHost(t =>
                     {
                         var form = new FormCompanion(new Animations(t.Sprites), t.Sprites);
-                        form.Show(t.Type.CellWidth, t.Type.CellHeight);
+                        form.OpenHiddenForTick(t.Type.CellWidth, t.Type.CellHeight);
                         return form;
                     },
                     form => form.Close(),
@@ -677,7 +707,7 @@ namespace DesktopAICompanion.Shimeji
                 host = new TickHost(t =>
                     {
                         var form = new FormCompanion(new Animations(t.Sprites), t.Sprites);
-                        form.Show(t.Type.CellWidth, t.Type.CellHeight);
+                        form.OpenHiddenForTick(t.Type.CellWidth, t.Type.CellHeight);
                         return form;
                     },
                     form => form.Close(),
@@ -797,7 +827,7 @@ namespace DesktopAICompanion.Shimeji
                 host = new TickHost(t =>
                     {
                         var form = new FormCompanion(new Animations(t.Sprites), t.Sprites);
-                        form.Show(t.Type.CellWidth, t.Type.CellHeight);
+                        form.OpenHiddenForTick(t.Type.CellWidth, t.Type.CellHeight);
                         return form;
                     },
                     form => form.Close(),

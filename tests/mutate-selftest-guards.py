@@ -22688,6 +22688,24 @@ CASES = (
      FORTUNES_CSPROJ, FORTUNES_DLL,
      "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
      "a downloaded plain pack that dropped an entry says so in the status"),
+    # ---- burndown/w5-host-1 ----
+    # Host code, burn-down wave 5. Named "bd-w5-host-1:" so one --only=bd-w5-host-1: run covers the lane.
+    # N-shimeji-host-05: the tick opener shows the window at the form's default place before its first frame again.
+    ('bd-w5-host-1: a new tick window is shown before its first frame (N-shimeji-host-05)',
+     os.path.join(REPO, "src", "dotNet", "FormCompanion.cs"),
+     b'            if (!IsHandleCreated) CreateHandle();\n',
+     b'            Show();\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     "first show: a new tick window stays hidden until its first frame and is first seen at that frame's place"),
+    # N-audit-1106-236: a read that lost the race to a commit caches what it unsealed again, whatever let go since.
+    ('bd-w5-host-1: a read racing a commit re-caches the token the commit let go of (N-audit-1106-236)',
+     os.path.join(REPO, "src", "dotNet", "Plugins", "HostCredentialStore.cs"),
+     b'                if (_forgets == envelope.ForgetsAtRead)\n',
+     b'                if (true)\n',
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "audit-host: unseal race: a read that loses the race to a Remove or a save does not cache the token the commit let go of"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
