@@ -357,6 +357,8 @@ def load_trace(source, expected_runtime=None, defer_run_failure=False):
                 raise Unjudgeable("missing-field", f"{runtime} line {i}: event {kind!r} lacks {missing or 'a known kind'}")
             if trace2 and kind == "error":
                 _validate_error(r, runtime, i)
+            if trace2 and kind == "rng-draw" and (not isinstance(r["occurrence"], int) or isinstance(r["occurrence"], bool)):
+                raise Unjudgeable("missing-field", f"{runtime}: tick {r['tick']}: rng-draw occurrence must be an integer")
             events.append(r)
         else:
             malformed(f"line {i}: unknown record type {t!r}")
@@ -372,8 +374,6 @@ def load_trace(source, expected_runtime=None, defer_run_failure=False):
         malformed(f"footer counts states/events/draws {footer['states']}/{footer['events']}/{footer['draws']} "
                   f"but the trace has {len(states)}/{len(events)}/{len(draws)}")
     for k, e in enumerate(draws, start=1):
-        if trace2 and (not isinstance(e["occurrence"], int) or isinstance(e["occurrence"], bool)):
-            raise Unjudgeable("missing-field", f"{runtime}: tick {e['tick']}: rng-draw occurrence must be an integer")
         if e["occurrence"] != k:
             malformed(f"tick {e['tick']}: rng-draw occurrence {e['occurrence']!r} should be {k}")
     # The numbers must be the scenario's: a value outside [0, 1), or a tape value the tape does not hold at that
@@ -1884,6 +1884,15 @@ def _trace2_check(name):
         for side in (0, 1):
             pair = _reference()
             trace = pair[side]
+            _cut_reference(trace, 4)
+            trace[1:-1] = [row for row in trace[1:-1]
+                           if not (row.get("type") == "state" and row["tick"] == 3 and row["sid"] == "m1")]
+            trace.pop()
+            require(compare(*pair), "truncated", "unjudgeable",
+                    "trace1 footerless non-suffix final snapshot " + str(side))
+        for side in (0, 1):
+            pair = _reference()
+            trace = pair[side]
             footer = copy.deepcopy(trace[-1])
             stop = next(index for index, row in enumerate(trace) if row.get("type") == "state"
                         and row["tick"] == 3 and row["sid"] == "m1.b1")
@@ -1911,6 +1920,12 @@ def _trace2_check(name):
             bad = copy.deepcopy(pair)
             next(row for row in bad[1] if row.get("kind") == "rng-draw")["occurrence"] = occurrence
             require(compare(*bad), "missing-field", "unjudgeable", "occurrence type " + repr(occurrence))
+        for side in (0, 1):
+            bad = copy.deepcopy(pair)
+            next(row for row in bad[side] if row.get("kind") == "rng-draw")["occurrence"] = 1.0
+            bad[side][-1]["states"] += 1
+            require(compare(*bad), "missing-field", "unjudgeable",
+                    "occurrence shape before footer count " + str(side))
         legacy = _reference({"kind": "tape", "values": [0.5]})
         require(compare(*legacy), detail="WITNESS trace1 integer occurrence")
         for sides in ((0,), (1,), (0, 1)):
@@ -1940,13 +1955,14 @@ def _trace2_check(name):
                     _trace2_refoot(pair[side])
                     require(compare(*pair), "missing-event" if side == 0 else "extra-event", "fail",
                             "lookahead presence " + str(side) + " " + extra_kind + " " + repr(codes))
-            pair = _trace2_reference()
-            for trace, code in zip(pair, codes):
-                _trace2_add_error(trace, code)
-                trace.insert(2, _ev(0, "m1", "mute", clip="reordered"))
-                _trace2_refoot(trace)
-            pair[1][1], pair[1][2] = pair[1][2], pair[1][1]
-            require(compare(*pair), "event-mismatch", "fail", "lookahead reordered " + repr(codes))
+            for side in (0, 1):
+                pair = _trace2_reference()
+                for trace, code in zip(pair, codes):
+                    _trace2_add_error(trace, code)
+                    trace.insert(2, _ev(0, "m1", "mute", clip="reordered"))
+                    _trace2_refoot(trace)
+                pair[side][1], pair[side][2] = pair[side][2], pair[side][1]
+                require(compare(*pair), "event-mismatch", "fail", "lookahead reordered " + str(side) + " " + repr(codes))
     elif name == "T2 timeout snapshot":
         for side in (0, 1):
             for status, want in (("timeout", "timeout"), ("aborted", "malformed"), ("error", "malformed")):
@@ -2290,9 +2306,11 @@ def self_test():
         try:
             burndown_check(name)
             print("  bd-codex-parity: " + name + " PASS")
-        except AssertionError as failure:
+        except (AssertionError, RuntimeError) as failure:
             ok = False
-            print("  " + str(failure) + " FAIL")
+            prefix = "bd-codex-parity: " + name + ": "
+            detail = str(failure)
+            print("  " + (detail if detail.startswith(prefix) else prefix + detail) + " FAIL")
     print("SELF-TEST", "PASS" if ok else "FAIL")
     return 0 if ok else 1
 

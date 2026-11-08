@@ -178,14 +178,15 @@ def compile_case(root, args, mutation=None):
                                                 for path in sorted(source.rglob("*.java"))}}
 
 
-def run_trace(root, classes, args, name, schema=2, rng=None, ticks=2, properties=(), off=False, startup=False):
+def run_trace(root, classes, args, name, schema=2, rng=None, ticks=2, properties=(), off=False, startup=False,
+              startup_set="StartupSynthetic"):
     case = root / name
     case.mkdir()
     scenario = {"schema": "shimeji-parity-scenario/1", "ticks": ticks, "rng": rng or {"kind": "none"},
                 "screens": [{"x": 0, "y": 0, "w": 100, "h": 100}], "workArea": {"x": 0, "y": 0, "w": 100, "h": 100},
                 "dpiScale": 1, "settings": {}, "mascots": []}
     if startup:
-        scenario["mascots"] = [{"sid": "m1", "imageSet": "StartupSynthetic", "behavior": "Stand", "anchor": [0, 0], "lookRight": False}]
+        scenario["mascots"] = [{"sid": "m1", "imageSet": startup_set, "behavior": "Stand", "anchor": [0, 0], "lookRight": False}]
     (case / "header.json").write_text(json.dumps({"type": "header", "schema": "shimeji-parity-trace/" + str(schema)}), encoding="utf-8")
     (case / "scenario.json").write_text(json.dumps(scenario), encoding="utf-8")
     result = command([args.jdk_root / "bin/java.exe", "-Djava.awt.headless=true", "-Dshimeji.parity.enabled=true",
@@ -264,12 +265,28 @@ def check_case(root, classes, args, only=None):
 
     def startup():
         result, lines = run_trace(root, classes, args, "startup", startup=True)
-        require("PROBE_STARTER_BUILD_BEHAVIOR" in result.stderr and "V1_CONFIGURATION_REFUSED" not in result.stderr,
+        marker = "java.lang.IllegalStateException: PROBE_STARTER_BUILD_BEHAVIOR"
+        result.execution["startup_witness"] = {"stderr_marker": marker, "footer": lines[-1],
+                                               "row_types": [row.get("type") for row in lines]}
+        require(marker in result.stderr.splitlines() and "V1_CONFIGURATION_REFUSED" not in result.stderr,
                 "JAVA_T2_STARTUP_PATH")
         require(result.returncode == 1 and lines[-1]["status"] == "error" and lines[-1]["states"] == 0
                 and not any(row.get("type") == "state" for row in lines), "JAVA_T2_STARTUP_NO_SNAPSHOT")
         require(lines[-1].get("tapeExhausted") is False, "JAVA_T2_FAILED_FLAG")
     run("startup", startup)
+
+    def configuration_refusal():
+        result, lines = run_trace(root, classes, args, "configuration-refusal", startup=True,
+                                  startup_set="UnavailableSynthetic")
+        marker = "V1_REFUSAL V1_CONFIGURATION_REFUSED UnavailableSynthetic"
+        result.execution["startup_witness"] = {"stderr_marker": marker, "footer": lines[-1],
+                                               "row_types": [row.get("type") for row in lines]}
+        require(marker in result.stderr.splitlines() and "PROBE_STARTER_BUILD_BEHAVIOR" not in result.stderr,
+                "JAVA_T2_CONFIGURATION_REFUSAL_PATH")
+        require(result.returncode == 1 and lines[-1]["status"] == "aborted" and lines[-1]["states"] == 0
+                and not any(row.get("type") == "state" for row in lines), "JAVA_T2_CONFIGURATION_ABORTED")
+        require(lines[-1].get("tapeExhausted") is False, "JAVA_T2_CONFIGURATION_FAILED_FLAG")
+    run("configuration-refusal", configuration_refusal)
     return done
 
 
@@ -296,6 +313,8 @@ MUTATIONS = (
      "v1", "JAVA_T1_EVENT_FREEZE"),
     ("V1ScenarioRunner.java", 'record.put("message", detail == null ? null : detail.toString());',
      'record.put("message", "changed diagnostic");', "v1", "JAVA_T1_EVENT_FREEZE"),
+    ("V1ScenarioRunner.java", 'status = "aborted";', 'status = "error";',
+     "configuration-refusal", "JAVA_T2_CONFIGURATION_ABORTED"),
 )
 
 

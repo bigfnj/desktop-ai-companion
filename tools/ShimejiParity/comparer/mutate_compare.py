@@ -306,11 +306,25 @@ CASES = (
     ("bd-codex-parity-3: unknown diagnostic names the pair", "T2 CC8",
      '''f"{sid}: tick {ea['tick']}, {ea['sid']}, error via {ea['error']['via']!r}: "''', '"unknown error: "'),
     ("bd-codex-parity-3: occurrence rejects numeric coercion", "T2 occurrence",
-     '''raise Unjudgeable("missing-field", f"{runtime}: tick {e['tick']}: rng-draw occurrence must be an integer")''',
-     'e["occurrence"] = int(e["occurrence"])'),
+     '''raise Unjudgeable("missing-field", f"{runtime}: tick {r['tick']}: rng-draw occurrence must be an integer")''',
+     'r["occurrence"] = int(r["occurrence"])'),
     ("bd-codex-parity-3: occurrence rejects boolean integers", "T2 occurrence",
-     'if trace2 and (not isinstance(e["occurrence"], int) or isinstance(e["occurrence"], bool)):',
-     'if trace2 and not isinstance(e["occurrence"], int):'),
+     'if trace2 and kind == "rng-draw" and (not isinstance(r["occurrence"], int) or isinstance(r["occurrence"], bool)):',
+     'if trace2 and kind == "rng-draw" and not isinstance(r["occurrence"], int):'),
+    ("bd-codex-parity-3: lookahead missing absence term", "T2 lookahead",
+     'not any(_events_align(ea, event, trace2) for event in hevents[i:])', 'a not in hkeys[i:]'),
+    ("bd-codex-parity-3: lookahead missing alignment term", "T2 lookahead",
+     'any(_events_align(event, eb, trace2) for event in oevents[i + 1:])', 'b in okeys[i + 1:]'),
+    ("bd-codex-parity-3: lookahead extra absence term", "T2 lookahead",
+     'not any(_events_align(event, eb, trace2) for event in oevents[i:])', 'b not in okeys[i:]'),
+    ("bd-codex-parity-3: lookahead extra alignment term", "T2 lookahead",
+     'any(_events_align(ea, event, trace2) for event in hevents[i + 1:])', 'a in hkeys[i + 1:]'),
+    ("bd-codex-parity-3: trace1 non-suffix tail freeze", "T2 trace1 freeze",
+     'tail_is_prefix = not trace2 or final_order == previous_order[:len(final_order)]',
+     'tail_is_prefix = final_order == previous_order[:len(final_order)]'),
+    ("bd-codex-parity-3: occurrence before footer count", "T2 occurrence",
+     'if trace2 and kind == "rng-draw" and (not isinstance(r["occurrence"], int) or isinstance(r["occurrence"], bool)):',
+     'if trace2 and kind == "rng-draw" and (footer is None or footer["states"] == sum(row.get("type") == "state" for row in records)) and (not isinstance(r["occurrence"], int) or isinstance(r["occurrence"], bool)):'),
 )
 
 
@@ -559,6 +573,18 @@ MUTATION_EXPECTATIONS = (
     ("occurrence type 1.0: ('exact', None)", "exact", None),
     # bd-codex-parity-3: occurrence rejects boolean integers
     ("occurrence type True: ('fail', 'event-mismatch')", "fail", "event-mismatch"),
+    # bd-codex-parity-3: lookahead missing absence term
+    ("lookahead reordered 1 ('unclassified', 'behavior-missing'): ('fail', 'missing-event')", "fail", "missing-event"),
+    # bd-codex-parity-3: lookahead missing alignment term
+    ("lookahead presence 0 mute ('unclassified', 'behavior-missing'): ('fail', 'event-mismatch')", "fail", "event-mismatch"),
+    # bd-codex-parity-3: lookahead extra absence term
+    ("lookahead reordered 0 ('unclassified', 'behavior-missing'): ('fail', 'extra-event')", "fail", "extra-event"),
+    # bd-codex-parity-3: lookahead extra alignment term
+    ("lookahead presence 1 mute ('unclassified', 'behavior-missing'): ('fail', 'event-mismatch')", "fail", "event-mismatch"),
+    # bd-codex-parity-3: trace1 non-suffix tail freeze
+    ("trace1 footerless non-suffix final snapshot 0: ('unjudgeable', 'malformed')", "unjudgeable", "malformed"),
+    # bd-codex-parity-3: occurrence before footer count
+    ("occurrence shape before footer count 0: ('unjudgeable', 'malformed')", "unjudgeable", "malformed"),
 )
 if len(CASES) != len(MUTATION_EXPECTATIONS):
     raise AssertionError("each mutation needs one explicit leg/verdict/class expectation")
