@@ -96,6 +96,12 @@ foreach ($process in [Diagnostics.Process]::GetProcessesByName('DesktopAICompani
         $images.Add([pscustomobject]@{ Pid=$process.Id; Created=$metadata[1]; Image=$image })
     } finally { $process.Dispose() }
 }
+# ScopedShutdownSafe is a COMPLETION MARKER, not a second verdict (N-audit-1106-396): every unsafe image, scope or path
+# above THROWS, so no file is written, and this literal $true is reached only once every check has passed. The verdict
+# is that throw and this script's exit code. Its readers' `ScopedShutdownSafe -ne $true` refusals
+# (tools\agentbroker\Test-IsolatedMsiApiLogging.ps1 Confirm-Preflight, Invoke-IsolatedMsiApiLoggingCase.ps1
+# Invoke-CasePreflight) therefore refuse a JSON file this script did not write, such as a caller-supplied path to another
+# file; for a file it did write they cannot fire, and are not meant to.
 $report = [ordered]@{ ScopedShutdownSafe=$true; ObservedAtUtc=[DateTime]::UtcNow.ToString('o'); Processes=@($images.ToArray());
     CommandLinesRead=$false; ExecutableContentsRead=$false; InstalledApplicationTouched=$false }
 $parent = Split-Path $output -Parent
