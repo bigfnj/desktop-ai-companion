@@ -210,6 +210,13 @@ namespace DesktopAICompanion.CodingAgent
         internal string Version = "";
         internal int ExitCode;
         internal long ElapsedMilliseconds;
+        /// <summary>The bound the call ran under, set when it was handed to the process runner; zero for a call refused
+        /// before that. The timed-out sentence names it (Describe), so a caller with no bound of its own to hand says the one
+        /// that fired (BACKLOG N-audit-1106-298): the exception AI Brain's backend throws (CodingAgentCliException) and AI
+        /// Brain's audition samples built that sentence with none, so a call bounded at the user's 15 s read "did not answer
+        /// within 120 s", the runner's default. Kept on the answer rather than handed to the exception, because the
+        /// exception is built in a module and the bound is known here, where the call ran.</summary>
+        internal TimeSpan Bound;
         internal long InputTokens = -1;
         internal string Said = "";
         /// <summary>The call ran (or was refused) on the sign-in token saved in this module, not the CLI's own sign-in, so
@@ -275,6 +282,7 @@ namespace DesktopAICompanion.CodingAgent
     /// retries it: a second CLI call after a sign-in failure or a timeout costs another call for the same answer.</summary>
     internal sealed class CodingAgentCliException : Exception
     {
+        // No bound passed: a timed-out answer carries the one its call ran under (CliAnswer.Bound, N-audit-1106-298).
         internal CodingAgentCliException(CodingAgentKind agent, CliAnswer answer)
             : base(CodingAgentCliText.Describe(agent, answer, null))
         {
@@ -1072,6 +1080,7 @@ namespace DesktopAICompanion.CodingAgent
                 string input = request.Agent == CodingAgentKind.Claude ? BuildClaudeInput(request) : (request.Prompt ?? "");
 
                 TimeSpan timeout = request.Timeout > TimeSpan.Zero ? request.Timeout : DefaultCallTimeout;
+                answer.Bound = timeout;
                 started = true;
                 CliProcessResult result = await RunBoundedAsync(startInfo, input, timeout, cancellationToken, answer)
                     .ConfigureAwait(false);
@@ -2491,12 +2500,11 @@ namespace DesktopAICompanion.CodingAgent
         // ---- reading what came back --------------------------------------------------------------------------------
 
         /// <summary>Fill the answer from the child's output: the text, the token count, and on a failure the class and a
-        /// bounded excerpt of what the CLI said.</summary>
-        internal static void Interpret(CodingAgentKind agent, CliProcessResult result, CliAnswer answer)
-        {
-            Interpret(agent, result, answer, null);
-        }
-
+        /// bounded excerpt of what the CLI said.
+        /// One overload, which takes the command line. A three-argument one that passed null for it had no caller, and any
+        /// caller it gained would have read every call with the setting refusals, the ignored settings and the MCP policy
+        /// refusal all switched off, with nothing to say so (BACKLOG N-audit-1106-299); tests/runtime-hardening-selftest.ps1
+        /// keeps it from coming back.</summary>
         /// <param name="arguments">The call's command line, which decides whether a Codex config-load error names a key the
         /// call itself set (CodexRefusedSetting); null for none known, and then such an error stays a plain failure.</param>
         internal static void Interpret(CodingAgentKind agent, CliProcessResult result, CliAnswer answer, IList<string> arguments)
@@ -3354,6 +3362,10 @@ namespace DesktopAICompanion.CodingAgent
                 case CliOutcome.NoPrivateFolder: return "no-private-folder";
                 case CliOutcome.TokenUnreadable: return "token-unreadable";
                 case CliOutcome.TokenNotAToken: return "token-not-a-token";
+                // The shared sign-in's two refusals (host 1.8.0) had no word and logged as "failed" (BACKLOG
+                // N-audit-1106-300); CheckOutcomeWords now holds every outcome to a word of its own.
+                case CliOutcome.TokenNotAllowed: return "token-not-allowed";
+                case CliOutcome.TokenStoreUnavailable: return "token-store-unavailable";
                 case CliOutcome.ChoiceRefused: return "choice-refused";
                 case CliOutcome.ModelCannotSee: return "model-cannot-see";
                 case CliOutcome.ConfigRefused: return "config-refused";
@@ -4685,6 +4697,10 @@ namespace DesktopAICompanion.CodingAgent
                 case CliOutcome.NoPrivateFolder: return "no data folder";
                 case CliOutcome.TokenUnreadable: return "saved token unreadable";
                 case CliOutcome.TokenNotAToken: return "saved token is not a sign-in token";
+                // As OutcomeWord's (N-audit-1106-300): both said "failed" on the card's Status row and AI Brain's Status card.
+                // Nothing after the module's name, since the row goes on "at 14:32:05" (RecordValidation).
+                case CliOutcome.TokenNotAllowed: return "shared sign-in not allowed to " + CodingAgentModuleWords.Module;
+                case CliOutcome.TokenStoreUnavailable: return "shared sign-in could not be read";
                 case CliOutcome.ChoiceRefused: return "model or effort setting refused";
                 case CliOutcome.ModelCannotSee: return "the chosen model takes no images";
                 case CliOutcome.ConfigRefused: return "refused one of the settings " + CodingAgentModuleWords.Module + " starts Codex with";
@@ -5059,7 +5075,8 @@ namespace DesktopAICompanion.CodingAgent
             return null;
         }
 
-        /// <param name="timeout">The bound the call ran under, for the timed-out sentence; null for the default.</param>
+        /// <param name="timeout">The bound the call ran under, for the timed-out sentence of an answer that does not carry its
+        /// own (CliAnswer.Bound, which wins); null for the default.</param>
         internal static string Describe(CodingAgentKind agent, CliAnswer answer, TimeSpan? timeout)
         {
             string product = CodingAgents.ProductName(agent);
@@ -5143,7 +5160,10 @@ namespace DesktopAICompanion.CodingAgent
                     // not quoted after it.
                     return ModelAtCapacitySentence(agent, a);
                 case CliOutcome.TimedOut:
-                    TimeSpan bound = timeout ?? CodingAgentCli.DefaultCallTimeout;
+                    // The bound the call itself ran under first (CliAnswer.Bound, N-audit-1106-298): it is the one that fired,
+                    // and a caller's own is only ever a copy of it. The parameter, then the default, for an answer that never
+                    // reached the runner's bound (one built by hand).
+                    TimeSpan bound = a.Bound > TimeSpan.Zero ? a.Bound : timeout ?? CodingAgentCli.DefaultCallTimeout;
                     return "✗ " + product + " did not answer within " +
                            ((int)bound.TotalSeconds).ToString(CultureInfo.InvariantCulture) + " s.";
                 case CliOutcome.Cancelled:

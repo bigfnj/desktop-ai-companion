@@ -422,6 +422,9 @@ namespace DesktopAICompanion.CodingAgent
             Guard(check, "a details read's landing", CheckDetailsReadLanded);
             // Lane feature/host-abi-180.
             Guard(check, "the shared Claude Code sign-in", SharedSignInSelfCheck.Check);
+            // Burn-down lane w6-shared-1.
+            Guard(check, "a stopped Codex screenshot call's folder", CheckStoppedScreenshotCallFolder);
+            Guard(check, "a word of its own for every outcome", CheckOutcomeWords);
         }
 
         private static void Guard(Action<string, bool> check, string group, Action<Action<string, bool>> run)
@@ -902,6 +905,14 @@ namespace DesktopAICompanion.CodingAgent
                 check("cli runner: a call past its bound is timed out, and the child is told to end",
                     timedOut != null && timedOut.Outcome == CliOutcome.TimedOut && seen != null && seen.TokenCancelled &&
                     CodingAgentCliText.Describe(CodingAgentKind.Claude, timedOut, slow.Timeout).Contains("did not answer within"));
+                // BACKLOG N-audit-1106-298: the exception AI Brain's backend throws is built with no bound, as are AI Brain's
+                // audition samples, so its sentence named the runner's default (120 s) whatever bound the call ran under. The
+                // answer now carries its own, and the sentence built with none names it.
+                string thrown = timedOut == null ? "" : new CodingAgentCliException(CodingAgentKind.Claude, timedOut).Message;
+                check("cli runner: a timed-out answer carries its call's bound, so the exception built with none names that bound and not the default: " + thrown,
+                    timedOut != null && timedOut.Bound == slow.Timeout &&
+                    thrown == CodingAgentCliText.Describe(CodingAgentKind.Claude, timedOut, slow.Timeout) &&
+                    thrown.Contains("did not answer within") && !thrown.Contains("within 120 s"));
                 if (!ended) return;   // the held call still owns the gate; the cancellation check below would read busy
                 using (var cancel = new CancellationTokenSource(TimeSpan.FromMilliseconds(200)))
                 {
@@ -3423,6 +3434,89 @@ namespace DesktopAICompanion.CodingAgent
                     answered.Ok && answeredLine.Contains(" ok exit=0 ms=") && refused.Outcome == CliOutcome.ChoiceRefused &&
                     refusedLine.Contains(" choice-refused not-started ms="));
             }
+        }
+
+        /// <summary>
+        /// BACKLOG N-audit-1106-301: a Codex screenshot call's own folder, which holds the screenshot and the instructions
+        /// file, is deleted however the call ends. CheckInput holds that for a call that answered; this holds it for the two
+        /// that never come back with a result, one its bound stops and one its caller cancels, each while the fake holds the
+        /// call open. The screenshot is the user's screen, so a folder kept by every remark that timed out would leave it on
+        /// disk. The folder is the one the fake read the screenshot from WHILE the call ran (the WITNESS that there was one).
+        /// </summary>
+        private static void CheckStoppedScreenshotCallFolder(Action<string, bool> check)
+        {
+            using (var scratch = new FakeCliScratch())
+            {
+                var entered = new ManualResetEventSlim(false);
+                var fake = new FakeCliProcess();
+                fake.Respond = async delegate(FakeCliCall call, CancellationToken token)
+                {
+                    if (!call.IsModelCall) return await FakeCliProcess.Answering("OK")(call, token).ConfigureAwait(false);
+                    entered.Set();
+                    await Task.Delay(-1, token).ConfigureAwait(false);
+                    return FakeCliProcess.Result(0, "", "");
+                };
+                CodingAgentCli runner = scratch.NewRunner(fake, new List<string>());
+
+                CliRequest bounded = Remark(CodingAgentKind.Codex, "p", SyntheticPng);
+                bounded.Timeout = TimeSpan.FromMilliseconds(300);
+                CliAnswer timedOut = Wait(runner.AskAsync(bounded, CancellationToken.None));
+                FakeCliCall timedOutCall = fake.Calls.Find(delegate(FakeCliCall x) { return x.IsModelCall; });
+                string timedOutFolder = timedOutCall == null || timedOutCall.ImagePath == null ? null : Path.GetDirectoryName(timedOutCall.ImagePath);
+
+                fake.Clear();
+                entered.Reset();
+                CliAnswer cancelled;
+                bool inFlight;
+                using (var stop = new CancellationTokenSource())
+                {
+                    Task<CliAnswer> stopping = runner.AskAsync(Remark(CodingAgentKind.Codex, "p", SyntheticPng), stop.Token);
+                    inFlight = entered.Wait(TimeSpan.FromSeconds(10));
+                    stop.Cancel();
+                    cancelled = Wait(stopping);
+                }
+                FakeCliCall cancelledCall = fake.Calls.Find(delegate(FakeCliCall x) { return x.IsModelCall; });
+                string cancelledFolder = cancelledCall == null || cancelledCall.ImagePath == null ? null : Path.GetDirectoryName(cancelledCall.ImagePath);
+
+                check("WITNESS cli runner: both stopped Codex screenshot calls read the screenshot from their own call folder while they ran",
+                    timedOutCall != null && timedOutCall.ImageAtCall != null && timedOutFolder != null &&
+                    cancelledCall != null && cancelledCall.ImageAtCall != null && cancelledFolder != null && inFlight &&
+                    !string.Equals(timedOutFolder, cancelledFolder, StringComparison.OrdinalIgnoreCase));
+                check("cli runner: a Codex screenshot call its bound stopped leaves no call folder behind: " + CodingAgentCli.OutcomeWord(timedOut.Outcome),
+                    timedOut.Outcome == CliOutcome.TimedOut && timedOutFolder != null && !Directory.Exists(timedOutFolder));
+                check("cli runner: a Codex screenshot call its caller cancelled leaves no call folder behind: " + CodingAgentCli.OutcomeWord(cancelled.Outcome),
+                    cancelled.Outcome == CliOutcome.Cancelled && cancelledFolder != null && !Directory.Exists(cancelledFolder));
+            }
+        }
+
+        /// <summary>
+        /// BACKLOG N-audit-1106-300: every outcome has a log word (OutcomeWord) and a few words for the Status rows (Brief)
+        /// of its own, and only Failed's are "failed". The shared sign-in's two refusals (host 1.8.0) reached the enum and
+        /// Describe but neither switch, so both fell to the default: the log line, AI Brain's "cli-" log category, the CLI
+        /// card's Status row and AI Brain's Status card all said "failed" for a call that was never started. Read off the
+        /// enum itself, so an outcome added later without its words fails here, by name.
+        /// </summary>
+        private static void CheckOutcomeWords(Action<string, bool> check)
+        {
+            var words = new HashSet<string>(StringComparer.Ordinal);
+            var briefs = new HashSet<string>(StringComparer.Ordinal);
+            var wanting = new List<string>();
+            Array outcomes = Enum.GetValues(typeof(CliOutcome));
+            foreach (CliOutcome outcome in outcomes)
+            {
+                string word = CodingAgentCli.OutcomeWord(outcome);
+                string brief = CodingAgentCliText.Brief(outcome);
+                bool isFailed = outcome == CliOutcome.Failed;
+                if ((word == "failed") != isFailed || (brief == "failed") != isFailed || !words.Add(word) || !briefs.Add(brief))
+                    wanting.Add(outcome.ToString());
+            }
+            check("WITNESS cli runner: Failed's own words are 'failed', read with the rest off the enum (" +
+                  outcomes.Length.ToString(System.Globalization.CultureInfo.InvariantCulture) + " outcomes)",
+                outcomes.Length > 1 && CodingAgentCli.OutcomeWord(CliOutcome.Failed) == "failed" &&
+                CodingAgentCliText.Brief(CliOutcome.Failed) == "failed");
+            check("cli runner: every outcome has a log word and a Status-row brief of its own, only Failed's being 'failed': " +
+                  (wanting.Count == 0 ? "none wanting" : string.Join(", ", wanting)),
+                wanting.Count == 0);
         }
 
         /// <summary>

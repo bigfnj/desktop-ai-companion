@@ -79,8 +79,19 @@ namespace DesktopAICompanion.MeetingApps
                 s.Teams.LastStartUtc.HasValue && s.Teams.LastStartUtc.Value == t0.AddMinutes(-5));
             check("meetingapps: a key with a stop after its start is not in use (Zoom, yesterday)",
                 !s.Zoom.InUse && s.Zoom.LastStopUtc.HasValue && s.Zoom.LastStopUtc.Value == t0.AddDays(-1).AddMinutes(33));
+            // Read with this app's own key the ONLY one holding the microphone, both meeting apps released before it started
+            // (BACKLOG N-audit-1106-302). This used to assert that For(MeetingApp.None) is null, which For returns by
+            // construction, so it passed whatever Read did with the key; in the record above Teams holds it anyway, which
+            // would hide a Read that counted ours as anyone's.
+            var ownOnly = new FakeConsentStore()
+                .Add(TeamsPackaged, true, t0.AddMinutes(-30), t0.AddMinutes(-20))
+                .Add(ZoomDesktop, false, t0.AddMinutes(-15), t0.AddMinutes(-10))
+                .Add(OurOwnExe, false, t0.AddMinutes(-4), null);
+            MicUseSnapshot own = new MeetingAppMicrophone(ownOnly).Read();
             check("meetingapps: this app's own recording never counts as a meeting app holding the microphone",
-                s.For(MeetingApp.None) == null);
+                own.Available && !own.AnyInUse && own.InUseApp == MeetingApp.None && !own.Teams.InUse && !own.Zoom.InUse
+                && own.Teams.LastStartUtc == t0.AddMinutes(-30) && own.Zoom.LastStartUtc == t0.AddMinutes(-15)
+                && own.Teams.LastStopUtc == t0.AddMinutes(-20) && own.Zoom.LastStopUtc == t0.AddMinutes(-10));
 
             var released = new FakeConsentStore()
                 .Add(TeamsPackaged, true, t0.AddMinutes(-60), t0.AddMinutes(-1))

@@ -4604,6 +4604,23 @@ CASES = (
     ('bd-codex-parity-2-review: cleanup loses actual success flag', os.path.join(REPO, 'tools', 'ShimejiConvert.ValidationProbe', 'Invoke-Checks.ps1'), b'$readerPassed=$true', b'$readerPassed=$false', 'bd-codex-parity-2-review: Invoke-Checks.ps1 owns scratch and cleans only after the actual pass'),
     ('bd-codex-parity-2-review: cleanup becomes unconditional', os.path.join(REPO, 'tools', 'ShimejiConvert.ValidationProbe', 'Invoke-Checks.ps1'), b'if ($readerPassed) {', b'if ($true) {', 'bd-codex-parity-2-review: Invoke-Checks.ps1 owns scratch and cleans only after the actual pass'),
     ('bd-codex-parity-2-review: cleanup call becomes an echo', os.path.join(REPO, 'tools', 'ShimejiConvert.ValidationProbe', 'Invoke-Checks.ps1'), b'Remove-MapReaderScratch $callerScratch $callerScratchParent', b"Write-Host 'cleanup skipped'", 'bd-codex-parity-2-review: Invoke-Checks.ps1 owns scratch and cleans only after the actual pass'),
+
+    # ---- burndown/w6-shared-1 ----
+    # Shared code, burn-down wave 6. "bd-w6-shared-1:" for one --only.
+    # N-audit-1106-299: the three-argument Interpret, which passed null for the command line, comes back.
+    (
+        "bd-w6-shared-1: the null-command-line Interpret overload comes back (N-audit-1106-299)",
+        os.path.join(REPO, "shared", "CodingAgentCli", "CodingAgentCli.cs"),
+        b"        internal static void Interpret(CodingAgentKind agent, CliProcessResult result, CliAnswer answer, IList<string> arguments)\n",
+        b"        internal static void Interpret(CodingAgentKind agent, CliProcessResult result, CliAnswer answer)\n"
+        b"        {\n"
+        b"            Interpret(agent, result, answer, null);\n"
+        b"        }\n"
+        b"\n"
+        b"        internal static void Interpret(CodingAgentKind agent, CliProcessResult result, CliAnswer answer, IList<string> arguments)\n",
+        # A prefix: PowerShell wraps the thrown label at the console width, which split the whole label across two lines.
+        "w6-shared-1: the CLI runner's one Interpret takes the command line",
+    ),
 )
 
 

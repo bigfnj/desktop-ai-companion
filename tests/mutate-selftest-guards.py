@@ -22923,6 +22923,66 @@ CASES = (
      REMINDER_CSPROJ, REMINDER_DLL,
      "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
      "WITNESS the questions double refuses a seventh ask in a minute"),
+    # ---- burndown/w6-shared-1 ----
+    # Shared code, burn-down wave 6. "bd-w6-shared-1:" for one --only. The CLI runner's cases rebuild AI Brain and grade
+    # --module-selftest=aibrain, which runs the runner's self-check (CodingAgentCliSelfCheck); the meeting-app case
+    # rebuilds Reminder, which runs MeetingAppMicrophoneSelfCheck (Remembrance runs it too).
+    # N-audit-1106-298: the timed-out sentence of an answer built with no bound names the runner's default again.
+    ("bd-w6-shared-1: a timed-out answer's sentence ignores its call's bound (N-audit-1106-298)",
+     CLI_RUNNER,
+     b"                    TimeSpan bound = a.Bound > TimeSpan.Zero ? a.Bound : timeout ?? CodingAgentCli.DefaultCallTimeout;\n",
+     b"                    TimeSpan bound = timeout ?? CodingAgentCli.DefaultCallTimeout;\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a timed-out answer carries its call's bound, so the exception built with none names that bound and not the default"),
+    # N-audit-1106-298: the answer stops carrying the bound its call ran under. Zeroed rather than deleted: with no
+    # assignment left the field is never assigned, a warning, and warnings break the build.
+    ("bd-w6-shared-1: a call's answer no longer carries its bound (N-audit-1106-298)",
+     CLI_RUNNER,
+     b"                answer.Bound = timeout;\n",
+     b"                answer.Bound = TimeSpan.Zero;\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a timed-out answer carries its call's bound, so the exception built with none names that bound and not the default"),
+    # N-audit-1106-301: the backlog's own mutation, the call folder deleted only for a call that came back.
+    ("bd-w6-shared-1: a call that never came back keeps its folder (N-audit-1106-301)",
+     CLI_RUNNER,
+     b"                DeleteQuietly(callDirectory);\n",
+     b"                if (exited) DeleteQuietly(callDirectory);\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a Codex screenshot call its bound stopped leaves no call folder behind"),
+    # N-audit-1106-301: only a cancelled call keeps its folder, which the timed-out check alone would not see.
+    ("bd-w6-shared-1: a cancelled call keeps its folder (N-audit-1106-301)",
+     CLI_RUNNER,
+     b"                DeleteQuietly(callDirectory);\n",
+     b"                if (answer.Outcome != CliOutcome.Cancelled) DeleteQuietly(callDirectory);\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a Codex screenshot call its caller cancelled leaves no call folder behind"),
+    # N-audit-1106-300: the shared sign-in's two refusals lose their words and fall to "failed" again, one per switch.
+    ("bd-w6-shared-1: a call the shared sign-in was not allowed for logs as failed (N-audit-1106-300)",
+     CLI_RUNNER,
+     b'                case CliOutcome.TokenNotAllowed: return "token-not-allowed";\n',
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "every outcome has a log word and a Status-row brief of its own, only Failed's being 'failed': TokenNotAllowed"),
+    ("bd-w6-shared-1: an unreadable shared sign-in says failed on the Status rows (N-audit-1106-300)",
+     CLI_RUNNER,
+     b'                case CliOutcome.TokenStoreUnavailable: return "shared sign-in could not be read";\n',
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "every outcome has a log word and a Status-row brief of its own, only Failed's being 'failed': TokenStoreUnavailable"),
+    # N-audit-1106-302: Read counts a key no meeting app owns (this app's own) as Zoom's.
+    ("bd-w6-shared-1: this app's own in-use key counts as a meeting app's (N-audit-1106-302)",
+     os.path.join(REPO, "shared", "MeetingApps", "MeetingAppMicrophone.cs"),
+     b"                if (use == null) continue;\n",
+     b"                if (use == null) use = snap.Zoom;\n",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "this app's own recording never counts as a meeting app holding the microphone"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
