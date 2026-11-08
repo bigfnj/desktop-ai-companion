@@ -23548,6 +23548,30 @@ CASES = (
      HOST_CSPROJ, EXE,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
      "parity error validator: every malformation of 10.3.1 and 10.3.2 is refused"),
+    # Part 3: CH5's partial arrival (the D.3 mutation: TargetLook moved before the target's transition, which the
+    # existing CoreTests case also uses, graded here on the trace/2 check) and its arrive label; CH9's startup leg (a
+    # foreign exception given a typed cause). --only="bd-parity-host-2: error, part 3:" runs exactly these.
+    ("bd-parity-host-2: error, part 3: a partial arrival turns its target before the target's transition (CH5)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickSocialFamily.cs"),
+     b'                // ScanInteract reads TargetBehavior twice, once to test it and once to build it (ScanInteract.java:119-121).\n                if (!skipBlankTarget || !IsBlank(action.EvalString("TargetBehavior", null, ""), action, "TargetBehavior"))\n                    target.SetBehaviour(world.BuildBehaviourByName(target.Type, action.EvalString("TargetBehavior", null, ""), target), "partner");\n                if (action.EvalBool("TargetLook", null, false) && target.LookRight == mascot.LookRight)\n                    target.LookRight = !mascot.LookRight;\n',
+     b'                if (action.EvalBool("TargetLook", null, false) && target.LookRight == mascot.LookRight)\n                    target.LookRight = !mascot.LookRight;\n                // ScanInteract reads TargetBehavior twice, once to test it and once to build it (ScanInteract.java:119-121).\n                if (!skipBlankTarget || !IsBlank(action.EvalString("TargetBehavior", null, ""), action, "TargetBehavior"))\n                    target.SetBehaviour(world.BuildBehaviourByName(target.Type, action.EvalString("TargetBehavior", null, ""), target), "partner");\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     "parity error: a partial arrival keeps the seeker's transition"),
+    ("bd-parity-host-2: error, part 3: an arrival fault drops its via arrive (CH5)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickSocialFamily.cs"),
+     b'e.Cause, TickFaultVia.Arrive);',
+     b'e.Cause, null);',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     "parity error: a partial arrival keeps the seeker's transition"),
+    ("bd-parity-host-2: error, part 3: a foreign startup fault is typed from the behaviour asked for (CH9)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'own == null ? null : own.Cause, TickFaultVia.Startup);',
+     b'own == null ? TickFaultCause.OfMissingBehaviour(type, behaviour) : own.Cause, TickFaultVia.Startup);',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     "parity error: a foreign exception while a starter is created is unclassified via startup"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

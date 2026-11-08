@@ -22,6 +22,7 @@ namespace DesktopAICompanion.Shimeji
                 var emitted = new List<string>();
                 CheckErrorBirthAndTransform(check, golden, emitted);
                 CheckErrorWrappers(check, golden, emitted);
+                CheckErrorPartialArrival(check, golden, emitted);
                 CheckErrorWhereItArises(check, golden, emitted);
                 CheckErrorNoEvent(check);
 
@@ -404,6 +405,34 @@ namespace DesktopAICompanion.Shimeji
                   && failed.Disposing && startup.Mascots.Count == 0 && startup.Pending.Count == 0 && Lines(ts.ToString(), "\"type\":\"state\"").Count == 0,
                 "parity error: a failed starter is reported via startup, stays disposed and has no tick-0 state (" + startupError + ")");
 
+            // CH9's startup leg: an exception that is not the host's own fault class while a start companion is created.
+            // No authored member raises one there (every read a first behaviour makes at construction or Init throws the
+            // host's own class), so this is a synthetic seam: the member is compiled as usual and then broken in memory,
+            // its Stall action's parameter table taken away, and the real TickAction constructor's TickVars copy throws
+            // ArgumentNullException inside the real CreateAtStart. The startup wrapper writes it unclassified, via
+            // startup; the starter is disposed and never joins tick 0, while the healthy starter beside it does.
+            TickType brk = EType("Brk", EBeh(10, "Stand", "Stand"), EAct(30, "Stand", "Stay", null, 100),
+                EBeh(11, "Stall", "Stall"), EAct(31, "Stall", "Stay", null, 100));
+            brk.ActionsById[31].Params = null;
+            var tf = new StringWriter();
+            ParityTraceWriter wf;
+            TickWorld foreign = EWorld(tf, out wf, brk);
+            TickMascot stalled = foreign.CreateAtStart("m1", brk, new TickPoint(640, 680), false, "Stall");
+            TickMascot healthy = foreign.CreateAtStart("m2", brk, new TickPoint(100, 680), false, "Stand");
+            foreign.ActivateStartup();
+            wf.States(foreign);
+            string foreignLine = One(Errors(tf, emitted));
+            string foreignError = ErrorOf(foreignLine, out message);
+            List<string> foreignStates = Lines(tf.ToString(), "\"type\":\"state\"");
+            check(foreignError == "{\"code\":\"unclassified\",\"lookup\":null,\"via\":[\"startup\"]}"
+                  && foreignLine.Contains("\"sid\":\"m1\"")
+                  && message != null && message.StartsWith("internal fault: ArgumentNullException: the first behaviour could not be built: ", StringComparison.Ordinal)
+                  && stalled.Disposing && !healthy.Disposing && foreign.Pending.Count == 0
+                  && foreign.Mascots.Count == 1 && ReferenceEquals(foreign.Mascots[0], healthy)
+                  && foreignStates.Count == 1 && foreignStates[0].Contains("\"sid\":\"m2\""),
+                "parity error: a foreign exception while a starter is created is unclassified via startup; the starter is disposed and absent from tick 0 ("
+                + foreignError + "; " + message + "; " + foreignStates.Count + " tick-0 states)");
+
             // CH9: an exception that is not the host's own fault class, caught by the step: unclassified, via [].
             var t = new StringWriter();
             ParityTraceWriter w;
@@ -448,6 +477,65 @@ namespace DesktopAICompanion.Shimeji
             check(releaseError == "{\"code\":\"behavior-missing\",\"lookup\":{\"imageSet\":\"Par\",\"behavior\":\"Thrown\"},\"via\":[\"release\"]}" && partner.Disposing,
                 "parity error: a release whose Thrown is missing is via release, and the companion is disposed (" + releaseError + ")");
             emitted.AddRange(released.GetRange(before, released.Count - before));
+        }
+
+        // ---- CH5: a partial arrival
+
+        /// <summary>A ScanMove seeker of member Seek (Behavior Hugging, TargetBehavior <paramref name="targetBehaviour"/>,
+        /// TargetLook) and a target of member Tgt offering "hug" on the same anchor, both facing left; the seeker enters
+        /// the ScanMove once the target offers, and arrives at once in the next step.</summary>
+        private static StringWriter RunArrival(string targetBehaviour, out TickMascot seeker, out TickMascot target)
+        {
+            TickType seek = EType("Seek", EBeh(10, "Stand", "Stand"), EAct(30, "Stand", "Stay", null, 100),
+                EBeh(11, "Seek", "Seeking"), EAct(31, "Seeking", "Embedded", "ScanMove", 100, EParam("Affordance", "hug"),
+                    EParam("Behavior", "Hugging"), EParam("TargetBehavior", targetBehaviour), EParam("TargetLook", "true")),
+                EBeh(12, "Hugging", "HuggingAct"), EAct(32, "HuggingAct", "Stay", null, 100),
+                EBeh(13, "Hugged", "HuggedAct"), EAct(33, "HuggedAct", "Stay", null, 100));
+            TickType tgt = EType("Tgt", EBeh(10, "Offer", "Offering"), EAct(30, "Offering", "Stay", null, 100, EParam("Affordance", "hug")),
+                EBeh(11, "Greet", "Greeting"), EAct(31, "Greeting", "Stay", null, 100));
+            var trace = new StringWriter();
+            ParityTraceWriter writer;
+            TickWorld world = EWorld(trace, out writer, seek, tgt);
+            seeker = world.CreateAtStart("m1", seek, new TickPoint(640, 680), false, "Stand");
+            target = world.CreateAtStart("m2", tgt, new TickPoint(640, 680), false, "Offer");
+            world.ActivateStartup();
+            writer.Tick = 1;
+            world.StepOnce();
+            // ScanMove scans at Init, and only an active companion's offer is seen: the target offers once it has stepped.
+            seeker.SetBehaviour(world.BuildBehaviourByName(seek, "Seek", seeker), "forced");
+            writer.Tick = 2;
+            world.StepOnce();
+            return trace;
+        }
+
+        private static void CheckErrorPartialArrival(Action<bool, string> check, List<string> golden, List<string> emitted)
+        {
+            // CH5 (C.2 H4): the seeker's own Behavior is entered; then the target's TargetBehavior is looked up in the
+            // TARGET's member and is missing there (Hugged exists only in the seeker's member, so a lookup in the wrong
+            // member would find it). The arrive wrapper reports it on the seeker, behavior-missing in the member searched,
+            // via arrive. TargetLook, which would turn the target (both face left), is never reached, and the seeker's
+            // transition is not undone.
+            string message;
+            TickMascot seeker, target;
+            StringWriter partial = RunArrival("Hugged", out seeker, out target);
+            string line = One(Errors(partial, emitted));
+            string arriveError = ErrorOf(line, out message);
+            Golden(golden, message, "Seeking: a partner transition failed: no behaviour named 'Hugged' in Tgt");
+            check(arriveError == "{\"code\":\"behavior-missing\",\"lookup\":{\"imageSet\":\"Tgt\",\"behavior\":\"Hugged\"},\"via\":[\"arrive\"]}"
+                  && line.Contains("\"sid\":\"m1\"") && seeker.Behaviour.Name == "Hugging" && !seeker.Disposing
+                  && target.Behaviour.Name == "Offer" && !target.LookRight && !target.Disposing,
+                "parity error: a partial arrival keeps the seeker's transition, reports the TargetBehavior missing from the target's member via arrive,"
+                + " and never applies TargetLook (" + arriveError + "; " + seeker.Behaviour.Name + ", " + target.Behaviour.Name
+                + ", target lookRight " + target.LookRight + ")");
+
+            // WITNESS: the same arrival with a TargetBehavior the target's member has enters both and TargetLook turns the
+            // target, so "not turned" above is a real outcome and not the setup's.
+            TickMascot whole, partner;
+            StringWriter complete = RunArrival("Greet", out whole, out partner);
+            check(Lines(complete.ToString(), "\"kind\":\"error\"").Count == 0 && whole.Behaviour.Name == "Hugging"
+                  && partner.Behaviour.Name == "Greet" && partner.LookRight,
+                "parity error: WITNESS a whole arrival enters both transitions and TargetLook turns the target ("
+                + partner.Behaviour.Name + ", target lookRight " + partner.LookRight + ")");
         }
 
         // ---- CH8, CH11: faults reported where they arise
