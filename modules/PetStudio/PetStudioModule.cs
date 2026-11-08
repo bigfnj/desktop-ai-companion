@@ -36,7 +36,10 @@ namespace DesktopAICompanion.PetStudioModule
                                  //        detection converts nothing; opening restores a minimized window. This version
                                  //        also carries the converter fixes it source-links from earlier burn-down waves
                                  //        (N-audit-1106-398 direction collapse, N-audit-1106-016 bundle containment), since
-                                 //        its payload changed with them.
+                                 //        its payload changed with them. A pack whose next list names a behaviour it does
+                                 //        not define, in an entry the original program can never pick (Frequency 0, or a
+                                 //        condition that is plainly false), imports with a warning naming that entry
+                                 //        instead of being refused; recovery is still asked for every other such entry.
                                  // 1.4.0: converts far more Shimeji packs: Japanese-vocabulary documents, anonymous nested and
                                  //        instant embedded actions, hotspots and affordance offers, Toggleable behaviours, custom
                                  //        variables, ${} and #{} expressions, and the attributes and children the original program

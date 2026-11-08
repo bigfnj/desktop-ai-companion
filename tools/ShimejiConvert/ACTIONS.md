@@ -232,7 +232,9 @@ classes, and constants. A next reference without a root definition is NOT lowere
 that selects it, for that call (PackConversionOptions.RecoverMissingNext, paritypack --recover-missing-next, or Pet
 Studio's "Import with recovery" after a strict refusal), gets the entry dropped with a warning, an opt-in POLICY
 DIVERGENCE recorded below (`policy:next-missing-dropped`). One whose condition, its own or an enclosing Condition's,
-is a script refuses either way (TICK_NEXT_MISSING_SCRIPTED). A member refused during preparation keeps none of the
+is a script refuses either way (TICK_NEXT_MISSING_SCRIPTED). One the source never selects, with every condition
+literal and a literal Frequency of 0 or a false condition, is dropped either way with a warning
+(TICK_NEXT_MISSING_UNSELECTABLE, decision 117, a source-compatible mapping in the table below). A member refused during preparation keeps none of the
 warnings it gathered before its refusal (review Q2); it is reported as refused, with that refusal. An information document (info.xml) is
 accepted when it holds only <Information> (chooser and credits metadata, which no mascot reads); a Constant, an
 ActionList or a BehaviourList in it is refused.
@@ -247,6 +249,12 @@ Recorded divergences from the source (each a correction of a source defect, neve
 | policy | source | lowering |
 |---|---|---|
 | `policy:next-missing-dropped` (decision 55) | A next-list entry naming no root behaviour is a behaviour of its own and can be selected: its Frequency is part of every draw over that list (Configuration.java:216-257), and its behaviour runs. A drag or a fall replaces it with no crash; only when it ENDS (UserBehavior.java:286) does Configuration.java:210-211 dereference the missing root builder, and the NullPointerException ends the tick thread (Mascot.java:545-554, Manager.java:88-108), stopping every companion. | Opt-in (decision 64): without the caller's choice the entry refuses (TICK_NEXT_MISSING). With it, the entry is dropped, with a warning naming it and its behaviour (each one structured residue item, PreparedMember.Dropped; the pack API files each, once, under its member's Residue.Dropped, so it counts in the member's residue total and residue.txt lists it under "Dropped entirely", and adds one member-prefixed warning to PackConversionResult.Warnings, which Pet Studio shows; the paritypack verb prints each as a WARNING line). It is never selected, its behaviour never runs and its weight leaves every draw over the list, so the lowering differs from the source from the first draw that could pick it, not only at the crash. A list left empty runs as the source runs an empty list (Configuration.java:208-245): with Add false the companion drops in and falls, with Add true the root list stays. An entry whose own or enclosing condition is a script stays refused under both settings. Not exact: an opt-in policy divergence. |
+
+Source-compatible mappings (the lowering writes what the source does in another form; nothing it does changes):
+
+| mapping | source | lowering |
+|---|---|---|
+| `TICK_NEXT_MISSING_UNSELECTABLE` (decision 117) | A next-list entry naming no root behaviour whose own and enclosing Conditions are all literal, and whose literal Frequency is 0 or whose effective literal condition is false, is never selected and no script is evaluated for it, so the crash `policy:next-missing-dropped` guards against cannot happen through it. | Dropped under both settings of RecoverMissingNext, with one warning naming the behaviour, the entry and why the source never selects it (PreparedMember.Warnings; the pack API adds it once to PackConversionResult.Warnings and once to the member's notes and files nothing under Residue.Dropped; the paritypack verb prints it as a WARNING line). Its Frequency must still be a literal Java integer and its Condition a literal boolean. A scripted condition, its own or an enclosing one, still refuses (TICK_NEXT_MISSING_SCRIPTED), and every other such entry keeps decision 64. Dropping it changes neither the weight total nor the draw count. |
 
 Composite activation cycles, depth above 32 and expansion above 4096 actions are refused before output is written.
 

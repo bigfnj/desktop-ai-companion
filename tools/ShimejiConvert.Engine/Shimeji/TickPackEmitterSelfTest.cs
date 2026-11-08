@@ -80,6 +80,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "nan-scripts", Run = (Action)NaNScripts },
                 new { Name = "nan-refusal", Run = (Action)NaNRefusal },
                 new { Name = "next-missing-dropped", Run = (Action)NextMissingDropped },
+                new { Name = "next-missing-unselectable", Run = (Action)NextMissingUnselectable },
                 new { Name = "sound-lowering", Run = (Action)SoundLowering },
                 new { Name = "sound-identity", Run = (Action)SoundIdentity },
                 new { Name = "sound-resolution", Run = (Action)SoundResolution },
@@ -2078,6 +2079,120 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                         "a dangling entry under a scripted enclosing Condition was dropped, not refused (recovery " + recover + "): " + refusal);
                 }
             }
+        }
+
+        /// <summary>Main's base list with <paramref name="entry"/> added after its two Idle entries.</summary>
+        private static XDocument WithNextEntry(XElement entry)
+        {
+            XDocument behaviours = BuildBehaviors();
+            behaviours.Descendants("NextBehaviorList").First().Add(entry);
+            return behaviours;
+        }
+
+        private static XElement Ghost(params object[] attributes)
+        { return S("BehaviorReference", A("Name", "Ghost"), A("Action", "Stand"), attributes); }
+
+        // Decision 117 (N-audit-1106-151), a source-compatible mapping: a next entry naming no root behaviour whose own and
+        // enclosing conditions are all literal, and whose literal Frequency is 0 or whose effective literal condition is
+        // false, is never selected by the source, so it is dropped under every setting with one warning naming it, and is
+        // no residue. A scripted condition, own or enclosing, still refuses under both settings, whatever the Frequency
+        // or a literal false beside it; a selectable entry still refuses unless the caller selects recovery; and the
+        // dropped entry's Frequency and Condition are validated as recovery validates them.
+        private static void NextMissingUnselectable()
+        {
+            var unselectable = new[]
+            {
+                new { Case = "Frequency 0", Entry = (Func<XElement>)(() => Ghost(A("Frequency", 0))), Why = "its Frequency is 0" },
+                new { Case = "signed Frequency 0 under a literal true Condition",
+                    Entry = (Func<XElement>)(() => S("Condition", A("Condition", "true"), Ghost(A("Frequency", "-0"), A("Condition", "true")))),
+                    Why = "its Frequency is 0" },
+                new { Case = "own Condition false", Entry = (Func<XElement>)(() => Ghost(A("Frequency", 4), A("Condition", "false"))),
+                    Why = "its Condition is false" },
+                // The false wrapper is the OUTER one, so its state must survive the true wrapper inside it.
+                new { Case = "outer enclosing Condition false",
+                    Entry = (Func<XElement>)(() => S("Condition", A("Condition", "false"), S("Condition", A("Condition", "true"),
+                        Ghost(A("Frequency", 4), A("Condition", "true"))))),
+                    Why = "an enclosing Condition is false" },
+            };
+            foreach (var item in unselectable)
+                foreach (bool? recover in new bool?[] { null, false, true })
+                    using (var fixture = new Fixture())
+                    {
+                        fixture.Behaviors(WithNextEntry(item.Entry()));
+                        string refusal;
+                        IReadOnlyList<string> warnings = ConvertInto(fixture, "unselectable", recover, new[] { "A" }, out refusal);
+                        string expected = "Image set 'A': TICK_NEXT_MISSING_UNSELECTABLE: behaviour 'Main': the next entry 'Ghost' names no root"
+                            + " behaviour, but " + item.Why + ", so the source never selects it; it was dropped";
+                        Require(refusal == null, "a never-selected next entry was refused, not dropped (recovery " + (recover?.ToString() ?? "omitted")
+                            + "): " + item.Case + ": " + refusal);
+                        Require(warnings.Count == 1 && warnings[0].StartsWith(expected, StringComparison.Ordinal)
+                            && warnings[0].Contains("(entry behaviors.xml#/"),
+                            "a dropped never-selected next entry was not reported once, by name and reason: " + item.Case + ": " + string.Join(" | ", warnings));
+                        TickPackEmitter.PreparedMember member = TickPackEmitter.PrepareMembers(fixture.Pack, true, recover ?? false).Single();
+                        Require(member.Error == null && member.Dropped.Count == 0 && member.Warnings.Count == 1,
+                            "a never-selected next entry was filed as residue (a policy drop) or not warned once: " + item.Case + ": "
+                            + (member.Error ?? string.Join(" | ", member.Dropped.Select(d => d.Detail))));
+                        XDocument document = XDocument.Parse(member.Xml);
+                        Validate(document, "never-selected next entry member");
+                        Require(RootBehavior(document, "Main").Element(Ns + "sequence").Elements(Ns + "next").Count() == 2
+                            && !Nodes(document).Any(n => (string)n.Element(Ns + "behaviour")?.Attribute("name") == "Ghost"),
+                            "a never-selected next entry left an edge or a node: " + item.Case);
+                    }
+            // Scripted conditions refuse whatever stands beside them: a Frequency of 0, a literal false.
+            var scripted = new[]
+            {
+                new { Case = "Frequency 0, own Condition scripted",
+                    Entry = (Func<XElement>)(() => Ghost(A("Frequency", 0), A("Condition", "${Math.random() < 0.5}"))) },
+                new { Case = "Frequency 0 under a scripted Condition",
+                    Entry = (Func<XElement>)(() => S("Condition", A("Condition", "${mascot.lookRight}"), Ghost(A("Frequency", 0)))) },
+                new { Case = "own Condition false under a scripted Condition",
+                    Entry = (Func<XElement>)(() => S("Condition", A("Condition", "${mascot.lookRight}"), Ghost(A("Frequency", 4), A("Condition", "false")))) },
+                new { Case = "own Condition scripted under a false Condition",
+                    Entry = (Func<XElement>)(() => S("Condition", A("Condition", "false"), Ghost(A("Frequency", 4), A("Condition", "${mascot.lookRight}")))) },
+            };
+            foreach (var item in scripted)
+                foreach (bool recover in new[] { false, true })
+                    using (var fixture = new Fixture())
+                    {
+                        fixture.Behaviors(WithNextEntry(item.Entry()));
+                        string refusal;
+                        ConvertInto(fixture, "scripted", recover, new[] { "A" }, out refusal);
+                        Require(refusal != null && refusal.IndexOf("TICK_NEXT_MISSING_SCRIPTED", StringComparison.Ordinal) >= 0,
+                            "a scripted next entry naming no root behaviour was not refused as scripted (recovery " + recover + "): "
+                            + item.Case + ": " + refusal);
+                    }
+            // A selectable entry (positive weight, literal true) keeps decision 64: strict refuses it, recovery files it as
+            // a policy drop, and neither gives it the never-selected warning.
+            using (var fixture = new Fixture())
+            {
+                fixture.Behaviors(WithNextEntry(S("Condition", A("Condition", "true"), Ghost(A("Frequency", 4), A("Condition", "true")))));
+                string refusal;
+                ConvertInto(fixture, "selectable", null, new[] { "A" }, out refusal);
+                Require(refusal != null && refusal.IndexOf("TICK_NEXT_MISSING: image set 'A', behaviour 'Main': the next entry 'Ghost'", StringComparison.Ordinal) >= 0,
+                    "a selectable next entry naming no root behaviour was not refused by default: " + refusal);
+                TickPackEmitter.PreparedMember recovered = TickPackEmitter.PrepareMembers(fixture.Pack, true, true).Single();
+                Require(recovered.Error == null && recovered.Warnings.Count == 0
+                    && recovered.Dropped.Count(d => d.Detail.Contains("policy:next-missing-dropped")) == 1,
+                    "a recovered selectable next entry was not filed as one policy drop: " + (recovered.Error ?? string.Join(" | ", recovered.Warnings)));
+            }
+            // Validation of a never-selected entry: a Frequency that is no literal Java integer, or a Condition that is no
+            // literal boolean, refuses as it would under recovery.
+            var invalid = new[]
+            {
+                new { Case = "own Condition false, Frequency not an integer", Entry = (Func<XElement>)(() => Ghost(A("Frequency", "x"), A("Condition", "false"))),
+                    Refusal = "Frequency must be a literal Java integer" },
+                new { Case = "Frequency 0, Condition not a literal boolean", Entry = (Func<XElement>)(() => Ghost(A("Frequency", 0), A("Condition", "False"))),
+                    Refusal = "only literal boolean selection conditions are lowered yet" },
+            };
+            foreach (var item in invalid)
+                using (var fixture = new Fixture())
+                {
+                    fixture.Behaviors(WithNextEntry(item.Entry()));
+                    string refusal;
+                    ConvertInto(fixture, "invalid", null, new[] { "A" }, out refusal);
+                    Require(refusal != null && refusal.IndexOf(item.Refusal, StringComparison.Ordinal) >= 0,
+                        "a never-selected next entry skipped the validation recovery applies: " + item.Case + ": " + refusal);
+                }
         }
 
         // Round 4: a pose of Duration 0 is never the source's current pose, so it is left out; its image is still loaded

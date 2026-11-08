@@ -107,6 +107,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             Console.Error.WriteLine("                     A cross-member pack requires its main image set explicitly.");
             Console.Error.WriteLine("                     --recover-missing-next drops a next entry naming no root behaviour, with a");
             Console.Error.WriteLine("                     WARNING line (policy:next-missing-dropped); without it such an entry refuses.");
+            Console.Error.WriteLine("                     One the source never selects (all conditions literal, and Frequency 0 or a");
+            Console.Error.WriteLine("                     false condition) is dropped either way, with a WARNING line");
+            Console.Error.WriteLine("                     (TICK_NEXT_MISSING_UNSELECTABLE).");
             Console.Error.WriteLine("  composite <ConfDir> <ImgDir> <out.png>");
             Console.Error.WriteLine("                     DEV: composite a real skin's sprites into one magenta-KEYED sheet and");
             Console.Error.WriteLine("                     write it, for eyeballing. The keyed variant: edges come out jagged here");
@@ -617,7 +620,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                 IReadOnlyList<string> warnings;
                 IReadOnlyList<string> outputs = TickPackEmitter.ConvertPack(packDirectory, outDirectory, mainMember, out warnings, recoverMissingNext);
                 // A correction the lowering made on purpose (a dropped next entry, decision 55) is reported, never
-                // silent: it is a policy divergence from the source (review D55-A).
+                // silent: it is a policy divergence from the source (review D55-A). A never-selected entry dropped as a
+                // source-compatible mapping (decision 117) is reported here too.
                 foreach (string warning in warnings) Console.Error.WriteLine("WARNING " + warning);
                 foreach (string output in outputs) Console.WriteLine("EMITTED " + output);
                 return 0;

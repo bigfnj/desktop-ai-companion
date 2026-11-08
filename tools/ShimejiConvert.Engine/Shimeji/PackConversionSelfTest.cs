@@ -46,6 +46,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "startup-unmapped-name", Run = (Action)StartupUnmappedName },
                 new { Name = "startup-ambiguous-name", Run = (Action)StartupAmbiguousName },
                 new { Name = "missing-next-recovery-option", Run = (Action)MissingNextRecoveryOption },
+                new { Name = "missing-next-unselectable", Run = (Action)MissingNextUnselectable },
                 new { Name = "skipped-member-api-controls", Run = (Action)SkippedMemberApiControls },
                 new { Name = "recovered-drop-residue", Run = (Action)RecoveredDropResidue },
                 new { Name = "member-diagnostic-headings", Run = (Action)MemberDiagnosticHeadings },
@@ -625,6 +626,35 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                         options.RecoverMissingNext = recover;
                         Refused(fixture, options, "TICK_NEXT_MISSING_SCRIPTED");
                     }
+        }
+
+        /// <summary>Decision 117: a next entry naming no root behaviour that the source never selects (here a literal
+        /// Frequency of 0) is dropped whatever RecoverMissingNext says. The pack API reports it once in Warnings and once
+        /// among the member's notes, prefixed with its image set, and files nothing in the member's Dropped: nothing the
+        /// source does is lost. A sibling is untouched.</summary>
+        private static void MissingNextUnselectable()
+        {
+            foreach (bool recover in new[] { false, true })
+                using (var fixture = new Fixture())
+                {
+                    XDocument behaviours = Behaviours();
+                    behaviours.Root.Element("BehaviorList").Elements("Behavior").First().Add(
+                        E("NextBehaviorList", A("Add", true), E("BehaviorReference", A("Name", "Ghost"), A("Action", "Stand"), A("Frequency", 0))));
+                    fixture.Member("Alpha", Actions(), behaviours);
+                    fixture.Member("Beta", Actions(), Behaviours());
+                    PackConversionOptions options = Options();
+                    options.RecoverMissingNext = recover;
+                    PackConversionResult result = Accepted(fixture, options);
+                    const string Warned = "Image set 'Alpha': TICK_NEXT_MISSING_UNSELECTABLE: behaviour 'Main': the next entry 'Ghost'";
+                    PackMemberConversionResult alpha = Member(result, "Alpha"), beta = Member(result, "Beta");
+                    Require(result.Warnings.Count(w => w.StartsWith(Warned, StringComparison.Ordinal)) == 1
+                        && alpha.Residue.MemberNotes.Count(n => n.StartsWith(Warned, StringComparison.Ordinal)) == 1,
+                        "the pack API did not report a dropped never-selected next entry once in Warnings and once in its member's notes (recovery "
+                        + recover + "): " + string.Join(" | ", result.Warnings));
+                    Require(alpha.Residue.Dropped.Count == 0 && !result.Warnings.Any(w => w.Contains("policy:next-missing-dropped"))
+                        && !beta.Residue.MemberNotes.Any(n => n.Contains("'Ghost'")),
+                        "a never-selected next entry was filed as a policy drop, or reached a sibling (recovery " + recover + ")");
+                }
         }
 
         /// <summary>

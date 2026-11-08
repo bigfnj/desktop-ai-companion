@@ -50,15 +50,16 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         /// The output is separate from the source pack; every member also gets a parity-map.json.
         /// <paramref name="recoverMissingNext"/> is decision 64's call-scoped choice, false unless the caller selects it:
         /// false refuses a next entry that names no root behaviour (TICK_NEXT_MISSING); true drops it with a warning
-        /// (policy:next-missing-dropped, never exact).</summary>
+        /// (policy:next-missing-dropped, never exact). One the source never selects is dropped under both, with its own
+        /// warning (decision 117, TICK_NEXT_MISSING_UNSELECTABLE).</summary>
         public static IReadOnlyList<string> ConvertPack(string packRoot, string outDir, string mainMember = null, bool recoverMissingNext = false)
         {
             IReadOnlyList<string> warnings;
             return ConvertPack(packRoot, outDir, mainMember, out warnings, recoverMissingNext);
         }
 
-        /// <summary>As above; <paramref name="warnings"/> receives skipped image-set notices and typed dropped next
-        /// entries, each prefixed with its image set, for the caller
+        /// <summary>As above; <paramref name="warnings"/> receives skipped image-set notices, never-selected next entries
+        /// dropped (decision 117) and typed dropped next entries, each prefixed with its image set, for the caller
         /// to report (review D55-A: such a correction is a policy divergence, never silent).</summary>
         public static IReadOnlyList<string> ConvertPack(string packRoot, string outDir, string mainMember, out IReadOnlyList<string> warnings,
             bool recoverMissingNext = false)
@@ -264,8 +265,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             public bool Skipped;
             // Root names as the emitter actually writes them, including this member's schema mapping.
             public IReadOnlyDictionary<string, string> BehaviourNames = new Dictionary<string, string>(StringComparer.Ordinal);
-            /// <summary>Notices for skipped image sets. Successful strict lowering has no free-form correction channel;
-            /// next-entry recovery records its losses in <see cref="Dropped"/> instead.</summary>
+            /// <summary>Notices for skipped image sets (decision 69), and for a prepared one each next entry naming no
+            /// root behaviour that the source never selects and that was dropped (decision 117,
+            /// TICK_NEXT_MISSING_UNSELECTABLE): source-compatible mappings, which lose nothing. Next-entry recovery
+            /// records its losses in <see cref="Dropped"/> instead.</summary>
             public List<string> Warnings = new List<string>();
             /// <summary>PD-1: one item per next entry that recovery dropped (decision 64, policy:next-missing-dropped): the
             /// behaviour as its Name, the entry's name and source key in its Detail. Never merged: two entries that share
@@ -361,6 +364,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             private readonly List<MuteSound> _muteSounds = new List<MuteSound>();
             // PD-1: the next entries recovery dropped, one item each (PreparedMember.Dropped).
             private readonly List<ResidueItem> _dropped = new List<ResidueItem>();
+            // Decision 117: the next entries the source never selects, dropped under both settings (PreparedMember.Warnings).
+            private readonly List<string> _warnings = new List<string>();
             // Decision 64: whether this call selected recovery of a next entry naming no root behaviour (EmitNextEntries).
             internal bool RecoverMissingNext;
             // Header toggles, one per Toggleable behaviour name, in first-seen order.
@@ -557,7 +562,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     (n.Name == Ns + "param" || n.Name == Ns + "bind") &&
                     IsMemberParameter((string)n.Attribute("name")));
                 return new PreparedMember { Name = _member, Xml = xml, Map = map + "\n", CrossMember = crossMember, Dropped = _dropped,
-                    SourceIdentity = SourceIdentity(), BehaviourNames = _rootOrder.ToDictionary(name => name, BehaviourName, StringComparer.Ordinal) };
+                    Warnings = _warnings, SourceIdentity = SourceIdentity(), BehaviourNames = _rootOrder.ToDictionary(name => name, BehaviourName, StringComparer.Ordinal) };
             }
 
             private void CollectRoots(ShimejiSourceElement parent, string condition)
@@ -1110,7 +1115,11 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                         if (list.Kind == ShimejiSourceKind.NextBehaviorList) EmitNextEntries(list, null, node.Element(Ns + "sequence"), name, false);
             }
 
-            private void EmitNextEntries(ShimejiSourceElement parent, string condition, XElement sequence, string owner, bool scriptedCondition)
+            /// <summary><paramref name="scriptedCondition"/>: some enclosing Condition is a script. <paramref
+            /// name="enclosingFalse"/>: some enclosing Condition is the literal false (decision 117 reads it only when no
+            /// enclosing Condition is a script).</summary>
+            private void EmitNextEntries(ShimejiSourceElement parent, string condition, XElement sequence, string owner, bool scriptedCondition,
+                bool enclosingFalse = false)
             {
                 foreach (ShimejiSourceElement entry in parent.Children)
                 {
@@ -1118,8 +1127,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     {
                         Check(entry, "Condition");
                         ShimejiSourceAttribute wrapper = entry.Attribute("Condition");
+                        // SelectionCondition has refused a literal other than true or false, so "false" is the whole test.
                         EmitNextEntries(entry, CheckedCombine(condition, SelectionCondition(entry), entry), sequence, owner,
-                            scriptedCondition || (wrapper != null && wrapper.Cache != ShimejiSourceCache.Literal));
+                            scriptedCondition || (wrapper != null && wrapper.Cache != ShimejiSourceCache.Literal),
+                            enclosingFalse || (wrapper != null && wrapper.Cache == ShimejiSourceCache.Literal && wrapper.RawValue == "false"));
                     }
                     else if (entry.Kind == ShimejiSourceKind.BehaviorReference)
                     {
@@ -1141,6 +1152,26 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                             if (scriptedCondition || (own != null && own.Cache != ShimejiSourceCache.Literal))
                                 Fail(entry, "next reference needs a root behaviour named '" + name
                                     + "' (TICK_NEXT_MISSING_SCRIPTED: its condition is a script the source evaluates at every selection)");
+                            // Decision 117 (N-audit-1106-151), a source-compatible mapping. With its own and every enclosing
+                            // condition literal, an entry whose literal Frequency is 0, or whose effective literal condition
+                            // is false, is never selected and no script is evaluated for it, so the crash decision 55 guards
+                            // against cannot happen through it. Dropping it changes neither the weight total nor the draw
+                            // count, so it is dropped under both settings, with a warning naming it, and it is not residue
+                            // (nothing the source does is lost). Its Frequency and Condition are validated as recovery
+                            // validates them. The rejected alternative, refusing it as decision 64 refuses a selectable
+                            // entry, asserted a crash that cannot happen there and offered recovery as a policy divergence
+                            // where there is none. Any scripted condition, own or enclosing, was refused just above.
+                            if (NeverSelectedLiteral(entry, own, enclosingFalse))
+                            {
+                                int weight = Int(entry, "Frequency", null);
+                                string selected = SelectionCondition(entry);
+                                string why = weight == 0 ? "its Frequency is 0" : selected == "false" ? "its Condition is false"
+                                    : "an enclosing Condition is false";
+                                _warnings.Add("TICK_NEXT_MISSING_UNSELECTABLE: behaviour '" + owner + "': the next entry '" + name
+                                    + "' names no root behaviour, but " + why + ", so the source never selects it; it was dropped,"
+                                    + " which changes no selection (entry " + entry.SourceKey + ")");
+                                continue;
+                            }
                             // Decision 64: the drop below is a policy divergence the caller must select; by default the
                             // entry refuses, by name.
                             if (!RecoverMissingNext)
@@ -1162,6 +1193,19 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     // BehaviorBuilder.loadBehaviors takes only Condition and BehaviourReference children
                     // (BehaviorBuilder.java:102-121): any other child of a next list is never read, so it is skipped.
                 }
+            }
+
+            /// <summary>Decision 117: whether a next entry the caller has already found to have no scripted condition, its
+            /// own or an enclosing one, can never be selected: its Frequency is the literal Java integer 0, or its own
+            /// Condition or an enclosing one is the literal false. Reads without refusing, so an entry this does not
+            /// match keeps the refusal it had (TICK_NEXT_MISSING); the caller validates one it does match.</summary>
+            private static bool NeverSelectedLiteral(ShimejiSourceElement entry, ShimejiSourceAttribute own, bool enclosingFalse)
+            {
+                ShimejiSourceAttribute weight = entry.Attribute("Frequency");
+                int frequency;
+                bool zero = weight != null && weight.Cache == ShimejiSourceCache.Literal
+                    && int.TryParse(weight.RawValue, NumberStyles.AllowLeadingSign, Invariant, out frequency) && frequency == 0;
+                return zero || enclosingFalse || (own != null && own.Cache == ShimejiSourceCache.Literal && own.RawValue == "false");
             }
 
             private int AddFrame(string image, int x, int y, ShimejiSourceElement source)

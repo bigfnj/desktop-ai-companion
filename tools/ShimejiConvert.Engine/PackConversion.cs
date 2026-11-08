@@ -18,7 +18,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
         /// <summary>Decision 64: recover a next entry that names no root behaviour by dropping it, with a warning in
         /// Warnings and in its member's residue (policy:next-missing-dropped, a divergence, never exact). False, the
         /// default, refuses such an entry with TICK_NEXT_MISSING. Only an explicit choice sets it; this call reads it once,
-        /// into its own snapshot. An entry under a scripted condition is refused either way.</summary>
+        /// into its own snapshot. An entry under a scripted condition is refused either way. One the source never selects
+        /// (every condition literal, and a literal Frequency of 0 or a false condition) is dropped either way, with a
+        /// TICK_NEXT_MISSING_UNSELECTABLE warning (decision 117, a source-compatible mapping).</summary>
         public bool RecoverMissingNext { get; set; }
     }
 
@@ -187,6 +189,14 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                         {
                             report.Residue.Dropped.Add(dropped);
                             warnings.Add("Image set '" + member.Name + "': " + TickPackEmitter.PreparedMember.DroppedWarning(dropped));
+                        }
+                        // Decision 117: a next entry the source never selects was dropped as a source-compatible mapping.
+                        // Nothing the source does is lost, so it is not in Dropped: one member-prefixed pack warning, and
+                        // the same line among the member's notes.
+                        foreach (string warning in member.Warnings)
+                        {
+                            warnings.Add("Image set '" + member.Name + "': " + warning);
+                            report.Residue.MemberNotes.Add("Image set '" + member.Name + "': " + warning);
                         }
                         if (report.Error != null) errors.Add("Image set '" + member.Name + "': " + report.Error);
                         else
