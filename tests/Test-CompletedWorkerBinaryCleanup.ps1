@@ -18,6 +18,16 @@ foreach ($definition in @($ast.FindAll({ param($node) $node -is [Management.Auto
 $scratch = Join-Path $repo ('artifacts\worker-cleanup-tests-' + [Guid]::NewGuid().ToString('N'))
 [void](Assert-WorkerBinaryPath $scratch $repo)
 [void][IO.Directory]::CreateDirectory($scratch)
+# A failed run keeps its scratch tree, as docs/test-artifact-retention.md keeps every failed run's evidence, and says
+# where it is; a passing run removes it at the end (N-audit-1106-363). break rethrows, so the failure is unchanged. A
+# trap covers its whole scope, the lines above it too, so it names the folder only once one exists.
+trap {
+    $keptScratch = Get-Variable -Name scratch -ValueOnly -ErrorAction SilentlyContinue
+    if ($keptScratch -and [IO.Directory]::Exists($keptScratch)) {
+        Write-Warning "Test-CompletedWorkerBinaryCleanup.ps1 failed; its scratch folder is kept for inspection: $keptScratch"
+    }
+    break
+}
 $tiny = Join-Path $scratch 'tiny-repo'
 [void][IO.Directory]::CreateDirectory($tiny)
 $worker = Join-Path $tiny 'artifacts\worker'
@@ -130,6 +140,35 @@ $receipts = @([IO.Directory]::EnumerateFiles((Join-Path $tiny 'artifacts'),'work
 $partial = @($receipts | ForEach-Object { [IO.File]::ReadAllText($_) | ConvertFrom-Json } | Where-Object State -eq 'partial')
 Check ($partial.Count -eq 1 -and $partial[0].RemovedFiles -eq 1) 'partial receipt never reports full success'
 foreach ($path in @($log,$json,$raw,$sourceFile)) { Check ([IO.File]::Exists($path)) 'partial failure still preserves evidence' }
-$report = [ordered]@{ Result='PASS'; Checks=$checks; SyntheticOnly=$true; ActualCleanupFunctions=$true; ScratchDirectory=$scratch }
-[IO.File]::WriteAllText((Join-Path $scratch 'result.json'),($report | ConvertTo-Json),[Text.UTF8Encoding]::new($false))
+
+# EVERY CHECK HAS PASSED: REMOVE THE SCRATCH TREE (N-audit-1106-363). Each run left artifacts\worker-cleanup-tests-<guid>
+# behind, a Git repository with a registered worktree, receipts and a sentinel, and nothing removed any of them. Only
+# after the last check, so a failing run never reaches this; the verdict is the report printed below. The leaf is
+# checked first, so nothing but this run's own folder is deleted recursively. Any reparse point still inside refuses the
+# delete rather than having the delete meet it (the junction fixture is removed in its own finally above). Git writes its
+# object files read-only, which a recursive Directory.Delete cannot remove, so those attributes are cleared first. A
+# removal that fails leaves the folder and says so; it never turns this passing run into a failure, the rule
+# docs/test-artifact-retention.md sets for the gate's own cache cleanup.
+$scratchRemoved = $false
+$scratchParent = [IO.Path]::GetFullPath((Join-Path $repo 'artifacts'))
+if ([IO.Path]::GetDirectoryName($scratch) -ne $scratchParent -or (Split-Path -Leaf $scratch) -cnotmatch '^worker-cleanup-tests-[0-9a-f]{32}$') {
+    Write-Warning "the scratch folder is not a worker-cleanup-tests-<guid> child of $scratchParent, so it is not deleted: $scratch"
+}
+elseif (@(Get-ChildItem -LiteralPath $scratch -Recurse -Force -Attributes ReparsePoint).Count -gt 0) {
+    Write-Warning "the scratch folder still holds a reparse point, so it is not deleted: $scratch"
+}
+else {
+    try {
+        foreach ($file in @(Get-ChildItem -LiteralPath $scratch -Recurse -Force -File)) {
+            if ($file.Attributes -band [IO.FileAttributes]::ReadOnly) { $file.Attributes = $file.Attributes -band -bnot [IO.FileAttributes]::ReadOnly }
+        }
+        [IO.Directory]::Delete($scratch, $true)
+        $scratchRemoved = -not [IO.Directory]::Exists($scratch)
+    }
+    catch { Write-Warning "the scratch folder could not be removed and is left for inspection: $scratch ($($_.Exception.Message))" }
+}
+$report = [ordered]@{ Result='PASS'; Checks=$checks; SyntheticOnly=$true; ActualCleanupFunctions=$true; ScratchDirectory=$scratch; ScratchRemoved=$scratchRemoved }
+if (-not $scratchRemoved) {
+    [IO.File]::WriteAllText((Join-Path $scratch 'result.json'),($report | ConvertTo-Json),[Text.UTF8Encoding]::new($false))
+}
 $report | ConvertTo-Json

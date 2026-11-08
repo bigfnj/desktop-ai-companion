@@ -129,9 +129,39 @@ $report = [pscustomobject]@{
     InstalledApplicationTouched = $false
     SystemWideProcessEnumeration = $false
     ScratchDirectory = $scratch
+    ScratchRemoved = $false
 }
 $reportPath = Join-Path $scratch 'result.json'
-[IO.File]::WriteAllText($reportPath, ($report | ConvertTo-Json -Depth 4), (New-Object Text.UTF8Encoding($false)))
-if ($null -ne $primaryFailure) { throw $primaryFailure }
+if ($null -ne $primaryFailure) {
+    # A failed run keeps its scratch tree and its report, as docs/test-artifact-retention.md keeps every failed run's
+    # evidence, and says where they are.
+    [IO.File]::WriteAllText($reportPath, ($report | ConvertTo-Json -Depth 4), (New-Object Text.UTF8Encoding($false)))
+    Write-Warning "Installer shutdown checks failed; their scratch folder is kept for inspection: $scratch"
+    throw $primaryFailure
+}
+# A PASSING RUN REMOVES ITS SCRATCH TREE (N-audit-1106-366). Each run left build\scoped-shutdown-tests\<guid> behind, six
+# copies of the synthetic companion exe plus the checker logs, and nothing removed any of them. Only here, past the
+# failure throw above, and after the finally above has seen every owned child exit, so no copied image is still running.
+# The leaf is checked first, so nothing but this run's own <guid> folder is deleted recursively, and any reparse point
+# inside refuses the delete rather than having the delete meet it. A removal that fails leaves the folder and its report
+# and says so; it never turns this passing run into a failure, the rule docs/test-artifact-retention.md sets for the
+# gate's own cache cleanup.
+$scratchParent = Join-Path $buildRoot 'scoped-shutdown-tests'
+if ([IO.Path]::GetDirectoryName($scratch) -ne $scratchParent -or (Split-Path -Leaf $scratch) -cnotmatch '^[0-9a-f]{32}$') {
+    Write-Warning "the installer shutdown scratch folder is not a <guid> child of $scratchParent, so it is not deleted: $scratch"
+}
+elseif (@(Get-ChildItem -LiteralPath $scratch -Recurse -Force -Attributes ReparsePoint).Count -gt 0) {
+    Write-Warning "the installer shutdown scratch folder holds a reparse point, so it is not deleted: $scratch"
+}
+else {
+    try {
+        [IO.Directory]::Delete($scratch, $true)
+        $report.ScratchRemoved = -not [IO.Directory]::Exists($scratch)
+    }
+    catch { Write-Warning "the installer shutdown scratch folder could not be removed and is left for inspection: $scratch ($($_.Exception.Message))" }
+}
+if (-not $report.ScratchRemoved) {
+    [IO.File]::WriteAllText($reportPath, ($report | ConvertTo-Json -Depth 4), (New-Object Text.UTF8Encoding($false)))
+}
 Write-Host 'Installer shutdown checks PASS. All owned synthetic children exited.'
 $report
