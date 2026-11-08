@@ -17,14 +17,18 @@ apps are being offered it. Seven modules were published along the way and are al
 
 ### The three things worth knowing before you touch anything
 
-**1. `tests/runtime-resource-soak.ps1`'s verdict is set by `-DurationSeconds`, not by the code.**
-Its bound is an absolute 16 handles compared against growth that accumulates per cycle, so a long
-enough run fails ANY build. Measured: **v1.2.4, the shipped release, passes a 180-second run once and
-fails the next at +95**. I did not know that, ran the gate at 6x its documented duration, saw +84,
+**1. FIXED on 2026-09-27 (`8b446a8`), kept for the lesson: `tests/runtime-resource-soak.ps1`'s verdict
+WAS set by `-DurationSeconds`, not by the code.** The bound is now a rate: each counter's growth is
+compared against its per-interval allowance times the number of settled intervals observed, so every
+duration is comparable and an extended run is no longer unbounded. What follows is how it was before.
+Its bound was an absolute 16 handles compared against growth that accumulates per cycle, so a long
+enough run failed ANY build. Measured: **v1.2.4, the shipped release, passed a 180-second run once and
+failed the next at +95**. I did not know that, ran the gate at 6x its documented duration, saw +84,
 bisected across n=1 samples, wrongly identified `RaiseEach` as a regression and briefly reverted a
-good fix before v1.2.4's repeat disproved it. **Run it at the documented default** (HEAD passes at
-+4, +7, +7) and treat any extended run as unbounded. Filed in `BACKLOG.md`; the fix shape is in its
-sibling `module-window-soak.ps1`, which compares the last segment against the previous one.
+good fix before v1.2.4's repeat disproved it. The advice then was to run it only at the documented
+default (HEAD passed at +4, +7, +7) and treat any extended run as unbounded; since `8b446a8` that
+advice no longer applies. The lesson stands: a pass mark that moves with the run's length measures
+the length, not the code.
 
 **2. Three of the four mutation harnesses were not proving what they claimed, and one had stopped
 running entirely.** `mutate-selftest-guards` tested `"FAIL" in report` as a bare substring; the
@@ -77,9 +81,10 @@ Highest value open items, in the order I would take them:
    edge would make it hang where it now passes through. What was wrong was the log level, which is
    `info` there since that day (`docs/BACKLOG-CLOSED.md`, the entry marked CLOSED 2026-09-26).
 2. `PendingModuleUpdates` / module install robustness residue.
-3. The resource-soak bound (item 1 above).
-4. `AgentFlow`'s `CdpApprover` decoding WebSocket frames one chunk at a time, so a multi-byte
-   sequence straddling a 16 KB boundary corrupts an option label.
+3. FIXED on 2026-09-27 (`8b446a8`): the resource-soak bound (item 1 above) is a per-interval rate.
+4. FIXED on 2026-09-25 (`11f9d53`): `AgentFlow`'s `CdpApprover` decoded WebSocket frames one
+   chunk at a time, so a multi-byte sequence straddling a 16 KB boundary corrupted an option label.
+   One stateful UTF-8 `Decoder` now spans the whole message.
 
 ### Verification rhythm that worked
 
