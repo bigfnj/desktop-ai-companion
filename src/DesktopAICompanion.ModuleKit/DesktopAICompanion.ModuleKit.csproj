@@ -67,6 +67,11 @@
     -->
     <DebugType>embedded</DebugType>
     <PathMap>$(MSBuildProjectDirectory)=/_/src/DesktopAICompanion.ModuleKit</PathMap>
+    <!-- Source Link OFF (N-bd-w12-converter-1-01); the reasoning and the rejected alternative are beside the same
+         line in DesktopAICompanion.Contracts.csproj. Here it is the record that reached users: the SDK's default
+         Source Link record maps the absolute checkout folder, outside PathMap's reach, and this dll ships in every
+         modules-dist zip. CoreTests ("ModuleKit shipped symbols") fails on any Source Link record. -->
+    <EnableSourceLink>false</EnableSourceLink>
   </PropertyGroup>
 
   <ItemGroup>

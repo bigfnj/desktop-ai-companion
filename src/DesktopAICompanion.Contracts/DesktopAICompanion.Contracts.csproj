@@ -43,19 +43,23 @@
     <!--
       Symbols live INSIDE the dll, and there is no .snupkg.
 
-      Two reasons, and the second is the one that decided it. First, the separate symbol package was
+      Two reasons were given, and only the first holds. First, the separate symbol package was
       never delivered to anybody: release.yml filters '*.snupkg' out of both SHA256SUMS.txt and the
       release assets, so IncludeSymbols + SymbolPackageFormat=snupkg produced a file every release
       built and then discarded. Embedding means a module author debugging into the ABI actually HAS
       symbols, which until now they never did.
 
-      Second, a separate PDB leaves the maintainer's absolute build path in the shipped assembly's
-      CodeView record (D:\...\obj\Release\...\DesktopAICompanion.Contracts.pdb). PathMap does NOT fix
-      that (it rewrites paths recorded inside the PDB, not the PDB's own path in the dll), and this
-      assembly ships beside the exe in both the portable ZIP and the MSI, so it reached every user.
+      Second, it was said that a separate PDB leaves the maintainer's absolute build path in the shipped
+      assembly's CodeView record (D:\...\obj\Release\...\DesktopAICompanion.Contracts.pdb) and that
+      PathMap cannot fix that. The first half was true of the unmapped PDB this project had then, and this
+      assembly ships beside the exe in both the portable ZIP and the MSI. The second half is wrong: PathMap
+      DOES rewrite the PDB path in the CodeView record. Measured on SDK 10.0.302, a separate-PDB build with
+      the PathMap below names /_/src/DesktopAICompanion.Contracts/obj/.../DesktopAICompanion.Contracts.pdb,
+      and the same build with PathMap emptied names the absolute obj path. Embedded, the record holds the
+      bare file name. So that path is not a reason to embed; the map alone would have cured it.
 
-      With the PDB embedded, the paths INSIDE it are the leak that remains, and PathMap is exactly
-      their fix (RA-208, 2026-10-01): the project directory is rewritten to the /_/ root a CI build's
+      With the PDB embedded, the paths INSIDE it are the leak that remains. PathMap fixes the document
+      table's (RA-208, 2026-10-01): the project directory is rewritten to the /_/ root a CI build's
       DeterministicSourcePaths would use, so the document table names /_/src/... on every machine.
       CoreTests reads it back ("ModuleKit shipped symbols", both this assembly and ModuleKit) and fails
       on a drive-rooted document.
@@ -67,6 +71,16 @@
     -->
     <DebugType>embedded</DebugType>
     <PathMap>$(MSBuildProjectDirectory)=/_/src/DesktopAICompanion.Contracts</PathMap>
+    <!-- Source Link OFF (N-bd-w12-converter-1-01), the choice tools\ShimejiConvert.Engine made (N-bd-closure2-02).
+         The SDK adds it by default, and its record inside the embedded PDB maps the checkout folder, by absolute
+         path and outside PathMap's reach, to a raw URL carrying the commit, so every workstation build named the
+         folder it was built in; ModuleKit's copy in every modules-dist zip did. A CI build maps that folder to /_/
+         and its record was clean, so the cost is automatic source fetch for an author stepping into this assembly
+         from a published package; the document names stay the repository-relative /_/src/.... Not
+         DeterministicSourcePaths on every build, which also gives a clean record (measured): that record still
+         carries the commit, so two commits with identical code build different bytes, the converter's reason.
+         CoreTests ("ModuleKit shipped symbols") fails on any Source Link record in this dll or ModuleKit's. -->
+    <EnableSourceLink>false</EnableSourceLink>
   </PropertyGroup>
 
   <ItemGroup>
