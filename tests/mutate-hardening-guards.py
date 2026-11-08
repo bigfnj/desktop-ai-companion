@@ -3314,11 +3314,12 @@ CASES = (
         b"    public class RecordingHost : IHost, DesktopAICompanion.Modules.ITrayQuestions\n",
         "tray-questions: ITrayQuestions is its own interface",
     ),
+    # Re-pointed by burndown/w10-host-1 (N-audit-1106-248): the option lives in TrayQuestionRules.NewAnswer now.
     (
         "tray-questions: the answer's continuations run inline in the host",
-        COMPANION_HOST_CS,
-        b"                System.Threading.Tasks.TaskCreationOptions.RunContinuationsAsynchronously);\n",
-        b"                System.Threading.Tasks.TaskCreationOptions.None);\n",
+        TRAY_QUESTIONS_CS,
+        b"            return new TaskCompletionSource<TrayAnswer>(TaskCreationOptions.RunContinuationsAsynchronously);\n",
+        b"            return new TaskCompletionSource<TrayAnswer>(TaskCreationOptions.None);\n",
         "tray-questions: AskAsync copies and validates the question",
     ),
     (
@@ -5224,6 +5225,43 @@ CASES = (
         b"        internal const ModulePermissions EnforcedPermissions = ModulePermissions.Audio | ModulePermissions.Network |\n",
         b"        internal static readonly ModulePermissions EnforcedPermissions = ModulePermissions.Audio | ModulePermissions.Network |\n",
         "w10-options-ui-1: WITNESS the host's ModuleDeclares gates",
+    ),
+    # ---- burndown/w10-host-1 ----
+    # Host entries of burn-down wave 10. "bd-w10-host-1:" for one --only.
+    # N-audit-1106-244: the live smoke test fetches its catalog and goes on to the downloads whatever the verdict says.
+    (
+        "bd-w10-host-1: the online test ignores its catalog's verdict (N-audit-1106-244)",
+        os.path.join(REPO, "src", "dotNet", "RemoteCatalog.cs"),
+        b'                if (problem != null)\n                {\n                    ok = false;\n',
+        b'                if (false)\n                {\n                    ok = false;\n',
+        "w10-host-1: the online test judges the fetched catalog",
+    ),
+    # N-audit-1106-246 / N-bd-w2-host-1-01: Remove walks every pet of the type newest-first again, so it takes the
+    # hatchling a chosen pet bred while the count it was offered for stays the same.
+    (
+        "bd-w10-host-1: Remove takes the newest pet of the type, born or chosen (N-audit-1106-246)",
+        os.path.join(REPO, "src", "dotNet", "StartUp.cs"),
+        b'            return RemoveOneChosenPet(id);   // KillSheep persists the reduced mix\n',
+        b'            for (int i = iSheeps - 1; i >= 0; i--)\n'
+        b'            {\n'
+        b'                FormCompanion pet = sheeps[i];\n'
+        b'                if (pet == null) continue;\n'
+        b'                CompanionTypeRegistry.Entry entry;\n'
+        b'                if (string.Equals(petEntries.TryGetValue(pet, out entry) ? (entry.Id ?? "") : "", id ?? "", StringComparison.OrdinalIgnoreCase))\n'
+        b'                    return KillSheep(pet);\n'
+        b'            }\n'
+        b'            return false;\n',
+        "w10-host-1: Remove takes one of the companions the user chose",
+    ),
+    # N-audit-1106-248: AskAsync builds its own completion again, so the self-test's continuation check, which runs on
+    # the factory, no longer reaches the host's option.
+    (
+        "bd-w10-host-1: AskAsync builds its own answer completion (N-audit-1106-248)",
+        COMPANION_HOST_CS,
+        b"            var completion = TrayQuestionRules.NewAnswer();   // continuations run asynchronously; see there\n",
+        b"            var completion = new System.Threading.Tasks.TaskCompletionSource<TrayAnswer>(\n"
+        b"                System.Threading.Tasks.TaskCreationOptions.RunContinuationsAsynchronously);\n",
+        "tray-questions: AskAsync copies and validates the question",
     ),
 )
 

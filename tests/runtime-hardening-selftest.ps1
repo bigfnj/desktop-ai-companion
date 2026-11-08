@@ -5051,9 +5051,15 @@ Assert-True ($tqContracts -cmatch 'public interface ITrayQuestions' -and $tqIHos
     'tray-questions: ITrayQuestions is its own interface, not on IHost and not on RecordingHost, and the host implements it')
 
 # The answer completes asynchronously, so module code never runs inside the host's click handler or timer tick.
-Assert-True ($tqAsk -cmatch 'TaskCreationOptions\.RunContinuationsAsynchronously' -and
+# Re-pointed by burndown/w10-host-1 (N-audit-1106-248): AskAsync takes its completion from TrayQuestionRules.NewAnswer,
+# the one factory --trayquestions-selftest's rig also builds with, so that self-test's continuation check reaches the
+# host's option; the option is asserted on the factory, and AskAsync building its own completion fails here.
+$tqNewAnswer = Get-MethodBody $tqArbiter 'internal static TaskCompletionSource<TrayAnswer> NewAnswer()' @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($tqAsk -cmatch 'var completion = TrayQuestionRules\.NewAnswer\(\);' -and $tqAsk -cnotmatch 'new [\w.]*TaskCompletionSource<' -and
+    $tqNewAnswer -cmatch 'return new TaskCompletionSource<TrayAnswer>\(TaskCreationOptions\.RunContinuationsAsynchronously\);' -and
+    'var completion = new System.Threading.Tasks.TaskCompletionSource<TrayAnswer>(' -cmatch 'new [\w.]*TaskCompletionSource<' -and
     $tqAsk.IndexOf('TrayQuestionRules.TryAccept(') -ge 0 -and $tqAsk.IndexOf('TrayQuestionRules.TryAccept(') -lt $tqAsk.IndexOf('questions.Ask(entry, withdraw)')) (
-    'tray-questions: AskAsync copies and validates the question before queueing it, and its answer runs continuations asynchronously')
+    'tray-questions: AskAsync copies and validates the question before queueing it, and its answer runs continuations asynchronously, through the one factory (WITNESS: an own-completion line matches the absent pattern)')
 
 # The log carries a question's key, outcome and choice id -- never its text, title or labels (the self-test asserts the
 # LINES; this pins that no [question] log statement reads those members at all, in the queue or the host).
@@ -6872,6 +6878,29 @@ $w10ouUngated = @($w10ouEnforced | Where-Object { -not $w10ouGated.Contains($_) 
 Assert-True ($w10ouUngated.Count -eq 0) (
     "w10-options-ui-1: every flag in the pane's EnforcedPermissions has a ModuleDeclares gate in CompanionHost" +
     $(if ($w10ouUngated.Count) { ' -- no gate: ' + ($w10ouUngated -join ', ') } else { '' }))
+# ---- burndown/w10-host-1 ----
+# THE LIVE SMOKE TEST JUDGES ITS CATALOG BEFORE ANY DOWNLOAD (N-audit-1106-244). --catalog-selftest drives the verdict,
+# OnlineCatalogProblem, offline; the online test needs the network no gate has, so its use of the verdict is pinned
+# here: the fetched catalog is judged, a problem clears ok, and both come before the first download.
+$w10Online = Get-MethodBody $remoteCatalogCodeHost 'internal static bool OnlineSelfTest()' @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($w10Online.Length -gt 0) 'w10-host-1: OnlineSelfTest was located'
+$w10Judged = $w10Online.IndexOf('string problem = OnlineCatalogProblem(catalog);', [StringComparison]::Ordinal)
+$w10Download = $w10Online.IndexOf('DownloadVerifiedAsync(', [StringComparison]::Ordinal)
+Assert-True ($w10Judged -ge 0 -and $w10Download -gt $w10Judged -and
+    $w10Online.Substring([Math]::Max(0, $w10Judged)) -cmatch '^string problem = OnlineCatalogProblem\(catalog\);\s*if \(problem != null\)\s*\{\s*ok = false;') (
+    'w10-host-1: the online test judges the fetched catalog and fails on its problem before any download')
+
+# REMOVE TAKES A COMPANION THE USER CHOSE, NEVER A BORN ONE (N-audit-1106-246, N-bd-w2-host-1-01). The tray row, the
+# Companions pane's button and the ABI's RemoveOne all offer it for an OnScreenMix count, which leaves born companions
+# out; walking every pet newest-first removed the hatchling instead. StartUp needs a live desktop, so the delegation is
+# pinned: RemoveOnePet's body is the call to RemoveOneChosenPet, whose skip the w2-host-1 block pins, with no walk of its
+# own (WITNESS: the old walk's line matches the absent pattern).
+$w10Remove = Get-MethodBody $startUpCodeHost 'public bool RemoveOnePet(string id)' @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($w10Remove.Length -gt 0) 'w10-host-1: RemoveOnePet was located'
+$w10OldWalk = '                if (pet == null) continue;'
+Assert-True ($w10Remove -cmatch '^public bool RemoveOnePet\(string id\)\s*\{\s*return RemoveOneChosenPet\(id\);\s*\}\s*$' -and
+    $w10Remove -cnotmatch 'if \(pet == null\) continue;' -and $w10OldWalk -cmatch 'if \(pet == null\) continue;') (
+    'w10-host-1: Remove takes one of the companions the user chose, through RemoveOneChosenPet (WITNESS: the old walk matches)')
 
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that

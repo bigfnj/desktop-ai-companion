@@ -117,6 +117,32 @@ namespace DesktopAICompanion
                 foreach (CheckBox b in CheckBoxesIn(eggCard)) eggLabels.Add(((TextBlock)b.Content).Text);
                 ok &= Check(sb, "arrive as an egg: a main member that arrives as an egg has the row on its card (" + string.Join(", ", eggLabels) + ")",
                     eggLabels.Count == 1 && eggLabels[0] == "Arrive as an egg");
+
+                // DRAWN, in both themes (N-shimeji-1106-15). The checks above read control properties, which cannot see a
+                // label coloured locally (black on the dark theme) or painted away by a template. Each switch row and the egg
+                // row is rendered as the settings window draws it, in the light and the dark theme, and every label must show
+                // the ink of a live row: 0.3, the threshold the P2 greying checks hold a live row to. Built afresh per theme,
+                // since a row can have only one parent.
+                foreach (bool dark in new[] { false, true })
+                {
+                    var drawn = new StackPanel();
+                    FrameworkElement switchBlock = pane.BuildTickSwitchRows(id, "Tick Pet", rows);
+                    FrameworkElement eggRow = pane.BuildEggArrivalRow(id, "Tick Pet", true);
+                    if (switchBlock != null) drawn.Children.Add(switchBlock);
+                    if (eggRow != null) drawn.Children.Add(eggRow);
+                    var render = new PaneRender(drawn, dark, 260);
+                    var inks = new List<string>();
+                    double faintest = double.MaxValue;
+                    foreach (CheckBox b in CheckBoxesIn(drawn))
+                    {
+                        var label = b.Content as TextBlock;
+                        double ink = label != null ? render.Ink(label) : 0;
+                        faintest = Math.Min(faintest, ink);
+                        inks.Add((label != null ? label.Text : "?") + " " + ink.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture));
+                    }
+                    ok &= PixelCheck(sb, "tick switches: in the " + (dark ? "dark" : "light") + " theme every switch row and the egg row draw " +
+                        "their label as live ink (" + string.Join(", ", inks) + ")", inks.Count == 4 && faintest >= 0.3, render);
+                }
             }
             catch (Exception ex)
             {

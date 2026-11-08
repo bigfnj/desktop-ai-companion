@@ -1890,10 +1890,14 @@ namespace DesktopAICompanion.Plugins
                     bareRead.State == HostCredentialState.Denied && bareRead.Value == null && bareSave.Outcome == HostCredentialOutcome.Denied &&
                     !File.Exists(Path.Combine(HostCredentialStore.DefaultDirectory, HostCredentialStore.ClaudeCodeSignInFileName)));
 
+                // ONE log for every store this section builds (N-audit-1106-240), so "no log line carries a value" below reads
+                // the lines of the NotAToken, Unreadable, compare-and-set, race and lock-timeout paths too, not only this
+                // store's. Locked: the race store logs from two threads.
                 var log = new List<string>();
+                Action<string, string> logSink = delegate (string id, string line) { lock (log) log.Add((id ?? "") + ": " + line); };
                 var store = new HostCredentialStore(dir,
                     delegate (string id) { return id == "aibrain" || id == "remembrance" || id == "ungranted"; },
-                    delegate (string id, string line) { lock (log) log.Add((id ?? "") + ": " + line); });
+                    logSink);
                 var host = new CompanionHost(null, store);
                 IHostCredentials creds = host;
                 var events = new List<long>();
@@ -2048,7 +2052,7 @@ namespace DesktopAICompanion.Plugins
                 // THE CONTENT STATES, and an import taken over each unusable one (the review's P2: shared Unreadable or
                 // NotAToken never counts as present).
                 string statesDir = SelfTestScratch.Create("credentials-states");
-                var states = new HostCredentialStore(statesDir, delegate (string id) { return id == "aibrain"; }, null);
+                var states = new HostCredentialStore(statesDir, delegate (string id) { return id == "aibrain"; }, logSink);
                 HostCredentialStore.SetGrant(statesDir, "aibrain", true, null);
                 string statesEnvelope = Path.Combine(statesDir, HostCredentialStore.ClaudeCodeSignInFileName);
                 string notATokenSealed = Convert.ToBase64String(System.Security.Cryptography.ProtectedData.Protect(Encoding.UTF8.GetBytes("https://not a token"),
@@ -2069,7 +2073,7 @@ namespace DesktopAICompanion.Plugins
                 // THE COMPARE-AND-SET. A reads an empty store, B saves, A's import of its old copy is refused; and two
                 // threads racing an import into a store never used: exactly one is taken.
                 string casDir = SelfTestScratch.Create("credentials-cas");
-                var cas = new HostCredentialStore(casDir, delegate (string id) { return id == "aibrain" || id == "remembrance"; }, null);
+                var cas = new HostCredentialStore(casDir, delegate (string id) { return id == "aibrain" || id == "remembrance"; }, logSink);
                 HostCredentialStore.SetGrant(casDir, "aibrain", true, null);
                 HostCredentialStore.SetGrant(casDir, "remembrance", true, null);
                 HostCredentialReading aSawEmpty = cas.Read("aibrain", HostCredentialId.ClaudeCodeSignIn);
@@ -2080,7 +2084,7 @@ namespace DesktopAICompanion.Plugins
                     aSawEmpty.State == HostCredentialState.None && aImports.Outcome == HostCredentialOutcome.NotImported &&
                     cas.Read("aibrain", HostCredentialId.ClaudeCodeSignIn).Value == SyntheticOther);
                 string raceDir = SelfTestScratch.Create("credentials-race");
-                var race = new HostCredentialStore(raceDir, delegate (string id) { return true; }, null);
+                var race = new HostCredentialStore(raceDir, delegate (string id) { return true; }, logSink);
                 HostCredentialStore.SetGrant(raceDir, "aibrain", true, null);
                 HostCredentialStore.SetGrant(raceDir, "remembrance", true, null);
                 var gate = new System.Threading.ManualResetEventSlim(false);
@@ -2180,12 +2184,22 @@ namespace DesktopAICompanion.Plugins
                     SelfTestScratch.TryRelease(removalRoot, out ignoredRelease);
                 }
 
+                // Every value this section hands a store: the two tokens, the refused one, and the states store's sealed
+                // non-token. WITNESS beside it: a line of the lock-timeout path, which only the race store takes, is among
+                // the lines read, so the check reaches the stores built after the first (N-audit-1106-240).
                 var leaked = new List<string>();
+                bool readLockTimeout = false;
                 lock (log)
                     foreach (string line in log)
-                        if (line.IndexOf("SYNTHETIC", StringComparison.Ordinal) >= 0 || line.IndexOf("has a space", StringComparison.Ordinal) >= 0) leaked.Add(line);
+                    {
+                        if (line.IndexOf("SYNTHETIC", StringComparison.Ordinal) >= 0 || line.IndexOf("has a space", StringComparison.Ordinal) >= 0 ||
+                            line.IndexOf("not a token", StringComparison.Ordinal) >= 0) leaked.Add(line);
+                        if (line.IndexOf("save failed: lock-timeout", StringComparison.Ordinal) >= 0) readLockTimeout = true;
+                    }
                 ok &= Check(sb, "abi180: store: no log line carries a value (" + log.Count + " lines" + (leaked.Count > 0 ? "; leaked: " + leaked[0] : "") + ")",
                     log.Count >= 8 && leaked.Count == 0);
+                ok &= Check(sb, "abi180: store: WITNESS the value check reads the lines of every store the section built, the race store's lock-timeout among them",
+                    readLockTimeout);
                 SelfTestScratch.TryRelease(statesDir, out ignoredRelease);
                 SelfTestScratch.TryRelease(casDir, out ignoredRelease);
                 SelfTestScratch.TryRelease(raceDir, out ignoredRelease);

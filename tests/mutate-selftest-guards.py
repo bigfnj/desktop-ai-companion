@@ -24573,6 +24573,79 @@ CASES = (
      HOST_CSPROJ, EXE,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
      'parity run: a pack that is not a folder is refused before the trace is opened, with exit 2 and no trace file'),
+    # ---- burndown/w10-host-1 ----
+    # Host entries of burn-down wave 10. "bd-w10-host-1:" for one --only.
+    # N-bd-w9-host-1-01: the window follow reads the pet's height back from the form again (Top moved by the window, then
+    # PositionY = Top - OffsetY), so a ramping offset drifts the pet into its window. --hardening-selftest rides a staged
+    # classic pet on a hidden window of its own.
+    ("bd-w10-host-1: the window follow reads the pet's height back from the form (N-bd-w9-host-1-01)",
+     os.path.join(REPO, "src", "dotNet", "FormCompanion.cs"),
+     b'                    PositionY += rctO.Top - currentWindowSize.Top;\n'
+     b'                    Top = AnimationRuntimeLimits.ClampFormCoordinate(PositionY + OffsetY);\n',
+     b'                    Top -= (currentWindowSize.Top - rctO.Top);\n'
+     b'                    PositionY = Top - OffsetY;\n',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "ride: a pet whose offset ramps moves with a dragged window by the window's delta alone"),
+    # N-audit-1106-240: the lock-timeout line, which only the race store takes, carries the value it was asked to save.
+    # Before the fix the race store had no logger, so "no log line carries a value" could not see it.
+    ("bd-w10-host-1: the store's lock-timeout line carries the value (N-audit-1106-240)",
+     os.path.join(REPO, "src", "dotNet", "Plugins", "HostCredentialStore.cs"),
+     b'                Log(moduleId, verb + " failed: lock-timeout");\n',
+     b'                Log(moduleId, verb + " failed: lock-timeout " + value);\n',
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "abi180: store: no log line carries a value"),
+    # N-audit-1106-244: the live smoke test's verdict passes a catalog that offers no companion, or one with a refused
+    # entry. --catalog-selftest drives OnlineCatalogProblem offline.
+    ("bd-w10-host-1: the online verdict passes a catalog with no companion (N-audit-1106-244)",
+     os.path.join(REPO, "src", "dotNet", "RemoteCatalog.cs"),
+     b'            if (catalog.Pets.Count == 0) missing.Add("companion");\n',
+     b'',
+     HOST_CSPROJ, EXE,
+     "--catalog-selftest", "dp-catalog-selftest.txt",
+     "online verdict: a catalog that offers nothing fails, naming each kind"),
+    ("bd-w10-host-1: the online verdict passes a catalog with a refused entry (N-audit-1106-244)",
+     os.path.join(REPO, "src", "dotNet", "RemoteCatalog.cs"),
+     b'            if (catalog.Rejected.Count > 0)\n',
+     b'            if (catalog.Rejected.Count < 0)\n',
+     HOST_CSPROJ, EXE,
+     "--catalog-selftest", "dp-catalog-selftest.txt",
+     "online verdict: a catalog with a refused entry fails, naming it"),
+    # N-audit-1106-248: the host's answer completion runs continuations inline. The rig builds through the same factory
+    # since the fix, so --trayquestions-selftest's continuation check now reaches the host's option.
+    ("bd-w10-host-1: the host's answer completion runs continuations inline (N-audit-1106-248)",
+     os.path.join(REPO, "src", "dotNet", "TrayQuestions.cs"),
+     b'            return new TaskCompletionSource<TrayAnswer>(TaskCreationOptions.RunContinuationsAsynchronously);\n',
+     b'            return new TaskCompletionSource<TrayAnswer>(TaskCreationOptions.None);\n',
+     HOST_CSPROJ, EXE,
+     "--trayquestions-selftest", "dp-trayquestions-selftest.txt",
+     "queue: an answer's continuation runs asynchronously, never inside the host's click handler"),
+    # N-audit-1106-247: the exit path's CloseOpenWindow leaves the About window open again. --wpf-options-selftest drives
+    # the tray's OpenAbout with the modal loop stood in for.
+    ("bd-w10-host-1: the exit leaves the About window open (N-audit-1106-247)",
+     os.path.join(REPO, "src", "Portable", "Wpf", "OptionsShell.cs"),
+     b'            if (about != null) try { about.Close(); } catch { }\n',
+     b'            if (about == null) try { about.Close(); } catch { }\n',
+     HOST_CSPROJ, EXE,
+     "--wpf-options-selftest", "dp-wpf-options-selftest.txt",
+     "about: the exit's CloseOpenWindow closes the About window"),
+    # N-shimeji-1106-15: a switch row's or the egg row's label is coloured locally, black, which the property checks pass
+    # and the dark theme draws as nothing. --wpf-options-selftest renders the rows in both themes.
+    ("bd-w10-host-1: a tick switch row's label is drawn black whatever the theme (N-shimeji-1106-15)",
+     os.path.join(REPO, "src", "Portable", "Wpf", "CompanionsPaneControl.cs"),
+     b'                    Content = new TextBlock { Text = r.Label, FontSize = 10, TextWrapping = TextWrapping.Wrap },\n',
+     b'                    Content = new TextBlock { Text = r.Label, FontSize = 10, TextWrapping = TextWrapping.Wrap, Foreground = System.Windows.Media.Brushes.Black },\n',
+     HOST_CSPROJ, EXE,
+     "--wpf-options-selftest", "dp-wpf-options-selftest.txt",
+     "tick switches: in the dark theme every switch row and the egg row draw their label as live ink"),
+    ("bd-w10-host-1: the egg row's label is drawn black whatever the theme (N-shimeji-1106-15)",
+     os.path.join(REPO, "src", "Portable", "Wpf", "CompanionsPaneControl.cs"),
+     b'                Content = new TextBlock { Text = label, FontSize = 10, TextWrapping = TextWrapping.Wrap },\n',
+     b'                Content = new TextBlock { Text = label, FontSize = 10, TextWrapping = TextWrapping.Wrap, Foreground = System.Windows.Media.Brushes.Black },\n',
+     HOST_CSPROJ, EXE,
+     "--wpf-options-selftest", "dp-wpf-options-selftest.txt",
+     "tick switches: in the dark theme every switch row and the egg row draw their label as live ink"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

@@ -117,7 +117,9 @@ namespace DesktopAICompanion
             /// <summary>Accept and queue a question; returns its answer task.</summary>
             internal Task<TrayAnswer> Ask(TrayQuestion q, string module = "remembrance", CancellationToken withdraw = default(CancellationToken))
             {
-                var completion = new TaskCompletionSource<TrayAnswer>(TaskCreationOptions.RunContinuationsAsynchronously);
+                // The host's own factory, as AskAsync builds it (N-audit-1106-248), so the continuation check below tests
+                // the option the host ships rather than one the rig chose for itself.
+                var completion = TrayQuestionRules.NewAnswer();
                 QuestionEntry entry;
                 string reason;
                 if (!TrayQuestionRules.TryAccept(q, Clock.Now, out entry, out reason))
