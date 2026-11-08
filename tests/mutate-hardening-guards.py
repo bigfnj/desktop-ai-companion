@@ -4723,6 +4723,23 @@ CASES = (
         b"      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>\n    </None> -->\n  </ItemGroup>\n\n  <!-- The validator",
         "bd-w5-converter-1: PetStudio.csproj copies base-conf\\NOTICE.txt to its output",
     ),
+    # ---- burndown/w7-host-1 ----
+    # N-audit-1106-221: Main starts the log as slot 1 whatever slot it took, so the second instance logs over the
+    # first one's live file again. "bd-w7-host-1:" for one --only.
+    (
+        "bd-w7-host-1: the log starts as slot 1 whatever slot this instance took (N-audit-1106-221)",
+        PROGRAM,
+        b"                DiagnosticLog.Start(InstanceSlotOf(instanceLease));\n",
+        b"                DiagnosticLog.Start(1);\n",
+        "w7-host-1: the diagnostic log starts in the folder of the instance slot this process took",
+    ),
+    (
+        "bd-w7-host-1: Start logs in the data root whatever slot it is handed (N-audit-1106-221)",
+        DIAGNOSTIC_LOG,
+        b"                    _directory = directory;\n",
+        b"                    _directory = root;\n",
+        "w7-host-1: the diagnostic log starts in the folder of the instance slot this process took",
+    ),
 )
 
 

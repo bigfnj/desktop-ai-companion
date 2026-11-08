@@ -52,6 +52,7 @@ namespace DesktopAICompanion
                 Run("Settings quiet test seed", TestSettingsQuietSeed);
                 Run("Settings lock-failure fallback", TestSettingsLockFailureFallback);
                 Run("Diagnostic log launch rotation", TestDiagnosticLogLaunchRotation);
+                Run("Diagnostic log second instance", TestDiagnosticLogSecondInstance);
                 Run("Startup registration migration and removal", TestStartupRegistrationMigration);
                 Run("DOT export title comment", TestXmlToDotTitleComment);
                 Run("Kill fade arithmetic", TestKillFade);
@@ -1320,6 +1321,37 @@ namespace DesktopAICompanion
             AssertTrue(
                 !File.Exists(slot(0)) && !File.Exists(slot(1)),
                 "At keep 1 an archive outlived the launch.");
+        }
+
+        /// <summary>
+        /// The second allowed instance logs in a folder of its own (N-audit-1106-221). Both slots share one data
+        /// root, so a second instance that rotated and trimmed the root moved the first instance's LIVE file to .1
+        /// mid-run and deleted the run before it. Driven the way Start and Configure drive a launch: the launch
+        /// rotation in the slot's folder, then the keep trim at its lowest setting, the one that deletes most.
+        /// </summary>
+        private static void TestDiagnosticLogSecondInstance()
+        {
+            string root = NewDirectory("diaglog-slots");
+            string firstLive = Path.Combine(root, "diagnostics.log");
+            string firstPrevious = Path.Combine(root, "diagnostics.1.log");
+            AssertTrue(DiagnosticLog.DirectoryForSlot(root, 1) == root,
+                "WITNESS the first instance does not log in the data root itself, where every earlier version did.");
+            File.WriteAllText(firstLive, "first instance, live");
+            File.WriteAllText(firstPrevious, "first instance, previous run");
+
+            string second = DiagnosticLog.DirectoryForSlot(root, 2);
+            Directory.CreateDirectory(second);
+            File.WriteAllText(Path.Combine(second, "diagnostics.log"), "second instance, previous run");
+            DiagnosticLog.RotateAtLaunchIn(second);
+            DiagnosticLog.TrimArchivesIn(second, 1);
+
+            AssertTrue(File.Exists(firstLive) && File.ReadAllText(firstLive) == "first instance, live",
+                "The second instance's launch rotation moved the first instance's live log.");
+            AssertTrue(File.Exists(firstPrevious) && File.ReadAllText(firstPrevious) == "first instance, previous run",
+                "The second instance's keep trim deleted the first instance's previous run.");
+            // WITNESS: the second instance's own launch did rotate, in its own folder.
+            AssertFalse(File.Exists(Path.Combine(second, "diagnostics.log")),
+                "The second instance's launch did not rotate its own log.");
         }
 
         /// <summary>

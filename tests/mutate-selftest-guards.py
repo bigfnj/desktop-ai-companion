@@ -5346,7 +5346,7 @@ CASES = (
     ("burn/host-shell: --wpf-options-selftest starts the diagnostic log before configuring it",
      WPF_SELFTEST,
      b'                ok &= Check(sb, "the diagnostic log has not started in this process, so Configure below touches no file",\n',
-     b'                DiagnosticLog.Start();\n'
+     b'                DiagnosticLog.Start(1);\n'
      b'                ok &= Check(sb, "the diagnostic log has not started in this process, so Configure below touches no file",\n',
      HOST_CSPROJ, EXE,
      "--wpf-options-selftest", "dp-wpf-options-selftest.txt", "the diagnostic log has not started in this process"),
@@ -23311,6 +23311,17 @@ CASES = (
      b"                    prepared.Add(new PreparedMember { Name = member, Error = member + \": \" + failure.Message });\n",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
      SHIMEJI, "pack-conversion/member-refusal-no-write", "a refused member's error names its image set twice before the diagnostic: Image set 'Bad': Bad: "),
+
+    # ---- burndown/w7-host-1 ----
+    # Host entries of burn-down wave 7. "bd-w7-host-1:" for one --only.
+    # N-audit-1106-221: the second instance's log folder is the data root again, so its launch rotation and keep
+    # trim move the first instance's live log and delete its previous run. CoreTests drives the two slots' folders.
+    ("bd-w7-host-1: the second instance logs over the first one's live file (N-audit-1106-221)",
+     DIAGNOSTIC_LOG,
+     b"            return instanceSlot == 2 ? Path.Combine(root, SecondInstanceFolder) : root;",
+     b"            return root;",
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "The second instance's launch rotation moved the first instance's live log."),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

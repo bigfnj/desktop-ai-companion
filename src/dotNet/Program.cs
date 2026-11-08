@@ -306,8 +306,9 @@ namespace DesktopAICompanion
             {
                 // Rotate the diagnostic log before anything worth recording happens, and only once this
                 // instance owns a slot, for the same reason the settings load waits: a rejected third
-                // launch must not touch application data, including this.
-                DiagnosticLog.Start();
+                // launch must not touch application data, including this. The slot decides the folder: the
+                // second instance logs beside, not over, the first one's live file (N-audit-1106-221).
+                DiagnosticLog.Start(InstanceSlotOf(instanceLease));
 
                 // A pre-rename Run entry is moved onto this executable HERE, at launch (RA-267): every
                 // self-test flag has exited above, this instance owns a slot, and the log can record it.
@@ -578,10 +579,40 @@ namespace DesktopAICompanion
         internal static IDisposable TryAcquireInstanceSlot(int slot, int timeoutMilliseconds)
         {
             string path = InstanceSlotPath(slot);
-            return CrossSessionLock.TryAcquire(
+            IDisposable lease = CrossSessionLock.TryAcquire(
                 CrossSessionLock.BuildGlobalMutexName("Instance" + slot, path),
                 path,
                 timeoutMilliseconds);
+            return lease == null ? null : new InstanceSlotLease(slot, lease);
+        }
+
+        /// <summary>Which slot a lease from <see cref="TryAcquireInstanceSlot(int, int)"/> holds: 1 or 2, and 0
+        /// for anything else. The diagnostic log reads it so the second instance logs in its own folder
+        /// (N-audit-1106-221, <see cref="DiagnosticLog.DirectoryForSlot"/>).</summary>
+        internal static int InstanceSlotOf(IDisposable lease)
+        {
+            var slotLease = lease as InstanceSlotLease;
+            return slotLease == null ? 0 : slotLease.Slot;
+        }
+
+        /// <summary>A slot's lease that remembers which slot it is. The lease is carried rather than the
+        /// number returned beside it, so the two-step probe below keeps its single "slot 1, else slot 2"
+        /// expression and the answer cannot disagree with the lease actually held.</summary>
+        private sealed class InstanceSlotLease : IDisposable
+        {
+            private readonly IDisposable _inner;
+            internal readonly int Slot;
+
+            internal InstanceSlotLease(int slot, IDisposable inner)
+            {
+                Slot = slot;
+                _inner = inner;
+            }
+
+            public void Dispose()
+            {
+                _inner.Dispose();
+            }
         }
 
         private static IDisposable TryAcquireInstanceSlot()
