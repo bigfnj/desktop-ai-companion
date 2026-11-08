@@ -17,7 +17,7 @@ import io
 import os
 import re
 import subprocess
-from mutation_process import run_text, utf8_stdio
+from mutation_process import run_text, unwrapped_lines, utf8_stdio
 from mutation_journal import JournalError, RestoreJournal, journal_path, repaired_loaded_module
 from mutation_process import run_text
 import sys
@@ -5101,31 +5101,8 @@ CASES = (
 DOC_COUNT_DRIFT = "source-invariant count matches this file"
 
 
-def unwrapped_lines(out):
-    """The output's lines, with Windows PowerShell's word wrap of a thrown message undone (N-bd-w8-studio-1-02).
-
-    powershell.exe renders an uncaught throw at the width of the console it inherited, and a message longer than that
-    is WORD-WRAPPED: the line breaks after a space, keeps that space at its end, and the rest goes on at column 0 of the
-    next line. Measured 2026-11-08 with synthetic labels in hidden consoles of 40, 53, 60, 77, 96 and 100 columns: every
-    break fell after a space, never at a hyphen, a slash or a backslash, and the lines joined back into the exact
-    message. The width is whatever console the harness happens to inherit (100 from one agent shell here; wave 8 saw 95
-    under its detached launch), so matching line by line read WRONG whatever the mutation did for a case whose expected text was
-    longer than one line, or straddled a break: a 96-character case in a 90-column console printed its own label across
-    two lines and scored "WRONG -- failed on something else".
-
-    So a line that ends in whitespace is joined to the one after it. Never a PASS line, on either side: Write-Host does
-    not wrap them, and a PASS line must not lend its text to a failure. Rejected: inferring the width from the longest
-    line, since a word wrap's lines are not of one length. Known limit: one word longer than a whole console line is cut
-    without a space and stays cut; a label's prose holds none.
-    """
-    lines = []
-    for line in out.splitlines():
-        if (lines and lines[-1][-1:].isspace()
-                and not lines[-1].strip().startswith("PASS:") and not line.strip().startswith("PASS:")):
-            lines[-1] += line
-        else:
-            lines.append(line)
-    return lines
+# unwrapped_lines (N-bd-w8-studio-1-02) lives in mutation_process.py since N-bd-w9-tests-harness-1-03, where
+# mutate-diagnostics.py reads the same script's output through the same copy; its docstring holds the measurements.
 
 
 def saw_doc_count_drift(out):
