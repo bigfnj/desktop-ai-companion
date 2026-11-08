@@ -16,7 +16,7 @@
 
 **desktopPet** is a Windows desktop-pet application: a little animated creature (by default a sheep,
 "eSheep") that walks around your screen, runs along the taskbar, falls with gravity, and climbs onto
-the title bars of your open windows. The engine is **.NET Framework 4.8 WinForms** (C#). Every companion is a
+the title bars of your open windows. The engine is **.NET 10 (`net10.0-windows`) WinForms** (C#). Every companion is a
 single self-contained **`animations.xml`** file that embeds its sprite sheet and sounds as base64 and
 describes its behaviour as a **probability-weighted animation state machine**; the runtime uses **Win32
 P/Invoke** for the physics (window detection, gravity, full-screen awareness). The engine is a modern
@@ -40,6 +40,7 @@ places where current behavior intentionally differs from upstream.
 | [03 — Companion XML Format](03-companion-xml-format.md) | **The crown-jewel reference** for `animations.xml` and its XSD: every element and attribute, the expression language, a worked example, and a "how to author a new companion" walkthrough. |
 | [04 — Upstream, Forks &amp; Ecosystem](04-upstream-forks-ecosystem.md) | Upstream status/activity/license, the `web-esheep` JavaScript port, Shimeji and other desktop-pet engines, and how to pull upstream pet artwork. |
 | [05 — Glossary &amp; FAQ](05-glossary-and-faq.md) | Definitions (sprite sheet, spawn, child, border/gravity, `only` flags, sync…) and practical questions. |
+| [06 — Shimeji Runtime](06-shimeji-runtime.md) | The Shimeji runtime extensions (companion format 1.1; a draft for review): feature tokens, tick-clock poses and node kinds, the embedded classes, SafeExpression v2, social and window behaviour, packs, and what the validator checks. Implemented in `src/dotNet/Shimeji/` and `src/dotNet/ShimejiFormatValidator.cs`. |
 
 ## Sources
 
