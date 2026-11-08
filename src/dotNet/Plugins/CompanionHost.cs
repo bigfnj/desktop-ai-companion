@@ -1663,7 +1663,14 @@ namespace DesktopAICompanion.Plugins
         // "Companions", not "Pets": the flag was renamed by the 1.0.0 rebase and this string is the
         // `out string error` the ABI promises as the REASON, so an author who reads it greps the enum
         // for a member that does not exist. Corrected 2026-09-17.
-        private const string Denied = "This module has not declared the Companions permission.";
+        //
+        // It names BOTH causes, because GetCompanionManager cannot tell them apart: ModuleDeclares reads
+        // StartUp.LoadedModules, and ModuleHost adds a module to that list only after its Init returns, so a
+        // module that DID declare Companions and asks during its own Init is handed this instance too. The text
+        // used to name only the first cause, which sent that author looking for a declaration already in place
+        // (N-audit-1106-133). Refused: making the gate see the module whose Init is running, which would change
+        // the answer of all four gated services (PlaySound, PlayNotificationSound, OpenLink too) at once.
+        private const string Denied = "This module has not declared the Companions permission, or it asked during its own Init, before a declared permission takes effect: ask again once Init has returned.";
         public int MaxCompanions { get { return StartUp.MAX_SHEEPS; } }
         public bool IsAtMax { get { return true; } }
         public string CompanionsDirectory { get { return ""; } }

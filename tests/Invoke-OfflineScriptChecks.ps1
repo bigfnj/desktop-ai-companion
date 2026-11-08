@@ -24,6 +24,10 @@
     controller's -SelfTest, remainder and TEMP-budget checks, each in a child judged by its exit code. They read the
     repository and build nothing; the TEMP-budget check creates and removes synthetic folders under TEMP.
 
+    The bundled fortune corpus joined the same day (N-audit-1106-137): src\Fortunes\build-corpus.sh --check, run in
+    Git Bash located from git itself and judged by its exit code; it writes only a staging folder beside the corpus,
+    which it removes.
+
     The four installer checks signal failure by throwing, so they run in this process inside a try/catch. The privacy
     self-test is `#requires -Version 7`, which Windows PowerShell refuses to run in-process, so it always runs in a
     pwsh child and is judged by its exit code; a missing pwsh is a FAILURE that says so, never a skip. Every check runs
@@ -80,6 +84,54 @@ else {
     catch { $failures.Add('Test-PublicCommitPrivacy.ps1 -SelfTest could not be started: ' + $_.Exception.Message) }
     finally { $ErrorActionPreference = $savedPreference }
     if ($null -ne $privacyExit -and $privacyExit -ne 0) { $failures.Add("Test-PublicCommitPrivacy.ps1 -SelfTest (exit $privacyExit)") }
+}
+
+# The bundled fortune corpus against its declared inputs (N-audit-1106-137). build-corpus.sh --check rebuilds
+# src\Fortunes\fortunes.txt in a staging folder beside it and compares byte for byte, so a change to packs\dadjokes.txt
+# or src\Fortunes\sources\ that nobody reassembled fails here instead of shipping a corpus that disagrees with its
+# inputs. Until this leg nothing ran it: the script's header said "in CI" and no gate, workflow or test called it.
+# Measured 2026-11-07 on this repository: 0.7 s. Git Bash is located from git itself (git --exec-path is
+# <Git>\<mingw64|ucrt64>\libexec\git-core, and bash.exe sits in <Git>\bin), never as a bare "bash": from PowerShell
+# that name can resolve to System32's WSL launcher, which runs a different distribution's shell or none at all. The
+# script path goes over in forward slashes because the script finds its own folder with dirname, which splits on "/"
+# only. A missing Git Bash is a FAILURE that says so, never a skip; judged by the EXIT CODE, with Continue for the call
+# as for the children below (RA-346).
+Write-Host '=== src\Fortunes\build-corpus.sh --check (in Git Bash)'
+$ran++
+$gitBash = $null
+$git = @(Get-Command -Name 'git' -CommandType Application -ErrorAction SilentlyContinue) | Select-Object -First 1
+if ($null -ne $git) {
+    $savedPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $gitExecPath = [string](@(& $git.Source --exec-path 2>$null) | Select-Object -First 1)
+        if ($LASTEXITCODE -eq 0 -and $gitExecPath.Trim()) {
+            $gitRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $gitExecPath.Trim()))
+            $bashCandidate = Join-Path $gitRoot 'bin\bash.exe'
+            if (Test-Path -LiteralPath $bashCandidate -PathType Leaf) { $gitBash = $bashCandidate }
+        }
+    }
+    catch { $gitBash = $null }
+    finally { $ErrorActionPreference = $savedPreference }
+}
+if ($null -eq $gitBash) {
+    $failures.Add('build-corpus.sh --check: it needs Git Bash (bin\bash.exe in the Git install that git --exec-path names), and none was found, so it did not run')
+}
+else {
+    $corpusScript = (Join-Path $PSScriptRoot '..\src\Fortunes\build-corpus.sh')
+    $corpusScript = [IO.Path]::GetFullPath($corpusScript).Replace('\', '/')
+    $corpusExit = $null
+    $savedPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & $gitBash $corpusScript --check 2>&1 | ForEach-Object { Write-Host "$_" }
+        $corpusExit = $LASTEXITCODE
+    }
+    catch { $failures.Add('build-corpus.sh --check could not be started: ' + $_.Exception.Message) }
+    finally { $ErrorActionPreference = $savedPreference }
+    if ($null -ne $corpusExit -and $corpusExit -ne 0) {
+        $failures.Add("build-corpus.sh --check (exit $corpusExit): src\Fortunes\fortunes.txt failed its check against its declared inputs (its lines above say why)")
+    }
 }
 }
 

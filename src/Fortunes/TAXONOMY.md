@@ -124,18 +124,20 @@ New or migrated packs must use v2.
   steps after promotion.
 - Build-input, next-batch, ingest, merge, and apply share one cross-process lock. `HUP`, `INT`, or
   `TERM` during a labeling-file promotion restores every prior file before releasing that lock.
-- When deliberately run, `build-corpus.sh` requires a reviewed 40-character
-  `FORTUNE_SOURCE_COMMIT`, the canonical `JKirchartz/fortunes` origin, and every file in
-  `corpus-required-files.txt`. Missing required inputs fail instead of silently shrinking the
-  corpus. It deduplicates again after author stripping and atomically promotes `fortunes.txt` with
-  a `fortunes.sources.tsv` sidecar containing the required-manifest hash, exact source/output
-  hashes, and `curated_blobs_match=1`.
-- **Current-corpus provenance status:** the checked-in `fortunes.txt` has no retained
-  `fortunes.sources.tsv`, and this repository contains no reviewed, pinned
-  `FORTUNE_SOURCE_COMMIT`. The current corpus therefore cannot be reconstructed or verified from
-  repository-controlled evidence. Nothing enforces that any more: the automated rights and corpus
-  gates were retired with the enterprise release pipeline. The gap is recorded rather than gated, and
-  the builder's ability to generate a sidecar is not evidence for the corpus already checked in.
+- `build-corpus.sh` is a pure assembler of labeled schema-v2 rows that already live in the
+  repository. Each source id in `corpus-required-files.txt` resolves to `sources/<id>.tsv` beside
+  it, else to `packs/<id>.txt` at the repository root; an id with neither fails instead of
+  silently shrinking the corpus. Every input row must have six fields, a source column equal to its
+  id, and text of 8 to 280 bytes (awk counts under the C locale). Rows are deduplicated on text (manifest order keeps the
+  first), sorted under the C locale by source then text, staged beside `fortunes.txt` and renamed
+  onto it. It reads no upstream checkout and writes no sidecar.
+- **Current-corpus provenance status:** the checked-in `fortunes.txt` is reproduced byte for byte
+  from its two repository inputs, `sources/fortunes.tsv` and `packs/dadjokes.txt`.
+  `build-corpus.sh --check` asserts that, and `tests/Invoke-OfflineScriptChecks.ps1` runs it for
+  the gate and CI. What cannot be regenerated is the topic and genre labeling itself: the labeling
+  pass's input store (`label-input.tsv`, `labels-store.tsv`, `label-chunks/`) is gitignored and no
+  longer exists, so the committed rows are the labels. The automated rights gates were retired
+  with the enterprise release pipeline; rights are recorded rather than gated.
 - **Retired, described here only as history:** `packaging/Test-EmbeddedCorpus.ps1` required exact
   full-row uniqueness, and `packaging/source-rights-evidence.json` bound six scopes to exact file or
   deterministic
@@ -147,9 +149,12 @@ New or migrated packs must use v2.
   structural check. The current empty approvals document unresolved state; they do not grant
   redistribution rights, and release-mode validation fails until complete retained evidence is
   approved for all six scopes.
-- `label-selftest.sh` runs disposable lock-contention, signal-rollback, missing-chunk, invalid-label,
-  tab-ingest, incomplete-store, source-provenance, post-normalization-deduplication,
-  schema-migration, and invariance probes. It never touches live labeling progress.
+- `label-selftest.sh` runs disposable lock-contention, input-determinism (bytewise duplicate
+  selection under C and a collating locale), comm-locale, exact-taxonomy-member, transform
+  (`classify-corpus.py`, `strip-authors.py`), corpus-builder, signal-rollback, missing-chunk,
+  extra-output, invalid-label, tab-ingest, incomplete-store, metadata-plan, invariance and
+  which-label probes. It never touches live labeling progress. No gate or CI step runs it; run it
+  by hand in Git Bash.
 
 ## Taxonomy revisions
 - **2026-07-31** — added topic **`health-body`** (12th topic), carved from the `life` catch-all plus
