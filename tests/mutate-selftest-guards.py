@@ -22836,6 +22836,21 @@ CASES = (
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "a Codex screenshot call its caller cancelled leaves no call folder behind"),
+    # N-audit-1106-300: the shared sign-in's two refusals lose their words and fall to "failed" again, one per switch.
+    ("bd-w6-shared-1: a call the shared sign-in was not allowed for logs as failed (N-audit-1106-300)",
+     CLI_RUNNER,
+     b'                case CliOutcome.TokenNotAllowed: return "token-not-allowed";\n',
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "every outcome has a log word and a Status-row brief of its own, only Failed's being 'failed': TokenNotAllowed"),
+    ("bd-w6-shared-1: an unreadable shared sign-in says failed on the Status rows (N-audit-1106-300)",
+     CLI_RUNNER,
+     b'                case CliOutcome.TokenStoreUnavailable: return "shared sign-in could not be read";\n',
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "every outcome has a log word and a Status-row brief of its own, only Failed's being 'failed': TokenStoreUnavailable"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

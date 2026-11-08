@@ -3362,6 +3362,10 @@ namespace DesktopAICompanion.CodingAgent
                 case CliOutcome.NoPrivateFolder: return "no-private-folder";
                 case CliOutcome.TokenUnreadable: return "token-unreadable";
                 case CliOutcome.TokenNotAToken: return "token-not-a-token";
+                // The shared sign-in's two refusals (host 1.8.0) had no word and logged as "failed" (BACKLOG
+                // N-audit-1106-300); CheckOutcomeWords now holds every outcome to a word of its own.
+                case CliOutcome.TokenNotAllowed: return "token-not-allowed";
+                case CliOutcome.TokenStoreUnavailable: return "token-store-unavailable";
                 case CliOutcome.ChoiceRefused: return "choice-refused";
                 case CliOutcome.ModelCannotSee: return "model-cannot-see";
                 case CliOutcome.ConfigRefused: return "config-refused";
@@ -4693,6 +4697,10 @@ namespace DesktopAICompanion.CodingAgent
                 case CliOutcome.NoPrivateFolder: return "no data folder";
                 case CliOutcome.TokenUnreadable: return "saved token unreadable";
                 case CliOutcome.TokenNotAToken: return "saved token is not a sign-in token";
+                // As OutcomeWord's (N-audit-1106-300): both said "failed" on the card's Status row and AI Brain's Status card.
+                // Nothing after the module's name, since the row goes on "at 14:32:05" (RecordValidation).
+                case CliOutcome.TokenNotAllowed: return "shared sign-in not allowed to " + CodingAgentModuleWords.Module;
+                case CliOutcome.TokenStoreUnavailable: return "shared sign-in could not be read";
                 case CliOutcome.ChoiceRefused: return "model or effort setting refused";
                 case CliOutcome.ModelCannotSee: return "the chosen model takes no images";
                 case CliOutcome.ConfigRefused: return "refused one of the settings " + CodingAgentModuleWords.Module + " starts Codex with";

@@ -424,6 +424,7 @@ namespace DesktopAICompanion.CodingAgent
             Guard(check, "the shared Claude Code sign-in", SharedSignInSelfCheck.Check);
             // Burn-down lane w6-shared-1.
             Guard(check, "a stopped Codex screenshot call's folder", CheckStoppedScreenshotCallFolder);
+            Guard(check, "a word of its own for every outcome", CheckOutcomeWords);
         }
 
         private static void Guard(Action<string, bool> check, string group, Action<Action<string, bool>> run)
@@ -3486,6 +3487,36 @@ namespace DesktopAICompanion.CodingAgent
                 check("cli runner: a Codex screenshot call its caller cancelled leaves no call folder behind: " + CodingAgentCli.OutcomeWord(cancelled.Outcome),
                     cancelled.Outcome == CliOutcome.Cancelled && cancelledFolder != null && !Directory.Exists(cancelledFolder));
             }
+        }
+
+        /// <summary>
+        /// BACKLOG N-audit-1106-300: every outcome has a log word (OutcomeWord) and a few words for the Status rows (Brief)
+        /// of its own, and only Failed's are "failed". The shared sign-in's two refusals (host 1.8.0) reached the enum and
+        /// Describe but neither switch, so both fell to the default: the log line, AI Brain's "cli-" log category, the CLI
+        /// card's Status row and AI Brain's Status card all said "failed" for a call that was never started. Read off the
+        /// enum itself, so an outcome added later without its words fails here, by name.
+        /// </summary>
+        private static void CheckOutcomeWords(Action<string, bool> check)
+        {
+            var words = new HashSet<string>(StringComparer.Ordinal);
+            var briefs = new HashSet<string>(StringComparer.Ordinal);
+            var wanting = new List<string>();
+            Array outcomes = Enum.GetValues(typeof(CliOutcome));
+            foreach (CliOutcome outcome in outcomes)
+            {
+                string word = CodingAgentCli.OutcomeWord(outcome);
+                string brief = CodingAgentCliText.Brief(outcome);
+                bool isFailed = outcome == CliOutcome.Failed;
+                if ((word == "failed") != isFailed || (brief == "failed") != isFailed || !words.Add(word) || !briefs.Add(brief))
+                    wanting.Add(outcome.ToString());
+            }
+            check("WITNESS cli runner: Failed's own words are 'failed', read with the rest off the enum (" +
+                  outcomes.Length.ToString(System.Globalization.CultureInfo.InvariantCulture) + " outcomes)",
+                outcomes.Length > 1 && CodingAgentCli.OutcomeWord(CliOutcome.Failed) == "failed" &&
+                CodingAgentCliText.Brief(CliOutcome.Failed) == "failed");
+            check("cli runner: every outcome has a log word and a Status-row brief of its own, only Failed's being 'failed': " +
+                  (wanting.Count == 0 ? "none wanting" : string.Join(", ", wanting)),
+                wanting.Count == 0);
         }
 
         /// <summary>
