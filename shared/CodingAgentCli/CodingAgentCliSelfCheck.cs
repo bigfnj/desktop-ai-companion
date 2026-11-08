@@ -902,6 +902,14 @@ namespace DesktopAICompanion.CodingAgent
                 check("cli runner: a call past its bound is timed out, and the child is told to end",
                     timedOut != null && timedOut.Outcome == CliOutcome.TimedOut && seen != null && seen.TokenCancelled &&
                     CodingAgentCliText.Describe(CodingAgentKind.Claude, timedOut, slow.Timeout).Contains("did not answer within"));
+                // BACKLOG N-audit-1106-298: the exception AI Brain's backend throws is built with no bound, as are AI Brain's
+                // audition samples, so its sentence named the runner's default (120 s) whatever bound the call ran under. The
+                // answer now carries its own, and the sentence built with none names it.
+                string thrown = timedOut == null ? "" : new CodingAgentCliException(CodingAgentKind.Claude, timedOut).Message;
+                check("cli runner: a timed-out answer carries its call's bound, so the exception built with none names that bound and not the default: " + thrown,
+                    timedOut != null && timedOut.Bound == slow.Timeout &&
+                    thrown == CodingAgentCliText.Describe(CodingAgentKind.Claude, timedOut, slow.Timeout) &&
+                    thrown.Contains("did not answer within") && !thrown.Contains("within 120 s"));
                 if (!ended) return;   // the held call still owns the gate; the cancellation check below would read busy
                 using (var cancel = new CancellationTokenSource(TimeSpan.FromMilliseconds(200)))
                 {

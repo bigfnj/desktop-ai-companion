@@ -22798,6 +22798,28 @@ CASES = (
          SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
          SHIMEJI, "tick-emitter/nashorn-binding-paths",
          "M2-binding-paths: an unproven scalar was accepted: engine: incoming-self-read"),
+
+    # ---- burndown/w6-shared-1 ----
+    # Shared code, burn-down wave 6. "bd-w6-shared-1:" for one --only. The CLI runner's cases rebuild AI Brain and grade
+    # --module-selftest=aibrain, which runs the runner's self-check (CodingAgentCliSelfCheck); the meeting-app case
+    # rebuilds Reminder, which runs MeetingAppMicrophoneSelfCheck (Remembrance runs it too).
+    # N-audit-1106-298: the timed-out sentence of an answer built with no bound names the runner's default again.
+    ("bd-w6-shared-1: a timed-out answer's sentence ignores its call's bound (N-audit-1106-298)",
+     CLI_RUNNER,
+     b"                    TimeSpan bound = a.Bound > TimeSpan.Zero ? a.Bound : timeout ?? CodingAgentCli.DefaultCallTimeout;\n",
+     b"                    TimeSpan bound = timeout ?? CodingAgentCli.DefaultCallTimeout;\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a timed-out answer carries its call's bound, so the exception built with none names that bound and not the default"),
+    # N-audit-1106-298: the answer stops carrying the bound its call ran under. Zeroed rather than deleted: with no
+    # assignment left the field is never assigned, a warning, and warnings break the build.
+    ("bd-w6-shared-1: a call's answer no longer carries its bound (N-audit-1106-298)",
+     CLI_RUNNER,
+     b"                answer.Bound = timeout;\n",
+     b"                answer.Bound = TimeSpan.Zero;\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a timed-out answer carries its call's bound, so the exception built with none names that bound and not the default"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
