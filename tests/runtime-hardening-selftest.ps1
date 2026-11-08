@@ -3072,11 +3072,14 @@ Assert-True (
 # F159: the recursive deletes and the sweep run on a pool thread. Directory.Delete appears in the window
 # exactly twice (DeleteTree and the sweep), the zip path's delete of the previous tree is the first
 # statement of the awaited Task.Run, Closed's delete is handed to Task.Run, and the sweep runs inside one.
+# INSIDE is the delegate's own try, closed by its finally and then by the delegate: the sweep clause was
+# `\{.*SweepOrphanedExtractions` under (?s), which reached past the delegate's close, so a sweep moved after
+# `});` onto the UI thread still matched (N-audit-1106-357).
 Assert-True (
     ([regex]::Matches($petStudioWindowCode, 'Directory\.Delete\(').Count -eq 2) -and
     ($importZipBody -cmatch '(?s)await Task\.Run\(delegate\s*\{\s*DeleteTree\(previous\);') -and
     ($beginDeleteBody -cmatch 'Task\.Run\(delegate \{ DeleteTree\(path\); \}\)') -and
-    ($beginSweepBody -cmatch '(?s)Task\.Run\(delegate\s*\{.*SweepOrphanedExtractions\(\);')
+    ($beginSweepBody -cmatch 'Task\.Run\(delegate\s*\{\s*try\s*\{\s*SweepOrphanedExtractions\(\);\s*\}\s*finally\s*\{[^{}]*\}\s*\}\);')
 ) 'the extraction trees are deleted and swept on a pool thread, never in the click handler or in Closed (F159)'
 
 # F160: the sweep is started on every load path, and when the window opens.
@@ -6167,6 +6170,49 @@ $p2ReviewPassAt = $p2MapCaller.IndexOf('$readerPassed=$true', [StringComparison]
 $p2ReviewRemoveAt = $p2MapCaller.IndexOf('Remove-MapReaderScratch $callerScratch $callerScratchParent', [StringComparison]::Ordinal)
 $p2ReviewSuccessOnly = 'if \(\$readerPassed\)\s*\{\s*try \{ Remove-MapReaderScratch \$callerScratch \$callerScratchParent \}'
 Assert-True ($p2ReviewCreateAt -ge 0 -and $p2ReviewCreateAt -lt $p2MapChildAt -and $p2MapCaller.Contains('-ScratchRoot $callerScratch 2>&1') -and $p2ReviewPassAt -gt $p2MapJudgeAt -and $p2ReviewRemoveAt -gt $p2ReviewPassAt -and $p2MapCaller -cmatch $p2ReviewSuccessOnly -and $p2MapCaller.Contains('else { Write-Host (''Map reader failure evidence retained: '' + $callerScratch) }') -and 'if ($true) { try { Remove-MapReaderScratch $callerScratch $callerScratchParent }' -cnotmatch $p2ReviewSuccessOnly) 'bd-codex-parity-2-review: Invoke-Checks.ps1 owns scratch and cleans only after the actual pass (WITNESS: unconditional cleanup differs)'
+
+# ---- burndown/w6-tests-scripts-1 ----
+# N-audit-1106-356: the worker branch of NoteFullscreenScan ENDS at its post. The order check above (thread test, then
+# Post, then the last inline raise) still held with the branch's `return;` deleted, and a worker scan then posts the
+# raise AND raises inline on the worker. Asserted on the slice from the Post to the inline raise: the post, the return,
+# the branch's close and nothing else. WITNESS: the same slice with its return removed does not match.
+$w6NoteScan = Get-MethodBody $startUpCodeHost 'internal void NoteFullscreenScan(bool[] blocked)' @("`n        internal ", "`n        private ", "`n        public ")
+$w6PostAt = $w6NoteScan.IndexOf('uiContext.Post(', [StringComparison]::Ordinal)
+$w6InlineAt = $w6NoteScan.LastIndexOf('Host.RaiseFullscreenChanged(any)', [StringComparison]::Ordinal)
+$w6PostToRaise = ''
+if ($w6PostAt -ge 0 -and $w6InlineAt -gt $w6PostAt) { $w6PostToRaise = $w6NoteScan.Substring($w6PostAt, $w6InlineAt - $w6PostAt) }
+$w6PostReturns = '\AuiContext\.Post\([^\r\n]*\);\s*return;\s*\}\s*\z'
+Assert-True ($w6PostToRaise -cmatch $w6PostReturns -and $w6PostToRaise.Replace('return;', '') -cnotmatch $w6PostReturns) (
+    'w6-tests-scripts-1: a worker-thread fullscreen scan returns after posting its raise, so the inline raise never runs on the worker (WITNESS: the slice without its return does not match)')
+
+# N-audit-1106-358: the resource soak's GDI/USER/handle verdict reads only the app's own settled series, so a series of
+# zeros (GetGuiResources answers 0 on failure) would difference to no growth and pass. The driver refuses any settled
+# sample below 1 on any of the three, and it does so BEFORE the growth loop reads the series.
+$w6Soak = Remove-PsLineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'tests\runtime-resource-soak.ps1') -Raw)
+$w6SoakSettledAt = $w6Soak.IndexOf('$settled = @($churn.settledSeries)', [StringComparison]::Ordinal)
+$w6SoakGuard = [regex]::Match($w6Soak, 'foreach \(\$settledSample in \$settled\) \{\s*foreach \(\$settledField in @\(''gdi'', ''user'', ''handles''\)\) \{\s*if \(\[long\]\$settledSample\.\$settledField -lt 1\) \{\s*throw')
+$w6SoakVerdictAt = $w6Soak.IndexOf("foreach (`$counter in @('GdiObjects', 'UserObjects', 'Handles'))", [StringComparison]::Ordinal)
+Assert-True ($w6SoakSettledAt -ge 0 -and $w6SoakGuard.Success -and $w6SoakGuard.Index -gt $w6SoakSettledAt -and $w6SoakVerdictAt -gt $w6SoakGuard.Index) (
+    "w6-tests-scripts-1: the resource soak refuses a settled sample below 1 on gdi, user or handles before it reads a growth verdict (series at $w6SoakSettledAt, guard at $($w6SoakGuard.Index), verdict at $w6SoakVerdictAt)")
+
+# N-bd-codex-converter-1-03: the ShimejiConvert suite floor in the gate and in CI EQUALS the suites the selftest runs:
+# RunAll's registrations plus each suite Program.SelfTest calls and counts after them (the CLI round-trip suite, the only
+# permanent killer of Verify's wiring). Both floors sat at 9 while the suites grew to 13, so removing the CLI suite left
+# both green. Derived from the sources, so a deleted registration fails the runtime floor and a floor left behind fails
+# here; adding a suite is a deliberate floor edit.
+$w6EngineCode = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'tools\ShimejiConvert.Engine\Shimeji\EngineSelfTest.cs') -Raw)
+$w6RunAll = Get-MethodBody $w6EngineCode 'public static bool RunAll(out string detail, out int ran)' @("`n        private ", "`n        internal ", "`n        public ")
+$w6CliCode = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'tools\ShimejiConvert\Program.cs') -Raw)
+$w6CliSelfTest = Get-MethodBody $w6CliCode 'private static int SelfTest()' @("`n        private ", "`n        internal ", "`n        public ")
+$w6EngineSuites = [regex]::Matches($w6RunAll, 'new \{ Name = "\w+", Run = \(SubTest\)\w+\.Run \}').Count
+$w6CliSuites = [regex]::Matches($w6CliSelfTest, '= \w+SelfTest\(out \w+\);\s*ran\+\+;').Count
+$w6Registered = $w6EngineSuites + $w6CliSuites
+$w6GateFloor = [regex]::Match((Remove-PsLineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'tests\run-gate.ps1') -Raw)), '(?m)^\s*\$shimejiSuiteFloor = (\d+)\s*$')
+$w6CiFloor = [regex]::Match([regex]::Replace((Get-Content -LiteralPath (Join-Path $repoRoot '.github\workflows\build.yml') -Raw), '(?m)^\s*#.*$', ''), '(?m)^\s*\$shimejiSuiteFloor = (\d+)\s*$')
+Assert-True ($w6EngineSuites -gt 0 -and $w6GateFloor.Success -and $w6CiFloor.Success) (
+    "w6-tests-scripts-1: the ShimejiConvert suite registrations and both suite floors were read (engine $w6EngineSuites, CLI $w6CliSuites)")
+Assert-True ($w6GateFloor.Success -and $w6CiFloor.Success -and [int]$w6GateFloor.Groups[1].Value -eq $w6Registered -and [int]$w6CiFloor.Groups[1].Value -eq $w6Registered) (
+    "w6-tests-scripts-1: ShimejiConvert suite floors equal the suites run, in the gate and in CI -- registered $w6Registered, gate $($w6GateFloor.Groups[1].Value), CI $($w6CiFloor.Groups[1].Value)")
 
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that

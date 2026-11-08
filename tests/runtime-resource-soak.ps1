@@ -6,10 +6,16 @@
 
 .DESCRIPTION
     This is the only gate that can actually catch a leak. Every other check in the repo asserts an invariant
-    inside the process; this one drives the app from OUTSIDE and watches the counters the operating system
-    keeps: handle count, GDI objects, USER objects and private bytes, sampled via user32!GetGuiResources.
-    A managed-memory check (GC.GetTotalMemory and friends) would miss exactly the failures that matter here,
-    because an undisposed Bitmap, Font, Icon or HWND is native.
+    inside the process; this one judges the counters the operating system keeps: handle count, GDI objects,
+    USER objects and private bytes. A managed-memory check (GC.GetTotalMemory and friends) would miss exactly
+    the failures that matter here, because an undisposed Bitmap, Font, Icon or HWND is native.
+
+    WHO DECIDES WHAT. GDI objects, USER objects and handles are decided by the app's OWN settled series:
+    samples it takes in-process after a forced collection and publishes in its completion marker (BUG-004,
+    below). This driver's outside samples, once a second via user32!GetGuiResources, decide private bytes
+    and prove the counters are readable for the process at all; they do not decide the other three. A
+    settled series that reports any counter below 1 is refused rather than read, because a sample that
+    failed and came back zero would difference to "no growth" and pass every bound (N-audit-1106-358).
 
     Two legs. First, launch normally and require a responsive message loop (WaitForInputIdle) -- a plain
     "does it start" smoke test. Then relaunch with --resource-churn-selftest, which makes the app run its own
@@ -378,6 +384,22 @@ try {
                'its minimum duration to reach that floor, so this means the ceiling of ' +
                "$([long]$churn.maximumDurationMilliseconds) ms was hit first. Raise " +
                '-CompletionGraceSeconds, which is what the ceiling is derived from.')
+    }
+    # A DEGENERATE SERIES IS NOT A FLAT ONE (N-audit-1106-358). Everything below reads only what the app
+    # reports about itself, and GetGuiResources answers 0 when it fails, so a series of zeros differences to
+    # growth 0 and passes every bound: the leak verdict would be vacuous while looking like the healthiest run
+    # possible. A live process with a pet, a bubble and a tray icon holds at least one GDI object, one USER
+    # object and one handle, which the outside sample above already required of this same process, so a
+    # settled sample below 1 on any of the three is a marker this driver cannot read, and it says so.
+    foreach ($settledSample in $settled) {
+        foreach ($settledField in @('gdi', 'user', 'handles')) {
+            if ([long]$settledSample.$settledField -lt 1) {
+                throw ("The churn's settled sample at cycle $($settledSample.cycle) reports " +
+                       "$settledField=$($settledSample.$settledField). A live companion holds at least one of " +
+                       'each, so the in-process series is degenerate and a growth verdict read from it would ' +
+                       'pass whatever the app leaked.')
+            }
+        }
     }
     $settledFirst = $settled[0]
     $settledLast = $settled[$settled.Count - 1]

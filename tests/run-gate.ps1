@@ -388,9 +388,16 @@ try {
             #
             # A FLOOR, pinned to the registrations RunAll carries today, and the pin is the point (the
             # same stance as the hardening self-test's literal limits, F292): a registration deleted from
-            # RunAll fails here and has to be a deliberate edit of this number, while adding one costs
-            # nothing. `-le 0` alone would only catch the sentinel going missing.
-            $shimejiSuiteFloor = 9
+            # RunAll fails here and has to be a deliberate edit of this number, and so does adding one (below).
+            # `-le 0` alone would only catch the sentinel going missing.
+            #
+            # 13 = RunAll's 12 registrations plus the CLI round-trip suite Program.SelfTest runs after them. It sat at
+            # 9 while the registrations grew to 13, so four suites could go, the CLI one among them (the only
+            # permanent killer of Verify's wiring), with this step green (N-bd-codex-converter-1-03). The hardening
+            # self-test now derives the registrations from the sources and holds this number and build.yml's equal
+            # to them, so adding a suite costs a deliberate edit here too: that is the price of the floor not
+            # drifting below what it guards again.
+            $shimejiSuiteFloor = 13
             try {
                 $shimejiSelfTestOutput = @(& $shimejiExe selftest | ForEach-Object { "$_" })
                 $shimejiSelfTestExit = $LASTEXITCODE
