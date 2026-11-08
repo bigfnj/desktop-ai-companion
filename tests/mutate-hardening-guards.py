@@ -5200,6 +5200,31 @@ CASES = (
         b"            if ($ObserveMaintenanceLog -and [IO.File]::Exists((Fixture-Path ($family.Name + '\\' + $name + $suffix)))) { throw 'Apply refuses",
         "w10-tests-scripts-1: every MSI lifecycle -Apply refuses an applied fixture before its first MSI",
     ),
+    # ---- burndown/w10-options-ui-1 ----
+    # N-bd-w9-docs-1-01: the Modules pane's EnforcedPermissions and CompanionHost's ModuleDeclares gates drift apart, so
+    # the pane promises enforcement the host does not do, or calls an enforced flag a statement. Source only, so no
+    # rebuild. The fragments are the labels' opening words. "bd-w10-options-ui-1:" for one --only.
+    (
+        "bd-w10-options-ui-1: OpenLink stops checking the Network declaration (N-bd-w9-docs-1-01)",
+        os.path.join(REPO, "src", "dotNet", "Plugins", "CompanionHost.cs"),
+        b"                if (!ModuleDeclares(moduleId, ModulePermissions.Network)) return false;\n",
+        b"                if (string.IsNullOrWhiteSpace(moduleId)) return false;\n",
+        "w10-options-ui-1: every flag in the pane's EnforcedPermissions has a",
+    ),
+    (
+        "bd-w10-options-ui-1: the speech gate also checks a flag the pane calls a statement (N-bd-w9-docs-1-01)",
+        os.path.join(REPO, "src", "dotNet", "Plugins", "CompanionHost.cs"),
+        b"                    if (!ModuleDeclares(r.ModuleId, ModulePermissions.Voice)) continue;   // raise-time gate\n",
+        b"                    if (!ModuleDeclares(r.ModuleId, ModulePermissions.Voice | ModulePermissions.Speech)) continue;   // raise-time gate\n",
+        "w10-options-ui-1: every flag CompanionHost gates with ModuleDeclares",
+    ),
+    (
+        "bd-w10-options-ui-1: the enforced set stops being a const the invariant reads (N-bd-w9-docs-1-01)",
+        os.path.join(REPO, "src", "Portable", "Wpf", "ModulesPaneControl.cs"),
+        b"        internal const ModulePermissions EnforcedPermissions = ModulePermissions.Audio | ModulePermissions.Network |\n",
+        b"        internal static readonly ModulePermissions EnforcedPermissions = ModulePermissions.Audio | ModulePermissions.Network |\n",
+        "w10-options-ui-1: WITNESS the host's ModuleDeclares gates",
+    ),
 )
 
 

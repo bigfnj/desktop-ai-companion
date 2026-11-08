@@ -1307,6 +1307,22 @@ CASES = [
      "            FrameworkElement egg = BuildEggArrivalRow(addId, row.DisplayName ?? row.Id, GetStats(addId).OffersEgg);\n",
      "            FrameworkElement egg = BuildEggArrivalRow(addId, row.DisplayName ?? row.Id, GetStats(addId).OffersEgg || row.IsBuiltIn);\n",
      "wpf", "tick switches: the gallery's built-in classic companion shows no switch"),
+    # ---- burndown/w10-options-ui-1 ----
+    # N-bd-w9-tests-scripts-2-03: RevealsPath starts Explorer by a name ShellExecute searches for, current directory first.
+    # Each rebuilds the host and runs --wpf-options-selftest; nothing opens Explorer, which only builds the start.
+    # "bd-w10-options-ui-1:" for one --only.
+    ("bd-w10-options-ui-1: the reveal starts the bare name explorer.exe again (N-bd-w9-tests-scripts-2-03)", OPTIONSWINDOW,
+     "                FileName = System.IO.Path.Combine(windows, \"explorer.exe\"),\n",
+     "                FileName = \"explorer.exe\",\n",
+     "wpf", "reveal-explorer: RevealsPath starts Explorer by its full path in the Windows folder"),
+    ("bd-w10-options-ui-1: the reveal looks for Explorer in System32, where it does not live (N-bd-w9-tests-scripts-2-03)", OPTIONSWINDOW,
+     "                FileName = System.IO.Path.Combine(windows, \"explorer.exe\"),\n",
+     "                FileName = System.IO.Path.Combine(Environment.SystemDirectory, \"explorer.exe\"),\n",
+     "wpf", "reveal-explorer: RevealsPath starts Explorer by its full path in the Windows folder"),
+    ("bd-w10-options-ui-1: the reveal drops the quotes around the file it selects (N-bd-w9-tests-scripts-2-03)", OPTIONSWINDOW,
+     "                Arguments = \"/select,\\\"\" + full + \"\\\"\",\n",
+     "                Arguments = \"/select,\" + full,\n",
+     "wpf", "WITNESS reveal-explorer: explorer.exe is a file in this machine's Windows folder"),
 ]
 
 

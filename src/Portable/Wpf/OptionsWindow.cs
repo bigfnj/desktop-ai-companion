@@ -2420,23 +2420,47 @@ namespace DesktopAICompanion.Wpf
             string refusal;
             string full = ResolveRevealTarget(returned, PermittedRevealRoot(), out refusal);
             if (full == null) return refusal;
+            System.Diagnostics.ProcessStartInfo explorer = RevealStartInfo(full);
+            if (explorer == null) return "✗ could not open Explorer: the Windows folder could not be found.";
             try
             {
-                // Same shell-execute shape as the releases link in the window footer. /select highlights
-                // the file inside its folder rather than opening it, so even an allowed path is shown and
-                // never run: the verb stays "reveal" even if the file is an .exe the module just wrote.
                 // Disposed, not dropped (RA-123), as the footer link is.
-                using (System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = "explorer.exe",
-                    Arguments = "/select,\"" + full + "\"",
-                    UseShellExecute = true,
-                }))
+                using (System.Diagnostics.Process.Start(explorer))
                 {
                 }
             }
             catch (Exception ex) { return "✗ could not open Explorer: " + ex.Message; }
             return "✓ shown in Explorer";
+        }
+
+        /// <summary>
+        /// The Explorer start behind <see cref="RevealInExplorer"/>, or null when the Windows folder cannot be read.
+        /// Same shell-execute shape as the releases link in the window footer. /select highlights the file inside
+        /// its folder rather than opening it, so even an allowed path is shown and never run: the verb stays
+        /// "reveal" even if the file is an .exe the module just wrote.
+        ///
+        /// Explorer is named by its FULL PATH in the Windows folder, never by the bare "explorer.exe"
+        /// (N-bd-w9-tests-scripts-2-03). Process.Start with UseShellExecute goes through ShellExecuteEx, and with
+        /// no WorkingDirectory that searches the CURRENT directory before the Windows folder and System32 for a
+        /// bare name. Measured 2026-11-08 on .NET 10 with this exact shape: a windowless stand-in copied into the
+        /// current directory ran in place of a program from the Windows folder itself (the folder explorer.exe
+        /// lives in; neither name has an App Paths entry) and in place of one from System32, and each real program
+        /// ran in a control with nothing planted. The app never sets its own current directory, so it is the
+        /// folder the app was started from (its own folder, on a double-click), and a file there named
+        /// explorer.exe would have run with the module's path as its argument. A null refuses the reveal rather
+        /// than falling back to the bare name. Split out from the start so --wpf-options-selftest can read the
+        /// path without an Explorer window opening.
+        /// </summary>
+        internal static System.Diagnostics.ProcessStartInfo RevealStartInfo(string full)
+        {
+            string windows = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+            if (string.IsNullOrEmpty(windows)) return null;
+            return new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = System.IO.Path.Combine(windows, "explorer.exe"),
+                Arguments = "/select,\"" + full + "\"",
+                UseShellExecute = true,
+            };
         }
 
         /// <summary>The narrowest root this pane's action may reveal inside. Deliberately total: any

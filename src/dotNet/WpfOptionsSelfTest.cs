@@ -1174,6 +1174,21 @@ namespace DesktopAICompanion
                     }
                 }
 
+                // 12c) The reveal starts Explorer by its FULL PATH (N-bd-w9-tests-scripts-2-03). ShellExecute searches the
+                // current directory first for a bare name (measured; PaneView.RevealStartInfo says how), so a bare
+                // "explorer.exe" runs any file of that name in the folder the app was started from. RevealStartInfo only
+                // builds the start, so nothing opens here; the file it names is never created.
+                string revealArgument = Path.Combine(Path.GetTempPath(), "dp-wpf-reveal-" + Guid.NewGuid().ToString("N") + ".log");
+                System.Diagnostics.ProcessStartInfo explorerStart = DesktopAICompanion.Wpf.PaneView.RevealStartInfo(revealArgument);
+                string windowsFolder = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+                ok &= Check(sb, "reveal-explorer: RevealsPath starts Explorer by its full path in the Windows folder (" +
+                    (explorerStart == null ? "no start" : explorerStart.FileName) + ")",
+                    explorerStart != null && Path.IsPathFullyQualified(explorerStart.FileName) && windowsFolder.Length > 0 &&
+                    string.Equals(explorerStart.FileName, Path.Combine(windowsFolder, "explorer.exe"), StringComparison.OrdinalIgnoreCase));
+                ok &= Check(sb, "WITNESS reveal-explorer: explorer.exe is a file in this machine's Windows folder, and the file to show is the start's /select argument",
+                    windowsFolder.Length > 0 && File.Exists(Path.Combine(windowsFolder, "explorer.exe")) && explorerStart != null &&
+                    explorerStart.Arguments == "/select,\"" + revealArgument + "\"" && explorerStart.UseShellExecute);
+
                 // 13) PaneAction.InvokeWithPendingAsync. InvokeAsync takes no arguments, so an action
                 // could only ever see SAVED settings -- every "preview what I just chose" button in every
                 // module worked around that. These cases drive the REAL click handler, because the

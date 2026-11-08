@@ -6844,6 +6844,34 @@ $w10LifeFirstMsi = $w10Life.IndexOf("Invoke-OwnedMsi -Name 'install-v1'", [Strin
 Assert-True ($w10Life.Length -gt 0 -and $w10LifeFirstMsi -ge 0 -and $w10LifeResult.Success -and $w10LifeLogs.Success -and
     $w10LifeResult.Index -lt $w10LifeFirstMsi -and $w10LifeLogs.Index -lt $w10LifeFirstMsi) (
     "w10-tests-scripts-1: every MSI lifecycle -Apply refuses an applied fixture before its first MSI (result refusal $($w10LifeResult.Success), log refusal $($w10LifeLogs.Success), first MSI at $w10LifeFirstMsi)")
+# ---- burndown/w10-options-ui-1 ----
+# THE PANE'S ENFORCED SET IS THE SET THE HOST ENFORCES (N-bd-w9-docs-1-01). ModulesPaneControl.EnforcedPermissions is what
+# the Modules pane tells a user the app enforces, and --module-host-selftest holds the tooltip's sentence to it; the
+# enforcing itself is CompanionHost's, which checks a module's declaration with ModuleDeclares before a verb acts. Nothing
+# tied the two: a gate added for another flag would leave the pane calling that flag a mere statement, and a gate removed
+# would leave it promising enforcement the host no longer does. Comment-stripped: the flags named in the second argument
+# of every ModuleDeclares call in CompanionHost.cs, against the flags named in the constant, both directions. WITNESS:
+# the constant and the method were found and the read sees the Audio gate, so an empty match cannot pass as agreement.
+$w10ouHostCode = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\Plugins\CompanionHost.cs') -Raw)
+$w10ouPaneCode = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\Portable\Wpf\ModulesPaneControl.cs') -Raw)
+$w10ouGated = New-Object 'System.Collections.Generic.SortedSet[string]'
+foreach ($w10ouCall in [regex]::Matches($w10ouHostCode, '(?<![\w.])ModuleDeclares\(\s*[^,()]+,\s*([^()]+?)\s*\)')) {
+    foreach ($w10ouFlag in [regex]::Matches($w10ouCall.Groups[1].Value, 'ModulePermissions\.(\w+)')) { [void] $w10ouGated.Add($w10ouFlag.Groups[1].Value) }
+}
+$w10ouConst = [regex]::Match($w10ouPaneCode, 'internal const ModulePermissions EnforcedPermissions = ([^;]+);')
+$w10ouEnforced = New-Object 'System.Collections.Generic.SortedSet[string]'
+foreach ($w10ouFlag in [regex]::Matches($w10ouConst.Groups[1].Value, 'ModulePermissions\.(\w+)')) { [void] $w10ouEnforced.Add($w10ouFlag.Groups[1].Value) }
+Assert-True ($w10ouConst.Success -and $w10ouEnforced.Count -gt 0 -and $w10ouGated.Contains('Audio') -and
+    $w10ouHostCode -cmatch 'private bool ModuleDeclares\(string moduleId, ModulePermissions required\)') (
+    "w10-options-ui-1: WITNESS the host's ModuleDeclares gates and the pane's EnforcedPermissions were both read ($($w10ouGated.Count) gated, $($w10ouEnforced.Count) enforced)")
+$w10ouUnlisted = @($w10ouGated | Where-Object { -not $w10ouEnforced.Contains($_) })
+Assert-True ($w10ouUnlisted.Count -eq 0) (
+    "w10-options-ui-1: every flag CompanionHost gates with ModuleDeclares is in the pane's EnforcedPermissions" +
+    $(if ($w10ouUnlisted.Count) { ' -- not in the set: ' + ($w10ouUnlisted -join ', ') } else { '' }))
+$w10ouUngated = @($w10ouEnforced | Where-Object { -not $w10ouGated.Contains($_) })
+Assert-True ($w10ouUngated.Count -eq 0) (
+    "w10-options-ui-1: every flag in the pane's EnforcedPermissions has a ModuleDeclares gate in CompanionHost" +
+    $(if ($w10ouUngated.Count) { ' -- no gate: ' + ($w10ouUngated -join ', ') } else { '' }))
 
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
