@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Text;
+using System.Text.RegularExpressions;
 using System.Xml;
 using System.Xml.Linq;
 
@@ -340,9 +342,56 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
 
         private static XDocument LoadXmlBytes(byte[] bytes, string sourceFileName)
         {
+            Encoding legacy = LegacyDeclaredEncoding(bytes);
+            if (legacy != null)
+            {
+                // XmlReader switches encoding on a byte stream only, so over the decoded text it reads the declaration
+                // and does not try to resolve the name again.
+                string text = legacy.GetString(bytes);
+                return LoadXml(() => XmlReader.Create(new StringReader(text), SourceReaderSettings()), sourceFileName,
+                    MaximumSourceMaterializationCharacters);
+            }
             return LoadXml(() => XmlReader.Create(new MemoryStream(bytes, false), SourceReaderSettings()), sourceFileName,
                 MaximumSourceMaterializationCharacters);
         }
+
+        // The longest XML declaration read for its encoding name. A declaration is a short ASCII line at the very start of
+        // the document; past this the bytes are XmlReader's to judge, as before.
+        private const int MaximumDeclarationBytes = 256;
+
+        /// <summary>
+        /// The code page a BOM-less document's XML declaration names, when .NET cannot supply it by itself, or null.
+        ///
+        /// Java's parser reads a conf declaring a legacy code page (encoding="Shift_JIS", "EUC-JP", "windows-1252"), and
+        /// XmlReader refused it, because .NET supplies only the Unicode encodings, ASCII and Latin-1 unless a code-page
+        /// provider is registered, and nothing here registers one (N-audit-1106-159). The provider is asked HERE, for this
+        /// document, rather than registered process-wide with Encoding.RegisterProvider: Pet Studio runs this parser inside
+        /// the host process, and a registration would change what every Encoding.GetEncoding in the host answers. A name
+        /// .NET already supplies is left to XmlReader (null), so every document that read before reads the same way; a
+        /// name neither supplies is left to XmlReader too, which refuses it as it did. A BOM decides the encoding over any
+        /// declaration, as it does for XmlReader: a document that starts with one does not start with the ASCII bytes of
+        /// "&lt;?xml", so the one prefix test below already leaves it to XmlReader, with no BOM test beside it.
+        /// </summary>
+        private static Encoding LegacyDeclaredEncoding(byte[] bytes)
+        {
+            string head = Encoding.ASCII.GetString(bytes, 0, Math.Min(bytes.Length, MaximumDeclarationBytes));
+            if (!head.StartsWith("<?xml", StringComparison.Ordinal)) return null;
+            int end = head.IndexOf("?>", StringComparison.Ordinal);
+            if (end < 0) return null;
+            Match declared = DeclaredEncoding.Match(head.Substring(0, end));
+            if (!declared.Success) return null;
+            string name = declared.Groups[2].Value;
+            try
+            {
+                Encoding.GetEncoding(name);
+                return null;
+            }
+            catch (ArgumentException) { }
+            return CodePagesEncodingProvider.Instance.GetEncoding(name);
+        }
+
+        private static readonly Regex DeclaredEncoding = new Regex("\\sencoding\\s*=\\s*(['\"])([A-Za-z][A-Za-z0-9._-]*)\\1",
+            RegexOptions.CultureInvariant);
 
         // Conservative units count the strings the IR will retain, before constructing them. Each ordinal is
         // charged ten digits, the Int32 maximum; node/attribute overhead is charged too. Direct text is separately

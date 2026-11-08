@@ -1251,7 +1251,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
 
         // The source reads no attribute of a configuration document's root (Configuration.load selects its children
         // only), so a root carrying a namespace-qualified schema location, its namespace declaration and any other
-        // attribute converts to exactly the bytes the bare root does; the root's text is still refused.
+        // attribute converts to exactly the bytes the bare root does. The root's TEXT is covered by stray-text-ignored
+        // below, which replaced the refusal this case used to assert: it converts to the same bytes too (N-audit-1106-382).
         private static void RootAttributesIgnored()
         {
             XNamespace xsi = "http://www.w3.org/2001/XMLSchema-instance";

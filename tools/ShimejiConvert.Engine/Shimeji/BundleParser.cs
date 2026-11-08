@@ -39,11 +39,30 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
         public static ShimejiConfig Parse(string bundleDir, out BundleInfo info)
         {
             if (string.IsNullOrEmpty(bundleDir)) throw new ArgumentNullException("bundleDir");
-            string manifestPath = Path.Combine(bundleDir, "manifest.json");
-            string animationPath = Path.Combine(bundleDir, "animation.json");
+            string manifestPath = BundleFile(bundleDir, "manifest.json");
+            string animationPath = BundleFile(bundleDir, "animation.json");
             if (!File.Exists(manifestPath)) throw new FileNotFoundException("No manifest.json under " + bundleDir);
             if (!File.Exists(animationPath)) throw new FileNotFoundException("No animation.json under " + bundleDir);
             return ParseJson(File.ReadAllText(manifestPath), File.ReadAllText(animationPath), out info);
+        }
+
+        /// <summary>
+        /// One of the bundle's two JSON files, held to the bundle folder by the walk the sprites already get
+        /// (<see cref="WebPLoader.ContainedPath"/>), or an InvalidDataException naming the file and the reason.
+        ///
+        /// The name is a constant, so its TEXT never leaves the folder; what can is the file itself. Both were read
+        /// through a bare Path.Combine, so a FILE symbolic link named manifest.json or animation.json read the JSON
+        /// it points at, anywhere the user can read (N-bd-w4-converter-1-02). Making one needs the symbolic-link
+        /// privilege or Developer Mode, and zip extraction does not produce one, so the path is narrow; the rule is
+        /// the one the sprites folder and every sprite name already follow, not a new one. A hard link is not a
+        /// reparse point and is not caught, as it is not for the sprites: it cannot travel in a bundle either.
+        /// </summary>
+        private static string BundleFile(string bundleDir, string name)
+        {
+            string reason;
+            string path = WebPLoader.ContainedPath(bundleDir, name, out reason);
+            if (path == null) throw new InvalidDataException(name + " refused: " + reason);
+            return path;
         }
 
         /// <summary>Map the two JSON documents directly (no disk), for self-tests and in-memory callers.</summary>

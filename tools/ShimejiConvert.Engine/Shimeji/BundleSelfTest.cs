@@ -417,6 +417,82 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 try { if (Directory.Exists(airUserDir)) Directory.Delete(airUserDir, true); } catch { /* best-effort cleanup */ }
             }
 
+            // ---- 7) THE TWO JSON FILES ARE THE BUNDLE'S OWN (N-bd-w4-converter-1-02) ----
+            // manifest.json and animation.json were read through a bare Path.Combine, so a FILE symbolic link with
+            // either name read a JSON file outside the bundle. That file link is the threat, and making one needs the
+            // symbolic-link privilege or Developer Mode: where this account has neither, its leg is DEGRADED on every
+            // run with the reason, never skipped in silence. A junction needs no privilege but can only be a folder,
+            // so the old code took one for a missing file ("No manifest.json under") instead of following it. It is
+            // here because it reaches the same reparse walk on both names on every machine: the file link proves the
+            // walk stops the threat, the junction proves Parse runs the walk at all.
+            string fileLinkRoot = Path.Combine(Path.GetTempPath(), "shimeji-bundle-filelink-selftest-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                string bundle = Path.Combine(fileLinkRoot, "bundle"), outside = Path.Combine(fileLinkRoot, "outside");
+                WriteSyntheticBundle(bundle);
+                WriteSyntheticBundle(outside);
+                foreach (string name in new[] { "manifest.json", "animation.json" })
+                {
+                    string own = Path.Combine(bundle, name);
+                    string ownText = File.ReadAllText(own);
+                    File.Delete(own);
+                    try
+                    {
+                        // The file link: the threat itself, followed through the whole conversion.
+                        string fileLinkWhy = null;
+                        try { File.CreateSymbolicLink(own, Path.Combine(outside, name)); }
+                        catch (Exception ex) { fileLinkWhy = ex.GetType().Name + ": " + ex.Message; }
+                        if (fileLinkWhy != null)
+                            degraded.Add("DEGRADED: bundle file links: " + name + " could not be made a file symbolic link, so the "
+                                + "file-link refusal is not exercised (the junction leg still is; Developer Mode or the symbolic-link "
+                                + "privilege enables it): " + fileLinkWhy);
+                        else
+                        {
+                            string linkError;
+                            ConversionResult followed = BundleConverter.ConvertBundle(bundle, "File Link Skin", out linkError);
+                            if (followed != null || linkError == null || linkError.IndexOf(name + " refused", StringComparison.Ordinal) < 0
+                                || linkError.IndexOf("junction or symbolic link", StringComparison.Ordinal) < 0)
+                                failures.Add("bundle file links: " + name + " as a file symbolic link was read outside the bundle (converted="
+                                    + (followed != null) + ", error=" + (linkError ?? "(none)") + ")");
+                            File.Delete(own);
+                        }
+                        // The junction: the same walk, reachable without any privilege.
+                        if (!TryMakeDirectoryLink(own, outside))
+                            degraded.Add("DEGRADED: bundle file links: " + name + " could not be made a junction (no symbolic link or "
+                                + "junction), so the walk on the JSON files is not exercised");
+                        else
+                        {
+                            string parseError = null;
+                            try { BundleInfo linkedInfo; BundleParser.Parse(bundle, out linkedInfo); }
+                            catch (Exception ex) { parseError = ex.Message; }
+                            if (parseError == null || parseError.IndexOf(name + " refused", StringComparison.Ordinal) < 0
+                                || parseError.IndexOf("junction or symbolic link", StringComparison.Ordinal) < 0)
+                                failures.Add("bundle file links: " + name + " as a junction was not refused as a link (error="
+                                    + (parseError ?? "(none)") + ")");
+                            Directory.Delete(own);
+                        }
+                    }
+                    finally
+                    {
+                        // Whatever a failed step left at the name (a link, or nothing) gives way to the bundle's own file.
+                        try { if (Directory.Exists(own)) Directory.Delete(own); } catch { /* best-effort: the real file is written next */ }
+                        try { if (File.Exists(own)) File.Delete(own); } catch { /* best-effort: the real file is written next */ }
+                        File.WriteAllText(own, ownText, new UTF8Encoding(false));
+                    }
+                }
+                // WITNESS: the same bundle with its own two files parses, so each refusal above is about the link.
+                try { BundleInfo ownInfo; BundleParser.Parse(bundle, out ownInfo); }
+                catch (Exception ex) { failures.Add("WITNESS: bundle file links: the fixture's own two files did not parse -- " + ex.Message); }
+            }
+            catch (Exception ex)
+            {
+                failures.Add("bundle file links fixture threw -- " + ex.Message);
+            }
+            finally
+            {
+                try { if (Directory.Exists(fileLinkRoot)) Directory.Delete(fileLinkRoot, true); } catch { /* best-effort cleanup */ }
+            }
+
             var sb = new StringBuilder();
             sb.AppendLine("bundle self-test: manifest.json + animation.json -> ShimejiConfig -> accepted pet; one WebP through dwebp");
             foreach (string d in degraded) sb.AppendLine("  " + d);

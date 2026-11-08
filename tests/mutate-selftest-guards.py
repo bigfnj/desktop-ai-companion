@@ -23771,6 +23771,49 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--shimeji-window-selftest", "dp-shimeji-window-selftest.txt",
      "packs: every member the world stages is recorded with its registry entry"),
+
+    # ---- burndown/w8-converter-1 ----
+    # Converter entries of burn-down wave 8. "bd-w8-converter-1:" for one --only.
+    # N-bd-w4-converter-1-02: manifest.json or animation.json is read through a bare Path.Combine again, or the refusal
+    # falls back to it, so a link with either name is read past the reparse walk. The label is the JUNCTION leg's, the
+    # one leg that runs without the symbolic-link privilege; the file-link leg is DEGRADED here and could not fire.
+    ("bd-w8-converter-1: manifest.json is read through a bare Path.Combine again (N-bd-w4-converter-1-02)",
+     os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Shimeji", "BundleParser.cs"),
+     b"            string manifestPath = BundleFile(bundleDir, \"manifest.json\");\n",
+     b"            string manifestPath = Path.Combine(bundleDir, \"manifest.json\");\n",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, "bundle", "bundle file links: manifest.json as a junction was not refused as a link"),
+    ("bd-w8-converter-1: animation.json is read through a bare Path.Combine again (N-bd-w4-converter-1-02)",
+     os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Shimeji", "BundleParser.cs"),
+     b"            string animationPath = BundleFile(bundleDir, \"animation.json\");\n",
+     b"            string animationPath = Path.Combine(bundleDir, \"animation.json\");\n",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, "bundle", "bundle file links: animation.json as a junction was not refused as a link"),
+    ("bd-w8-converter-1: a refused bundle JSON file falls back to the bare join (N-bd-w4-converter-1-02)",
+     os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Shimeji", "BundleParser.cs"),
+     b"            if (path == null) throw new InvalidDataException(name + \" refused: \" + reason);\n",
+     b"            if (path == null) path = Path.Combine(bundleDir, name);\n",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, "bundle", "bundle file links: manifest.json as a junction was not refused as a link"),
+    # N-audit-1106-159: a conf declaring a legacy code page is refused again, or read through the wrong code page.
+    ("bd-w8-converter-1: the code-page fallback for a declared legacy encoding is deleted (N-audit-1106-159)",
+     SHIMEJI_PARSER,
+     b"            return CodePagesEncodingProvider.Instance.GetEncoding(name);\n",
+     b"            return null;\n",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, "source-ir", "a configuration declaring Shift_JIS was refused: System does not support 'Shift_JIS' encoding"),
+    ("bd-w8-converter-1: the decoded text is handed back to XmlReader as bytes (N-audit-1106-159)",
+     SHIMEJI_PARSER,
+     b"                return LoadXml(() => XmlReader.Create(new StringReader(text), SourceReaderSettings()), sourceFileName,\n",
+     b"                return LoadXml(() => XmlReader.Create(new MemoryStream(bytes, false), SourceReaderSettings()), sourceFileName,\n",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, "source-ir", "a configuration declaring Shift_JIS was refused: System does not support 'Shift_JIS' encoding"),
+    ("bd-w8-converter-1: a declared legacy encoding is decoded as Latin-1 (N-audit-1106-159)",
+     SHIMEJI_PARSER,
+     b"                string text = legacy.GetString(bytes);\n",
+     b"                string text = Encoding.Latin1.GetString(bytes);\n",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, "source-ir", "a configuration declaring Shift_JIS read its action name as"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
