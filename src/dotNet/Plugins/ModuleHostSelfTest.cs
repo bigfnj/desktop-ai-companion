@@ -2360,6 +2360,39 @@ namespace DesktopAICompanion.Plugins
                     readAfterOther.State + ", " + (readLetGo ? "nothing held" : "the token held") + ")",
                     readAfterOther.State == HostCredentialState.None && readLetGo);
 
+                // A READ RACING A COMMIT (N-audit-1106-236). Reads take no lock, so a read can see the envelope a commit is
+                // about to replace and finish its unseal after the commit let go of the cache. The commit runs at the seam
+                // where such a race lands (after the read's unseal, before it caches): a Remove, then a save. The read still
+                // answers what it read (the WITNESS that the race happened), and the cache holds no plaintext of the token
+                // the commit removed or replaced.
+                store.TrySave("aibrain", HostCredentialId.ClaudeCodeSignIn, SyntheticToken);
+                HostCredentialCommit racedRemove = null;
+                store.BeforeCacheForDiagnostics = delegate
+                {
+                    store.BeforeCacheForDiagnostics = null;
+                    racedRemove = store.Remove("aibrain", HostCredentialId.ClaudeCodeSignIn);
+                };
+                HostCredentialReading racedRemoveRead = store.Read("aibrain", HostCredentialId.ClaudeCodeSignIn);
+                bool racedRemoveLetGo = !store.HoldsUnsealedForDiagnostics;
+                store.TrySave("aibrain", HostCredentialId.ClaudeCodeSignIn, SyntheticToken);
+                HostCredentialCommit racedSave = null;
+                store.BeforeCacheForDiagnostics = delegate
+                {
+                    store.BeforeCacheForDiagnostics = null;
+                    racedSave = store.TrySave("aibrain", HostCredentialId.ClaudeCodeSignIn, SyntheticOther);
+                };
+                HostCredentialReading racedSaveRead = store.Read("aibrain", HostCredentialId.ClaudeCodeSignIn);
+                bool racedSaveLetGo = !store.HoldsUnsealedForDiagnostics;
+                store.BeforeCacheForDiagnostics = null;
+                bool afterRaceReads = store.Read("aibrain", HostCredentialId.ClaudeCodeSignIn).Value == SyntheticOther && store.HoldsUnsealedForDiagnostics;
+                ok &= Check(sb, "audit-host: unseal race: WITNESS each read raced its commit and answered the token it read, and a later read caches again (" +
+                    (racedRemove == null ? "no remove" : racedRemove.Outcome.ToString()) + ", " + (racedSave == null ? "no save" : racedSave.Outcome.ToString()) + ")",
+                    racedRemove != null && racedRemove.Outcome == HostCredentialOutcome.Removed && racedRemoveRead.Value == SyntheticToken &&
+                    racedSave != null && racedSave.Outcome == HostCredentialOutcome.Saved && racedSaveRead.Value == SyntheticToken && afterRaceReads);
+                ok &= Check(sb, "audit-host: unseal race: a read that loses the race to a Remove or a save does not cache the token the commit let go of (" +
+                    (racedRemoveLetGo ? "nothing held" : "the removed token held") + ", " + (racedSaveLetGo ? "nothing held" : "the replaced token held") + ")",
+                    racedRemoveLetGo && racedSaveLetGo);
+
                 // THE MODULES ROW'S READ OF THE GRANT (the 2026-10-29 audit, A-host-06, BACKLOG N-audit-20261029-13): the
                 // shipped seam and the row's words, pixel-free. A grants record held or damaged is no answer (null), as the
                 // store's gate reads it, and the row then says it cannot be read and offers no button; it said "Not allowed"
