@@ -214,6 +214,42 @@ def read_utf8_marker(path):
         return handle.read()
 
 
+def unwrapped_lines(out):
+    """The output's lines, with Windows PowerShell's word wrap of a thrown message undone (N-bd-w8-studio-1-02).
+
+    powershell.exe renders an uncaught throw at the width of the console it inherited, and a message longer than that
+    is WORD-WRAPPED: the line breaks after a space, keeps that space at its end, and the rest goes on at column 0 of the
+    next line. Measured 2026-11-08 with synthetic labels in hidden consoles of 40, 53, 60, 77, 96 and 100 columns: every
+    break fell after a space, never at a hyphen, a slash or a backslash, and the lines joined back into the exact
+    message. The width is whatever console the harness happens to inherit (100 from one agent shell here; wave 8 saw 95
+    under its detached launch), so matching line by line read WRONG whatever the mutation did for a case whose expected text was
+    longer than one line, or straddled a break: a 96-character case in a 90-column console printed its own label across
+    two lines and scored "WRONG -- failed on something else".
+
+    So a line that ends in whitespace is joined to the one after it. Never a PASS line, on either side: Write-Host does
+    not wrap them, and a PASS line must not lend its text to a failure. Rejected: inferring the width from the longest
+    line, since a word wrap's lines are not of one length. Known limit: one word longer than a whole console line is cut
+    without a space and stays cut; a label's prose holds none.
+
+    SHARED (N-bd-w9-tests-harness-1-03). It lived in mutate-hardening-guards.py alone, and mutate-diagnostics.py grades
+    cases on the same script's output, so its gate cases were still matched one physical line at a time. A short
+    fragment in the middle of a label straddles a break too, and the record lines below the message (CategoryInfo,
+    FullyQualifiedErrorId) are no fallback: they break INSIDE a word at some widths and go on with an indent. Measured
+    2026-11-08, the diagnostics fragment "keeps no second copy of the rules", its label thrown in 19 hidden consoles
+    between 40 and 84 columns wide, was on no single line at 40, 42, 46, 57, 58, 60 and 84 columns, and on a joined
+    line at every width.
+    Both harnesses import this one copy, so a fix to the reading reaches both.
+    """
+    lines = []
+    for line in out.splitlines():
+        if (lines and lines[-1][-1:].isspace()
+                and not lines[-1].strip().startswith("PASS:") and not line.strip().startswith("PASS:")):
+            lines[-1] += line
+        else:
+            lines.append(line)
+    return lines
+
+
 def utf8_stdio():
     """Make this process's stdout and stderr write UTF-8, whatever they are attached to (N-bd-w7-aibrain-1-03).
 

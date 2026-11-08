@@ -34,7 +34,7 @@ import os
 import re
 import shutil
 import subprocess
-from mutation_process import run_bytes, run_text, read_utf8_marker, utf8_stdio
+from mutation_process import run_bytes, run_text, read_utf8_marker, unwrapped_lines, utf8_stdio
 from mutation_journal import JournalError, RestoreJournal, journal_path, repaired_loaded_module
 import sys
 import uuid
@@ -319,8 +319,9 @@ CASES = [
     # DIPs (a window 25% too tall for it); and the constructor goes back to the primary's work area, which
     # the re-pointed F372 source invariant refuses. The gate fragment sits in the label's first 80
     # characters on purpose: powershell.exe wraps a thrown message at the console width when its output is
-    # captured, and the ladder reads only the line that ends in "failed." (the first draft of this case
-    # read WRONG on exactly that wrap).
+    # captured, and the ladder then read only the line that ends in "failed." (the first draft of this case
+    # read WRONG on exactly that wrap). Gate output is read as thrown since N-bd-w9-tests-harness-1-03
+    # (unwrapped_lines), so the position no longer decides the verdict.
     ("burn/host-shell: the work area stops being converted to the monitor's DIPs", OPTIONSWINDOW,
      "            double scale = dpi > 0 ? 96.0 / dpi : 1.0;\n",
      "            double scale = 1.0;\n",
@@ -1390,12 +1391,15 @@ def run_gate():
 # four of them mid-file (Readme project count, self-test counts, MAPPING.md skins, converted pets): a
 # baseline red on any of those would have been waved through while it masked every assertion after it.
 # Matched on any line that is not a PASS, the sibling's shape (mutate-hardening-guards.py), because
-# Windows PowerShell word-wraps a thrown message at the console width it inherited (RA-355).
+# Windows PowerShell word-wraps a thrown message at the console width it inherited (RA-355). Any line of the
+# message as it was thrown, not as the console wrapped it (unwrapped_lines, N-bd-w9-tests-harness-1-03): the label's
+# own words can straddle that wrap, and a degraded baseline read line by line was refused as not green.
 DOC_COUNT_DRIFT = "source-invariant count matches this file"
 
 
 def saw_doc_count_drift(text):
-    return any(DOC_COUNT_DRIFT in ln and not ln.strip().startswith("PASS:") for ln in text.splitlines())
+    return any(DOC_COUNT_DRIFT in ln and not ln.strip().startswith("PASS:")
+               for ln in unwrapped_lines(text))
 
 
 def keep_output(index, name, text):
@@ -1604,7 +1608,9 @@ def score(args):
                   "single PASS: line, so nothing ran: %s" % text.strip()[:300])
             return 2
         if not ok:
-            failing = [ln.strip() for ln in text.splitlines()
+            # The gate's lines as thrown (unwrapped_lines), so a wrapped failure is listed whole and not as its tail.
+            # Not the pane marker's: nothing wraps a file, and a FAIL line ending in a space must stay its own.
+            failing = [ln.strip() for ln in (unwrapped_lines(text) if checker == "gate" else text.splitlines())
                        if ln[:1] and not ln[:1].isspace() and not ln.startswith("+")
                        and not ln.startswith("RESULT=")
                        and ("FAIL" in ln or "EXC:" in ln or "MISSING" in ln
@@ -1624,7 +1630,7 @@ def score(args):
             if checker == "gate" and saw_doc_count_drift(text):
                 print("\nBASELINE: tolerating a documented-count mismatch and continuing "
                       "(the doc catches up at merge):")
-                for ln in [ln for ln in text.splitlines() if DOC_COUNT_DRIFT in ln][:2]:
+                for ln in [ln for ln in unwrapped_lines(text) if DOC_COUNT_DRIFT in ln][:2]:
                     print("   " + ln.strip())
             else:
                 print("\nBASELINE NOT GREEN for '%s' -- refusing to run. Fix this first:" % checker)
@@ -1699,14 +1705,21 @@ def score(args):
                 # WRONG for four of this file's five gate labels whenever the width was narrower than the
                 # label. There is no "+N other failures" for a gate case: the script aborts at its first
                 # failing assertion, so there cannot be a second one.
-                hits = [ln.strip() for ln in text.splitlines()
-                        if expect in ln and not ln.strip().startswith("PASS:")]
+                #
+                # A line as the message was thrown, not as the console wrapped it (unwrapped_lines, shared with the
+                # sibling since N-bd-w9-tests-harness-1-03). Matching any one physical line still read WRONG for a
+                # fragment that straddles the wrap, however short: reproduced 2026-11-08 in a hidden 84-column
+                # console, where "Write stops filtering at all" printed its label broken before "rules", the
+                # FullyQualifiedErrorId record broken inside "keeps", and scored WRONG with "got: rules failed.".
+                lines = unwrapped_lines(text)
+                hits = [ln.strip() for ln in lines if expect in ln and not ln.strip().startswith("PASS:")]
                 others = []
             else:
-                hits = [ln.strip() for ln in text.splitlines() if is_failure(ln) and expect in ln]
-                others = [ln.strip() for ln in text.splitlines() if is_failure(ln) and expect not in ln]
+                lines = text.splitlines()
+                hits = [ln.strip() for ln in lines if is_failure(ln) and expect in ln]
+                others = [ln.strip() for ln in lines if is_failure(ln) and expect not in ln]
             if not hits:
-                got = others if others else [ln.strip() for ln in text.splitlines() if is_failure(ln)]
+                got = others if others else [ln.strip() for ln in lines if is_failure(ln)]
                 record("WRONG", name,
                        "failed, but not on '%s'; got: %s" % (expect, "; ".join(got[:3])))
                 keep_output(index, name, text)
