@@ -4939,6 +4939,23 @@ CASES = (
         b"out chosenOnly, absenceIsNormal: true);\n",
         "w8-host-1: the window-underside border roll declines a pick that would not hang before it sounds",
     ),
+    # ---- burndown/w9-tests-scripts-1 ----
+    # "bd-w9-tests-scripts-1:" for one --only. The offline checks stop running one of the MSI API logging probe's two
+    # in-memory suites (N-audit-1106-367, N-audit-1106-368).
+    (
+        "bd-w9-tests-scripts-1: the offline checks drop the MSI API logging facade suite (N-audit-1106-367)",
+        os.path.join(REPO, "tests", "Invoke-OfflineScriptChecks.ps1"),
+        b"    @('Test-IsolatedMsiApiLogging.ps1', ''),\n",
+        b"",
+        "w9-tests-scripts-1: the offline checks run both MSI API logging suites in PowerShell 7",
+    ),
+    (
+        "bd-w9-tests-scripts-1: the offline checks drop the MSI API logging orchestration suite (N-audit-1106-368)",
+        os.path.join(REPO, "tests", "Invoke-OfflineScriptChecks.ps1"),
+        b"    @('Test-IsolatedMsiApiLogging.ps1', ''),\n    @('Test-IsolatedMsiApiLoggingCase.ps1', ''))\n",
+        b"    @('Test-IsolatedMsiApiLogging.ps1', ''))\n",
+        "w9-tests-scripts-1: the offline checks run both MSI API logging suites in PowerShell 7",
+    ),
 )
 
 

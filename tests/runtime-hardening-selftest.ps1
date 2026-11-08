@@ -6503,6 +6503,19 @@ Assert-True (
     $w7h1FormCode -cmatch 'SetNextBorderAnimation\(CurrentAnimation\.ID, TNextAnimation\.TOnly\.WINDOW \| TNextAnimation\.TOnly\.WINDOW_BOTTOM, out chosenOnly, absenceIsNormal: true, plays: HangsFromUnderside\);'
 ) 'w8-host-1: the window-underside border roll declines a pick that would not hang before it sounds'
 
+# ---- burndown/w9-tests-scripts-1 ----
+# THE MSI API LOGGING PROBE'S TWO SUITES RUN IN THE OFFLINE CHECKS (N-audit-1106-367, N-audit-1106-368). Nothing called
+# tests\Test-IsolatedMsiApiLogging.ps1 or tests\Test-IsolatedMsiApiLoggingCase.ps1, so their checks guarded nothing
+# unless run by hand. Both are #requires 7, so they belong in tests\Invoke-OfflineScriptChecks.ps1's PowerShell 7 list,
+# whose loop reads each child's exit code and adds a failure before the throw (pinned by w3-tests-harness-1 above).
+# Asserted inside that list's literal, comment-stripped, so an entry left in a comment or in another list does not count.
+# WITNESS: the slice holds the TEMP-budget entry, so a slice that found nothing cannot pass.
+$w9tsOffline = Remove-PsLineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'tests\Invoke-OfflineScriptChecks.ps1') -Raw)
+$w9tsPwshList = [regex]::Match($w9tsOffline, '(?s)\$mutationPwsh = @\((.*?\))\)\r?\n').Groups[1].Value
+Assert-True ($w9tsPwshList.Length -gt 0 -and $w9tsPwshList.Contains("@('Test-MutationTempBudget.ps1', '')")) 'w9-tests-scripts-1: WITNESS the offline checks'' PowerShell 7 list was sliced'
+Assert-True ($w9tsPwshList.Contains("@('Test-IsolatedMsiApiLogging.ps1', '')") -and $w9tsPwshList.Contains("@('Test-IsolatedMsiApiLoggingCase.ps1', '')")) (
+    'w9-tests-scripts-1: the offline checks run both MSI API logging suites in PowerShell 7, judged by exit code')
+
 # LAST, and deliberately:this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever
