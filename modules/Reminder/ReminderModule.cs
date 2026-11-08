@@ -83,7 +83,9 @@ namespace DesktopAICompanion.ReminderModule
                                 //        double refuses a seventh ask in a minute, as the host does, and the module
                                 //        is held to it (N-audit-1106-296; no behaviour change). "Skip meetings I've
                                 //        declined" says "(Outlook and local file)": a local file's "status" was
-                                //        always read and skipped too (N-bd-w2-reminder-1-01).
+                                //        always read and skipped too (N-bd-w2-reminder-1-01). Burn-down wave 8 (lane
+                                //        w8-reminder-1), comments only: the Permissions note no longer lists the flags
+                                //        the host enforces, a list that had gone stale (N-bd-w4-docs-1-01).
                                 // 1.3.0: Calendar 5 becomes the Zoom slot (the owner, 2026-11-03): the meetings the user
                                 //        HOSTS in Zoom, read from Zoom's REST API after a browser sign-in to a Zoom
                                 //        app the user creates (OAuth with PKCE, a loopback redirect, no secret; the
@@ -216,12 +218,14 @@ namespace DesktopAICompanion.ReminderModule
             // gate refusing the module cleanly is the honest alternative. Before it the floor was 1.1.6, for the
             // Status card's FullWidth and PinTop (1.0.8); everything older predates the 1.0.0 rebase.
             MinHostVersion = "1.6.0",
-            // Animation is declared for the reaction added in 1.7.0. The host does not actually gate
-            // PlayAnimationAll on it (only Audio, Voice, Network and Companions are enforced in CompanionHost), but the pre-install
-            // consent list is built from THIS field, so leaving it off would under-disclose what the module
-            // does to the user's pets. Declare what you use. MicrophoneUsage (1.1.0) for the same reason: the join
-            // question reads Windows' record of whether Teams or Zoom holds the microphone, to withdraw itself once
-            // the user has joined. Disclosure only (PluginApi.cs); no audio is touched.
+            // Animation is declared for the reaction added in 1.7.0. The host cannot gate PlayAnimationAll on it (the
+            // call carries no caller identity, so the flag is declarative: PluginApi.cs, ModulePermissions.Animation),
+            // but the pre-install consent list is built from THIS field, so leaving it off would under-disclose what
+            // the module does to the user's pets. Declare what you use. MicrophoneUsage (1.1.0) for the same reason: the
+            // join question reads Windows' record of whether Teams or Zoom holds the microphone, to withdraw itself once
+            // the user has joined. Disclosure only (PluginApi.cs); no audio is touched. Which flags the host DOES enforce
+            // is deliberately not listed here: the list this note once carried went stale when host 1.8.0 began
+            // enforcing ClaudeCodeSignIn.
             Permissions = ModulePermissions.Speech | ModulePermissions.Storage | ModulePermissions.Network | ModulePermissions.Companions
                 | ModulePermissions.Audio | ModulePermissions.Animation | ModulePermissions.MicrophoneUsage,
         };
