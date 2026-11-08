@@ -33,10 +33,14 @@ namespace DesktopAICompanion.BlinkingLed
         {
             Id = "blinkingled",
             Name = "Blinking LED",
-            Version = "1.0.9",   // 1.0.9: no behaviour change. The engine's comment and the Readme no longer say no
+            Version = "1.0.9",   // 1.0.9: the engine's comment and the Readme no longer say no
                                  //        application acts on Scroll Lock: Excel, for one, scrolls the sheet with
                                  //        the arrow keys while the key is on, which is the lit phase of every
-                                 //        blink (N-audit-1106-130).
+                                 //        blink (N-audit-1106-130). With
+                                 //        DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT=1 the engine now sends no
+                                 //        real Scroll Lock press in ANY process, a normal start included, not
+                                 //        only under a self-test flag, and says so in one log line per process
+                                 //        (N-bd-w7-host-1-01). Without the variable nothing changes.
                                  // 1.0.8: an Apply from the options pane writes only the boxes you changed there, so a
                                  //        tray choice made while the window is open is no longer put back by it
                                  //        (N-blinkingled-resume-03).
@@ -1963,37 +1967,24 @@ namespace DesktopAICompanion.BlinkingLed
         /// Lock presses (F113), so the real SendInput path stays tested. tests\Test-ModuleSelfTests.ps1 requires exactly
         /// the two SKIPPED lines, the counter's PASS line and the process record, and the gate's summary repeats what it
         /// measured. Outside the self-test it is read in one place, the engine's real sender
-        /// (ScrollLockBlinker.RealInputWithheld), and acted on only in a process whose command line carries a self-test flag
-        /// (<see cref="WithholdsRealInput"/>), so a normal start never reads it as a reason not to blink.
+        /// (ScrollLockBlinker.RealInputWithheld), and acted on in ANY process that carries it (<see cref="WithholdsRealInput"/>),
+        /// a normal start included, so a process asked for no real input sends none whatever it was started as.
         /// </summary>
         internal const string NoRealInputVariable = "DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT";
 
         /// <summary>The engine's decision (ScrollLockBlinker.RealInputWithheld): withhold every real press when
-        /// <paramref name="commandLine"/> runs a self-test (<see cref="RunsASelfTest"/>) and <see cref="NoRealInputVariable"/>
-        /// reads 1. Both halves are injected, so <see cref="SelfCheckRealInputOptOut"/> drives every answer on fakes and no
-        /// check of the decision, and no mutation of it, needs a real press.</summary>
-        internal static bool WithholdsRealInput(Func<string, string> readVariable, string[] commandLine)
+        /// <see cref="NoRealInputVariable"/> reads 1, in any process. The reader is injected, so
+        /// <see cref="SelfCheckRealInputOptOut"/> drives every answer on fakes and no check of the decision, and no mutation
+        /// of it, needs a real press.
+        /// Until 1.0.9 it also asked the command line for a self-test flag, so that the variable could never stop a normal
+        /// start blinking. Refused by what that cost (N-bd-w7-host-1-01): in burn-down wave 7 a lane build whose flag list
+        /// arrived as one quoted argument matched no flag and started as the full app with the variable set, and this module
+        /// blinked the real Scroll Lock in the owner's session. The variable is set only by a run that asked for no real input,
+        /// and that request holds for whatever the process turns out to be. The owner's own check of the light (SMOKETEST H10)
+        /// is a normal start without the variable, so it still blinks.</summary>
+        internal static bool WithholdsRealInput(Func<string, string> readVariable)
         {
-            return RealInputDisabled(readVariable) && RunsASelfTest(commandLine);
-        }
-
-        /// <summary>Whether a process's command line (Environment.GetCommandLineArgs) runs a self-test, read the way
-        /// Program.cs dispatches one: "--module-selftest=&lt;id&gt;" in any case, the convention runner's prefix
-        /// (ModuleConventionSelfTest.FindRequestedId compares it ignoring case), or a flag "--&lt;name&gt;-selftest" spelled
-        /// exactly, which is the shape of every other self-test flag Program.cs matches (--module-host-selftest, which also
-        /// loads this module, among them). A normal start has neither: its arguments are the exe and, after a module
-        /// install, "--reopen-options=&lt;pane&gt;". A misspelt flag starts the full app, so it is rightly not a self-test
-        /// here either.</summary>
-        internal static bool RunsASelfTest(string[] commandLine)
-        {
-            if (commandLine == null) return false;
-            foreach (string arg in commandLine)
-            {
-                if (arg == null || !arg.StartsWith("--", StringComparison.Ordinal)) continue;
-                if (arg.StartsWith("--module-selftest=", StringComparison.OrdinalIgnoreCase)) return true;   // the convention runner
-                if (arg.EndsWith("-selftest", StringComparison.Ordinal)) return true;   // every other self-test flag
-            }
-            return false;
+            return RealInputDisabled(readVariable);
         }
 
         /// <summary>Whether the command line is this module's own convention self-test, "--module-selftest=blinkingled" read
@@ -2041,19 +2032,15 @@ namespace DesktopAICompanion.BlinkingLed
             sound &= probe.Check("WITNESS the opt-out set to anything but 1 (0, empty, true) still presses for real",
                 !RealInputDisabled(answering("0")) && !RealInputDisabled(answering("")) && !RealInputDisabled(answering("true")));
 
-            // The engine's half: its one SendInput call withholds when the variable reads 1 AND the process runs a self-test,
-            // judged from the command line the way Program.cs dispatches one, so the variable cannot reach a normal start.
-            string[] selfTestRun = { "DesktopAICompanion.exe", "--module-selftest=blinkingled" };
-            sound &= probe.Check("the engine withholds real input in a self-test process run with DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT=1: --module-selftest=<id> in any case, and every --<name>-selftest flag",
-                WithholdsRealInput(answering("1"), selfTestRun) &&
-                WithholdsRealInput(answering("1"), new[] { "DesktopAICompanion.exe", "--MODULE-SELFTEST=blinkingled" }) &&
-                WithholdsRealInput(answering("1"), new[] { "DesktopAICompanion.exe", "--module-host-selftest" }));
-            sound &= probe.Check("WITNESS the same variable in a normal start, with no self-test flag, withholds nothing, so it cannot stop the shipped module blinking",
-                !WithholdsRealInput(answering("1"), new[] { "DesktopAICompanion.exe" }) &&
-                !WithholdsRealInput(answering("1"), new[] { "DesktopAICompanion.exe", "--reopen-options=blinkingled" }) &&
-                !WithholdsRealInput(answering("1"), null));
-            sound &= probe.Check("WITNESS a self-test process without the variable at 1 withholds nothing, so CI still makes the real press",
-                !WithholdsRealInput(answering(null), selfTestRun) && !WithholdsRealInput(answering("0"), selfTestRun));
+            // The engine's half: its one SendInput call withholds when the variable reads 1, in ANY process, a full app started
+            // by mistake included (N-bd-w7-host-1-01). The decision reads no command line; a source invariant in
+            // tests/runtime-hardening-selftest.ps1 pins that, since this process carries a self-test flag and so cannot show a
+            // decision that asks for one again.
+            sound &= probe.Check("the engine withholds real input in any process run with DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT=1, with or without spaces around the 1, a normal start as much as a self-test",
+                WithholdsRealInput(answering("1")) && WithholdsRealInput(answering(" 1 ")));
+            sound &= probe.Check("WITNESS a process without the variable at 1 withholds nothing (unset, 0, empty, true), so CI and the shipped module still make the real press",
+                !WithholdsRealInput(answering(null)) && !WithholdsRealInput(answering("0")) &&
+                !WithholdsRealInput(answering("")) && !WithholdsRealInput(answering("true")));
             if (!sound) return "real input withheld because the opt-out's own checks failed (the FAIL lines above)";
             if (!RealInputDisabled(Environment.GetEnvironmentVariable)) return null;
 

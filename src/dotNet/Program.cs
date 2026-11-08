@@ -459,7 +459,9 @@ namespace DesktopAICompanion
             }
         }
 
-        /// <summary>Only -- switches are reserved; existing localxml=/webxml=/install= inputs stay intact.</summary>
+        /// <summary>Only -- switches are reserved; existing localxml=/webxml=/install= inputs stay intact. An argument
+        /// that is not a switch as written but CARRIES one is refused too: one that starts with "--" once its leading
+        /// quotes and whitespace are skipped, or that holds a switch after a space or a comma inside it.</summary>
         internal static string FindUnknownSwitch(string[] args)
         {
             if (args == null) return null;
@@ -474,7 +476,25 @@ namespace DesktopAICompanion
             };
             foreach (string arg in args)
             {
-                if (arg == null || !arg.StartsWith("--", StringComparison.Ordinal)) continue;
+                if (arg == null) continue;
+                // A flag list that reached this process as ONE argument (N-bd-w7-host-1-01). A PowerShell array passed
+                // through powershell.exe -File arrives as "'--hardening-selftest','--audio-selftest'", which starts with
+                // a quote, so the first cut of this check, which looked only at arguments starting with "--", let it
+                // through and the build started as the full app: every module, a companion on the desktop, the network
+                // update checks and a real Scroll Lock blink, for ten minutes of a burn-down run. Every dispatch above
+                // matches a flag spelled exactly, so an argument like this can never select a self-test; refusing it is
+                // the only answer that does not start the app. The legacy companion inputs are exempt, as Main reads them
+                // as written and their value is a path or an address, which may hold " --" as data.
+                if (!arg.StartsWith("--", StringComparison.Ordinal))
+                {
+                    if (IsLegacyCompanionInput(arg)) continue;
+                    if (arg.TrimStart(SwitchQuoteOrSpace).StartsWith("--", StringComparison.Ordinal) ||
+                        HoldsSwitchAfterSeparator(arg)) return arg;
+                    continue;
+                }
+                // A known switch does not make the rest of its argument its value when that rest holds another switch:
+                // "--reopen-options=Modules --hardening-selftest" would start the full app as a restart.
+                if (HoldsSwitchAfterSeparator(arg)) return arg;
                 if (Array.IndexOf(known, arg) >= 0) continue;
                 if (arg.StartsWith("--module-selftest=", StringComparison.OrdinalIgnoreCase))
                 {
@@ -489,6 +509,30 @@ namespace DesktopAICompanion
                 return arg;
             }
             return null;
+        }
+
+        private static readonly char[] SwitchQuoteOrSpace = { '"', '\'', ' ', '\t', '\r', '\n' };
+
+        /// <summary>The three inputs Main reads as companion arguments, matched the way Main matches them.</summary>
+        private static bool IsLegacyCompanionInput(string arg)
+        {
+            return arg.StartsWith("localxml=", StringComparison.OrdinalIgnoreCase) ||
+                   arg.StartsWith("webxml=", StringComparison.OrdinalIgnoreCase) ||
+                   arg.StartsWith("install=", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>Whether <paramref name="arg"/> holds "--" after a whitespace or a comma, quotes between them
+        /// allowed: the joints a collapsed flag list keeps, "a --b", "'a' '--b'" and "'a','--b'".</summary>
+        private static bool HoldsSwitchAfterSeparator(string arg)
+        {
+            for (int i = 0; i < arg.Length; i++)
+            {
+                if (!char.IsWhiteSpace(arg[i]) && arg[i] != ',') continue;
+                int at = i + 1;
+                while (at < arg.Length && (arg[at] == '"' || arg[at] == '\'')) at++;
+                if (at + 1 < arg.Length && arg[at] == '-' && arg[at + 1] == '-') return true;
+            }
+            return false;
         }
 
         /// <param name="reopenPane">Optional pane title the relaunched instance should reopen Settings on

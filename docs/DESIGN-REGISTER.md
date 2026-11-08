@@ -4721,19 +4721,33 @@ real input was sent" whenever the variable was 1, which nothing measured; and a 
 variable passed the runner as a plain OK. So:
 
 **The engine withholds.** `ScrollLockBlinker.SendScrollLockKeypress`, the one place SendInput is called, asks
-`RealInputWithheld` first, and in a process whose command line runs a self-test (`--module-selftest=<id>` in any case,
-or any `--<name>-selftest`, read the way Program.cs dispatches them) with the variable at 1 it counts the press as
-withheld, answers it refused with win32=-2, logs "real input withheld: a Scroll Lock press was not sent, because this
-self-test process runs with DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT=1" when a log sink is wired, and returns before
-the real-press counter and the call. The convention runner's own instance shuts down after the self-test's last
-Shutdown has dropped the engine's static sink, so a press withheld there logs no line; the process record counts it
-either way (withheld=N, below). That covers every instance at once, the loader's included. A normal start carries no self-test flag, so
-the variable cannot stop the shipped module blinking. The first round had refused this switch because no check could
-prove it without a real call; three things prove it now without one: the decision (`WithholdsRealInput`) is checked on
-fake environments and command lines, both ways, inside the fail-closed opt-out check; the self-test asserts that THIS
-process withholds, through the engine's own cached reading; and a source invariant pins the order (the withhold check
-returns before the counter and the call) and that the engine has no second SendInput call, since removing the check
-could be seen at run time only by the press it prevents.
+`RealInputWithheld` first, and in a process with the variable at 1 it counts the press as withheld, answers it refused
+with win32=-2, logs "real input withheld: a Scroll Lock press was not sent, because this process runs with
+DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT=1; no press is sent while it does, and this line is not repeated" for the
+process's first withheld press when a log sink is wired, and returns before the real-press counter and the call. The
+convention runner's own instance shuts down after the self-test's last Shutdown has dropped the engine's static sink, so
+a press withheld there logs no line; the process record counts it either way (withheld=N, below). That covers every
+instance at once, the loader's included. The first round had refused this switch because no check could prove it
+without a real call; three things prove it now without one: the decision (`WithholdsRealInput`) is checked on fake
+environments, both ways, inside the fail-closed opt-out check; the self-test asserts that THIS process withholds,
+through the engine's own cached reading; and a source invariant pins the order (the withhold check returns before the
+counter and the call) and that the engine has no second SendInput call, since removing the check could be seen at run
+time only by the press it prevents.
+
+**In any process, not only a self-test (burn-down wave 8, N-bd-w7-host-1-01).** Until blinkingled 1.0.9 the decision
+also asked the command line for a self-test flag (`--module-selftest=<id>` in any case, or any `--<name>-selftest`), so
+that the variable could never stop a normal start blinking. That rule is withdrawn. In burn-down wave 7 a lane build
+received its flag list as ONE quoted argument, matched no flag, and ran as the full app with the variable set for ten
+minutes, and this module sent real Scroll Lock blinks in the owner's session. The variable is set only by a run that
+asked for no real input, and the request holds whatever the process turns out to be, so the engine now withholds on
+the variable alone, in any process. The withheld line is logged once per process rather than per press, since a running
+blinker reaches the sender on every tick. The owner's own check of the light (SMOKETEST H10) is a normal start without
+the variable, so it is unaffected; a normal start that does carry the variable sends no press, and its diagnostic log
+says why on that one line, beside "blink delivery refused (first attempt) win32=-2". The module self-test runs under a
+self-test flag, so it cannot see a decision that asks for one again; a source invariant pins that the decision and the
+engine read no command line. The host half of the same incident is `Program.FindUnknownSwitch`, which now refuses an
+argument that starts with "--" once its leading quotes and whitespace are skipped, or that holds a switch after a space
+or comma, so that launch exits 2 before anything starts.
 
 **A reading after every Shutdown.** In its own `--module-selftest=blinkingled` process, every Shutdown rewrites
 `dp-module-blinkingled-realinput.txt` in TEMP with the process's counts, "realKeypresses=N withheld=N started=N

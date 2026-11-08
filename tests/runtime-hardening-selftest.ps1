@@ -6478,6 +6478,30 @@ $w8pCopies = @(foreach ($w8pCaller in @(@('tests\run-gate.ps1', $w8pGate), @('bu
 Assert-True ($w8pRunner -cmatch $w8pCopyRule -and $w8pCopies.Count -eq 0) (
     'w8-packaging-ci-1: the converter build, verbs and suite floor live only in the shared runner (WITNESS: the rule matches the runner)' +
     $(if ($w8pCopies.Count) { ' -- an inline copy in: ' + ($w8pCopies -join ', ') } else { '' }))
+# ---- burndown/w8-host-1 ----
+# N-bd-w7-host-1-01: Blinking LED's engine withholds every real Scroll Lock press when
+# DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT reads 1 in ANY process, because a lane build that started as the full app
+# by mistake (its flag list collapsed into one argument) blinked the real key with the variable set: the decision then
+# also asked the command line for a self-test flag. The module self-test runs under a self-test flag, so it cannot see
+# a decision that asks for one again; this pins it on the comment-stripped sources, as the ARGUMENT of the engine's one
+# decision and the absence of any command-line read in the decision or in the engine.
+$w8h1Module = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'modules\BlinkingLed\BlinkingLedModule.cs') -Raw)
+$w8h1Decision = Get-MethodBody $w8h1Module 'internal static bool WithholdsRealInput(Func<string, string> readVariable)' $coreMemberStops
+$w8h1Withheld = Get-MethodBody $briEngine 'internal static bool RealInputWithheld' $coreMemberStops
+Assert-True ($w8h1Decision.Length -gt 0 -and $w8h1Withheld.Length -gt 0) 'w8-host-1: the engine decision WithholdsRealInput and its reader RealInputWithheld were located'
+Assert-True (
+    $w8h1Decision -cmatch 'return RealInputDisabled\(readVariable\);\s*\}\s*$' -and
+    $w8h1Decision -cnotmatch 'CommandLine|&&|\|\|' -and
+    $w8h1Withheld -cmatch 'decided = BlinkingLedModule\.WithholdsRealInput\(Environment\.GetEnvironmentVariable\) \? 1 : 2;' -and
+    $briEngine -cnotmatch 'GetCommandLineArgs|Environment\.CommandLine'
+) 'w8-host-1: the engine withholds real input on the variable alone, in any process: its decision reads no command line'
+
+# N-bd-w7-host-1-02: the window-underside border roll hands Animations the HangsFromUnderside predicate, so a wildcard or
+# unconditional pick, which would not hang, is declined before it is announced or sounded. --hardening-selftest drives the
+# declining itself; this pins the WIRING it cannot reach, as the ARGUMENT of the one underside call.
+Assert-True (
+    $w7h1FormCode -cmatch 'SetNextBorderAnimation\(CurrentAnimation\.ID, TNextAnimation\.TOnly\.WINDOW \| TNextAnimation\.TOnly\.WINDOW_BOTTOM, out chosenOnly, absenceIsNormal: true, plays: HangsFromUnderside\);'
+) 'w8-host-1: the window-underside border roll declines a pick that would not hang before it sounds'
 
 # LAST, and deliberately:this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
