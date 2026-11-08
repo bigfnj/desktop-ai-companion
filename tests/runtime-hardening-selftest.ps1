@@ -6706,7 +6706,6 @@ Assert-True ($ph2Factories.Count -eq 5 -and $ph2Unlisted.Count -eq 0 -and $ph2Go
     $(if ($ph2Unlisted.Count) { ' -- unlisted: ' + ($ph2Unlisted -join ' | ') } else { '' }) +
     $(if ($ph2Gone.Count) { ' -- listed but gone: ' + ($ph2Gone -join ' | ') } else { '' }))
 
-# LAST, and deliberately:this is the one assertion a BRANCH is expected to fail. Adding a source
 # ---- burndown/w9-tests-scripts-2 ----
 # NO C# SOURCE STARTS cmd.exe BY ITS BARE NAME (N-bd-w4-converter-1-03). With UseShellExecute=false a bare name reaches
 # CreateProcess, which searches the current directory ahead of System32, the order N-audit-1106-153 closed for ffmpeg.
