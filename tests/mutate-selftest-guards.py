@@ -23322,6 +23322,22 @@ CASES = (
      b"            return root;",
      CORETESTS_CSPROJ, CORETESTS_DLL,
      CORETESTS, None, "The second instance's launch rotation moved the first instance's live log."),
+    # N-audit-1106-223: an alpha tick window re-pushes an unchanged frame on every tick again, or skips the push of
+    # one that moved. --shimeji-window-selftest counts the window's pushes.
+    ("bd-w7-host-1: an alpha tick window re-pushes an unchanged frame every tick (N-audit-1106-223)",
+     FORMCOMPANION_CS,
+     b"            if (!LayeredFrameAlreadyPushed(frame)) RenderCurrentFrame(frame);\n",
+     b"            RenderCurrentFrame(frame);\n",
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     "alpha re-push: an alpha frame already on the window at the same place and opacity is not pushed again"),
+    ("bd-w7-host-1: an alpha tick window keeps its old place when only the place changed (N-audit-1106-223)",
+     FORMCOMPANION_CS,
+     b"                   _pushedLeft == Left && _pushedTop == Top && _pushedSize == Size && _pushedOpacity == petOpacity;\n",
+     b"                   _pushedTop == Top && _pushedSize == Size && _pushedOpacity == petOpacity;\n",
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     "alpha re-push: WITNESS a new frame and a new place are each pushed once"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
