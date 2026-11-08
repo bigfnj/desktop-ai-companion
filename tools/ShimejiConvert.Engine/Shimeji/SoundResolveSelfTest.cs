@@ -611,20 +611,36 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             else
             {
                 XmlData.ChildNode kept = parsedChild.Childs.Child[parsedChild.Childs.Child.Length - 1];
-                if (!ShimejiEngine.RoundTrips(childInput.ToString(), out error) || !kept.NextEdge.ProbabilitySpecified
-                    || kept.NextEdge.Probability != 37 || kept.Next != target)
+                if (!ShimejiEngine.RoundTrips(childInput.ToString(), out error)
+                    || kept.NextEdge.Probability != "37" || kept.Next != target)
                     failures.Add("ROUNDTRIP_CHILD_NEXT: the public document API lost child/next probability: " + error);
                 // WITNESS: the comparison sees that attribute, so the pass above is the DTO keeping it and not
                 // the comparison skipping it. A serializer that drops it is refused at its path.
                 Func<XmlData.RootNode, string> dropChildProbability = delegate(XmlData.RootNode input)
                 {
                     XmlData.RootNode copy = XmlData.NodeCopy.Deep(input);
-                    foreach (XmlData.ChildNode c in copy.Childs.Child) c.NextEdge.ProbabilitySpecified = false;
+                    foreach (XmlData.ChildNode c in copy.Childs.Child) c.NextEdge.Probability = null;
                     return ShimejiEngine.Serialize(copy);
                 };
                 if (ShimejiEngine.RoundTripsCore(parsedChild, childInput.ToString(), dropChildProbability, out error)
                     || error == null || error.IndexOf("/childs[1]/child[1]/next[1]/@probability", StringComparison.Ordinal) < 0)
                     failures.Add("ROUNDTRIP_CHILD_NEXT_DETECTED: a serializer dropping child/next probability was not refused at its path");
+            }
+            // Just past Int32 on both sides: the schema's xsd:integer has no bound, so these are as valid as 37, and
+            // they loaded before N-cxr-conv-01 kept the attribute. Held in an int, the DTO refused the whole document
+            // with a bare line and column (N-cxr-w34-01); the text it keeps now must load and come back verbatim.
+            foreach (string beyond in new[] { "2147483648", "-2147483649" })
+            {
+                var edgeInput = XElement.Parse(original);
+                edgeInput.Element(childNs + "childs").Add(new XElement(childNs + "child",
+                    new XAttribute("animationid", target), new XElement(childNs + "x", "0"),
+                    new XElement(childNs + "y", "0"), new XElement(childNs + "next", new XAttribute("probability", beyond), target)));
+                XmlData.RootNode parsedEdge;
+                if (!ShimejiEngine.TryValidate(edgeInput.ToString(), out parsedEdge, out error))
+                    failures.Add("ROUNDTRIP_CHILD_NEXT_BOUNDARY: a schema-valid child/next probability was refused: " + beyond + ": " + error);
+                else if (!ShimejiEngine.RoundTrips(edgeInput.ToString(), out error)
+                    || parsedEdge.Childs.Child[parsedEdge.Childs.Child.Length - 1].NextEdge.Probability != beyond)
+                    failures.Add("ROUNDTRIP_CHILD_NEXT_BOUNDARY: child/next probability did not round-trip verbatim: " + beyond + ": " + error);
             }
             // The string overload compares with the ORIGINAL text, so information a parse loses cannot hide
             // behind a DTO that never held it. The DTO keeps every schema-valid field now, so the loss is

@@ -317,13 +317,18 @@ namespace XmlData
     }
 
     /// <summary>
-    ///  A child's next animation (<see cref="ChildNode.NextEdge"/>). Probability has a Specified twin so a classic
-    ///  child that never wrote one serialises exactly as before, with no probability="0" added.
+    ///  A child's next animation (<see cref="ChildNode.NextEdge"/>). Probability is the attribute's TEXT, as the
+    ///  author wrote it, and null when the element has none, so a classic child that never wrote one serialises
+    ///  exactly as before, with no probability="0" added. Text and not a number because the schema types it
+    ///  xsd:integer, which has no bound, and nothing reads it: held in an int (with a Specified twin), a
+    ///  schema-valid probability="2147483648" or "-2147483649" threw on parse, and the whole document that loaded
+    ///  before N-cxr-conv-01 was refused with a bare line and column (N-cxr-w34-01). A long or a decimal only
+    ///  moves that edge; text is the one type that keeps every value the schema accepts. The id stays an int,
+    ///  as it always was and as every reader of <see cref="ChildNode.Next"/> expects.
     /// </summary>
     public class ChildNextNode
     {
-        [XmlAttribute("probability")] public int Probability;
-        [XmlIgnore] public bool ProbabilitySpecified;
+        [XmlAttribute("probability")] public string Probability;
         [XmlText] public int Value;
     }
 
