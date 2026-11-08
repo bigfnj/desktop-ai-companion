@@ -24506,6 +24506,38 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--module-host-selftest", "dp-module-host-selftest.txt",
      "WITNESS modules pane: the row's tooltip carries the enforced sentence"),
+    # ---- burndown/w10-shimeji-host-1 ----
+    # N-bd-w6-coordinator-01: a parity run hashes its pack before it opens the trace, so a pack its preflight refuses
+    # (pack-invalid) ends with exit 2, its line and no trace file. The first case puts the old order back (the trace
+    # opened, then the pack hashed outside any refusal), the second drops the not-a-folder refusal, whose
+    # FileNotFoundException no refusal catches. Each must fail the --shimeji-window-selftest check that pins it.
+    ("bd-w10-shimeji-host-1: the pack is hashed after the trace is opened, outside any refusal (N-bd-w6-coordinator-01)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                string packSha256;\n'
+     b'                try\n'
+     b'                {\n'
+     b'                    packSha256 = PackSha256(packDir);\n'
+     b'                }\n'
+     b'                catch (InvalidDataException e)\n'
+     b'                {\n'
+     b'                    log.WriteLine("refused " + packDir + ": " + e.Message);\n'
+     b'                    return 2;\n'
+     b'                }\n'
+     b'                using (var trace = new StreamWriter(tracePath, false, new UTF8Encoding(false)))\n'
+     b'                {\n',
+     b'                using (var trace = new StreamWriter(tracePath, false, new UTF8Encoding(false)))\n'
+     b'                {\n'
+     b'                    string packSha256 = PackSha256(packDir);\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity run: a pack holding a link is refused before the trace is opened, with exit 2 and no trace file'),
+    ("bd-w10-shimeji-host-1: a pack that is not a folder escapes the command as an exception (N-bd-w6-coordinator-01)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'            if (!Directory.Exists(packDir)) throw new InvalidDataException("pack-invalid: the pack " + packDir + " is not a folder");\n',
+     b'',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity run: a pack that is not a folder is refused before the trace is opened, with exit 2 and no trace file'),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

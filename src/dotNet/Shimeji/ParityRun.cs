@@ -1188,15 +1188,33 @@ namespace DesktopAICompanion.Shimeji
                 // trace behind, not even an empty one a later step could take for a run.
                 List<KeyValuePair<TickType, ParityMap>> pets = LoadPets(petsDir, log);
                 if (pets == null) return 2;
+                // The pack is hashed before the trace file is opened too, and for the same reason (N-bd-w6-coordinator-01).
+                // Its preflight refuses a link or a pack that is not a folder (pack-invalid, CONTRACT section 3), and that
+                // refusal comes before any run, as it does in the oracle and the comparer: there is no header to write (the
+                // header IS the hash) and no run to abort, so it is exit 2 with its line and no trace. Hashed inside the
+                // header write, after the trace was opened and before the run's try, it left an empty trace and escaped the
+                // command as an exception. A footer-only trace was the refused alternative: with no header line the comparer
+                // reads it as missing-field, a file a later step could take for a run.
+                string packDir = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(scenarioPath)), doc.RootElement.GetProperty("pack").GetString()));
+                string packSha256;
+                try
+                {
+                    packSha256 = PackSha256(packDir);
+                }
+                catch (InvalidDataException e)
+                {
+                    log.WriteLine("refused " + packDir + ": " + e.Message);
+                    return 2;
+                }
                 using (var trace = new StreamWriter(tracePath, false, new UTF8Encoding(false)))
                 {
                     trace.NewLine = "\n";
-                    return Run(doc.RootElement, scenarioPath, scenarioBytes, pets, trace, build, log, traceOff);
+                    return Run(doc.RootElement, scenarioBytes, packSha256, pets, trace, build, log, traceOff);
                 }
             }
         }
 
-        private static int Run(JsonElement s, string scenarioPath, byte[] scenarioBytes, List<KeyValuePair<TickType, ParityMap>> pets,
+        private static int Run(JsonElement s, byte[] scenarioBytes, string packSha256, List<KeyValuePair<TickType, ParityMap>> pets,
             TextWriter trace, Dictionary<string, string> build, TextWriter log, bool traceOff)
         {
             {
@@ -1212,8 +1230,7 @@ namespace DesktopAICompanion.Shimeji
                 var random = new ParityRandom(s.GetProperty("rng"));
                 var settings = new ParitySettings(s);
                 var writer = new ParityTraceWriter(trace, maps, traceOff);
-                string packDir = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(scenarioPath)), s.GetProperty("pack").GetString()));
-                writer.Header(s.GetProperty("id").GetString(), Sha256(scenarioBytes), PackSha256(packDir), build,
+                writer.Header(s.GetProperty("id").GetString(), Sha256(scenarioBytes), packSha256, build,
                     // Re-serialised compactly: the scenario's own text may be indented, and a trace is one object per line.
                     JsonSerializer.Serialize(s.GetProperty("rng")), s.GetProperty("dpiScale").GetDouble());
 
@@ -1311,9 +1328,12 @@ namespace DesktopAICompanion.Shimeji
 
         /// <summary>CONTRACT section 3: '&lt;sha256&gt;  &lt;relative path&gt;\n' per file, sorted by the paths' UTF-8 bytes.
         /// The pack is walked without following links, and a link anywhere in it (the directory included) is refused
-        /// before any file is read: only a link can lead a pack path outside the pack.</summary>
+        /// before any file is read: only a link can lead a pack path outside the pack. A pack that is not a folder at all
+        /// is pack-invalid too, as the comparer's preflight has it ("not a plain directory"): unchecked, the attribute read
+        /// below threw FileNotFoundException, which no refusal catches.</summary>
         public static string PackSha256(string packDir)
         {
+            if (!Directory.Exists(packDir)) throw new InvalidDataException("pack-invalid: the pack " + packDir + " is not a folder");
             if (IsLink(packDir)) throw new InvalidDataException("pack-invalid: the pack " + packDir + " is a link");
             var files = new List<string>();
             var dirs = new Stack<string>();
