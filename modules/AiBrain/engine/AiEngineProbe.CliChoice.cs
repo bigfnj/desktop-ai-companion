@@ -47,6 +47,8 @@ namespace DesktopAICompanion.AiBrainModule
             ok &= GuardedCheck(sb, "CheckBurndownW4Lane", CheckBurndownW4Lane);
             // Burn-down lane w5-aibrain-1, the audit's fifth wave (AiEngineProbe.BurndownW5.cs).
             ok &= GuardedCheck(sb, "CheckBurndownW5Lane", CheckBurndownW5Lane);
+            // Burn-down lane w7-aibrain-1, the audit's seventh wave (AiEngineProbe.BurndownW7.cs).
+            ok &= GuardedCheck(sb, "CheckBurndownW7Lane", CheckBurndownW7Lane);
             return ok;
         }
 

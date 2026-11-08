@@ -22,7 +22,7 @@ namespace DesktopAICompanion.Ai
     /// (<see cref="WarmUpAsync(string, bool, CancellationToken)"/>), because with one cloud id in both slots the
     /// id says nothing (RA-087, R-021).
     /// </summary>
-    internal sealed class FallbackBackend : ICompanionBrainBackend, IModelLister
+    internal sealed class FallbackBackend : ICompanionBrainBackend, IModelLister, IAvailabilityProbeStatus
     {
         private readonly ICompanionBrainBackend _primary;
         private readonly ICompanionBrainBackend _local;
@@ -181,8 +181,35 @@ namespace DesktopAICompanion.Ai
             Task<bool> primary = _primary.IsAvailableAsync(ct);
             Task<bool> local = _local.IsAvailableAsync(ct);
             RememberPrimaryProbe(primary);
-            return await FirstUpAsync(primary, local).ConfigureAwait(false);
+            bool up = await FirstUpAsync(primary, local).ConfigureAwait(false);
+            _answeredDown = !up;
+            return up;
         }
+
+        /// <summary>
+        /// Why the composite's last probe answered "not reachable" (<see cref="IAvailabilityProbeStatus"/>): the reason its
+        /// cloud leg's own probe kept, once neither leg answered up; null after a probe either leg answered up, and before
+        /// any. The composite is "up" through whichever leg answers, so its "not reachable" means the cloud did not answer
+        /// up either, and the cloud's reason is the one a pane line can name: the persona audition's line names the cloud's
+        /// base URL, and a redirect there is the cloud's own answer, which a local model that is not running does not
+        /// change. Without it, the cloud with the default fallback and no local model running still said "Not reachable at"
+        /// the cloud's base URL for one that redirects (N-bd-w7-aibrain-1-01). No reason is kept for the local leg: Ollama's
+        /// probe is a success probe and keeps none. Rejected: answering with the cloud's reason whatever the composite
+        /// answered, which would name a redirect for a composite its local leg kept up.
+        /// </summary>
+        public Exception LastProbeFailure
+        {
+            get
+            {
+                if (!_answeredDown) return null;
+                IAvailabilityProbeStatus status = _primary as IAvailabilityProbeStatus;
+                return status == null ? null : status.LastProbeFailure;
+            }
+        }
+
+        /// <summary>Whether the composite's last probe (IsAvailableAsync, or EnsureServerAsync, which is one) answered "not
+        /// reachable": neither leg answered up. Last writer wins, as for the cloud leg's own record of its reason.</summary>
+        private volatile bool _answeredDown;
 
         private static async Task<bool> FirstUpAsync(Task<bool> first, Task<bool> second)
         {
@@ -259,7 +286,9 @@ namespace DesktopAICompanion.Ai
             Task<bool> local = _local.EnsureServerAsync(ct);
             RememberPrimaryProbe(primary);
             await Task.WhenAll(primary, local).ConfigureAwait(false);
-            return primary.Result || local.Result;
+            bool readied = primary.Result || local.Result;
+            _answeredDown = !readied;
+            return readied;
         }
 
         /// <summary>Warm both (best-effort) from an id alone: the primary with its model, the local with the model

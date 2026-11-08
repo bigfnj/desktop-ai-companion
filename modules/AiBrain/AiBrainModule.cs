@@ -206,7 +206,11 @@ namespace DesktopAICompanion.AiBrainModule
                                  //        (N-bd-w3-aibrain-1-01). Test connection says a base URL that redirects
                                  //        answered with a redirect from its host and to check the URL, where it said
                                  //        the host was not reachable, and Refresh models names a redirect the same
-                                 //        way (N-bd-w4-aibrain-1-01).
+                                 //        way (N-bd-w4-aibrain-1-01). Show me 5 examples and 5 about my screen name it
+                                 //        the same way, where they said to start the provider (N-bd-w5-aibrain-1-01),
+                                 //        with the local fallback on and no local model running too
+                                 //        (N-bd-w7-aibrain-1-01). The Status card's last ask names such a redirect
+                                 //        (http-301), where it said the engine was not reachable (N-bd-w7-aibrain-1-02).
                                  // 1.7.0: one Claude Code sign-in, shared with Remembrance (host 1.8.0's
                                  //        IHostCredentials, BACKLOG N-cli-token-02, the owner's decision of
                                  //        2026-10-29). The host keeps the token once, behind a grant the user gives on
@@ -1300,11 +1304,13 @@ namespace DesktopAICompanion.AiBrainModule
                     // Fills the model inventory, so ChooseModel can tell "configured model is missing"
                     // from "backend is down" instead of producing five identical silences (BUG-002). No warm-up:
                     // the canned samples run on the text model and the live ones load whatever they use on their
-                    // first sample; PrepareAsync's warm-up belongs to the launch routine (F063).
+                    // first sample; PrepareAsync's warm-up belongs to the launch routine (F063). A probe the host answered
+                    // with a redirect is named as Test connection names it, from the reason the probe kept: "Not reachable"
+                    // sent the user to start a provider that had answered (N-bd-w5-aibrain-1-01).
                     if (!await brain.PrepareAsync(run.Token, false).ConfigureAwait(false))
                         return auditionCli != CodingAgentKind.None
                             ? CodingAgentCliText.Describe(auditionCli, new CliAnswer { Outcome = CliOutcome.NotInstalled }, null)
-                            : "✗ Not reachable at " + normalized + " — start the provider and try again.";
+                            : ProbeRefusalLine(brain.LastProbeFailure, normalized, " — start the provider and try again.");
 
                     DispositionAudition audition =
                         await brain.SampleDispositionAsync(
@@ -1509,9 +1515,18 @@ namespace DesktopAICompanion.AiBrainModule
         internal static string ProbeRefusalLine(ICompanionBrainBackend backend, string endpoint)
         {
             IAvailabilityProbeStatus probe = backend as IAvailabilityProbeStatus;
-            AiBackendHttpException answered = probe == null ? null : probe.LastProbeFailure as AiBackendHttpException;
+            return ProbeRefusalLine(probe == null ? null : probe.LastProbeFailure, endpoint, "");
+        }
+
+        /// <summary>The same line from the reason itself, for a caller that holds a brain and not its backend: the persona
+        /// audition, whose not-reachable line goes on to say what to do (<paramref name="notReachableAdvice"/>, appended to
+        /// that line alone). The audition said "Not reachable at" for a base URL that redirects, as Test connection did
+        /// before N-bd-w4-aibrain-1-01, because PrepareAsync's false was all it read (N-bd-w5-aibrain-1-01).</summary>
+        internal static string ProbeRefusalLine(Exception lastProbeFailure, string endpoint, string notReachableAdvice)
+        {
+            AiBackendHttpException answered = lastProbeFailure as AiBackendHttpException;
             if (answered != null) return DescribeHttpFailure(answered, endpoint);
-            return "✗ Not reachable at " + endpoint;
+            return "✗ Not reachable at " + endpoint + notReachableAdvice;
         }
 
         /// <summary>
