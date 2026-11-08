@@ -127,7 +127,11 @@ namespace DesktopAICompanion.RemembranceModule
                                  //        The follow-up pairs a summary with the transcript it was made from once that
                                  //        summary is written: a second file of the same name whose summary failed, or
                                  //        was still running, sent the first file's summary with the second file's text
-                                 //        (N-cxr-w34-02).
+                                 //        (N-cxr-w34-02). A Join & record request that comes while a recording runs is
+                                 //        dropped when it stops, with a log line, where it started another recording on
+                                 //        the first idle tick after a stop within the minute (N-audit-1106-287). The
+                                 //        code now says that request is trusted by convention, not checked: any loaded
+                                 //        module can publish it (N-audit-1106-288).
                                  // 2.10.0: one Claude Code sign-in, shared with AI Brain (host 1.8.0's
                                  //        IHostCredentials, BACKLOG N-cli-token-02, the owner's decision of
                                  //        2026-10-29), behind the ClaudeCodeSignIn grant, so MinHostVersion rises to
@@ -2489,8 +2493,9 @@ namespace DesktopAICompanion.RemembranceModule
                 new SettingField { Id = LongestRecordingKey, Label = "Longest recording (hours)", Kind = SettingKind.Int,
                     Min = WatchTuning.LimitHoursMin, Max = WatchTuning.LimitHoursMax, Group = MeetingsCard },
                 new SettingField { Id = OfferToRecordKey, Label = "Offer to record meetings", Kind = SettingKind.Bool, Group = MeetingsCard },
-                // Join & record (2.5.0): whether Reminder's third button may start a recording. On by default, because the
-                // request only ever comes from a button the user pressed.
+                // Join & record (2.5.0): whether Reminder's third button may start a recording. On by default, because
+                // Reminder sends the request only when the user presses that button; any loaded module could publish it,
+                // which is trusted by convention (AcceptJoinRecordKey says why, N-audit-1106-288).
                 new SettingField { Id = AcceptJoinRecordKey, Label = AcceptJoinRecordLabel, Kind = SettingKind.Bool, Group = MeetingsCard },
                 new SettingField { Id = "meetingApps", Label = "Meeting apps", Kind = SettingKind.Info, Group = MeetingsCard },
 

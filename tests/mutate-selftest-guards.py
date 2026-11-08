@@ -22823,6 +22823,16 @@ CASES = (
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "leaves the follow-up on the first file's transcript (N-cxr-w34-02): Field.txt then Field.transcript.txt"),
+
+    # N-audit-1106-287: a Join & record request that came while recording waits for the first idle tick after the stop
+    # again, and starts a recording nobody had just asked for.
+    ("bd-w6-remembrance-1: a request that came while recording starts one after the stop (N-audit-1106-287)",
+     os.path.join(REPO, "modules", "Remembrance", "RemembranceModule.Watch.cs"),
+     b"            DropRecordRequestFromRecording();\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "join & record: a request that comes while a recording runs starts nothing after the stop"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
