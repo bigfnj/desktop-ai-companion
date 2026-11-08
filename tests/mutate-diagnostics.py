@@ -35,6 +35,7 @@ import re
 import shutil
 import subprocess
 from mutation_process import run_bytes, run_text, read_utf8_marker
+from mutation_journal import JournalError, RestoreJournal, journal_path, repaired_loaded_module
 import sys
 import uuid
 
@@ -48,6 +49,9 @@ EXE = os.path.join(ROOT, "build", "DesktopAICompanionPortable", "bin", "Release"
 RUN_TEMP = None
 WPF_RESULT = None
 CHILD_ENV = None
+# The on-disk restore record (tests/mutation_journal.py, N-audit-1106-345), also set in main(). None when score() is
+# driven by a unit test, so a test never touches the record of a real run going on in the same tree.
+JOURNAL = None
 
 OPTIONS = "src/Portable/Wpf/OptionsShell.cs"
 OPTIONSWINDOW = "src/Portable/Wpf/OptionsWindow.cs"
@@ -1425,11 +1429,25 @@ def check_patterns():
 
 
 def main():
-    global RUN_TEMP, WPF_RESULT, CHILD_ENV
+    global RUN_TEMP, WPF_RESULT, CHILD_ENV, JOURNAL
     # Parsed before anything is created, so a refused argument leaves nothing behind.
     args = parse_arguments(sys.argv[1:])
     if args.check_patterns:
         return check_patterns()
+    # Before score() reads any target as its baseline: put back a mutant a hard-killed run left (N-audit-1106-345). A
+    # record that cannot be acted on stops the run, and so does a repaired file this process already imported (a case
+    # mutating a harness), since the rest of the run would execute the mutant.
+    JOURNAL = RestoreJournal(journal_path(__file__))
+    try:
+        lines, repaired = JOURNAL.repair()
+    except JournalError as error:
+        print("REFUSED: " + str(error))
+        return 2
+    for line in lines:
+        print(line)
+    if repaired_loaded_module(repaired, sys.modules):
+        print("STOPPED: this run loaded that file as the mutant; run the harness again")
+        return 2
     # Short on purpose: a self-test's own temp paths sit below this, and one of them (the fortunes
     # VectorCache fallback probe) reaches MAX_PATH once TEMP itself is ~107 characters. Measured 2026-09-29.
     RUN_TEMP = os.path.join(os.environ.get("TEMP", "."), "dp-mdg-" + uuid.uuid4().hex[:12])
@@ -1547,9 +1565,17 @@ def score(args):
                        "pattern matched %d times in %s -- the mutation would change nothing"
                        % (src.count(find_b), rel))
                 continue
-            write_bytes(os.path.join(ROOT, rel), src.replace(find_b, repl_b))
+            mutant = src.replace(find_b, repl_b)
+            # ON DISK before the mutant is (N-audit-1106-345): restore() below and in the finally are the only repair,
+            # and a hard kill runs neither, so the original bytes must not live in this process alone. main() repairs
+            # from the record at the start of the next run.
+            if JOURNAL is not None:
+                JOURNAL.record(os.path.join(ROOT, rel), src, mutant, name)
+            write_bytes(os.path.join(ROOT, rel), mutant)
             ok, text = (run_gate() if checker == "gate" else run_wpf(True))
             restore()
+            if JOURNAL is not None:
+                JOURNAL.clear()
 
             if ok is None:
                 record("BROKEN", name, text.strip()[:200])
@@ -1601,6 +1627,9 @@ def score(args):
                 record("FIRED", name, hits[0][:120] + extra)
     finally:
         restore()
+        # Only once the original bytes are back; clear() removes nothing this run did not record.
+        if JOURNAL is not None:
+            JOURNAL.clear()
         # Leave build\ current with the restored source, the rule the sibling harnesses follow. A wpf case
         # compiles its mutant into build\...\DesktopAICompanion.exe and restore() alone puts the SOURCE
         # back, so every run that ended on a wpf case left a mutant exe for the next hand-run smoke or

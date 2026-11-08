@@ -29,6 +29,7 @@ if __name__ == "__main__":
             "test_mutation_diagnostics_driver",
             "test_mutation_runner_restore",
             "test_mutation_hardening_driver",
+            "test_mutation_harness_lifecycle",
         ))
         result = unittest.TextTestRunner(verbosity=2).run(suite)
     finally:

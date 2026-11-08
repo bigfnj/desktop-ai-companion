@@ -3135,6 +3135,19 @@ def failure_lines(report):
     return _verdict_lines(report, ("FAIL",))
 
 
+# The host's convention runner restates a failing module verdict on a line of its own (ModuleConventionSelfTest.cs,
+# Check(sb, "the module's own self-test passed", result)), untagged, so EVERY firing case printed "(+1 other failures)"
+# and the "exactly one failure" reading was off by one in every run (N-bd-w4-agentflow-1-03). It is a restatement, like
+# RESULT=FAIL, so it is left out of that count only. It still counts as a failure line everywhere else: when it is the
+# only one (the module returned false without saying why) a case reads WRONG on it, never FIRED.
+MODULE_VERDICT_RESTATEMENT = "FAIL: the module's own self-test passed"
+
+
+def other_failures(lines, hit):
+    """The failure lines of a FIRED case that are neither its hit nor the host's restatement of the module's verdict."""
+    return [line for line in lines if line not in hit and line != MODULE_VERDICT_RESTATEMENT]
+
+
 def aborted_lines(report):
     """EXC: (a probe that threw instead of asserting) and SKIP: (one that did not run part of
     itself). Neither is a failed assertion and neither is a pass: a report carrying one has no
@@ -3385,7 +3398,8 @@ def score(plan):
             missing = [fragment for fragment in fragments if not any(fragment in line for line in lines)]
             if hit and not missing:
                 fired += 1
-                extra = (" (+%d other failures)" % (len(lines) - len(hit))) if len(lines) > len(hit) else ""
+                others = other_failures(lines, hit)
+                extra = (" (+%d other failures)" % len(others)) if others else ""
                 print("  %-52s FIRED%s" % (name, extra))
                 print("        %s" % hit[0])
             else:
