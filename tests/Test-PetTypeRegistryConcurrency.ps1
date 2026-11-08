@@ -108,7 +108,39 @@ finally {
         DistinctOwnedNamespaces = $namespaces.Count; ExpectedF290Failure = [bool]$ExpectF290Failure;
         PublicExecutableSha256 = (Get-FileHash -LiteralPath $image -Algorithm SHA256).Hash; Results = @($results.ToArray()) } |
         ConvertTo-Json -Depth 6
+    if (-not $passed) {
+        # A failed run keeps its evidence folder and its report, as docs/test-artifact-retention.md keeps every failed
+        # run's evidence, and says where they are. The throw that brought it here goes on after this block.
+        [IO.File]::WriteAllText((Join-Path $evidence 'result.json'), $report, (New-Object Text.UTF8Encoding($false)))
+        Write-Warning "Test-PetTypeRegistryConcurrency.ps1 failed; its evidence folder is kept for inspection: $evidence"
+        Write-Output "Evidence=$evidence"
+    }
+}
+# A PASSING RUN REMOVES ITS EVIDENCE FOLDER (N-bd-w10-tests-scripts-1-01). Every run kept artifacts\pettyperegistry-
+# concurrency-<guid> (each child's stdout, stderr, private TEMP and data root, about 20 KB) on a pass as well as on a
+# failure, and since tests\run-gate.ps1 runs this probe every gate run left one more, the class N-audit-1106-363 and
+# N-audit-1106-366 closed for the worker-cleanup and installer-shutdown tests. Only here, past the finally above, which a
+# failing run leaves by its throw and only after every owned child has exited or been killed. The leaf is checked first,
+# so nothing but this run's own folder is deleted recursively, and a reparse point inside refuses the delete rather than
+# having the delete meet it. A removal that fails keeps the folder with its report and says so; it never turns this
+# passing run into a failure, the rule docs/test-artifact-retention.md sets for the gate's own cache cleanup.
+$evidenceRemoved = $false
+if (([IO.Path]::GetDirectoryName($evidence) + [IO.Path]::DirectorySeparatorChar) -ne $boundary -or
+    (Split-Path -Leaf $evidence) -cnotmatch '^pettyperegistry-concurrency-[0-9a-f]{32}$') {
+    Write-Warning "the evidence folder is not a pettyperegistry-concurrency-<guid> child of $boundary, so it is not deleted: $evidence"
+}
+elseif (@(Get-ChildItem -LiteralPath $evidence -Recurse -Force -Attributes ReparsePoint).Count -gt 0) {
+    Write-Warning "the evidence folder holds a reparse point, so it is not deleted: $evidence"
+}
+else {
+    try {
+        [IO.Directory]::Delete($evidence, $true)
+        $evidenceRemoved = -not [IO.Directory]::Exists($evidence)
+    }
+    catch { Write-Warning "the evidence folder could not be removed and is left for inspection: $evidence ($($_.Exception.Message))" }
+}
+if (-not $evidenceRemoved) {
     [IO.File]::WriteAllText((Join-Path $evidence 'result.json'), $report, (New-Object Text.UTF8Encoding($false)))
     Write-Output "Evidence=$evidence"
 }
-Write-Output "RESULT=PASS processes=$($results.Count) distinctNamespaces=$($namespaces.Count)"
+Write-Output "RESULT=PASS processes=$($results.Count) distinctNamespaces=$($namespaces.Count) evidenceRemoved=$evidenceRemoved"

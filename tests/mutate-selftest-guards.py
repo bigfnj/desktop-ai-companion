@@ -214,6 +214,16 @@ MUTATION_UNITTESTS_PY = os.path.join(REPO, "tests", "run_mutation_capture_checks
 MUTATE_DIAGNOSTICS_PY = os.path.join(REPO, "tests", "mutate-diagnostics.py")
 PIN_DIAGNOSTIC_RUNNER_PY = os.path.join(REPO, "tests", "run_agentbroker_pin_diagnostic_mutations.py")
 INSTALLER_SHUTDOWN_RUNNER_PY = os.path.join(REPO, "tests", "run_installer_shutdown_mutations.py")
+# The pseudo-flag a case names to run tests\Test-PublicCommitPrivacy.ps1 -SelfTest (lane burndown/w11-tests-scripts-1,
+# N-codex-1102-01): the privacy check's own cases, which tests\Invoke-OfflineScriptChecks.ps1 runs under PowerShell 7 and
+# judges by exit code. Until then no harness could run them, so every fix to its matcher was graded by a scratch runner and
+# no case kept the grading. The script throws at its first failing case ("Public privacy ... self-test failed: <case>.");
+# privacy_selftest() prints that message as one "FAIL: " line, so a case names the CASE'S words as its fragment. Nothing is
+# built: a case names no csproj and no artefact (None), and the rebuild is the fresh pwsh, which parses the mutated script
+# (the named case failing is the witness that it ran). Its synthetic repositories go under build\privacy-selftest\ and the
+# script removes them.
+PRIVACY = "PRIVACY"
+PRIVACY_PS1 = os.path.join(REPO, "tests", "Test-PublicCommitPrivacy.ps1")
 # Lane burn/tools' converter targets: the engine files its cases mutate, all compiled into SHIMEJI_ENGINE_DLL.
 SHIMEJI_ENGINE_CS = os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Engine.cs")
 SHIMEJI_PARSER = os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Shimeji", "ShimejiParser.cs")
@@ -24722,6 +24732,74 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--shimeji-window-selftest", "dp-shimeji-window-selftest.txt",
      "uninstall: every companion of the type goes, chosen and born, and no other type's"),
+    # ---- burndown/w11-tests-scripts-1 ----
+    # N-codex-1102-01, graded through PRIVACY (tests\Test-PublicCommitPrivacy.ps1 -SelfTest). The privacy matcher reads
+    # the text only as given or only composed, compares the two forms culture-aware (which calls them equal), drops the
+    # composed user name or identifier from its needles, or lets a letter outside the Basic Multilingual Plane end the
+    # name again (or, the witness, lets every character there continue it). "bd-w11-tests-scripts-1:" for one --only.
+    ("bd-w11-tests-scripts-1: the privacy matcher never reads the composed text (N-codex-1102-01)",
+     PRIVACY_PS1,
+     b"    if (-not [string]::Equals($composed, $Text, [StringComparison]::Ordinal)) { $forms += $composed }\n",
+     b"",
+     None, None, PRIVACY, None,
+     "a decomposed spelling of a composed profile name"),
+    ("bd-w11-tests-scripts-1: the privacy matcher compares the two spellings culture-aware (N-codex-1102-01)",
+     PRIVACY_PS1,
+     b"if (-not [string]::Equals($composed, $Text, [StringComparison]::Ordinal)) { $forms += $composed }",
+     b"if ($composed -cne $Text) { $forms += $composed }",
+     None, None, PRIVACY, None,
+     "a decomposed spelling of a composed profile name"),
+    ("bd-w11-tests-scripts-1: the privacy matcher reads only the composed text (N-codex-1102-01)",
+     PRIVACY_PS1,
+     b"    $forms = @($Text)\n    $composed = ConvertTo-ComposedPrivacyText $Text\n",
+     b"    $composed = ConvertTo-ComposedPrivacyText $Text\n    $forms = @($composed)\n",
+     None, None, PRIVACY, None,
+     "an explicit identifier followed by a combining mark"),
+    ("bd-w11-tests-scripts-1: the profile needle drops the composed user name (N-codex-1102-01)",
+     PRIVACY_PS1,
+     b"        if (-not [string]::Equals($composedName, $UserName, [StringComparison]::Ordinal)) { $names += [regex]::Escape($composedName) }\n",
+     b"",
+     None, None, PRIVACY, None,
+     "a composed spelling of a decomposed profile name"),
+    ("bd-w11-tests-scripts-1: the identifier needles drop the composed identifier (N-codex-1102-01)",
+     PRIVACY_PS1,
+     b"foreach ($form in @($value, (ConvertTo-ComposedPrivacyText $value)))",
+     b"foreach ($form in @($value))",
+     None, None, PRIVACY, None,
+     "a composed spelling of a decomposed identifier"),
+    ("bd-w11-tests-scripts-1: a letter outside the BMP ends the user name again (N-codex-1102-01)",
+     PRIVACY_PS1,
+     b"$script:PrivacyNameCategories.Contains([Globalization.CharUnicodeInfo]::GetUnicodeCategory($form, $end))) { continue }",
+     b"$false) { continue }",
+     None, None, PRIVACY, None,
+     "a longer name ending in a letter outside the Basic Multilingual Plane"),
+    ("bd-w11-tests-scripts-1: the character after the name is classified by its UTF-16 unit (N-codex-1102-01)",
+     PRIVACY_PS1,
+     b"GetUnicodeCategory($form, $end))) { continue }",
+     b"GetUnicodeCategory($form[$end]))) { continue }",
+     None, None, PRIVACY, None,
+     "a longer name ending in a letter outside the Basic Multilingual Plane"),
+    ("bd-w11-tests-scripts-1: every character outside the BMP continues the user name (N-codex-1102-01)",
+     PRIVACY_PS1,
+     b"$script:PrivacyNameCategories.Contains([Globalization.CharUnicodeInfo]::GetUnicodeCategory($form, $end))) { continue }",
+     b"$true) { continue }",
+     None, None, PRIVACY, None,
+     "a profile root before a symbol outside the Basic Multilingual Plane"),
+    # N-bd-tests-harness-1-02, graded through MUTATION_UNITTESTS: score() runs a shard's cases in plan order again, paying a
+    # clean rebuild at every change of project, or groups them but pairs the grouped cases with the plan's indices in
+    # their old order, so a kept report is filed under another case's index.
+    ("bd-w11-tests-scripts-1: a shard's cases run in plan order again (N-bd-tests-harness-1-02)",
+     os.path.join(REPO, "tests", "mutate-selftest-guards.py"),
+     b'    return sorted(zip(plan.indices, plan.cases), key=lambda pair: (pair[1][4] is None, pair[1][4] or ""))\n',
+     b'    return list(zip(plan.indices, plan.cases))\n',
+     None, None, MUTATION_UNITTESTS, None,
+     "test_a_shards_cases_of_one_project_run_together"),
+    ("bd-w11-tests-scripts-1: the grouped cases lose their own plan indices (N-bd-tests-harness-1-02)",
+     os.path.join(REPO, "tests", "mutate-selftest-guards.py"),
+     b'    return sorted(zip(plan.indices, plan.cases), key=lambda pair: (pair[1][4] is None, pair[1][4] or ""))\n',
+     b'    return list(zip(plan.indices, sorted(plan.cases, key=lambda case: (case[4] is None, case[4] or ""))))\n',
+     None, None, MUTATION_UNITTESTS, None,
+     "test_a_shards_cases_of_one_project_run_together"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
@@ -25366,6 +25444,30 @@ def windowsoak_judge(timeout):
     return (proc.stdout or "") + (proc.stderr or ""), proc.returncode
 
 
+def privacy_selftest(timeout):
+    """tests\\Test-PublicCommitPrivacy.ps1 -SelfTest in the marker vocabulary the ladder grades (PRIVACY).
+
+    Under pwsh, as Invoke-OfflineScriptChecks.ps1 runs it (the script is #requires -Version 7), with CHILD_ENV and the
+    repository as the working directory. The -Command wrapper catches the script's throw and prints its message as one
+    "FAIL: " line, so the verdict does not depend on how pwsh renders an error to a redirected stream (its concise view
+    splits a long message across lines, as powershell.exe does for mutate-hardening-guards.py). Every other line is
+    prefixed "| " so nothing else is read as a verdict, and the exit code becomes the column-0 RESULT= line. With no
+    pwsh on PATH the run is a non-result, never a pass.
+    """
+    pwsh = shutil.which("pwsh")
+    if pwsh is None:
+        return None, "pwsh is not on PATH, and Test-PublicCommitPrivacy.ps1 needs PowerShell 7"
+    command = "try { & '%s' -SelfTest; exit $LASTEXITCODE } catch { 'FAIL: ' + $_.Exception.Message; exit 1 }" % (
+        PRIVACY_PS1.replace("'", "''"))
+    proc = run_text([pwsh, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
+                    capture_output=True, timeout=timeout, env=CHILD_ENV, cwd=REPO)
+    lines = []
+    for line in ((proc.stdout or "") + (proc.stderr or "")).splitlines():
+        lines.append(line if line.startswith("FAIL: ") else "| " + line)
+    lines.append("RESULT=PASS" if proc.returncode == 0 else "RESULT=FAIL")
+    return "\n".join(lines) + "\n", proc.returncode
+
+
 def security(timeout):
     """--security-selftest reshaped into the marker vocabulary the ladder grades.
 
@@ -25400,6 +25502,7 @@ PSEUDO_FLAGS = {
     MODULE_SELFTESTS: (lambda marker, timeout: module_selftests_runner(timeout), BACKSTOP_SECONDS),
     MUTATION_UNITTESTS: (lambda marker, timeout: mutation_unittests(timeout), 600),
     WINDOWSOAK_JUDGE: (lambda marker, timeout: windowsoak_judge(timeout), 300),
+    PRIVACY: (lambda marker, timeout: privacy_selftest(timeout), 300),
 }
 
 
@@ -25618,6 +25721,20 @@ def keep_report(index, name, report):
     return path
 
 
+def case_order(plan):
+    """The (index, case) pairs of a plan in the order score() runs them: grouped by the project each case builds, in plan
+    order within a project (a stable sort), the cases that build nothing last (N-bd-tests-harness-1-02).
+
+    A shard takes every Nth case of CASES, so neighbours in its plan are N cases apart and usually build different
+    projects, and rebuild_restored() pays a clean rebuild of the previous project at every change of project. Counted
+    over the 2884 cases of 2026-11-08 by replaying rebuild_restored's bookkeeping: 677 clean rebuilds in a 4-shard run in
+    plan order, 45 grouped, and 261 against 12 unsharded, since CASES itself interleaves projects. Grouping keeps the
+    guard whole: every case still runs against its own mutant and no other, because rebuild_restored still rebuilds
+    every other mutated project before a case writes its own. Each case keeps its plan index for its kept report, and
+    the shard controller reads the verdicts as a set, so the printed order is the only thing that moves."""
+    return sorted(zip(plan.indices, plan.cases), key=lambda pair: (pair[1][4] is None, pair[1][4] or ""))
+
+
 def score(plan):
     cases = plan.cases
     print(real_input_notice(os.environ))
@@ -25661,7 +25778,7 @@ def score(plan):
     stale = {}
     stopped = None
     try:
-        for index, (name, path, old, new, csproj, artifact, flag, marker, expect) in zip(plan.indices, cases):
+        for index, (name, path, old, new, csproj, artifact, flag, marker, expect) in case_order(plan):
             if withheld and name in NEEDS_REAL_INPUT:
                 not_run += 1
                 print("  %-52s NOT RUN (it tests the real Scroll Lock press, which %s=1 withholds, so it cannot fire)"

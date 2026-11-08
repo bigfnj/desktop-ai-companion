@@ -5291,6 +5291,78 @@ CASES = (
         b'                if (!bornPets.Contains(pet) && RemovePetInstance(pet)) removed++;\n            return removed;\n',
         "w11-options-ui-1: RemoveEveryPetOfType removes every window the selection takes, with no born test of its own",
     ),
+    # ---- burndown/w11-tests-scripts-1 ----
+    # "bd-w11-tests-scripts-1:" for one --only. The stand-down probe's replica of FullscreenScan.BlockedMonitors falls
+    # behind the app's walk again (N-audit-1106-342, N-bd-w2-tests-scripts-1-03): it stops reading the extended style,
+    # reads the two styles out of the app's argument order, stops skipping a click-through window, calls a framed
+    # maximized window fullscreen, reads GWL_STYLE for every window, or copies the click-through pair as one bit.
+    (
+        "bd-w11-tests-scripts-1: the probe's replica stops reading the extended style (N-audit-1106-342)",
+        os.path.join(REPO, "tests", "fullscreen-standdown-probe", "Program.cs"),
+        b"                int extendedStyle = CountedExtendedStyle(hWnd);\n",
+        b"                int extendedStyle = 0;\n",
+        "w11-tests-scripts-1: the probe's replica reads each argument the app's walk offers",
+    ),
+    (
+        "bd-w11-tests-scripts-1: the probe's replica reads the framed state before the extended style (N-audit-1106-342)",
+        os.path.join(REPO, "tests", "fullscreen-standdown-probe", "Program.cs"),
+        b"                int extendedStyle = CountedExtendedStyle(hWnd);\n"
+        b"                bool framedMaximised = CountedIsFramedMaximised(hWnd);\n",
+        b"                bool framedMaximised = CountedIsFramedMaximised(hWnd);\n"
+        b"                int extendedStyle = CountedExtendedStyle(hWnd);\n",
+        "w11-tests-scripts-1: the probe's replica reads each argument the app's walk offers",
+    ),
+    (
+        "bd-w11-tests-scripts-1: the probe's replica lets a click-through window decide (N-audit-1106-342)",
+        os.path.join(REPO, "tests", "fullscreen-standdown-probe", "Program.cs"),
+        b"                if ((extendedStyle & ClickThroughStyle) == ClickThroughStyle) return true;\n",
+        b"",
+        "w11-tests-scripts-1: the probe's replica skips a click-through window",
+    ),
+    (
+        "bd-w11-tests-scripts-1: the probe's replica calls a framed maximized window fullscreen (N-bd-w2-tests-scripts-1-03)",
+        os.path.join(REPO, "tests", "fullscreen-standdown-probe", "Program.cs"),
+        b"if (!framedMaximised && IsFullscreenOnMonitor(bounds, mon))",
+        b"if (IsFullscreenOnMonitor(bounds, mon))",
+        "w11-tests-scripts-1: the probe's replica skips a click-through window",
+    ),
+    (
+        "bd-w11-tests-scripts-1: the probe's framed read reads GWL_STYLE before IsZoomed (N-bd-w2-tests-scripts-1-03)",
+        os.path.join(REPO, "tests", "fullscreen-standdown-probe", "Program.cs"),
+        b"        if (!IsZoomed(h)) return false;\n        _cStyle++;\n        int style = GetWindowLong(h, GWL_STYLE);\n",
+        b"        _cStyle++;\n        int style = GetWindowLong(h, GWL_STYLE);\n        if (!IsZoomed(h)) return false;\n",
+        "w11-tests-scripts-1: the probe's replica skips a click-through window",
+    ),
+    (
+        "bd-w11-tests-scripts-1: the probe copies the click-through pair as the layered bit alone (N-audit-1106-342)",
+        os.path.join(REPO, "tests", "fullscreen-standdown-probe", "Program.cs"),
+        b"    private const int ClickThroughStyle = 0x00080000 | 0x00000020;\n",
+        b"    private const int ClickThroughStyle = 0x00080000;\n",
+        "w11-tests-scripts-1: the probe's replica skips a click-through window",
+    ),
+    # N-bd-w10-tests-scripts-1-01: the registry concurrency probe keeps its evidence folder on a pass again, deletes it
+    # without the leaf check, or stops keeping its report on a failure.
+    (
+        "bd-w11-tests-scripts-1: the registry probe keeps its evidence folder on a pass (N-bd-w10-tests-scripts-1-01)",
+        os.path.join(REPO, "tests", "Test-PetTypeRegistryConcurrency.ps1"),
+        b"        [IO.Directory]::Delete($evidence, $true)\n        $evidenceRemoved",
+        b"        $evidenceRemoved",
+        "w11-tests-scripts-1: the registry concurrency probe removes its evidence folder",
+    ),
+    (
+        "bd-w11-tests-scripts-1: the registry probe deletes its evidence folder without the leaf check (N-bd-w10-tests-scripts-1-01)",
+        os.path.join(REPO, "tests", "Test-PetTypeRegistryConcurrency.ps1"),
+        b"(Split-Path -Leaf $evidence) -cnotmatch '^pettyperegistry-concurrency-[0-9a-f]{32}$') {",
+        b"$false) {",
+        "w11-tests-scripts-1: the registry concurrency probe removes its evidence folder",
+    ),
+    (
+        "bd-w11-tests-scripts-1: the registry probe writes its report on a pass inside the finally (N-bd-w10-tests-scripts-1-01)",
+        os.path.join(REPO, "tests", "Test-PetTypeRegistryConcurrency.ps1"),
+        b"    if (-not $passed) {\n",
+        b"    if ($true) {\n",
+        "w11-tests-scripts-1: the registry concurrency probe removes its evidence folder",
+    ),
 )
 
 

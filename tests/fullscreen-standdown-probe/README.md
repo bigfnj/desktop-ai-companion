@@ -45,7 +45,11 @@ section showed the bare form until 2026-10-06, when cutting v1.3.0 ran into it.
 
 `walkcount.csproj` also carries the EnumWindows walk counter used to measure the shared-scan change
 (679 callbacks / 781 user32 calls when the early exit cannot fire; that is the `walk-uncovered` mode, an extra
-off-desktop monitor whose centre nothing covers, so the early exit never fires):
+off-desktop monitor whose centre nothing covers, so the early exit never fires). That figure predates the two
+reads the app's walk now makes after each window's rect, its extended style and whether it is a maximized
+framed window: one `GetWindowLong` and one `IsZoomed` per window that reaches the rect, plus a second
+`GetWindowLong` when it is zoomed. The replica counts both reads (`exstyle=`, `zoomed=`, `style=` in its
+output); the figure has not been re-measured since:
 
 ```powershell
 dotnet run --project tests\fullscreen-standdown-probe\walkcount.csproj -c Release -- walk-uncovered
