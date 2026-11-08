@@ -23908,6 +23908,15 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--trayquestions-selftest", "dp-trayquestions-selftest.txt",
      "log: no line carries the question's text, title or any label"),
+    # N-audit-1106-255: the sprite pixel budget is raised past the frames' 64 MiB memory budget, which the removed
+    # runtime check could never see. --hardening-selftest holds the two constants together.
+    ("bd-w9-host-2: the sprite pixel budget outgrows the memory budget (N-audit-1106-255)",
+     XML_CS,
+     b'        private const long MaximumGeneratedPixels = SpriteFrameStore.MaximumOriginalPixels;\n',
+     b'        private const long MaximumGeneratedPixels = 2 * SpriteFrameStore.MaximumOriginalPixels;\n',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "the sprite pixel budget stays inside the frames' memory budget"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
