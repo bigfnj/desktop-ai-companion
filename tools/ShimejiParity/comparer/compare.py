@@ -186,7 +186,13 @@ class TraceObject(dict):
     """Keep duplicate evidence for trace/2 error objects without changing trace/1 last-wins semantics."""
     def __init__(self, pairs):
         super().__init__(pairs)
-        self.duplicates = len(pairs) != len(self)
+        seen = set()
+        self.duplicate_keys = set()
+        for key, _ in pairs:
+            if key in seen:
+                self.duplicate_keys.add(key)
+            seen.add(key)
+        self.duplicates = bool(self.duplicate_keys)
 
 
 def _trace_lines(source):
@@ -215,6 +221,8 @@ def _trace_header(lines):
 def _validate_error(event, runtime, number):
     def bad(detail):
         raise Unjudgeable("missing-field", f"{runtime} line {number}: error {detail}")
+    if "error" in getattr(event, "duplicate_keys", ()):
+        bad("event has duplicate error properties")
     message, error = event.get("message"), event.get("error")
     if not isinstance(event.get("sid"), str) or not event["sid"] or isinstance(event["tick"], bool):
         bad("identity needs an integer tick and a non-empty sid")
@@ -364,6 +372,8 @@ def load_trace(source, expected_runtime=None, defer_run_failure=False):
         malformed(f"footer counts states/events/draws {footer['states']}/{footer['events']}/{footer['draws']} "
                   f"but the trace has {len(states)}/{len(events)}/{len(draws)}")
     for k, e in enumerate(draws, start=1):
+        if trace2 and (not isinstance(e["occurrence"], int) or isinstance(e["occurrence"], bool)):
+            raise Unjudgeable("missing-field", f"{runtime}: tick {e['tick']}: rng-draw occurrence must be an integer")
         if e["occurrence"] != k:
             malformed(f"tick {e['tick']}: rng-draw occurrence {e['occurrence']!r} should be {k}")
     # The numbers must be the scenario's: a value outside [0, 1), or a tape value the tape does not hold at that
@@ -399,6 +409,12 @@ def load_trace(source, expected_runtime=None, defer_run_failure=False):
     # compare() defers its status so section 6 can first identify an invalid input from the preceding snapshot.
     observed_end = n if status == "complete" else max((s["tick"] for s in states), default=-1)
     disposed = {(e["sid"], e["tick"]) for e in events if e["kind"] == "dispose"}
+    previous_order = [s["sid"] for s in states if s["tick"] == observed_end - 1
+                      and not any(sid_ == s["sid"] and tick <= observed_end for sid_, tick in disposed)]
+    final_order = [s["sid"] for s in states if s["tick"] == observed_end]
+    # A written later companion proves that an earlier non-disposed companion was omitted. New children
+    # append after existing companions, so observing one also defeats an earlier companion's tail excuse.
+    tail_is_prefix = not trace2 or final_order == previous_order[:len(final_order)]
     for sid_, rows in by_sid.items():
         ticks = [r["tick"] for r in rows]
         if ticks != list(range(ticks[0], ticks[-1] + 1)):
@@ -406,7 +422,8 @@ def load_trace(source, expected_runtime=None, defer_run_failure=False):
         # Without a footer, the last snapshot may end between two companions' state lines. Only that final
         # one-tick tail is inconclusive unless a later event proves that snapshot already finished.
         interrupted = footer is None or (trace2 and status == "timeout")
-        unfinished_snapshot = interrupted and ticks[-1] == observed_end - 1 and not any(e["tick"] > observed_end for e in events)
+        unfinished_snapshot = interrupted and tail_is_prefix and ticks[-1] == observed_end - 1 \
+            and not any(e["tick"] > observed_end for e in events)
         if ticks[-1] < observed_end and not unfinished_snapshot and (sid_, ticks[-1] + 1) not in disposed:
             malformed(f"{sid_} stops at tick {ticks[-1]} of {observed_end} with no dispose event at tick {ticks[-1] + 1}")
         # dispose means actual queue removal, not dispose-request. Failed tentative children can reuse their
@@ -500,6 +517,17 @@ def event_key(e, trace2=False):
     return tuple(json_key(e.get(k)) for k in ("tick", "sid", "kind") + EVENT_PAYLOAD_KEYS[e["kind"]])
 
 
+def _unknown_error_pair(ea, eb, trace2):
+    return trace2 and ea is not None and eb is not None and ea["kind"] == eb["kind"] == "error" \
+        and all(json_key(ea[key]) == json_key(eb[key]) for key in ("tick", "sid", "kind")) \
+        and ea["error"]["via"] == eb["error"]["via"] \
+        and "unclassified" in (ea["error"]["code"], eb["error"]["code"])
+
+
+def _events_align(ea, eb, trace2):
+    return event_key(ea, trace2) == event_key(eb, trace2) or _unknown_error_pair(ea, eb, trace2)
+
+
 def compare(oracle, host, scenario=None, scenario_sha=None, pack_sha=None, artifacts=None, tolerances=None):
     """Returns a report dict: verdict, class, findings (each with tick/sid/field/oracle/host)."""
     tolerances = tolerances or {}
@@ -583,7 +611,7 @@ def compare(oracle, host, scenario=None, scenario_sha=None, pack_sha=None, artif
                 if exhausted is not None:
                     secondary_exhaustion.append({"class": "rng-tape-exhausted", "runtime": runtime,
                                                  "tick": exhausted["tick"], "sid": exhausted["sid"],
-                                                 "message": runtime + " recorded a past-tape draw before its run failed"})
+                                                 "message": runtime + " recorded a past-tape draw"})
         # After input proof, retain the missing footer's existing priority over a peer's generic run status.
         for runtime, footer in sorted((("oracle", ofoot), ("host", hfoot)), key=lambda item: item[1] is not None):
             _check_run_status(runtime, footer)
@@ -597,7 +625,7 @@ def compare(oracle, host, scenario=None, scenario_sha=None, pack_sha=None, artif
                                          "verification": "artifact-bound" if runtime in artifacts else "shape-only"}
                                for runtime in ("oracle", "host")}, "tolerancesUsed": []}
     used_tolerances = set()
-    unknown_error = False
+    unknown_error = None
     rng = oh["rng"]["kind"]
     findings = report["findings"]
 
@@ -639,11 +667,14 @@ def compare(oracle, host, scenario=None, scenario_sha=None, pack_sha=None, artif
                 b = hkeys[i] if i < len(hkeys) else None
                 ea = oevents[i] if a else None
                 eb = hevents[i] if b else None
-                if trace2 and ea is not None and eb is not None and ea["kind"] == eb["kind"] == "error" \
-                        and all(json_key(ea[key]) == json_key(eb[key]) for key in ("tick", "sid", "kind")) \
-                        and ea["error"]["via"] == eb["error"]["via"] \
-                        and "unclassified" in (ea["error"]["code"], eb["error"]["code"]):
-                    unknown_error = True
+                if _unknown_error_pair(ea, eb, trace2):
+                    if unknown_error is None:
+                        unknown_error = {"class": "error-unclassified", "tick": ea["tick"], "sid": ea["sid"],
+                                         "field": "error", "via": list(ea["error"]["via"]),
+                                         "oracle": ea["error"]["code"], "host": eb["error"]["code"],
+                                         "message": f"{sid}: tick {ea['tick']}, {ea['sid']}, error via {ea['error']['via']!r}: "
+                                                    f"oracle {ea['error']['code']!r} vs host {eb['error']['code']!r}; "
+                                                    "aligned cause has no typed attribution"}
                     continue  # Only this aligned cause is inconclusive; every later event/state still matters.
                 if a == b:
                     continue
@@ -651,9 +682,11 @@ def compare(oracle, host, scenario=None, scenario_sha=None, pack_sha=None, artif
                     cls = "extra-event"
                 elif b is None:
                     cls = "missing-event"
-                elif a not in hkeys[i:] and b in okeys[i + 1:]:
+                elif not any(_events_align(ea, event, trace2) for event in hevents[i:]) \
+                        and any(_events_align(event, eb, trace2) for event in oevents[i + 1:]):
                     cls = "missing-event"   # the host never has the oracle's event, and then the two line up again
-                elif b not in okeys[i:] and a in hkeys[i + 1:]:
+                elif not any(_events_align(event, eb, trace2) for event in oevents[i:]) \
+                        and any(_events_align(ea, event, trace2) for event in hevents[i + 1:]):
                     cls = "extra-event"     # the host has one the oracle never has, and then the two line up again
                 else:
                     cls = "event-mismatch"
@@ -729,7 +762,7 @@ def compare(oracle, host, scenario=None, scenario_sha=None, pack_sha=None, artif
     elif unknown_error:
         report["verdict"] = "unjudgeable"
         report["class"] = "error-unclassified"
-        findings.append({"class": "error-unclassified", "message": "an aligned error cause has no typed attribution"})
+        findings.append(unknown_error)
     return report
 
 
@@ -961,7 +994,8 @@ BURNDOWN_CHECKS = ("N269 source pin", "N269 unbound report", "N270 typed state",
                    "P2 script independent failures", "P2 script refusal before draw", "P2 script pending CLI",
                    "R2 zero-state runs", "R2 zero-state validation", "R2 disposed targets",
                    "R2 truncated peer proof", "R2 truncated validation", "F3 interrupted snapshot", "F3 disposal lifecycle")
-BURNDOWN_CHECKS += tuple("T2 CC" + str(number) for number in range(1, 18)) + ("T2 timeout snapshot",)
+BURNDOWN_CHECKS += tuple("T2 CC" + str(number) for number in range(1, 18)) + (
+    "T2 timeout snapshot", "T2 trace1 freeze", "T2 lookahead", "T2 occurrence")
 
 
 def _case_require(value, name, detail):
@@ -1534,16 +1568,32 @@ def _trace2_add_error(trace, code="behavior-missing", lookup=None, via=None):
     return event
 
 
-def _trace2_cli(pair):
+def _trace2_cli(pair, tolerances=None):
     import contextlib
     import io
     import tempfile
     with tempfile.TemporaryDirectory(prefix="trace2-cli-") as directory:
+        pair = copy.deepcopy(pair)
+        options = []
+        if tolerances is not None:
+            scenario = _scenario()
+            scenario["rng"] = copy.deepcopy(pair[0][0]["rng"])
+            scenario["pack"] = "pack"
+            scenario["tolerances"] = tolerances
+            pack = Path(directory) / "pack"
+            pack.mkdir()
+            (pack / "synthetic.txt").write_text("synthetic CLI binding witness", encoding="utf-8")
+            scenario_path = Path(directory) / "scenario.json"
+            scenario_bytes = json.dumps(scenario).encode("utf-8")
+            scenario_path.write_bytes(scenario_bytes)
+            for trace in pair:
+                trace[0]["scenario"].update(sha256=sha256_bytes(scenario_bytes), packSha256=pack_sha256(pack))
+            options = ["--scenario", str(scenario_path)]
         paths = [Path(directory) / (runtime + ".jsonl") for runtime in ("oracle", "host")]
         for path, trace in zip(paths, pair):
-            path.write_text("\n".join(json.dumps(row) for row in trace) + "\n", encoding="utf-8")
+            path.write_text("\n".join(row if isinstance(row, str) else json.dumps(row) for row in trace) + "\n", encoding="utf-8")
         with contextlib.redirect_stdout(io.StringIO()):
-            return main(["compare.py", str(paths[0]), str(paths[1])])
+            return main(["compare.py", str(paths[0]), str(paths[1])] + options)
 
 
 def _trace2_check(name):
@@ -1555,7 +1605,8 @@ def _trace2_check(name):
         try:
             report = compare(*pair)
         except Exception as error:
-            _case_require(False, name, detail + " escaped validation as " + type(error).__name__)
+            raise RuntimeError("bd-codex-parity: " + name + ": " + detail
+                               + " escaped validation as " + type(error).__name__) from error
         require(report, "missing-field", "unjudgeable", detail)
 
     if name == "T2 CC1":
@@ -1580,6 +1631,7 @@ def _trace2_check(name):
         require(compare(*pair), detail="WITNESS valid scalar types")
         mutations = (("message", ""), ("message", 42), ("sid", 42), ("tick", False), ("error", None), ("error", []),
                      ("error", {"code": "behavior-missing", "lookup": {"imageSet": {}, "behavior": ""}, "via": []}),
+                     ("error", {"code": "behavior-missing", "lookup": {"imageSet": "", "behavior": ""}, "via": []}),
                      ("error", {"code": "behavior-missing", "lookup": {"imageSet": "Beta", "behavior": 0}, "via": []}),
                      ("error", {"code": "variant-missing", "lookup": {"refKey": ""}, "via": []}),
                      ("error", {"code": "variant-missing", "lookup": {"refKey": "not-a-source-key"}, "via": []}),
@@ -1612,7 +1664,8 @@ def _trace2_check(name):
             bad[1][1]["error"][key] = replacement
             invalid(bad, "closed error property/code vocabulary")
         for old, new in (('"code": "behavior-missing"', '"code": "behavior-missing", "code": "behavior-missing"'),
-                         ('"imageSet": "Beta"', '"imageSet": "Beta", "imageSet": "Beta"')):
+                         ('"imageSet": "Beta"', '"imageSet": "Beta", "imageSet": "Beta"'),
+                         ('"error": {', '"error": {"code": "future-code", "lookup": 7, "via": "x"}, "error": {')):
             serialized = [[json.dumps(row) for row in trace] for trace in pair]
             _case_require(serialized[1][1].count(old) == 1, name, "duplicate fixture is not unique")
             serialized[1][1] = serialized[1][1].replace(old, new)
@@ -1651,11 +1704,12 @@ def _trace2_check(name):
             bad[index][0]["schema"] = "not-a-trace-version"
             invalid(bad, "unknown schema must stay missing-field")
     elif name == "T2 CC8":
-        for both in (False, True):
+        for codes in (("unclassified", "behavior-missing"), ("behavior-missing", "unclassified"),
+                      ("unclassified", "unclassified")):
             for tolerance in (False, True):
                 pair = _trace2_reference()
-                _trace2_add_error(pair[0], "unclassified")
-                _trace2_add_error(pair[1], "unclassified" if both else "behavior-missing")
+                for trace, code in zip(pair, codes):
+                    _trace2_add_error(trace, code)
                 options = {}
                 if tolerance:
                     for state in pair[1]:
@@ -1663,8 +1717,16 @@ def _trace2_check(name):
                             state["anchor"][0] += 1
                     options["tolerances"] = {"anchor": 1}
                 require(compare(*pair, **options), "error-unclassified", "unjudgeable", "aligned cause blocks success")
-                if not tolerance:
-                    _case_require(_trace2_cli(pair) == 2, name, "unknown-cause CLI exit must be 2")
+                _case_require(_trace2_cli(pair, options.get("tolerances")) == 2,
+                              name, "unknown-cause CLI exit must be 2")
+                finding = compare(*pair, **options)["findings"][0]
+                _case_require(finding.get("tick") == 0 and finding.get("sid") == "m1"
+                              and finding.get("via") == []
+                              and (finding.get("oracle"), finding.get("host")) == codes,
+                              name, "unknown-cause diagnostic identifies the aligned pair")
+                _case_require(all(part in finding.get("message", "") for part in
+                                  ("S-selftest", "tick 0", "m1", "via []", repr(codes[0]), repr(codes[1]))),
+                              name, "unknown-cause CLI message identifies the aligned pair")
     elif name == "T2 CC9":
         pair = _trace2_reference()
         _trace2_add_error(pair[0], "unclassified")
@@ -1747,9 +1809,10 @@ def _trace2_check(name):
         require(compare(*pair), detail="WITNESS non-exhausted tape")
         exhausted = _trace2_reference({"kind": "tape", "values": []})
         require(compare(*exhausted), "rng-tape-exhausted", "fail", "complete past-tape runs")
-        bad = copy.deepcopy(exhausted)
-        next(row for row in bad[1] if row.get("kind") == "rng-draw")["value"] = 0.7
-        require(compare(*bad), "rng-invalid", "unjudgeable", "past-tape value")
+        for value in (0.7, 0.25, 0.0):
+            bad = copy.deepcopy(exhausted)
+            next(row for row in bad[1] if row.get("kind") == "rng-draw")["value"] = value
+            require(compare(*bad), "rng-invalid", "unjudgeable", "past-tape value " + str(value))
         for original, flag in ((pair, True), (exhausted, False), (_trace2_reference(), True),
                                (_trace2_reference({"kind": "splitmix64", "seed": 1}), True)):
             bad = copy.deepcopy(original)
@@ -1769,6 +1832,18 @@ def _trace2_check(name):
             require(report, "timeout", "unjudgeable", "run failure outranks exhaustion")
             secondary = [finding for finding in report["findings"] if finding.get("class") == "rng-tape-exhausted"]
             _case_require(bool(secondary) == proven, name, "secondary exhaustion requires a physical past-tape draw")
+        for status in ("aborted", "error", None):
+            pair = _trace2_reference({"kind": "tape", "values": []})
+            if status is None:
+                pair[1].pop()
+            else:
+                pair[1][-1]["status"] = status
+            report = compare(*pair)
+            require(report, "truncated" if status is None else "aborted", "unjudgeable",
+                    "peer run failure retains its primary " + str(status))
+            oracle_secondary = next(f for f in report["findings"] if f.get("runtime") == "oracle")
+            _case_require("before its run failed" not in oracle_secondary["message"], name,
+                          "completed runtime exhaustion diagnostic must not claim that runtime failed")
     elif name == "T2 CC14":
         for side in (0, 1):
             for counter in ("unobservedDraws", "unobservedEvents"):
@@ -1776,6 +1851,7 @@ def _trace2_check(name):
                 pair[side][-1][counter] = 0
                 pair[side][0].pop("build")
                 require(compare(*pair), "trace-off-not-comparable", "unjudgeable", "off artifact before body")
+                _case_require(_trace2_cli(pair) == 2, name, "off-artifact CLI exit must be 2")
                 pair = _trace2_reference()
                 pair[side][-1][counter] = 0
                 pair[1 - side][-1] = "{"
@@ -1803,6 +1879,60 @@ def _trace2_check(name):
         scenario = _scenario()
         scenario["input"].append({"tick": 1, "click": "left", "sid": "absent"})
         require(compare(*pair, scenario=scenario), "scenario-start-mismatch", "unjudgeable", "starter before trace-derived input")
+    elif name == "T2 trace1 freeze":
+        for side in (0, 1):
+            pair = _reference()
+            trace = pair[side]
+            footer = copy.deepcopy(trace[-1])
+            stop = next(index for index, row in enumerate(trace) if row.get("type") == "state"
+                        and row["tick"] == 3 and row["sid"] == "m1.b1")
+            trace[:] = trace[:stop] + [dict(footer, status="timeout")]
+            _refoot(trace)
+            for supplied in (None, _scenario()):
+                require(compare(*pair, scenario=supplied), "malformed", "unjudgeable",
+                        "trace1 timeout mid-snapshot remains malformed")
+        for side in (0, 1):
+            for status, want in ((None, "truncated"), ("timeout", "scenario-start-mismatch")):
+                oracle, host, scenario = _two_starter_reference()
+                pair = (oracle, host)
+                trace = pair[side]
+                footer = copy.deepcopy(trace[-1])
+                trace[:] = trace[:2]
+                if status is not None:
+                    trace.append(dict(footer, status=status))
+                    _refoot(trace)
+                require(compare(*pair, scenario=scenario), want, "unjudgeable",
+                        "trace1 startup prefix " + str(status))
+    elif name == "T2 occurrence":
+        pair = _trace2_reference({"kind": "tape", "values": [0.5]})
+        require(compare(*pair), detail="WITNESS integer occurrence")
+        for occurrence in (1.0, True):
+            bad = copy.deepcopy(pair)
+            next(row for row in bad[1] if row.get("kind") == "rng-draw")["occurrence"] = occurrence
+            require(compare(*bad), "missing-field", "unjudgeable", "occurrence type " + repr(occurrence))
+    elif name == "T2 lookahead":
+        for codes in (("behavior-missing", "behavior-missing"), ("unclassified", "behavior-missing"),
+                      ("behavior-missing", "unclassified"), ("unclassified", "unclassified")):
+            for side in (0, 1):
+                for extra_kind in ("mute", "error"):
+                    pair = _trace2_reference()
+                    for trace, code in zip(pair, codes):
+                        _trace2_add_error(trace, code)
+                    extra = (_ev(0, "m1", "mute", clip="extra") if extra_kind == "mute" else
+                             _ev(0, "m1", "error", message="extra error",
+                                 error={"code": "behavior-missing", "lookup": {"imageSet": "Beta", "behavior": ""},
+                                        "via": ["birth"]}))
+                    pair[side].insert(1, extra)
+                    _trace2_refoot(pair[side])
+                    require(compare(*pair), "missing-event" if side == 0 else "extra-event", "fail",
+                            "lookahead presence " + str(side) + " " + extra_kind + " " + repr(codes))
+            pair = _trace2_reference()
+            for trace, code in zip(pair, codes):
+                _trace2_add_error(trace, code)
+                trace.insert(2, _ev(0, "m1", "mute", clip="reordered"))
+                _trace2_refoot(trace)
+            pair[1][1], pair[1][2] = pair[1][2], pair[1][1]
+            require(compare(*pair), "event-mismatch", "fail", "lookahead reordered " + repr(codes))
     elif name == "T2 timeout snapshot":
         for side in (0, 1):
             for status, want in (("timeout", "timeout"), ("aborted", "malformed"), ("error", "malformed")):
@@ -1820,6 +1950,39 @@ def _trace2_check(name):
                     _trace2_refoot(trace)
                     for supplied in (None, _scenario()):
                         require(compare(*pair, scenario=supplied), "malformed", "unjudgeable", "later event proves timeout snapshot finished")
+        for status in (None, "timeout", "aborted"):
+            pair = _trace2_reference()
+            trace = pair[0]
+            _cut_reference(trace, 4, status="timeout")
+            trace[1:-1] = [row for row in trace[1:-1]
+                           if not (row.get("type") == "state" and row["tick"] == 3 and row["sid"] == "m1")]
+            if status is None:
+                trace.pop()
+            else:
+                trace[-1]["status"] = status
+                _trace2_refoot(trace)
+            require(compare(*pair), "malformed", "unjudgeable", "non-suffix omission " + str(status))
+        for status, want in ((None, "truncated"), ("timeout", "timeout")):
+            pair = _trace2_reference()
+            trace = pair[0]
+            _cut_reference(trace, 4, status="timeout")
+            trace[1:-1] = [row for row in trace[1:-1]
+                           if not (row.get("type") == "state" and row["tick"] == 3 and row["sid"] == "m1")]
+            position = next(i for i, row in enumerate(trace) if row.get("tick") == 3)
+            trace.insert(position, _ev(3, "m1", "dispose"))
+            if status is None:
+                trace.pop()
+            else:
+                _trace2_refoot(trace)
+            require(compare(*pair), want, "unjudgeable", "disposed prefix member is not an omission " + str(status))
+        pair = _trace2_reference()
+        trace = pair[0]
+        _cut_reference(trace, 4, status="timeout")
+        trace[1:-1] = [row for row in trace[1:-1]
+                       if not (row.get("type") == "state" and row["tick"] == 3 and row["sid"] == "m1.b1")]
+        trace.insert(-1, _state(3, "m1.b2", "Roll", "Roll", 0, 638, pending=True, set_="Ball", ref=7))
+        _trace2_refoot(trace)
+        require(compare(*pair), "malformed", "unjudgeable", "new child does not excuse omitted active member")
     else:
         raise ValueError("unknown trace/2 check " + name)
 
