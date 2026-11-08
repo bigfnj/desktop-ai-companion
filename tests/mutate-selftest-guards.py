@@ -3332,10 +3332,12 @@ CASES = (
     # scaffolds and rebuilds from the mutated template itself. A SavePaneValues that skips Save() used to pass
     # the round-trip (the one handle reads what it wrote); a "Test it" that always reports success used to pass
     # with speech switched off.
+    # Re-pointed by burndown/w7-packaging-ci-1 (N-audit-1106-268): SavePaneValues now drops its handle when Save() fails,
+    # so the save is the condition of the success return. Same intent: Save() is never called and the pane reports true.
     ("burn-tools: template: SavePaneValues skips Save()",
      TEMPLATE_MODULE,
-     b"            return settings.Save();",
-     b"            return true;",
+     b"            if (settings.Save()) return true;",
+     b"            if (settings != null) return true;",
      None, None,
      TEMPLATE, None, "the pane persisted (Save() was called once)"),
 
@@ -23471,6 +23473,27 @@ CASES = (
      b'int.Parse(value, System.Globalization.CultureInfo.InvariantCulture) : 0; } }',
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL, SHIMEJI, 'sound-resolve',
      'ROUNDTRIP_CHILD_NEXT_BOUNDARY: a schema-valid child/next probability was refused'),
+
+    # ---- burndown/w7-packaging-ci-1 ----
+    # The module template and its check, through TEMPLATE (no csproj, no artefact: the script scaffolds and builds from
+    # the mutated sources itself). "bd-w7-packaging-ci-1:" for one --only.
+    # N-audit-1106-268: a failed pane Save() keeps the held handle again, so the pane reads back the edit the host's
+    # settings object kept in memory; UnwritableSettings fails the write the way that object does.
+    ("bd-w7-packaging-ci-1: template: a failed pane Save() keeps the held settings handle (N-audit-1106-268)",
+     TEMPLATE_MODULE,
+     b"            _settings = null;\n            return false;\n",
+     b"            return false;\n",
+     None, None,
+     TEMPLATE, None, "a failed Save() leaves the last persisted value in place"),
+    # N-audit-1106-267: the template check's `dotnet new` calls run against the caller's own template list again. Run
+    # this case with DOTNET_CLI_HOME set to a throwaway folder: the mutant writes to whatever list the caller has, and
+    # undoes only that write in its finally.
+    ("bd-w7-packaging-ci-1: template check: dotnet new installs into the caller's own template list (N-audit-1106-267)",
+     TEMPLATE_PS1,
+     b"    if (-not $CallerHome) {\n        foreach ($name in $templateHomeEnvironment.Keys) {\n",
+     b"    if ($false) {\n        foreach ($name in $templateHomeEnvironment.Keys) {\n",
+     None, None,
+     TEMPLATE, None, "the template install stayed out of the caller's own template list"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

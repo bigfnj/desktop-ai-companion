@@ -4723,6 +4723,37 @@ CASES = (
         b"      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>\n    </None> -->\n  </ItemGroup>\n\n  <!-- The validator",
         "bd-w5-converter-1: PetStudio.csproj copies base-conf\\NOTICE.txt to its output",
     ),
+    # ---- burndown/w7-packaging-ci-1 ----
+    # N-audit-1106-265: a request written to a dead catalog child is named as a dead child, not 'could not talk to the
+    # child', and the verifier's dead-child legs accept either pipe. "bd-w7-packaging-ci-1:" for one --only.
+    (
+        "bd-w7-packaging-ci-1: Get-CatalogAsset leaves a failed request write to the generic catch (N-audit-1106-265)",
+        os.path.join(REPO, "packaging", "ContentCatalogAssets.ps1"),
+        b"        catch [System.IO.IOException] {\n",
+        b"        catch [System.ArgumentException] {\n",
+        "w7-packaging-ci-1: Get-CatalogAsset names a failed request write as a dead child",
+    ),
+    (
+        "bd-w7-packaging-ci-1: Get-CatalogAsset reads a reply after a failed request write (N-audit-1106-265)",
+        os.path.join(REPO, "packaging", "ContentCatalogAssets.ps1"),
+        b"        if ($requestSent) {\n",
+        b"        if ($true) {\n",
+        "w7-packaging-ci-1: Get-CatalogAsset names a failed request write as a dead child",
+    ),
+    (
+        "bd-w7-packaging-ci-1: the catalog verifier's dead-child witness accepts only the output pipe (N-audit-1106-265)",
+        os.path.join(REPO, "packaging", "Test-ContentCatalogIntegrity.ps1"),
+        b"if ($deadThrew -notmatch 'exited or closed its (?:input|output) before answering' -or\n",
+        b"if ($deadThrew -notmatch 'exited or closed its output' -or\n",
+        "w7-packaging-ci-1: the catalog verifier's dead-child legs accept either pipe",
+    ),
+    (
+        "bd-w7-packaging-ci-1: the catalog verifier's closed-pipe leg no longer seeds the dead child (N-audit-1106-265)",
+        os.path.join(REPO, "packaging", "Test-ContentCatalogIntegrity.ps1"),
+        b"$script:CatalogAssetBatches[$deadKey] = $deadCached\n",
+        b"",
+        "w7-packaging-ci-1: the catalog verifier's dead-child legs accept either pipe",
+    ),
 )
 
 

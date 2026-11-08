@@ -212,21 +212,39 @@ function Get-CatalogAsset(
         }
 
         $request = [Text.Encoding]::UTF8.GetBytes("HEAD:$RelPath`n")
-        $batch.Stdin.Write($request, 0, $request.Length)
-        $batch.Stdin.Flush()
-
-        $header = Read-CatalogBatchLine $batch $TimeoutMs
-        if ($header.TimedOut) { $failure = 'timeout' }
-        elseif ($header.Eof) { $failure = 'the child exited or closed its output before answering' }
-        # ORDINAL, not -eq: PowerShell's -eq folds case, and the echo is the only reply that reaches the
-        # worktree fallback, so it is matched byte for byte; a BOM-prefixed or re-cased echo is an
-        # 'unexpected reply' and refused with the rest (RA-194).
-        elseif ([string]::Equals($header.Line, "HEAD:$RelPath missing", [StringComparison]::Ordinal)) { $missing = $true }
-        elseif ($header.Line -match '^[0-9a-f]{40,64} blob (\d+)$') {
-            $body = Read-CatalogBatchBody $batch ([long]$Matches[1]) $TimeoutMs
-            if ($body -is [string]) { $failure = $body } else { $bytes = $body }
+        # A CHILD ALREADY GONE IS A DEAD CHILD WHICHEVER PIPE NOTICES FIRST (N-audit-1106-265). Under pwsh the
+        # write to a child that has exited throws "The pipe is being closed." from Flush; Windows PowerShell's
+        # .NET Framework swallows that error for a pipe, so the same child surfaces as EOF on the read below.
+        # Both are the one failure (a one-off that died at once, or a cached git that died between two requests),
+        # so both are named alike: left to the generic catch, the write's exception read 'could not talk to the
+        # child', and the verifier's dead-child witness, whose one-off child races this write, failed CI whenever
+        # cmd.exe won the race. Only an IOException is this: anything else still reaches the generic catch.
+        # Measured 2026-11-07 with a cached child waited out before the request: pwsh 7.6.5 threw from Flush,
+        # powershell.exe 5.1 reached the EOF branch. Test-ContentCatalogIntegrity.ps1 drives that order.
+        $requestSent = $false
+        try {
+            $batch.Stdin.Write($request, 0, $request.Length)
+            $batch.Stdin.Flush()
+            $requestSent = $true
         }
-        else { $failure = "unexpected reply '$($header.Line)'" }
+        catch [System.IO.IOException] {
+            $failure = "the child exited or closed its input before answering ($($_.Exception.Message))"
+        }
+
+        if ($requestSent) {
+            $header = Read-CatalogBatchLine $batch $TimeoutMs
+            if ($header.TimedOut) { $failure = 'timeout' }
+            elseif ($header.Eof) { $failure = 'the child exited or closed its output before answering' }
+            # ORDINAL, not -eq: PowerShell's -eq folds case, and the echo is the only reply that reaches the
+            # worktree fallback, so it is matched byte for byte; a BOM-prefixed or re-cased echo is an
+            # 'unexpected reply' and refused with the rest (RA-194).
+            elseif ([string]::Equals($header.Line, "HEAD:$RelPath missing", [StringComparison]::Ordinal)) { $missing = $true }
+            elseif ($header.Line -match '^[0-9a-f]{40,64} blob (\d+)$') {
+                $body = Read-CatalogBatchBody $batch ([long]$Matches[1]) $TimeoutMs
+                if ($body -is [string]) { $failure = $body } else { $bytes = $body }
+            }
+            else { $failure = "unexpected reply '$($header.Line)'" }
+        }
     }
     catch {
         $failure = "could not talk to the child: $($_.Exception.Message)"

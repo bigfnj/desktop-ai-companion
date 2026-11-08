@@ -200,7 +200,14 @@ namespace DesktopAICompanion.SampleModule
             string value;
             if (values.TryGetValue("greeting", out value)) settings.Set("greeting", value);
             if (values.TryGetValue("enabled", out value)) settings.Set("enabled", value);
-            return settings.Save();
+            if (settings.Save()) return true;
+            // A FAILED WRITE DROPS THE HELD HANDLE. The host's settings object keeps every Set() in memory whether
+            // or not Save() landed, so the one handle above would go on reading the edit the disk never got: the
+            // pane would show it as saved and the poke would say it, until a restart quietly took it back. The
+            // next Settings() call fetches a fresh handle, and the host builds that one from the file, so after a
+            // failed save the module reads what is actually persisted.
+            _settings = null;
+            return false;
         }
 
         /// <summary>
@@ -255,12 +262,18 @@ namespace DesktopAICompanion.SampleModule
                     DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings fake = host.SettingsFor("samplemodule");
                     probe.Check("the pane persisted (Save() was called once)", fake.SaveCount == 1);
                     // And the degraded path is honest: a store that refuses the write makes Save report false and
-                    // the pane reads back what the disk still holds, not the edit that never landed.
-                    fake.FailSaves = true;
+                    // the pane reads back what the disk still holds, not the edit that never landed. Under the
+                    // shipped host that takes SavePaneValues dropping its handle, because the host's settings
+                    // object keeps a failed edit in memory. FakeModuleSettings puts the values back on a failed
+                    // Save() instead, so with fake.FailSaves this passed a module that kept reading its unsaved
+                    // edit (N-audit-1106-268). The held handle is swapped for UnwritableSettings, which fails a
+                    // write the way the host's object does, and the fake stays the disk the module reads again.
+                    module._settings = new UnwritableSettings();
                     probe.Check("a failed Save() is reported as a failure",
                         !pane.Save(new Dictionary<string, string> { { "greeting", "later" }, { "enabled", "true" } }));
                     probe.Check("a failed Save() leaves the last persisted value in place", pane.Load()["greeting"] == "hi");
-                    fake.FailSaves = false;
+                    probe.Check("WITNESS: after a failed Save() the module reads the host's settings again",
+                        ReferenceEquals(module._settings, fake));
 
                     // Behaviour: the third poke speaks.
                     host.RaiseCompanionPoked(new PokeInfo());
@@ -293,6 +306,19 @@ namespace DesktopAICompanion.SampleModule
             }
             catch (Exception ex) { probe.Exception(ex); }
             return probe.Finish(out detail);
+        }
+
+        /// <summary>The host's settings object when its file cannot be written: Set() lands in memory, Save()
+        /// reports false, and the object keeps the edit. SelfTest's stand-in for it, since ModuleKit's
+        /// FakeModuleSettings puts a failed Save()'s values back instead.</summary>
+        private sealed class UnwritableSettings : IModuleSettings
+        {
+            private readonly Dictionary<string, string> _values = new Dictionary<string, string>(StringComparer.Ordinal);
+            public string Get(string key, string fallback) { string v; return key != null && _values.TryGetValue(key, out v) ? v : fallback; }
+            public int GetInt(string key, int fallback) { int n; return int.TryParse(Get(key, null), out n) ? n : fallback; }
+            public bool GetBool(string key, bool fallback) { bool b; return bool.TryParse(Get(key, null), out b) ? b : fallback; }
+            public void Set(string key, string value) { if (key != null) _values[key] = value ?? ""; }
+            public bool Save() { return false; }
         }
     }
 }
