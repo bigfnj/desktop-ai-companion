@@ -6949,6 +6949,27 @@ Assert-True ($w11SkipAt -gt $w11PetAt -and $w11SizeAt -gt $w11SkipAt -and $w11Bl
     $w11ZoomAt -ge 0 -and $w11StyleAt -gt $w11ZoomAt -and
     $w11Framed -cmatch 'return \(style & WS_CAPTION\) == WS_CAPTION \|\| \(style & WS_THICKFRAME\) != 0;') (
     "w11-tests-scripts-1: the probe's replica skips a click-through window and never calls a framed maximized window fullscreen, with the app's constants (pet at $w11PetAt, skip at $w11SkipAt, size at $w11SizeAt, verdict at $w11BlockAt, zoomed at $w11ZoomAt, style at $w11StyleAt)")
+# THE REGISTRY CONCURRENCY PROBE REMOVES ITS EVIDENCE FOLDER ON A PASS AND KEEPS IT ON A FAILURE (N-bd-w10-tests-scripts-1-01).
+# tests\Test-PetTypeRegistryConcurrency.ps1 kept artifacts\pettyperegistry-concurrency-<guid> on every run, and the gate runs
+# it. ORDER, comment-stripped: the finally's failure branch writes the report and says where the folder is kept; past the
+# finally (which a failing run leaves by its throw), the leaf check, the reparse-point refusal, the recursive delete of
+# $evidence (the only recursive delete in the file), then the report written only when the folder survived. The report is
+# written in exactly those two places, so the old unconditional write in the finally fails here too.
+$w11Reg = Remove-PsLineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'tests\Test-PetTypeRegistryConcurrency.ps1') -Raw)
+$w11RegFinally = $w11Reg.IndexOf("`nfinally {", [StringComparison]::Ordinal)
+$w11RegKeep = $w11Reg.IndexOf('    if (-not $passed) {', [StringComparison]::Ordinal)
+$w11RegKept = $w11Reg.IndexOf('its evidence folder is kept for inspection: $evidence', [StringComparison]::Ordinal)
+$w11RegGuard = $w11Reg.IndexOf('(Split-Path -Leaf $evidence) -cnotmatch ''^pettyperegistry-concurrency-[0-9a-f]{32}$''', [StringComparison]::Ordinal)
+$w11RegLinks = $w11Reg.IndexOf('elseif (@(Get-ChildItem -LiteralPath $evidence -Recurse -Force -Attributes ReparsePoint).Count -gt 0) {', [StringComparison]::Ordinal)
+$w11RegDelete = $w11Reg.IndexOf('[IO.Directory]::Delete($evidence, $true)', [StringComparison]::Ordinal)
+$w11RegSurvived = $w11Reg.IndexOf('if (-not $evidenceRemoved) {', [StringComparison]::Ordinal)
+$w11RegRecursive = @([regex]::Matches($w11Reg, '\[IO\.Directory\]::Delete\([^()]*,\s*\$true\)')).Count
+$w11RegWrites = @([regex]::Matches($w11Reg, '\[IO\.File\]::WriteAllText\(\(Join-Path \$evidence ''result\.json''\)') | ForEach-Object { $_.Index })
+Assert-True ($w11Reg.Length -gt 0 -and $w11RegFinally -ge 0 -and $w11RegKeep -gt $w11RegFinally -and $w11RegKept -gt $w11RegKeep -and
+    $w11RegGuard -gt $w11RegKept -and $w11RegLinks -gt $w11RegGuard -and $w11RegDelete -gt $w11RegLinks -and
+    $w11RegSurvived -gt $w11RegDelete -and $w11RegRecursive -eq 1 -and $w11RegWrites.Count -eq 2 -and
+    $w11RegWrites[0] -gt $w11RegKeep -and $w11RegWrites[0] -lt $w11RegKept -and $w11RegWrites[1] -gt $w11RegSurvived) (
+    "w11-tests-scripts-1: the registry concurrency probe removes its evidence folder on a pass and keeps it on a failure, leaf and reparse points checked first (finally at $w11RegFinally, keep at $w11RegKeep, guard at $w11RegGuard, reparse at $w11RegLinks, delete at $w11RegDelete, survived at $w11RegSurvived, recursive deletes $w11RegRecursive, report writes $($w11RegWrites.Count))")
 
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that

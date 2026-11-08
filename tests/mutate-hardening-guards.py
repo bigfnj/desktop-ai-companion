@@ -5312,6 +5312,29 @@ CASES = (
         b"    private const int ClickThroughStyle = 0x00080000;\n",
         "w11-tests-scripts-1: the probe's replica skips a click-through window",
     ),
+    # N-bd-w10-tests-scripts-1-01: the registry concurrency probe keeps its evidence folder on a pass again, deletes it
+    # without the leaf check, or stops keeping its report on a failure.
+    (
+        "bd-w11-tests-scripts-1: the registry probe keeps its evidence folder on a pass (N-bd-w10-tests-scripts-1-01)",
+        os.path.join(REPO, "tests", "Test-PetTypeRegistryConcurrency.ps1"),
+        b"        [IO.Directory]::Delete($evidence, $true)\n        $evidenceRemoved",
+        b"        $evidenceRemoved",
+        "w11-tests-scripts-1: the registry concurrency probe removes its evidence folder",
+    ),
+    (
+        "bd-w11-tests-scripts-1: the registry probe deletes its evidence folder without the leaf check (N-bd-w10-tests-scripts-1-01)",
+        os.path.join(REPO, "tests", "Test-PetTypeRegistryConcurrency.ps1"),
+        b"(Split-Path -Leaf $evidence) -cnotmatch '^pettyperegistry-concurrency-[0-9a-f]{32}$') {",
+        b"$false) {",
+        "w11-tests-scripts-1: the registry concurrency probe removes its evidence folder",
+    ),
+    (
+        "bd-w11-tests-scripts-1: the registry probe writes its report on a pass inside the finally (N-bd-w10-tests-scripts-1-01)",
+        os.path.join(REPO, "tests", "Test-PetTypeRegistryConcurrency.ps1"),
+        b"    if (-not $passed) {\n",
+        b"    if ($true) {\n",
+        "w11-tests-scripts-1: the registry concurrency probe removes its evidence folder",
+    ),
 )
 
 
