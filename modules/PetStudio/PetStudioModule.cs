@@ -394,10 +394,12 @@ namespace DesktopAICompanion.PetStudioModule
             // radius than Remembrance's but the same defect: the companion speaks for a module whose
             // consent line said it does not.
             // LaunchProcess: an Android-bundle import runs the bundled dwebp.exe once per .webp sprite
-            // (WebPLoader, source-linked), and a skin with sounds runs ffmpeg and ffprobe when they are on
-            // PATH (SoundBaker in Engine.cs). The flag gates nothing at runtime -- the module spawns them
-            // itself -- so this line is disclosure on the consent screen and the "wants:" row, and the
-            // module self-test is the only thing that notices it gone (F226; AiBrain and Remembrance
+            // (WebPLoader, source-linked), and a skin with sounds runs ffmpeg when one is found: the
+            // SHIMEJICONVERT_FFMPEG override, a native\ffmpeg.exe in the app's folder, or ffmpeg.exe on
+            // PATH (FindFfmpeg in Engine.cs, source-linked; nothing runs ffprobe). The flag gates nothing
+            // at runtime -- the module spawns them itself -- so this line is disclosure on the consent
+            // screen and the "wants:" row, and the module self-test is the only thing that notices it
+            // gone (F226; AiBrain and Remembrance
             // declared theirs the same day, for ollama and whisper-cli).
             Permissions = ModulePermissions.Speech | ModulePermissions.Animation
                           | ModulePermissions.Companions | ModulePermissions.Storage
