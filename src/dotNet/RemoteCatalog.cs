@@ -175,14 +175,26 @@ namespace DesktopAICompanion
             {
                 if (text.Length >= max) { text.Append('…'); break; }
                 char c = value[i];
-                UnicodeCategory category = char.GetUnicodeCategory(c);
+                // A WELL-FORMED surrogate pair is one character to a reader (an emoji in a catalog name), judged by
+                // its code point's category, so the hidden ones above the BMP (tag characters, plane 15 and 16
+                // private use, unassigned) still read as '?'. Until N-audit-1106-243 every surrogate was replaced,
+                // which made each emoji '??' although this summary promised to replace only lone ones. A kept pair
+                // counts as two against the bound, the length the caller sized it by, and is never split by it.
+                bool pair = char.IsHighSurrogate(c) && i + 1 < value.Length && char.IsLowSurrogate(value[i + 1]);
+                UnicodeCategory category = pair ? CharUnicodeInfo.GetUnicodeCategory(value, i) : char.GetUnicodeCategory(c);
                 if (char.IsControl(c) || category == UnicodeCategory.Format ||
                     category == UnicodeCategory.LineSeparator || category == UnicodeCategory.ParagraphSeparator ||
                     category == UnicodeCategory.PrivateUse || category == UnicodeCategory.OtherNotAssigned ||
                     category == UnicodeCategory.Surrogate)
                     text.Append('?');
                 else if (c == '"') text.Append('\'');
+                else if (pair)
+                {
+                    if (text.Length + 2 > max) { text.Append('…'); break; }
+                    text.Append(c).Append(value[i + 1]);
+                }
                 else text.Append(c);
+                if (pair) i++;
             }
             return text.ToString();
         }
@@ -1689,6 +1701,16 @@ namespace DesktopAICompanion
             Check("Echo shows bidi, zero-width and control characters as '?', a quote as an apostrophe, and stops at its bound (" +
                   echoed + ")",
                   echoed == "a?b?c?'zzz…");
+            // N-audit-1106-243: a well-formed pair (an emoji) is kept whole; a hidden code point above the BMP (a tag
+            // character, plane 15 private use) and a lone surrogate still read as '?'; the bound never splits a pair.
+            string emoji = char.ConvertFromUtf32(0x1F600);
+            string echoedPairs = CatalogText.Echo("a" + emoji + "b" + char.ConvertFromUtf32(0xE0041) +
+                                                  char.ConvertFromUtf32(0xF0000) + emoji.Substring(0, 1) + "c", 40);
+            Check("Echo keeps a well-formed surrogate pair such as an emoji whole, and shows a tag character, private use above the BMP and a lone surrogate as '?' (" +
+                  echoedPairs.Length + " chars)",
+                  echoedPairs == "a" + emoji + "b???c");
+            Check("Echo never splits a kept pair at its bound: it stops before a pair that does not fit, and keeps one that does",
+                  CatalogText.Echo("abc" + emoji, 4) == "abc…" && CatalogText.Echo("abc" + emoji, 5) == "abc" + emoji);
 
             // THE LOCAL ENUMERATION, whose two entry points must agree.
             //
