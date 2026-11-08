@@ -4395,6 +4395,23 @@ CASES = (
         b"            return ProbeFfmpeg(\"ffmpeg\") ? \"ffmpeg\" : null;\n",
         "w4-converter-1: the converter's PATH ffmpeg candidate is FfmpegOnPath's full path",
     ),
+    # ---- burndown/w5-agentflow-1 ----
+    # The tick's two opt-in last looks go, one at a time, or move past the sweep (N-bd-w4-agentflow-1-02).
+    # "bd-w5-agentflow-1:" for one --only.
+    (
+        "bd-w5-agentflow-1: the tick no longer hands the pass the all-projects last look (N-bd-w4-agentflow-1-02)",
+        os.path.join(REPO, "modules", "AgentFlow", "AgentFlowModule.cs"),
+        b"                    pass.AllProjectsNow = StillAllProjects;\n",
+        b"",
+        "w5-agentflow-1: the tick hands its sweep pass the live opt-in switches before it sweeps",
+    ),
+    (
+        "bd-w5-agentflow-1: the tick hands the pass a constant similar-commands look (N-bd-w4-agentflow-1-02)",
+        os.path.join(REPO, "modules", "AgentFlow", "AgentFlowModule.cs"),
+        b"                    pass.SimilarNow = StillSimilar;\n",
+        b"                    pass.SimilarNow = () => true;\n",
+        "w5-agentflow-1: the tick hands its sweep pass the live opt-in switches before it sweeps",
+    ),
 )
 
 

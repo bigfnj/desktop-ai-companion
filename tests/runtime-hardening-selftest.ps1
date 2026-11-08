@@ -5986,6 +5986,27 @@ Assert-True ($w4LowPins.Count -eq 0) (
     "w4-contracts-1: no src project pins WarningLevel below the net10 default of 10" +
     $(if ($w4LowPins.Count) { ' -- ' + ($w4LowPins -join ', ') } else { '' }))
 
+# ---- burndown/w5-agentflow-1 ----
+# THE TICK HANDS ITS SWEEP PASS THE TWO OPT-INS' LAST LOOK (N-bd-w4-agentflow-1-02). N-audit-1106-095 gave SweepPass an
+# AllProjectsNow and a SimilarNow, read inside Decide right before the click, so unticking "for all projects" or "Allow
+# similar commands" reaches a sweep already under way. The module self-test drives the pass with its own delegates; what it
+# cannot see is that the TICK assigns them, and with either line gone the pass falls back to the snapshot taken before a
+# sweep several round trips long, every runtime assertion green. ORDER, method-scoped and comment-stripped: each live
+# delegate is assigned after the pass is built and before SweepOnce is handed it.
+$w5afTick = Get-MethodBody (Remove-LineComments (Get-Content -LiteralPath (
+    Join-Path $repoRoot 'modules\AgentFlow\AgentFlowModule.cs') -Raw)) 'private void OnTick(object sender, EventArgs args)' `
+    @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($w5afTick.Length -gt 0) 'w5-agentflow-1: AgentFlow OnTick could be sliced out for inspection'
+$w5afPassAt = $w5afTick.IndexOf('var pass = new SweepPass(', [StringComparison]::Ordinal)
+$w5afAllAt = $w5afTick.IndexOf('pass.AllProjectsNow = StillAllProjects;', [StringComparison]::Ordinal)
+$w5afSimilarAt = $w5afTick.IndexOf('pass.SimilarNow = StillSimilar;', [StringComparison]::Ordinal)
+$w5afSweepAt = $w5afTick.IndexOf('SweepOnce(cdpPort, pass, ', [StringComparison]::Ordinal)
+Assert-True ($w5afPassAt -ge 0 -and $w5afSweepAt -gt $w5afPassAt -and
+    $w5afAllAt -gt $w5afPassAt -and $w5afAllAt -lt $w5afSweepAt -and
+    $w5afSimilarAt -gt $w5afPassAt -and $w5afSimilarAt -lt $w5afSweepAt) (
+    "w5-agentflow-1: the tick hands its sweep pass the live opt-in switches before it sweeps (N-bd-w4-agentflow-1-02)" +
+    " (pass at $w5afPassAt, all-projects at $w5afAllAt, similar at $w5afSimilarAt, sweep at $w5afSweepAt)")
+
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever
