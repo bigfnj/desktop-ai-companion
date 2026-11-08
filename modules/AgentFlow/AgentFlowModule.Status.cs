@@ -89,6 +89,8 @@ namespace DesktopAICompanion.AgentFlow
                     return "✗ Not connected: VS Code is not set up. Press “" + EnableLabel + "”, then restart VS Code.";
                 case SetupState.Inert:
                     return "✗ Not connected: the debugging port is set in a form VS Code ignores. See VSCode Enablement below.";
+                case SetupState.OtherPort:
+                    return "✗ Not connected: argv.json asks for a different port from the one AgentFlow reads. See VSCode Enablement below.";
                 case SetupState.Unreadable:
                     return "✗ Not connected: argv.json is not a file AgentFlow will edit. See VSCode Enablement below.";
                 default:

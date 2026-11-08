@@ -20,7 +20,9 @@ namespace DesktopAICompanion.AgentFlow
     ///
     /// NOT EVERY QUIP CAN ALWAYS BE USED. The project folder is unknown for some sessions and the
     /// tool name for others, so each quip declares what it needs and the picker only draws from
-    /// the ones it can fill. Fourteen need neither, which is the floor: there is always a pool.
+    /// the ones it can fill. The group at the end of the table needs neither, which is the floor: there is always a pool,
+    /// and the self-test holds that group to at least five. No count is written here: "fourteen" stood beside a group of
+    /// thirteen (N-audit-1106-113).
     /// </summary>
     internal sealed class Quip
     {
@@ -114,7 +116,7 @@ namespace DesktopAICompanion.AgentFlow
         /// The no-repeat rule is not politeness. The notify budget lets one notice through every
         /// couple of minutes, so consecutive draws are the ones a user actually hears back to
         /// back, and hearing the same sentence twice running is the whole difference between a pet
-        /// and an alarm. With fourteen quips in the smallest pool it costs nothing.
+        /// and an alarm. The smallest pool is the whole need-neither group, so it costs nothing.
         /// </summary>
         public string Next(string project, string tool, string duration)
         {

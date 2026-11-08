@@ -819,12 +819,7 @@ namespace DesktopAICompanion.AgentFlow
                                 + "you and is set above. This section is only about being TOLD "
                                 + "when an agent has been sitting there waiting." },
                 { "watchState", WatchState },
-                { "aboutCodex", "Codex prompts are clicked for you already. Being TOLD a Codex "
-                                + "session is stuck is newer and more cautious: it waits three "
-                                + "minutes, where Claude waits thirty seconds, because a Codex "
-                                + "transcript carries no command to check against your permission "
-                                + "rules, so the wait is the only evidence there is. Sessions that "
-                                + "never stop to ask are skipped entirely." },
+                { "aboutCodex", CodexNoteText() },
             };
             AddSessionLimitValues(values);
             AddStatusValues(values);
@@ -870,6 +865,29 @@ namespace DesktopAICompanion.AgentFlow
 
         /// <summary>Self-test seam: the press card, which is a private render of two settings.</summary>
         internal string PressCardForSelfTest() { return PressCardText(); }
+
+        /// <summary>
+        /// The "About Codex" note, which follows the mode (N-audit-1106-110). It said "Codex prompts are clicked for
+        /// you already" to every user, and only auto-approve presses anything: in Notify, Log or Off nothing is
+        /// clicked. The note is still the sentence that stops someone thinking Codex is unsupported, so outside
+        /// auto-approve it says that auto-approve covers Codex too and that it is not the mode chosen. The press path
+        /// does not read the Watch Codex box, so in auto-approve the first sentence holds whatever that box says.
+        /// </summary>
+        private string CodexNoteText()
+        {
+            string opening = AgentMode.Presses(Mode)
+                ? "Codex prompts are clicked for you already, the same as Claude's. "
+                : "Auto-approve clicks Codex prompts as well as Claude's, but it is not the mode chosen above, "
+                  + "so nothing is clicked for you now. ";
+            return opening + "Being TOLD a Codex session is stuck is newer and more cautious: it waits three "
+                   + "minutes, where Claude waits thirty seconds, because a Codex "
+                   + "transcript carries no command to check against your permission "
+                   + "rules, so the wait is the only evidence there is. Sessions that "
+                   + "never stop to ask are skipped entirely.";
+        }
+
+        /// <summary>Self-test seam: the Codex note, a private render of the mode.</summary>
+        internal string CodexNoteForSelfTest() { return CodexNoteText(); }
 
         private string StoredAnimName(string pet)
         {

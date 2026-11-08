@@ -212,7 +212,9 @@ namespace DesktopAICompanion.AgentFlow
         /// request renders in its own element. Codex cards carry an element id too since 1.11.0.
         ///
         /// Since 1.11.0 the sweep calls <see cref="EndSweep"/> instead, which does this per card; this
-        /// clears every card at once and is kept for the assertions that model "the card went away".
+        /// clears every card at once. No shipped code and, since N-bd-w4-agentflow-1-01, no assertion calls
+        /// it: every witness of "the card went away" now goes through EndSweep. It is kept because the RA-049
+        /// mutation case in tests/mutate-agentflow.py puts the 1.4.0 clear-on-click back by calling it.
         /// </summary>
         public void NotePromptCleared()
         {

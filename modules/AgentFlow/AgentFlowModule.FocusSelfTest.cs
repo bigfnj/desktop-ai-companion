@@ -338,6 +338,30 @@ namespace DesktopAICompanion.AgentFlow
                 }
             }
 
+            // ---- (e6) a press the card's own script dispatches opens nothing (N-agentflow-focus-01) --------------------------
+            // The allowance opens only on a TRUSTED press. A page can dispatch pointerdown and mousedown itself, and those
+            // arrive with isTrusted false, so without the test a card could open the one-second window for itself and
+            // focus whatever it liked inside it. (e5) above is this check's positive control: the same mount and focus
+            // after the user's own press goes through.
+            using (FakeFocusPage page = FakeFocusPage.TryCreate(out why))
+            {
+                page.AddFrame("A", "claude", "none");
+                page.AddFrame("C", "codex", "none");
+                page.UserIn("A");
+                using (var server = new FakeCdpServer(new[] { FocusTarget(page, "A", claudeMarker, "none"),
+                                                              FocusTarget(page, "C", codexMarker, "none") }))
+                {
+                    FocusSweep(server, true, true, out pass);
+                    page.ScriptPressNoFocus("C");
+                    page.Advance(100);
+                    string forged = page.State();
+                    probe.Check("(N-agentflow-focus-01) a pointer press the card's own script dispatches opens no gesture allowance, "
+                                + "and the menu's focus 50 ms later is held (" + FocusBrief(forged) + ")",
+                        FocusBool(forged, "C", "hold") && !FocusBool(forged, "C", "allowing")
+                        && FocusStr(forged, null, "focused") == "A" && FocusStr(forged, null, "log") == "");
+                }
+            }
+
             // ---- (h) detection answers only for its own press ------------------------------------------------------------------------
             using (FakeFocusPage page = FakeFocusPage.TryCreate(out why))
             {
@@ -635,6 +659,38 @@ namespace DesktopAICompanion.AgentFlow
                                 + heldOpen.ToString(CultureInfo.InvariantCulture) + " then "
                                 + module.GuardDegradedHeldForSelfTest.ToString(CultureInfo.InvariantCulture) + " held)",
                         module.GuardDegradedHeldForSelfTest == 0);
+                }
+            }
+
+            // ---- (U2) an attach that THROWS is counted the same way (N-agentflow-focus-02) -----------------------------------
+            // The connection dies at the Codex panel's attach: no reply, no close handshake. The sweep still ends in its
+            // generic failure line, and the panel is now also reported once as unconfirmed, as a refused attach is in (U).
+            using (FakeFocusPage page = FakeFocusPage.TryCreate(out why))
+            using (var storage = new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow-focus-attach-throws"))
+            {
+                page.AddFrame("A", "claude", "none");
+                page.AddFrame("C", "codex", "none");
+                page.UserIn(null);
+                var targetC = FocusTarget(page, "C", codexMarker, "none");
+                targetC.AbortOnAttach = true;
+                using (var server = new FakeCdpServer(new[] { FocusTarget(page, "A", claudeMarker, "none"), targetC }))
+                {
+                    var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                    AgentFlowModule module = SpeakingModule(host, storage, AgentMode.AutoApprove);
+                    var ticket = new FocusGuardTicket { LeaseMs = 60000 };
+                    string ended = FocusSweep(server, true, ticket, out pass);
+                    module.LogFocusGuardOutcome(ticket);
+                    module.LogFocusGuardOutcome(ticket);
+                    probe.Check("WITNESS (N-agentflow-focus-02) an attach that throws still ends the sweep in its failure line ("
+                                + (ended ?? "<no note>") + ")",
+                        ended != null && ended.IndexOf("could not finish", StringComparison.Ordinal) >= 0);
+                    probe.Check("(N-agentflow-focus-02) a panel whose attach throws is reported once as unconfirmed, apart from a failed "
+                                + "install, beside a healthy panel that is guarded ("
+                                + CountLoggedContaining(host.LoggedLines, "could not be confirmed").ToString(CultureInfo.InvariantCulture) + " line(s))",
+                        ticket.Installed.Contains("A") && ticket.Unconfirmed.Count == 1 && ticket.Unconfirmed[0].Key == "C"
+                        && ticket.Failed.Count == 0
+                        && CountLoggedContaining(host.LoggedLines, FocusGuardUnconfirmedNote(CdpApprover.AgentCodex)) == 1
+                        && CountLoggedContaining(host.LoggedLines, "could not be installed") == 0);
                 }
             }
             return true;

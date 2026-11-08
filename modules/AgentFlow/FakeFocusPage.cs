@@ -144,6 +144,10 @@ namespace DesktopAICompanion.AgentFlow
         /// mounts 50 ms later and focuses itself in script.</summary>
         internal void UserPressNoFocus(string frame) { Run("__page.userPressNoFocus('" + frame + "'); 'ok'"); }
 
+        /// <summary>The card's own script dispatches an UNTRUSTED pointerdown and mousedown in <paramref name="frame"/>,
+        /// then mounts a menu that focuses itself 50 ms later, as <see cref="UserPressNoFocus"/> does for the user.</summary>
+        internal void ScriptPressNoFocus(string frame) { Run("__page.scriptPressNoFocus('" + frame + "'); 'ok'"); }
+
         /// <summary>The user leaves <paramref name="from"/> by keyboard alone: a trusted Ctrl keydown delivered there, then
         /// the browser's own focus move to <paramref name="to"/>, or out of every panel when it is null.</summary>
         internal void UserKeyTo(string from, string to)
@@ -456,6 +460,19 @@ var __page = (function () {
     var f = page.frames[name];
     trusted(f.inner, { type: 'pointerdown' });
     trusted(f.inner, { type: 'mousedown' });
+    f.inner.setTimeout(function () {
+      var menu = f.inner.make('div', { role: 'menu' });
+      f.inner.document.body.appendChild(menu);
+      f.menu = menu;
+      menu.focus();
+    }, 50);
+  };
+  // The card's OWN script dispatches a pointerdown and a mousedown (N-agentflow-focus-01): isTrusted false, as every
+  // event a page builds and dispatches is, then the same menu mount and script focus 50 ms later as the user's press.
+  page.scriptPressNoFocus = function (name) {
+    var f = page.frames[name];
+    f.inner.fire({ type: 'pointerdown', isTrusted: false });
+    f.inner.fire({ type: 'mousedown', isTrusted: false });
     f.inner.setTimeout(function () {
       var menu = f.inner.make('div', { role: 'menu' });
       f.inner.document.body.appendChild(menu);

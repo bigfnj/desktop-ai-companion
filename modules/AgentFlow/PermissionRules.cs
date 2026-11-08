@@ -83,7 +83,7 @@ namespace DesktopAICompanion.AgentFlow
             var builder = new StringBuilder(value.Length + 8);
             foreach (char ch in value)
             {
-                // Every regex metacharacter EXCEPT '*', which the caller rewrites to '.*'.
+                // Every regex metacharacter EXCEPT '*', which the caller rewrites to '[\s\S]*'.
                 if (".+?^${}()|[]\\".IndexOf(ch) >= 0) builder.Append('\\');
                 builder.Append(ch);
             }
@@ -136,12 +136,20 @@ namespace DesktopAICompanion.AgentFlow
                 if (CommandTools.Contains(tool) && wildcards == 1
                     && inner.EndsWith(" *", StringComparison.Ordinal))
                 {
-                    // ` .*` optional, which is what lets the prefix alone match too.
+                    // ` [\s\S]*` optional, which is what lets the prefix alone match too.
                     return EscapeLiteral(tool) + "\\("
-                           + EscapeLiteral(inner.Substring(0, inner.Length - 2)) + "( .*)?\\)";
+                           + EscapeLiteral(inner.Substring(0, inner.Length - 2)) + "( [\\s\\S]*)?\\)";
                 }
             }
-            return EscapeLiteral(normalized).Replace("*", ".*");
+            // `*` is any run of characters, a line break included (N-audit-1106-112), in both wildcard paths, for the
+            // reason the whole-tool path above gives: a regex `.` stops at a newline, and a command part keeps its line
+            // breaks when they sit inside quotes or a substitution, as a commit message written through a heredoc in
+            // `"$(cat <<'EOF' ... EOF)"` does. With `.*` here `Bash(git commit *)` judged that commit would-prompt, so a
+            // stalled multi-line call the user had allowed read as blocked and its approval went uncounted. A prefix
+            // rule is a prefix, and the Python harness's `startswith` already spans lines. RegexOptions.Singleline at
+            // the compile was the other way to say it; it was not taken because RuleRegexSource is the form the
+            // assertions read, and it would hide the property from them.
+            return EscapeLiteral(normalized).Replace("*", "[\\s\\S]*");
         }
 
         private static Regex CompiledRule(string rule)

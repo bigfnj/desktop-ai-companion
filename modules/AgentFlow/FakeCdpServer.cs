@@ -68,6 +68,10 @@ namespace DesktopAICompanion.AgentFlow
             public bool Throws;
             /// <summary>Refuse the attach, as a target that vanished mid-sweep does.</summary>
             public bool RefuseAttach;
+            /// <summary>Drop the whole connection when this target is attached: no reply and no close handshake, so the
+            /// client's Attach THROWS rather than answering null, as a socket that dies mid-sweep does
+            /// (N-agentflow-focus-02).</summary>
+            public bool AbortOnAttach;
             /// <summary>Click templates this target answered with <see cref="ClickResult"/> (1.11.0), so a test
             /// can say WHICH panel a sweep pressed and how often, not only that something was evaluated.</summary>
             public int Clicks;
@@ -214,6 +218,11 @@ namespace DesktopAICompanion.AgentFlow
                         string targetId = StringField(request, "targetId");
                         Target target = Find(targetId);
                         lock (_lock) { _attachCount++; }
+                        if (target != null && target.AbortOnAttach)
+                        {
+                            socket.Abort();
+                            return;
+                        }
                         if (target == null || target.RefuseAttach)
                         {
                             Send(socket, "{\"id\":" + id + ",\"error\":{\"message\":\"No such target\"}}");
