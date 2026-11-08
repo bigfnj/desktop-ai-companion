@@ -46,6 +46,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "startup-unmapped-name", Run = (Action)StartupUnmappedName },
                 new { Name = "startup-ambiguous-name", Run = (Action)StartupAmbiguousName },
                 new { Name = "missing-next-recovery-option", Run = (Action)MissingNextRecoveryOption },
+                new { Name = "missing-next-unselectable", Run = (Action)MissingNextUnselectable },
                 new { Name = "skipped-member-api-controls", Run = (Action)SkippedMemberApiControls },
                 new { Name = "recovered-drop-residue", Run = (Action)RecoveredDropResidue },
                 new { Name = "member-diagnostic-headings", Run = (Action)MemberDiagnosticHeadings },
@@ -210,9 +211,11 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             {
                 PackConversionOptions options = Options();
                 options.Members = new Dictionary<string, PackMemberOptions> { { "Absent", new PackMemberOptions { Role = "form" } } };
-                Refused(fixture, options, "Absent");
+                // N-audit-1106-158: each refusal is identified by its diagnostic, not by a token the error echoes from the
+                // input ("Absent", "role"), which a refusal for another reason could carry too.
+                Refused(fixture, options, "TICK_PACK_OPTIONS_UNKNOWN: member metadata names an image set that is not in this pack: Absent");
                 options.Members = new Dictionary<string, PackMemberOptions> { { "Alpha", new PackMemberOptions { Role = "mystery" } } };
-                Refused(fixture, options, "role");
+                Refused(fixture, options, "TICK_PACK_ROLE_INVALID: image set 'Alpha' has unknown role 'mystery'");
                 options.Members = new Dictionary<string, PackMemberOptions> { { "bad/key", new PackMemberOptions() } };
                 PackConversionResult invalid = Refused(fixture, options,
                     "TICK_PACK_MEMBER_INVALID: member metadata has an invalid image-set key: 'bad/key'.");
@@ -225,7 +228,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             {
                 PackConversionOptions options = Options();
                 options.Startup = new PackStartupOptions { Member = "Absent", Behaviour = "Main" };
-                Refused(fixture, options, "Absent");
+                Refused(fixture, options, "header/startup names member 'Absent', which this pack does not have");
             }
         }
         private static void StartupBehaviour()
@@ -234,7 +237,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             {
                 PackConversionOptions options = Options();
                 options.Startup = new PackStartupOptions { Member = "Alpha", Behaviour = "Absent" };
-                Refused(fixture, options, "Absent");
+                Refused(fixture, options, "TICK_PACK_STARTUP_UNMAPPED: image set 'Alpha' cannot resolve startup behaviour 'Absent'");
             }
         }
         private static void EggReturn()
@@ -245,7 +248,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 PackConversionOptions options = Options();
                 options.Members = new Dictionary<string, PackMemberOptions> { { "Egg (2)", new PackMemberOptions { Role = "egg", Hidden = true } } };
                 options.Startup = new PackStartupOptions { Member = "Egg (2)", Behaviour = "Hatch" };
-                Refused(fixture, options, "egg");
+                Refused(fixture, options, "The startup egg 'Egg (2)' never transforms back into the main member 'Alpha'");
             }
         }
 
@@ -273,6 +276,12 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     "refused member lost its residue diagnostic");
                 Require(result.Errors.Count == 1 && !result.Errors.Any(e => e.Contains("header/pack") || e.Contains("exactly one main member")),
                     "partial source diagnostic preview acquired spurious pack-validator errors");
+                // N-shimeji-1106-08: the refusal names its member once, in the pack API's own prefix, then the source key.
+                Require(result.Errors[0].StartsWith("Image set 'Bad': ", StringComparison.Ordinal)
+                    && !result.Errors[0].StartsWith("Image set 'Bad': Bad", StringComparison.Ordinal)
+                    && result.Errors[0].Contains("Image set 'Bad': actions.xml#/")
+                    && Member(result, "Bad").Error.StartsWith("actions.xml#/", StringComparison.Ordinal),
+                    "a refused member's error names its image set twice before the diagnostic: " + result.Errors[0]);
                 foreach (PackMemberConversionResult preview in result.Members.Where(m => m.Disposition == PackMemberDisposition.Prepared))
                     Require(preview.Root.Header.Pack == null && preview.Residue.MemberNotes.Any(n => n.Contains("diagnostic preview carries no pack role or visibility metadata"))
                         && !preview.Residue.MemberNotes.Any(n => n.Contains("remains hidden in the converted pack") || n.Contains("as visible in the converted pack")),
@@ -625,6 +634,35 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                         options.RecoverMissingNext = recover;
                         Refused(fixture, options, "TICK_NEXT_MISSING_SCRIPTED");
                     }
+        }
+
+        /// <summary>Decision 117: a next entry naming no root behaviour that the source never selects (here a literal
+        /// Frequency of 0) is dropped whatever RecoverMissingNext says. The pack API reports it once in Warnings and once
+        /// among the member's notes, prefixed with its image set, and files nothing in the member's Dropped: nothing the
+        /// source does is lost. A sibling is untouched.</summary>
+        private static void MissingNextUnselectable()
+        {
+            foreach (bool recover in new[] { false, true })
+                using (var fixture = new Fixture())
+                {
+                    XDocument behaviours = Behaviours();
+                    behaviours.Root.Element("BehaviorList").Elements("Behavior").First().Add(
+                        E("NextBehaviorList", A("Add", true), E("BehaviorReference", A("Name", "Ghost"), A("Action", "Stand"), A("Frequency", 0))));
+                    fixture.Member("Alpha", Actions(), behaviours);
+                    fixture.Member("Beta", Actions(), Behaviours());
+                    PackConversionOptions options = Options();
+                    options.RecoverMissingNext = recover;
+                    PackConversionResult result = Accepted(fixture, options);
+                    const string Warned = "Image set 'Alpha': TICK_NEXT_MISSING_UNSELECTABLE: behaviour 'Main': the next entry 'Ghost'";
+                    PackMemberConversionResult alpha = Member(result, "Alpha"), beta = Member(result, "Beta");
+                    Require(result.Warnings.Count(w => w.StartsWith(Warned, StringComparison.Ordinal)) == 1
+                        && alpha.Residue.MemberNotes.Count(n => n.StartsWith(Warned, StringComparison.Ordinal)) == 1,
+                        "the pack API did not report a dropped never-selected next entry once in Warnings and once in its member's notes (recovery "
+                        + recover + "): " + string.Join(" | ", result.Warnings));
+                    Require(alpha.Residue.Dropped.Count == 0 && !result.Warnings.Any(w => w.Contains("policy:next-missing-dropped"))
+                        && !beta.Residue.MemberNotes.Any(n => n.Contains("'Ghost'")),
+                        "a never-selected next entry was filed as a policy drop, or reached a sibling (recovery " + recover + ")");
+                }
         }
 
         /// <summary>

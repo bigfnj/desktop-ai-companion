@@ -4704,6 +4704,25 @@ CASES = (
         b"            $shimejiSuiteFloor = 9\n",
         "ShimejiConvert suite floors equal the suites run",
     ),
+    # ---- burndown/w5-converter-1 ----
+    # N-bd-w2-docs-1-01: Pet Studio embeds the base-conf XML again without copying its BSD notice to its output.
+    # "bd-w5-converter-1:" for one --only.
+    (
+        "bd-w5-converter-1: PetStudio ships the base-conf XML without its NOTICE.txt (N-bd-w2-docs-1-01)",
+        os.path.join(REPO, "modules", "PetStudio", "PetStudio.csproj"),
+        b"    <None Include=\"..\\..\\tools\\ShimejiConvert.Engine\\base-conf\\NOTICE.txt\" Link=\"base-conf\\NOTICE.txt\">\n",
+        b"    <None Include=\"..\\..\\tools\\ShimejiConvert.Engine\\base-conf\\NOTICE.txt\">\n",
+        "bd-w5-converter-1: PetStudio.csproj copies base-conf\\NOTICE.txt to its output",
+    ),
+    (
+        "bd-w5-converter-1: PetStudio's base-conf NOTICE.txt is commented out (N-bd-w2-docs-1-01)",
+        os.path.join(REPO, "modules", "PetStudio", "PetStudio.csproj"),
+        b"    <None Include=\"..\\..\\tools\\ShimejiConvert.Engine\\base-conf\\NOTICE.txt\" Link=\"base-conf\\NOTICE.txt\">\n"
+        b"      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>\n    </None>\n  </ItemGroup>\n\n  <!-- The validator",
+        b"    <!-- <None Include=\"..\\..\\tools\\ShimejiConvert.Engine\\base-conf\\NOTICE.txt\" Link=\"base-conf\\NOTICE.txt\">\n"
+        b"      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>\n    </None> -->\n  </ItemGroup>\n\n  <!-- The validator",
+        "bd-w5-converter-1: PetStudio.csproj copies base-conf\\NOTICE.txt to its output",
+    ),
 )
 
 

@@ -248,10 +248,13 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
         private static IEnumerable<string> FindImgDirs(string root)
         {
             // Gather every candidate folder (preferred locations first, then a capped descendant sweep) and
-            // rank by how many sprites it actually holds, richest first. Real downloads nest sprites in ways a
-            // fixed root/img/<Skin> assumption misses -- e.g. img/<Skin>/shime*.png next to an icon-only img/,
-            // or a whole pack of sibling <Character>/img folders -- so a stray icon.png dir must never outrank
-            // the true sprite folder. shime-named sprites win ties so a skin's frames beat a banner/icon dir.
+            // rank them: by how many shime*.png sprites a folder holds, most first, and only then by how many
+            // .png files it holds in all. Real downloads nest sprites in ways a fixed root/img/<Skin> assumption
+            // misses -- e.g. img/<Skin>/shime*.png next to an icon-only img/, or a whole pack of sibling
+            // <Character>/img folders -- so a stray icon.png dir must never outrank the true sprite folder. The
+            // shime count is the PRIMARY key, not a tie-break (N-audit-1106-160 corrected this comment, which
+            // said otherwise): a folder of three shime-named frames outranks a far richer folder whose files are
+            // named differently, which is the order the convertroot verb's first pick and the picker's list take.
             var candidates = new List<string>();
             string img = Path.Combine(root, "img");
             if (Directory.Exists(img))
@@ -273,7 +276,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 SpriteCounts(d, out total, out shime);
                 if (total > 0) scored.Add(new DetectedImgDir { Dir = d, Total = total, Shime = shime });
             }
-            // richest first; a dir with shime*.png outranks a same-size dir without (drops icon/banner dirs).
+            // most shime*.png first, then most .png in all (see above: the shime count leads).
             scored.Sort(delegate (DetectedImgDir a, DetectedImgDir b)
             {
                 int byShime = b.Shime.CompareTo(a.Shime);

@@ -78,13 +78,23 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
 
         private static readonly int KeyB = 255, KeyG = 0, KeyR = 255; // magenta in RGB
 
-        /// <summary>A loader that reads a pose image name (e.g. "/shime1.png") from a skin's img directory.</summary>
+        /// <summary>A loader that reads a pose image name (e.g. "/shime1.png") from a skin's img directory, and
+        /// refuses one that resolves outside it.</summary>
         public static Func<string, Bitmap> FileLoader(string imgDir)
         {
             return delegate(string image)
             {
                 string name = (image ?? "").TrimStart('/', '\\');
-                string path = Path.Combine(imgDir, name);
+                // N-audit-1106-161: the name comes from the skin's actions.xml, and a plain join followed it
+                // anywhere: "/../../x.png" climbed out of the img folder and "/C:/x.png" (its leading separator
+                // trimmed) was rooted, so any local image could be read into the converted pet. Contained by its
+                // resolved TEXT, as the tick path's SpriteRelative and the bundle path's WebPLoader.ContainedPath
+                // contain theirs; unlike ContainedPath it does not refuse reparse points, because a classic skin
+                // folder is often a synced one whose files are themselves reparse points (online-only files).
+                string root = Path.GetFullPath(imgDir).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                string path = Path.GetFullPath(Path.Combine(root, name));
+                if (!path.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidDataException("Sprite '" + image + "' resolves outside the skin's img folder, so it is not read");
                 if (!File.Exists(path)) throw new FileNotFoundException("Sprite not found: " + path);
                 using (var raw = new Bitmap(path))
                     return new Bitmap(raw); // detach from the file handle

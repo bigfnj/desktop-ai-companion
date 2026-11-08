@@ -384,12 +384,61 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 foreach (Bitmap b in owned.Values) b.Dispose();
             }
 
+            FileLoaderContainment(failures);
+
             var sb = new StringBuilder();
             sb.AppendLine("compositor self-test: 4 synthetic frames -> equal-cell magenta-keyed sheet");
             if (failures.Count == 0) { sb.Append("  cells capped, downscale applied, keying + collision correct, within budget"); detail = sb.ToString(); return true; }
             foreach (string f in failures) sb.AppendLine("  FAIL " + f);
             detail = sb.ToString();
             return false;
+        }
+
+        /// <summary>N-audit-1106-161: FileLoader reads a pose image inside the skin's img folder only. A name that
+        /// climbs out ("/../outside.png") or is rooted once its leading separator is trimmed ("/C:/...") is refused by
+        /// name before anything is read; a name that stays inside, a ".." included, still loads (WITNESS).</summary>
+        private static void FileLoaderContainment(List<string> failures)
+        {
+            string root = Path.Combine(Path.GetTempPath(), "compositor-loader-" + Guid.NewGuid().ToString("N"));
+            string img = Path.Combine(root, "img");
+            string outside = Path.Combine(root, "outside.png");
+            try
+            {
+                Directory.CreateDirectory(Path.Combine(img, "sub"));
+                using (Bitmap b = Solid(4, 6, Color.FromArgb(255, 10, 200, 30))) b.Save(Path.Combine(img, "inside.png"), ImageFormat.Png);
+                using (Bitmap b = Solid(5, 7, Color.FromArgb(255, 200, 10, 30))) b.Save(outside, ImageFormat.Png);
+                // A sibling whose name starts with the img folder's: contained by text prefix alone, it would pass.
+                Directory.CreateDirectory(Path.Combine(root, "img-other"));
+                using (Bitmap b = Solid(5, 7, Color.FromArgb(255, 200, 10, 30))) b.Save(Path.Combine(root, "img-other", "x.png"), ImageFormat.Png);
+                Func<string, Bitmap> load = SpriteSheetBuilder.FileLoader(img);
+                foreach (string escaping in new[] { "/../outside.png", "/sub/../../outside.png", "/" + outside.Replace('\\', '/'), "/../img-other/x.png" })
+                {
+                    string refusal = null;
+                    try { using (load(escaping)) { } }
+                    catch (InvalidDataException error) { refusal = error.Message; }
+                    catch (Exception error) { refusal = "(" + error.GetType().Name + ") " + error.Message; }
+                    if (refusal == null || refusal.IndexOf("resolves outside the skin's img folder", StringComparison.Ordinal) < 0)
+                        failures.Add("loader containment: a pose image outside the img folder was read or refused for another reason: "
+                            + escaping + " -> " + (refusal ?? "read"));
+                }
+                foreach (string inside in new[] { "/inside.png", "/sub/../inside.png", "inside.png" })
+                {
+                    try
+                    {
+                        using (Bitmap read = load(inside))
+                            if (read.Width != 4 || read.Height != 6)
+                                failures.Add("WITNESS loader containment: an image inside the img folder read as " + read.Width + "x" + read.Height + ": " + inside);
+                    }
+                    catch (Exception error)
+                    {
+                        failures.Add("WITNESS loader containment: an image inside the img folder was refused: " + inside + " -> " + error.Message);
+                    }
+                }
+            }
+            finally
+            {
+                try { if (Directory.Exists(root)) Directory.Delete(root, true); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+            }
         }
 
         private static Bitmap Solid(int w, int h, Color c)

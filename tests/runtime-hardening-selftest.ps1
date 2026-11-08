@@ -6226,6 +6226,20 @@ Assert-True ($w6EngineSuites -gt 0 -and $w6GateFloor.Success -and $w6CiFloor.Suc
     "w6-tests-scripts-1: the ShimejiConvert suite registrations and both suite floors were read (engine $w6EngineSuites, CLI $w6CliSuites)")
 Assert-True ($w6GateFloor.Success -and $w6CiFloor.Success -and [int]$w6GateFloor.Groups[1].Value -eq $w6Registered -and [int]$w6CiFloor.Groups[1].Value -eq $w6Registered) (
     "w6-tests-scripts-1: ShimejiConvert suite floors equal the suites run, in the gate and in CI -- registered $w6Registered, gate $($w6GateFloor.Groups[1].Value), CI $($w6CiFloor.Groups[1].Value)")
+# ---- burndown/w5-converter-1 ----
+# N-bd-w2-docs-1-01: Pet Studio embeds the BSD-licensed base behaviour XML from the engine's base-conf folder, and
+# petstudio.zip is its output folder zipped (packaging/New-ModuleDistZip.ps1), so the project must copy that folder's
+# NOTICE.txt to its output. Asserted as the CONDITION (an embedded base-conf XML implies the copied notice), read
+# from the project with its XML comments removed, so a commented-out item does not count.
+$w5cStudioProject = [regex]::Replace((Get-Content -LiteralPath (Join-Path $repoRoot 'modules\PetStudio\PetStudio.csproj') -Raw),
+    '<!--.*?-->', '', [Text.RegularExpressions.RegexOptions]::Singleline)
+$w5cEmbedsBaseConf = $w5cStudioProject -cmatch '<EmbeddedResource\s+Include="[^"]*tools\\ShimejiConvert\.Engine\\base-conf\\[^"\\]+\.xml"'
+$w5cShipsNotice = $w5cStudioProject -cmatch ('<None\s+Include="[^"]*tools\\ShimejiConvert\.Engine\\base-conf\\NOTICE\.txt"\s+' +
+    'Link="base-conf\\NOTICE\.txt">\s*<CopyToOutputDirectory>(PreserveNewest|Always)</CopyToOutputDirectory>')
+Assert-True ($w5cEmbedsBaseConf) 'bd-w5-converter-1: WITNESS PetStudio.csproj embeds base-conf behaviour XML'
+Assert-True ((-not $w5cEmbedsBaseConf) -or $w5cShipsNotice) (
+    'bd-w5-converter-1: PetStudio.csproj copies base-conf\NOTICE.txt to its output beside the embedded base-conf XML (ships ' +
+    $w5cShipsNotice + ')')
 
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # ---- burndown/w6-tests-core-1 ----
