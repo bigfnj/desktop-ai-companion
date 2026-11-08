@@ -2623,13 +2623,38 @@ namespace DesktopAICompanion.Ai
             return false;
         }
 
+        // CHARACTERS AS THE READER COUNTS THEM (N-bd-w5-fortunes-1-01). Every message about this rule says "8 to 280
+        // characters" (the import and download statuses, a tagged row's error, the folder parse's log line), so the
+        // rule counts what a reader calls a character: a user-perceived character, the extended grapheme cluster
+        // StringInfo walks. It counted text.Length, UTF-16 code units, so an emoji or a supplementary-plane ideograph
+        // counted as two and a flag as four: a plain-pack line of 141 emoji was left out as over 280 characters, and
+        // a line of four emoji loaded although it is under 8. Rejected: counting code points, which mends the plain
+        // emoji and still counts a flag, a skin-tone emoji or a decomposed accent as two or more; and rewording the
+        // messages, since no short sentence tells a reader what a code unit is. Measured when this changed: no entry
+        // of the embedded corpus or of the repository's packs changed verdict.
+        private const int MinimumFortuneCharacters = 8;
+        private const int MaximumFortuneCharacters = 280;
+
         private static bool IsValidFortuneText(string text)
         {
+            // A cluster is at least one code unit, so a text of at most 280 code units is within the ceiling without
+            // a walk, and each walk stops one cluster past the bound it decides.
             return !string.IsNullOrEmpty(text) &&
-                   text.Length >= 8 &&
-                   text.Length <= 280 &&
+                   CountCharactersUpTo(text, MinimumFortuneCharacters) >= MinimumFortuneCharacters &&
+                   (text.Length <= MaximumFortuneCharacters ||
+                    CountCharactersUpTo(text, MaximumFortuneCharacters + 1) <= MaximumFortuneCharacters) &&
                    text == text.Trim() &&
                    !ContainsControlCharacter(text);
+        }
+
+        /// <summary>The user-perceived characters (extended grapheme clusters) in <paramref name="text"/>, counted no
+        /// further than <paramref name="stopAt"/>.</summary>
+        private static int CountCharactersUpTo(string text, int stopAt)
+        {
+            int count = 0;
+            for (int index = 0; index < text.Length && count < stopAt; count++)
+                index += StringInfo.GetNextTextElementLength(text, index);
+            return count;
         }
 
         private static bool ContainsControlCharacter(string value)

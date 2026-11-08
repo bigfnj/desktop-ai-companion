@@ -149,6 +149,10 @@ namespace DesktopAICompanion.FortunesModule
                                  //        are counted, not dropped in silence: the import and download statuses
                                  //        say how many were left out, and the folder parse logs the count, with
                                  //        blank separators and trailing newlines never counted (N-audit-1106-212).
+                                 //        The 8 to 280 characters a fortune may hold are counted as a reader counts
+                                 //        them, one per emoji, flag or accented letter, instead of in UTF-16 code
+                                 //        units: an entry of 141 emoji loads instead of being left out as over 280,
+                                 //        and one of four emoji is left out as under 8 (N-bd-w5-fortunes-1-01).
                                  // 1.2.1: a pack import whose replace fails and whose backup cannot be put back is
                                  //        counted as a rollback failure, and the batch says its rollback could not be
                                  //        fully verified instead of "all earlier changes were rolled back"

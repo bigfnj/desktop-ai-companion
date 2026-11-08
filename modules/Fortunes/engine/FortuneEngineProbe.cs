@@ -273,6 +273,33 @@ namespace DesktopAICompanion.FortunesModule
                 ok &= Check(sb, "a plain pack with no entry that loads is refused and reports none left out, since the refusal is the news (N-audit-1106-212)",
                     !ValidatePack("short\n" + tooLong + "\n", out rows, out why, out leftOut) && leftOut == 0);
 
+                // ---- 8 to 280 characters as a reader counts them (N-bd-w5-fortunes-1-01) ----
+                // Built by code point, never as literals, for the reason IsZeroWidth gives. An emoji is one character
+                // and two UTF-16 code units; a flag is one character, two code points and four code units. Each
+                // entry follows one that always loads, so the pack loads and the left-out count is what is read.
+                string wideEmoji = char.ConvertFromUtf32(0x1F600);
+                string flagPair = char.ConvertFromUtf32(0x1F1EF) + char.ConvertFromUtf32(0x1F1F5);
+                const string firstLoads = "A first fortune that loads fine.\n";
+                ok &= Check(sb, "an entry of 280 emoji, 560 UTF-16 code units, is 280 characters and loads (N-bd-w5-fortunes-1-01)",
+                    ValidatePack(firstLoads + Repeated(wideEmoji, 280) + "\n", out rows, out why, out leftOut) &&
+                    rows == 2 && leftOut == 0);
+                ok &= Check(sb, "an entry of 281 emoji is 281 characters and is left out as over 280 (N-bd-w5-fortunes-1-01)",
+                    ValidatePack(firstLoads + Repeated(wideEmoji, 281) + "\n", out rows, out why, out leftOut) &&
+                    rows == 1 && leftOut == 1);
+                ok &= Check(sb, "an entry of seven emoji, 14 UTF-16 code units, is seven characters and is left out as under 8, and one of eight loads (N-bd-w5-fortunes-1-01)",
+                    ValidatePack(firstLoads + Repeated(wideEmoji, 7) + "\n", out rows, out why, out leftOut) &&
+                    rows == 1 && leftOut == 1 &&
+                    ValidatePack(firstLoads + Repeated(wideEmoji, 8) + "\n", out rows, out why, out leftOut) &&
+                    rows == 2 && leftOut == 0);
+                ok &= Check(sb, "a flag is one character, not two code points: an entry of 141 flags loads and one of four flags is left out (N-bd-w5-fortunes-1-01)",
+                    ValidatePack(firstLoads + Repeated(flagPair, 141) + "\n", out rows, out why, out leftOut) &&
+                    rows == 2 && leftOut == 0 &&
+                    ValidatePack(firstLoads + Repeated(flagPair, 4) + "\n", out rows, out why, out leftOut) &&
+                    rows == 1 && leftOut == 1);
+                ok &= Check(sb, "a tagged row whose text is 141 emoji, 282 UTF-16 code units, is admitted, so its 8..280-characters error counts characters too (N-bd-w5-fortunes-1-01)",
+                    ValidatePack(rowA + "\nprobe\tlife\tquip\tgeneral\t0\t" + Repeated(wideEmoji, 141), out rows, out why) &&
+                    rows == 2);
+
                 // ---- one bad file in the folder (F129) ----
                 string folder = Path.Combine(Path.GetTempPath(),
                     "DesktopAICompanion-fortune-folder-" + Guid.NewGuid().ToString("N"));
@@ -3567,6 +3594,8 @@ namespace DesktopAICompanion.FortunesModule
                 new UTF8Encoding(false).GetBytes(content), "plainprobe",
                 FortunePackLoadPolicy.MaximumEntries, out rows, out error, out leftOut);
         }
+
+        private static string Repeated(string text, int times) { return new StringBuilder().Insert(0, text, times).ToString(); }
 
         private static bool Check(StringBuilder sb, string name, bool cond) { sb.AppendLine((cond ? "PASS: " : "FAIL: ") + name); return cond; }
     }
