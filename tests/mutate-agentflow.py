@@ -822,15 +822,15 @@ CASES = (
         # be chosen at all.
         "installed pets are hidden whenever any pet is on screen",
         PANE,
-        "            IReadOnlyList<CompanionTypeInfo> installed = InstalledPets();\n"
+        "            Dictionary<string, string> rows = PetRowMap(installed);\n"
         "            foreach (CompanionTypeInfo type in installed)\n"
         "            {\n"
-        "                string display = PetRow(type, installed);",
-        "            IReadOnlyList<CompanionTypeInfo> installed = InstalledPets();\n"
+        "                string display = RowOf(type, rows);",
+        "            Dictionary<string, string> rows = PetRowMap(installed);\n"
         "            if (choices.Count == 1)\n"
         "            foreach (CompanionTypeInfo type in installed)\n"
         "            {\n"
-        "                string display = PetRow(type, installed);",
+        "                string display = RowOf(type, rows);",
         "an installed pet that is NOT on screen can still be chosen",
     ),
     # ---- 2026-09-29 audit campaign: each lane adds its cases directly under its own anchor so parallel
@@ -2153,7 +2153,7 @@ CASES = (
     (
         'codex-limits: (1.10.0) a scan no longer refreshes the Codex row',
         MODULE,
-        '            _codexLine = CodexStatusLine(results, WatchCodex, LimitClock(), PauseAtLimit, PauseAtPercent);\n',
+        '            _codexLine = CodexStatusLine(results, scannedCodex, LimitClock(), PauseAtLimit, PauseAtPercent);\n',
         '',
         "each scan's results refresh the Codex usage row",
     ),
@@ -2912,15 +2912,15 @@ CASES = (
     (
         "bd-w4-agentflow-1: the sessions row ignores the Watch switches again (N-audit-1106-107)",
         MODULE,
-        "            _sessionsLine = SessionsLine(results, WatchClaude, WatchCodex);",
+        "            _sessionsLine = SessionsLine(results, scannedClaude, scannedCodex);",
         "            _sessionsLine = SessionsLine(results);",
         "(N-audit-1106-107) ...and the row Apply writes from a scan names it too",
     ),
     (
         "bd-w4-agentflow-1: the pet dropdown keys pets by display name again (N-audit-1106-109)",
         PANE,
-        "                    return display + \" (\" + type.TypeId + \")\";",
-        "                    return display;",
+        "                    foreach (string id in ids) rows[id] = rows[id] + \" (\" + id + \")\";",
+        "                    foreach (string id in ids) rows[id] = rows[id] + \"\";",
         ("(N-audit-1106-109) two installed pets with the same name are two rows",
          "(N-audit-1106-109) ...and a stored choice of the second is shown as itself"),
     ),
@@ -2992,6 +2992,51 @@ CASES = (
         "                            if (guard != null) guard.Unconfirmed.Add(new KeyValuePair<string, string>(targetId, agent));\n                            throw;",
         "                            throw;",
         "(N-agentflow-focus-02) a panel whose attach throws is reported once as unconfirmed",
+    ),
+    # ---- burndown/w6-agentflow-1 ----
+    # "bd-w6-agentflow-1:" for one --only.
+    (
+        # N-cxr-w34-05: the tick's callback hands Apply the switches its scan ran with; read live at the callback, a
+        # Watch Codex toggled between the worker and its UI half contradicts the scan in both directions.
+        "bd-w6-agentflow-1: the tick's Apply reads the Watch switches at the callback again (N-cxr-w34-05)",
+        MODULE,
+        "                            Apply(forApply, forWatchClaude, forWatchCodex);",
+        "                            Apply(forApply, WatchClaude, WatchCodex);",
+        ("(N-cxr-w34-05) a scan that read Codex, applied after Watch Codex went off",
+         "(N-cxr-w34-05) a scan that did not read Codex, applied after Watch Codex came on"),
+    ),
+    (
+        "bd-w6-agentflow-1: the sessions row reads the live switches instead of the scan's (N-cxr-w34-05)",
+        MODULE,
+        "            _sessionsLine = SessionsLine(results, scannedClaude, scannedCodex);",
+        "            _sessionsLine = SessionsLine(results, WatchClaude, WatchCodex);",
+        ("(N-cxr-w34-05) a scan that read Codex, applied after Watch Codex went off",
+         "(N-cxr-w34-05) a scan that did not read Codex, applied after Watch Codex came on"),
+    ),
+    (
+        "bd-w6-agentflow-1: the Codex usage row reads the live switch instead of the scan's (N-cxr-w34-05)",
+        MODULE,
+        "            _codexLine = CodexStatusLine(results, scannedCodex, LimitClock(),",
+        "            _codexLine = CodexStatusLine(results, WatchCodex, LimitClock(),",
+        ("(N-cxr-w34-05) a scan that read Codex, applied after Watch Codex went off",
+         "(N-cxr-w34-05) a scan that did not read Codex, applied after Watch Codex came on"),
+    ),
+    (
+        # N-cxr-w34-04: one round is the old per-pet test against display names, which leaves a generated row equal to
+        # another pet's literal name.
+        "bd-w6-agentflow-1: the pet rows are suffixed in one round again (N-cxr-w34-04)",
+        PANE,
+        "            for (int round = 0; round <= rows.Count; round++)",
+        "            for (int round = 0; round < 1; round++)",
+        "(N-cxr-w34-04) a pet literally named as another's generated row has a row of its own",
+    ),
+    (
+        "bd-w6-agentflow-1: a type id is matched in the same pass as the rows again (N-cxr-w34-04)",
+        PANE,
+        "                if (type != null && string.Equals(RowOf(type, rows), display, StringComparison.OrdinalIgnoreCase))",
+        "                if (type != null && (string.Equals(RowOf(type, rows), display, StringComparison.OrdinalIgnoreCase)"
+        " || string.Equals(type.TypeId, display, StringComparison.OrdinalIgnoreCase)))",
+        "(N-cxr-w34-04) a row is matched before a type id",
     ),
 )
 

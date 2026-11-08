@@ -234,5 +234,131 @@ namespace DesktopAICompanion.AgentFlow
             }
             return true;
         }
+
+        /// <summary>
+        /// N-cxr-w34-05: a Watch switch toggled while a transcript scan is in flight. The tick snapshots the switches on
+        /// the UI thread and its worker scans by them, but the callback's Apply read them again, so unticking Watch Codex
+        /// between the worker and its callback put "1 Codex" and "Codex not counted" in one row, and ticking it on dropped
+        /// the qualification from a scan that never read Codex. One instance runs OnTick INLINE with a UI context that
+        /// HOLDS the posted callback (QueueingSyncContext), so the switch can be flipped between the worker and its UI
+        /// half, as an Apply on the Options window would; then the held callback runs. A synthetic Codex rollout in a
+        /// temporary folder, an empty Claude root, and argv.json pointing at a file that does not exist, so the port
+        /// answers NotFound without a socket. Nothing real is read.
+        /// </summary>
+        private static bool SelfCheckWatchToggledMidScan(SelfTestProbe probe)
+        {
+            string root = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "dp-agentflow-midscan-" + Guid.NewGuid().ToString("N").Substring(0, 10));
+            string empty = System.IO.Path.Combine(root, "none");
+            string codex = System.IO.Path.Combine(root, "codex");
+            string homeWas = Environment.GetEnvironmentVariable(RuleLoader.HomeVariable);
+            string claudeWas = Environment.GetEnvironmentVariable(TranscriptReader.ClaudeRootVariable);
+            string codexWas = Environment.GetEnvironmentVariable(TranscriptReader.CodexRootVariable);
+            AgentFlowModule module = null;
+            try
+            {
+                System.IO.Directory.CreateDirectory(empty);
+                System.IO.Directory.CreateDirectory(codex);
+                Environment.SetEnvironmentVariable(RuleLoader.HomeVariable, empty);
+                Environment.SetEnvironmentVariable(TranscriptReader.ClaudeRootVariable, empty);
+                Environment.SetEnvironmentVariable(TranscriptReader.CodexRootVariable, codex);
+                string stamp = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture);
+                System.IO.File.WriteAllText(System.IO.Path.Combine(codex, "rollout-2026-11-07T00-00-00-midscan01.jsonl"),
+                    "{\"timestamp\":\"" + stamp + "\",\"type\":\"session_meta\",\"payload\":{\"id\":\"midscan01\"}}\n",
+                    new System.Text.UTF8Encoding(false));
+
+                var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                using (var storage = new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow"))
+                {
+                    host.UseStorage("agentflow", storage);
+                    var seeded = host.SettingsFor("agentflow");
+                    seeded.Set(SettingMode, AgentMode.Notify);
+                    seeded.Set(SettingWatchClaude, "true");
+                    seeded.Set(SettingWatchCodex, "true");
+                    seeded.Set(SettingArgvPath, System.IO.Path.Combine(root, "no-argv-here", "argv.json"));
+                    module = new AgentFlowModule();
+                    module.Init(host);   // no UI context, so Init starts no tick of its own (RA-036)
+                    long clock = 0;
+                    module.TickClockForSelfTest = () => clock;
+                    module.RunTickInlineForSelfTest = true;
+                    var ui = new QueueingSyncContext();
+                    module.SetUiContextForSelfTest(ui);
+
+                    // Forward: the scan reads Codex, then Watch Codex goes off before the callback runs.
+                    module.OnTick(null, EventArgs.Empty);
+                    int held = ui.Held;
+                    bool heldBack = held > 0 && module._sessionsLine == "";
+                    module._settings.Set(SettingWatchCodex, "false");
+                    ui.RunHeld();
+                    string forwardRow = module._sessionsLine, forwardCodex = module._codexLine;
+                    probe.Check("WITNESS (N-cxr-w34-05) the inline tick's UI half was held until the switch moved, and the scan it "
+                                + "carried read the Codex session (" + held.ToString(CultureInfo.InvariantCulture) + " held, "
+                                + module._lastSessions.ToString(CultureInfo.InvariantCulture) + " session)",
+                        heldBack && module._lastSessions == 1 && module.TicksEnteredForSelfTest == 1 && module._scanning == 0
+                        && !module.WatchCodex);
+                    probe.Check("(N-cxr-w34-05) a scan that read Codex, applied after Watch Codex went off, counts it without saying "
+                                + "Codex was not counted (" + forwardRow + " | " + forwardCodex + ")",
+                        forwardRow.StartsWith("1 active in the last 15 minutes: 1 Codex (app not named).", StringComparison.Ordinal)
+                        && forwardRow.IndexOf("not counted", StringComparison.Ordinal) < 0
+                        && forwardCodex != "Not read: Watch Codex is off.");
+
+                    // Reverse: the next transcript beat scans without Codex, then Watch Codex comes back on.
+                    clock = 20000;
+                    module.OnTick(null, EventArgs.Empty);
+                    held = ui.Held;
+                    module._settings.Set(SettingWatchCodex, "true");
+                    ui.RunHeld();
+                    string reverseRow = module._sessionsLine, reverseCodex = module._codexLine;
+                    probe.Check("WITNESS (N-cxr-w34-05) the second inline tick's UI half was held too, and its scan read nothing ("
+                                + held.ToString(CultureInfo.InvariantCulture) + " held, "
+                                + module._lastSessions.ToString(CultureInfo.InvariantCulture) + " sessions)",
+                        held > 0 && module._lastSessions == 0 && module.TicksEnteredForSelfTest == 2 && module.WatchCodex);
+                    probe.Check("(N-cxr-w34-05) a scan that did not read Codex, applied after Watch Codex came on, still says Codex was "
+                                + "not read, in both rows (" + reverseRow + " | " + reverseCodex + ")",
+                        reverseRow == "None active in the last 15 minutes. Codex not counted: Watch Codex is off."
+                        && reverseCodex == "Not read: Watch Codex is off.");
+                }
+            }
+            catch (Exception exception)
+            {
+                probe.Check("(N-cxr-w34-05) the inline ticks ran (" + exception.GetType().Name + ": " + exception.Message + ")", false);
+            }
+            finally
+            {
+                if (module != null)
+                {
+                    module.RunTickInlineForSelfTest = false;
+                    module.SetUiContextForSelfTest(null);
+                    module.Shutdown();
+                }
+                Environment.SetEnvironmentVariable(RuleLoader.HomeVariable, homeWas);
+                Environment.SetEnvironmentVariable(TranscriptReader.ClaudeRootVariable, claudeWas);
+                Environment.SetEnvironmentVariable(TranscriptReader.CodexRootVariable, codexWas);
+                try { System.IO.Directory.Delete(root, true); } catch { }
+            }
+            return true;
+        }
+
+        /// <summary>A SynchronizationContext that HOLDS every posted callback until the test runs them, so a test can act
+        /// between a worker's Post and the UI half it posted, as the user can on a real message loop.</summary>
+        private sealed class QueueingSyncContext : System.Threading.SynchronizationContext
+        {
+            private readonly List<KeyValuePair<System.Threading.SendOrPostCallback, object>> _held =
+                new List<KeyValuePair<System.Threading.SendOrPostCallback, object>>();
+
+            internal int Held { get { return _held.Count; } }
+
+            public override void Post(System.Threading.SendOrPostCallback d, object state)
+            {
+                _held.Add(new KeyValuePair<System.Threading.SendOrPostCallback, object>(d, state));
+            }
+
+            internal void RunHeld()
+            {
+                var now = _held.ToArray();
+                _held.Clear();
+                foreach (KeyValuePair<System.Threading.SendOrPostCallback, object> callback in now) callback.Key(callback.Value);
+            }
+        }
     }
 }

@@ -228,7 +228,11 @@ namespace DesktopAICompanion.AgentFlow
                                  //        Enable rewrite it offers names AgentFlow's port (N-audit-1106-114). A panel
                                  //        whose connection fails at the attach is named once in the log as not
                                  //        confirmed protected from taking focus, as a refused attach already was
-                                 //        (N-agentflow-focus-02).
+                                 //        (N-agentflow-focus-02). A pet whose name is another pet's generated row
+                                 //        ("Twin (a)") gets a row of its own instead of vanishing, so Apply no longer
+                                 //        swaps it for the other pet (N-cxr-w34-04). Ticking or unticking Watch Codex
+                                 //        while a check is reading the transcripts no longer leaves the Status card's
+                                 //        sessions and Codex rows contradicting what that check read (N-cxr-w34-05).
                                  // 1.12.3: agent cards no longer take focus while you work elsewhere (the owner's
                                  //        report of 2026-11-02; built with Codex's audit and review rounds, and a live
                                  //        re-test after the first version missed a Codex approval card taking focus as
@@ -1161,6 +1165,11 @@ namespace DesktopAICompanion.AgentFlow
                     List<string> forPressNotes = pressNotes;
                     LimitOutcome forLimit = limit;
                     FocusGuardTicket forGuard = guardTicket;
+                    // What THIS scan was told to read (N-cxr-w34-05), for the Status card's rows. The switches are read
+                    // again by the time this runs: an Apply that unticks Watch Codex between the worker's start and
+                    // this callback left results holding a Codex session beside "Codex not counted", and the reverse
+                    // toggle dropped the qualification from a scan that never read Codex.
+                    bool forWatchClaude = watchClaude, forWatchCodex = watchCodex;
                     PostToUi(() =>
                     {
                         // The instance may have been torn down between the worker finishing and
@@ -1190,7 +1199,7 @@ namespace DesktopAICompanion.AgentFlow
                             _approvalFeed.Record(entry.WhenLocal, entry.Root, entry.Command);
                         if (forApply != null)
                         {
-                            Apply(forApply);
+                            Apply(forApply, forWatchClaude, forWatchCodex);
                             LogApprovals(forUi);
                         }
                         LogScanNotes(forResets);
@@ -1933,8 +1942,18 @@ namespace DesktopAICompanion.AgentFlow
             }
         }
 
-        /// <summary>UI thread: speak at most one line, and refresh the tray label.</summary>
+        /// <summary>As below, with the Watch switches as they stand now: for a caller holding results that no tick
+        /// scanned (the self-tests). The tick passes the switches its own scan ran with.</summary>
         internal void Apply(List<Detection> results)
+        {
+            Apply(results, WatchClaude, WatchCodex);
+        }
+
+        /// <summary>UI thread: speak at most one line, and refresh the tray label. <paramref name="scannedClaude"/> and
+        /// <paramref name="scannedCodex"/> are the Watch switches the scan behind <paramref name="results"/> ran with,
+        /// not the settings at the time this runs (N-cxr-w34-05): the Status card's rows say which agent was not read,
+        /// and only the scan knows that.</summary>
+        internal void Apply(List<Detection> results, bool scannedClaude, bool scannedCodex)
         {
             if (_host == null || _budget == null) return;   // shut down while the scan was running
 
@@ -2029,10 +2048,11 @@ namespace DesktopAICompanion.AgentFlow
             _status = DescribeStatus(results.Count, blocked, stoodDown, waitingApps, waitingUnnamed);
             _lastSessions = results.Count;
             _lastStoodDown = stoodDown;
-            // The Status card's row (1.7.0), saying which agent the scan was told not to read (N-audit-1106-107).
-            _sessionsLine = SessionsLine(results, WatchClaude, WatchCodex);
+            // The Status card's row (1.7.0), saying which agent the scan was told not to read (N-audit-1106-107), as the scan
+            // was told it, never the switch as it stands now (N-cxr-w34-05).
+            _sessionsLine = SessionsLine(results, scannedClaude, scannedCodex);
             // ...and its Codex usage row (1.10.0), from the same scan: the figures ride in the rollouts, so no port is needed.
-            _codexLine = CodexStatusLine(results, WatchCodex, LimitClock(), PauseAtLimit, PauseAtPercent);
+            _codexLine = CodexStatusLine(results, scannedCodex, LimitClock(), PauseAtLimit, PauseAtPercent);
 
             if (speakThis == null) { _lastHeldBack = null; return; }
             string refusal;
@@ -3945,6 +3965,7 @@ namespace DesktopAICompanion.AgentFlow
                         SelfCheckFocusHold,
                         SelfCheckTickBeat,
                         SelfCheckLimitWhenPortGone,
+                        SelfCheckWatchToggledMidScan,
                         SelfCheckPendingEditsSurvivePetChange,
                         SelfCheckCacheBound,
                     };
@@ -10051,12 +10072,50 @@ namespace DesktopAICompanion.AgentFlow
                             + shownTwin[SettingAnimPet] + "', stored '" + module._settings.Get(SettingAnimPet, "") + "')",
                     shownTwin[SettingAnimPet] == "Twin (twin-two)" && module._settings.Get(SettingAnimPet, "") == "twin-two");
                 probe.Check("WITNESS (N-audit-1106-109) a name no other installed pet shares keeps its plain row",
-                    PetRow(new CompanionTypeInfo { TypeId = "pink_sheep", DisplayName = "Pearl" },
-                           new List<CompanionTypeInfo>
+                    PetRows(new List<CompanionTypeInfo>
                            {
                                new CompanionTypeInfo { TypeId = "pink_sheep", DisplayName = "Pearl" },
                                new CompanionTypeInfo { TypeId = "twin-one", DisplayName = "Twin" },
-                           }) == "Pearl");
+                           })["pink_sheep"] == "Pearl");
+
+                // N-cxr-w34-04: a third pet whose LITERAL name is the row the first two generate. Suffixed only against the
+                // other pets' display names, it kept "Twin (a)" beside the first pet's generated "Twin (a)": no row of its
+                // own, the first pet's row preselected, and any Apply stored the first pet in its place.
+                host.CompanionManager = new FakePets(
+                    new[] { "a", "Twin", "b", "Twin", "c", "Twin (a)" },
+                    new string[0]);
+                module._settings.Set(SettingAnimPet, "");
+                module._settings.Save();
+                var triple = new List<string>(module.PetChoicesForSelfTest());
+                bool tripleUnique = triple.Count == new HashSet<string>(triple, StringComparer.OrdinalIgnoreCase).Count;
+                module._settings.Set(SettingAnimPet, "c");
+                module._settings.Save();
+                IReadOnlyDictionary<string, string> shownC = Shown(pane);
+                pane.Save(new Dictionary<string, string> { { SettingAnimPet, shownC[SettingAnimPet] } });
+                string storedC = module._settings.Get(SettingAnimPet, "");
+                module._settings.Set(SettingAnimPet, "a");
+                module._settings.Save();
+                IReadOnlyDictionary<string, string> shownA = Shown(pane);
+                pane.Save(new Dictionary<string, string> { { SettingAnimPet, shownA[SettingAnimPet] } });
+                string storedA = module._settings.Get(SettingAnimPet, "");
+                probe.Check("(N-cxr-w34-04) a pet literally named as another's generated row has a row of its own, and a stored choice "
+                            + "of either survives Apply (" + string.Join(", ", triple.ToArray()) + "; c shown '" + shownC[SettingAnimPet]
+                            + "' stored '" + storedC + "'; a shown '" + shownA[SettingAnimPet] + "' stored '" + storedA + "')",
+                    triple.Count == 4 && tripleUnique && storedC == "c" && storedA == "a"
+                    && shownC[SettingAnimPet] != shownA[SettingAnimPet]);
+                // ...and a row is looked up before any type id, so a pet listed first whose id spells another pet's row
+                // does not answer for it.
+                host.CompanionManager = new FakePets(
+                    new[] { "Pearl", "Hornet", "pink_sheep", "Pearl" },
+                    new string[0]);
+                module._settings.Set(SettingAnimPet, "pink_sheep");
+                module._settings.Save();
+                IReadOnlyDictionary<string, string> shownPearl = Shown(pane);
+                pane.Save(new Dictionary<string, string> { { SettingAnimPet, shownPearl[SettingAnimPet] } });
+                probe.Check("(N-cxr-w34-04) a row is matched before a type id, so a pet whose id spells another's row does not take "
+                            + "its place on Apply (shown '" + shownPearl[SettingAnimPet] + "', stored '"
+                            + module._settings.Get(SettingAnimPet, "") + "')",
+                    shownPearl[SettingAnimPet] == "Pearl" && module._settings.Get(SettingAnimPet, "") == "pink_sheep");
                 module._settings.Set(SettingAnimPet, "");
                 module._settings.Save();
 
