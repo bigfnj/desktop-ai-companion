@@ -29,7 +29,7 @@ retains shimeji-parity-scenario/1, whose fields are unchanged: the inactive butt
 verdict made before v1.1 is judged under v1 and is not re-judged under v1.1 without fresh traces.
 Comparer result metadata in section 6 is not a trace or scenario field.
 
-**(Screens clarification, 2026-11-08; joint review pending)** The non-empty screen-list rule in section 1 is a
+**(Screens clarification, 2026-11-08; adopted jointly by Codex, a7b3e049, and Claude, review of 2026-11-08)** The non-empty screen-list rule in section 1 is a
 forward input-validation exception to the trace/1 grade freeze above and in 10.1. A newly requested comparison
 with a supplied scenario rejects empty or non-list `screens` as `scenario-invalid`, including a trace/1 pair.
 Archived verdicts and comparisons without a supplied scenario are not re-graded; valid non-empty lists keep
