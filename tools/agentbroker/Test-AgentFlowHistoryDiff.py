@@ -22,6 +22,33 @@ import types
 import uuid
 
 REPO = Path(__file__).absolute().parents[2]
+
+
+def sibling_root(repo):
+    """The folder the ai-acolyte checkout sits in: beside the MAIN checkout (N-bd-w3-agentflow-1-01).
+
+    This looked beside the repository itself, so from a git worktree outside the projects folder none of the four JS
+    sources was found and the helper refused before comparing anything, the blind spot N-fulltier-1107-02 closed in
+    agentflow_join.py. Read the same way as that file's main_checkout: a worktree's `.git` is a file naming its gitdir,
+    and that directory's `commondir` names the main `.git`. Bounded reads of two small files git writes; any surprise
+    answers the repository's own parent, which is right for the main checkout.
+    """
+    try:
+        with open(repo / ".git", "r", encoding="utf-8") as handle:
+            line = handle.readline(4096).strip()
+        if not line.startswith("gitdir:"):
+            return repo.parent
+        gitdir = Path(os.path.normpath(os.path.join(repo, line[len("gitdir:"):].strip())))
+        with open(gitdir / "commondir", "r", encoding="utf-8") as handle:
+            common = Path(os.path.normpath(os.path.join(gitdir, handle.readline(4096).strip())))
+    except (OSError, ValueError):
+        return repo.parent
+    if common.name.lower() != ".git":
+        return repo.parent
+    return common.parent.parent
+
+
+SIBLINGS = sibling_root(REPO)
 LIMIT = 120
 MAX_TOTAL = 1024 * 1024 * 1024
 MAX_FILE = MAX_TOTAL
@@ -32,10 +59,10 @@ MAX_INPUT = 64 * 1024 * 1024
 MAX_ENTRIES = 50000
 SOURCES = {
     "python": (REPO / "docs/agentflow/agentflow_join.py", "e0819117f93bc97f08dedc51e9021e1107b57149b447ac561dba6ca4d313ce0c"),
-    "auto-learn": (REPO.parent / "ai-acolyte/src/auto-learn.js", "b38eddfac598a1b894e7d9b4a6ccd74eba6cf4fa815ffa88cd8798c4e935636b"),
-    "tool-learn": (REPO.parent / "ai-acolyte/src/tool-learn.js", "fc4a0436e3b9e3228ac9de399596cf1df858a84823f097dca6649c05e30604ae"),
-    "permissions": (REPO.parent / "ai-acolyte/src/permissions.js", "c8bc9fcb76ea819c51e4882885305c877267bdbba7fd4b436f6795c260770761"),
-    "permission-match": (REPO.parent / "ai-acolyte/src/permission-match.js", "bfac60cc9ac8dd6699d29c211f8298d7e371726106447d244aadfca1b1f8977d"),
+    "auto-learn": (SIBLINGS / "ai-acolyte/src/auto-learn.js", "b38eddfac598a1b894e7d9b4a6ccd74eba6cf4fa815ffa88cd8798c4e935636b"),
+    "tool-learn": (SIBLINGS / "ai-acolyte/src/tool-learn.js", "fc4a0436e3b9e3228ac9de399596cf1df858a84823f097dca6649c05e30604ae"),
+    "permissions": (SIBLINGS / "ai-acolyte/src/permissions.js", "c8bc9fcb76ea819c51e4882885305c877267bdbba7fd4b436f6795c260770761"),
+    "permission-match": (SIBLINGS / "ai-acolyte/src/permission-match.js", "bfac60cc9ac8dd6699d29c211f8298d7e371726106447d244aadfca1b1f8977d"),
 }
 
 
@@ -385,6 +412,25 @@ def self_test():
     check(not metadata_allowed(types.SimpleNamespace(st_mode=stat.S_IFREG, st_nlink=2, st_file_attributes=0)))
     with io.BufferedReader(InitialLengthReader(io.BytesIO(b"initialAPPEND"), 7)) as bounded:
         check(bounded.read() == b"initial")
+    # N-bd-w3-agentflow-1-01: a worktree's sibling sources are beside the MAIN checkout. The worktree sits in a folder of
+    # its own here, so the answer "beside the worktree" is a different folder and cannot pass by coincidence.
+    layout = REPO / "artifacts" / ("history-diff-siblings-" + uuid.uuid4().hex)
+    gitdir = layout / "main" / ".git" / "worktrees" / "wt"
+    worktree = layout / "outside" / "wt"
+    gitdir.mkdir(parents=True)
+    worktree.mkdir(parents=True)
+    try:
+        (gitdir / "commondir").write_text("../..\n", encoding="utf-8")
+        (worktree / ".git").write_text("gitdir: " + str(gitdir) + "\n", encoding="utf-8")
+        check(sibling_root(worktree) == layout)
+        check(sibling_root(layout / "main") == layout)
+    finally:
+        for item in (worktree / ".git", gitdir / "commondir"):
+            if item.exists():
+                item.unlink()
+        for folder in (worktree, worktree.parent, gitdir, gitdir.parent, gitdir.parent.parent, layout / "main", layout):
+            if folder.exists():
+                folder.rmdir()
     scratch = REPO / "artifacts" / ("history-diff-selftest-" + uuid.uuid4().hex)
     project = scratch / "project"
     project.mkdir(parents=True)
