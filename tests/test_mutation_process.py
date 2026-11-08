@@ -1,14 +1,17 @@
 """Synthetic stream tests. Does not run a product self-test or change input."""
 
+import contextlib
+import io
 import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
 
-from mutation_process import decode_output, read_utf8_marker, run_text, _windows_ansi_encoding
+from mutation_process import decode_output, read_utf8_marker, run_text, utf8_stdio, _windows_ansi_encoding
 
 
 class MutationProcessTests(unittest.TestCase):
@@ -125,6 +128,30 @@ class MutationProcessTests(unittest.TestCase):
             result = run_text(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command], timeout=30)
             self.assertEqual(result.stdout, "FAIL: synthetic \u2014 witness\n")
             self.assertEqual(result.returncode, 7)
+
+    def test_utf8_stdio_writes_a_check_mark_a_cp1252_stream_cannot_encode(self):
+        # N-bd-w7-aibrain-1-03. Each stream is what python gives a redirected stdout or stderr with no -X utf8 and no
+        # PYTHONIOENCODING (python from Git Bash with its output sent to a file): cp1252, strict.
+        check, cross = chr(0x2713), chr(0x2717)
+        out_raw, err_raw = io.BytesIO(), io.BytesIO()
+        out = io.TextIOWrapper(out_raw, encoding="cp1252", errors="strict", newline="\n")
+        err = io.TextIOWrapper(err_raw, encoding="cp1252", errors="strict", newline="\n")
+        with self.assertRaises(UnicodeEncodeError):
+            out.write(check)   # WITNESS: the stream as given cannot take the marker
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            utf8_stdio()
+            print("FAIL: " + check)
+            print(cross, file=sys.stderr)
+        out.flush()
+        err.flush()
+        self.assertEqual(out_raw.getvalue(), ("FAIL: " + check + "\n").encode("utf-8"),
+                         "utf8_stdio: stdout writes the marker as UTF-8")
+        self.assertEqual(err_raw.getvalue(), (cross + "\n").encode("utf-8"), "utf8_stdio: stderr writes the marker as UTF-8")
+        # WITNESS: a stream with no reconfigure (a test's StringIO) is left as it is.
+        with contextlib.redirect_stdout(io.StringIO()) as plain:
+            utf8_stdio()
+            print(check)
+        self.assertEqual(plain.getvalue(), check + "\n")
 
 
 if __name__ == "__main__":

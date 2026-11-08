@@ -51,7 +51,7 @@ import os
 import re
 import shutil
 import subprocess
-from mutation_process import run_bytes, run_text
+from mutation_process import run_bytes, run_text, utf8_stdio
 import sys
 import time
 import uuid
@@ -3268,6 +3268,9 @@ def line_ending_variant(base, old, new):
 
 def main():
     global RUN_TEMP, MARKER, CHILD_ENV
+    # Before anything is printed: the module report lines this harness quotes can carry the pane's markers, which a
+    # redirected cp1252 stdout cannot encode (N-bd-w7-aibrain-1-03; mutation_process.utf8_stdio says why UTF-8).
+    utf8_stdio()
     parser = argparse.ArgumentParser()
     add_selection_arguments(parser)
     parser.add_argument("--check-patterns", action="store_true",

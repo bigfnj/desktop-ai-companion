@@ -45,7 +45,7 @@ import shutil
 import stat
 import struct
 import subprocess
-from mutation_process import run_bytes, run_text, read_utf8_marker
+from mutation_process import run_bytes, run_text, read_utf8_marker, utf8_stdio
 from mutation_journal import JournalError, RestoreJournal, journal_path, repaired_loaded_module
 import sys
 import time
@@ -23897,6 +23897,84 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--hardening-selftest", "dp-hardening-selftest.txt",
      "hang: a window-wildcard pick under a window, which would not hang, is declined before its sound plays"),
+    # ---- burndown/w9-tests-harness-1 ----
+    # The mutation harnesses' own reading and printing. "bd-w9-tests-harness-1:" for one --only.
+    # N-bd-w8-studio-1-02: the hardening grader reads powershell.exe's output line by line again, so a thrown message
+    # the console word-wrapped never matches and its case reads WRONG whatever its mutation did.
+    ('bd-w9-tests-harness-1: the hardening grader matches the wrapped lines again (N-bd-w8-studio-1-02)',
+     os.path.join(REPO, "tests", "mutate-hardening-guards.py"),
+     b'        bad = [l.strip() for l in unwrapped_lines(out)\n',
+     b'        bad = [l.strip() for l in out.splitlines()\n',
+     None, None,
+     MUTATION_UNITTESTS, None, 'test_a_word_wrapped_failure_line_fires'),
+    ('bd-w9-tests-harness-1: the unwrap joins every line, wrapped or not (N-bd-w8-studio-1-02)',
+     os.path.join(REPO, "tests", "mutate-hardening-guards.py"),
+     b'        if (lines and lines[-1][-1:].isspace()\n',
+     b'        if (lines\n',
+     None, None,
+     MUTATION_UNITTESTS, None, 'test_a_word_wrapped_failure_line_fires'),
+    ('bd-w9-tests-harness-1: the unwrap takes a PASS line into the failure before it (N-bd-w8-studio-1-02)',
+     os.path.join(REPO, "tests", "mutate-hardening-guards.py"),
+     b'                and not lines[-1].strip().startswith("PASS:") and not line.strip().startswith("PASS:")):\n',
+     b'                and not lines[-1].strip().startswith("PASS:")):\n',
+     None, None,
+     MUTATION_UNITTESTS, None, 'test_a_pass_line_is_never_joined_to_a_failure'),
+    ('bd-w9-tests-harness-1: the unwrap lets a PASS line swallow the failure after it (N-bd-w8-studio-1-02)',
+     os.path.join(REPO, "tests", "mutate-hardening-guards.py"),
+     b'                and not lines[-1].strip().startswith("PASS:") and not line.strip().startswith("PASS:")):\n',
+     b'                and not line.strip().startswith("PASS:")):\n',
+     None, None,
+     MUTATION_UNITTESTS, None, 'test_a_pass_line_is_never_joined_to_a_failure'),
+    ('bd-w9-tests-harness-1: the degraded baseline is read line by line again (N-bd-w8-studio-1-02)',
+     os.path.join(REPO, "tests", "mutate-hardening-guards.py"),
+     b'    baseline_failures = set(l.strip() for l in unwrapped_lines(out) if',
+     b'    baseline_failures = set(l.strip() for l in out.splitlines() if',
+     None, None,
+     MUTATION_UNITTESTS, None, 'test_a_wrapped_degraded_baseline_line_is_still_its_own'),
+    ('bd-w9-tests-harness-1: the doc-count tolerance looks line by line again (N-bd-w8-studio-1-02)',
+     os.path.join(REPO, "tests", "mutate-hardening-guards.py"),
+     b'               for line in unwrapped_lines(out))\n',
+     b'               for line in out.splitlines())\n',
+     None, None,
+     MUTATION_UNITTESTS, None, 'test_a_wrapped_degraded_baseline_line_is_still_its_own'),
+    # N-bd-w7-aibrain-1-03: a harness prints in the ANSI code page again under a redirected stdout, so the first FAIL
+    # detail quoting a check mark raises UnicodeEncodeError and the rest of the selected cases never run.
+    ('bd-w9-tests-harness-1: the guards harness prints in cp1252 again (N-bd-w7-aibrain-1-03)',
+     os.path.join(REPO, "tests", "mutate-selftest-guards.py"),
+     b'    utf8_stdio()\n    documents = documents_folder()\n',
+     b'    documents = documents_folder()\n',
+     None, None,
+     MUTATION_UNITTESTS, None, 'test_guards_a_fail_detail_with_a_check_mark_prints_under_cp1252'),
+    ('bd-w9-tests-harness-1: the hardening harness prints in cp1252 again (N-bd-w7-aibrain-1-03)',
+     os.path.join(REPO, "tests", "mutate-hardening-guards.py"),
+     b'    utf8_stdio()\n    parser = argparse.ArgumentParser()\n    parser.add_argument("--only", default=None)\n',
+     b'    parser = argparse.ArgumentParser()\n    parser.add_argument("--only", default=None)\n',
+     None, None,
+     MUTATION_UNITTESTS, None, 'test_hardening_main_writes_utf8_under_cp1252'),
+    ('bd-w9-tests-harness-1: the diagnostics harness prints in cp1252 again (N-bd-w7-aibrain-1-03)',
+     MUTATE_DIAGNOSTICS_PY,
+     b'    utf8_stdio()\n    # Parsed before anything is created',
+     b'    # Parsed before anything is created',
+     None, None,
+     MUTATION_UNITTESTS, None, 'test_diagnostics_main_writes_utf8_under_cp1252'),
+    ('bd-w9-tests-harness-1: the agentflow harness prints in cp1252 again (N-bd-w7-aibrain-1-03)',
+     os.path.join(REPO, "tests", "mutate-agentflow.py"),
+     b'    utf8_stdio()\n    parser = argparse.ArgumentParser()\n    add_selection_arguments(parser)\n',
+     b'    parser = argparse.ArgumentParser()\n    add_selection_arguments(parser)\n',
+     None, None,
+     MUTATION_UNITTESTS, None, 'test_agentflow_main_writes_utf8_under_cp1252'),
+    ('bd-w9-tests-harness-1: utf8_stdio keeps the ANSI code page and only replaces (N-bd-w7-aibrain-1-03)',
+     os.path.join(REPO, "tests", "mutation_process.py"),
+     b'            reconfigure(encoding="utf-8", errors="replace")\n',
+     b'            reconfigure(errors="replace")\n',
+     None, None,
+     MUTATION_UNITTESTS, None, 'test_utf8_stdio_writes_a_check_mark_a_cp1252_stream_cannot_encode'),
+    ('bd-w9-tests-harness-1: utf8_stdio leaves stderr in the ANSI code page (N-bd-w7-aibrain-1-03)',
+     os.path.join(REPO, "tests", "mutation_process.py"),
+     b'    for stream in (sys.stdout, sys.stderr):\n',
+     b'    for stream in (sys.stdout,):\n',
+     None, None,
+     MUTATION_UNITTESTS, None, 'test_utf8_stdio_writes_a_check_mark_a_cp1252_stream_cannot_encode'),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
@@ -24991,6 +25069,9 @@ def repair_stranded_mutant():
 
 def main():
     global RUN_TEMP, CHILD_ENV, DOCUMENTS_REMEMBRANCE, JOURNAL
+    # Before anything is printed (N-bd-w7-aibrain-1-03): a FAIL detail quoting a pane's check mark ended the run under a
+    # redirected cp1252 stdout, with every later selected case unrun. mutation_process.utf8_stdio says why UTF-8.
+    utf8_stdio()
     documents = documents_folder()
     DOCUMENTS_REMEMBRANCE = os.path.join(documents, "Remembrance") if documents else None
     parser = argparse.ArgumentParser()

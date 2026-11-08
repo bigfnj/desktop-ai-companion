@@ -3942,8 +3942,9 @@ $killTestAt = $nextStepBodyCore.IndexOf('if (CurrentAnimation.ID == Animations.A
 $firstRollAt = $nextStepBodyCore.IndexOf('Animations.SetNextSequenceAnimation(CurrentAnimation.ID')
 Assert-True ($nextStepBodyCore.Length -gt 0 -and $firstRollAt -ge 0) 'NextStep and its next-animation roll were located'
 # The distinctive words come FIRST in the label: PowerShell wraps a thrown message across lines and the
-# mutation harness matches its expected fragment against single lines (the whole run of 2026-09-30 scored
-# this case WRONG with the fragment sitting past the wrap).
+# mutation harness matched its expected fragment against single lines (the whole run of 2026-09-30 scored
+# this case WRONG with the fragment sitting past the wrap; it rejoins a word-wrapped message since
+# N-bd-w8-studio-1-02).
 Assert-True (
     $killTestAt -ge 0 -and $killTestAt -lt $firstRollAt -and
     $nextStepBodyCore -cmatch 'KillFade\.Seed\(petOpacity\)' -and
@@ -4286,7 +4287,8 @@ foreach ($sweepScript in @('tests\tray-menu-smoke.ps1', 'tests\debug-menu-smoke.
             $node -is [System.Management.Automation.Language.StringConstantExpressionAst] -and
             $node.Value -eq '*\build\*' }, $true)).Count
     # The distinctive words come FIRST in both labels: PowerShell wraps a thrown message across lines
-    # and mutate-hardening-guards.py matches the expected fragment against single lines.
+    # and mutate-hardening-guards.py matched the expected fragment against single lines (it rejoins a
+    # word-wrapped message since N-bd-w8-studio-1-02).
     Assert-True ($sweepErrors.Count -eq 0 -and $sweepRootDefinitions -eq 1 -and $sweepFilters.Count -ge 2 -and $sweepUnscoped -eq 0) (
         "sweeps scoped to this checkout: $sweepScript defines `$buildRoot from `$repo and its " +
         "$($sweepFilters.Count) process sweep(s) all compare against it ($sweepUnscoped do not)")

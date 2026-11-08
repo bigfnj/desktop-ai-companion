@@ -34,7 +34,7 @@ import os
 import re
 import shutil
 import subprocess
-from mutation_process import run_bytes, run_text, read_utf8_marker
+from mutation_process import run_bytes, run_text, read_utf8_marker, utf8_stdio
 from mutation_journal import JournalError, RestoreJournal, journal_path, repaired_loaded_module
 import sys
 import uuid
@@ -1469,6 +1469,9 @@ def check_patterns():
 
 def main():
     global RUN_TEMP, WPF_RESULT, CHILD_ENV, JOURNAL
+    # Before anything is printed: the pane lines this harness quotes can carry check marks and crosses, which a redirected
+    # cp1252 stdout cannot encode (N-bd-w7-aibrain-1-03; mutation_process.utf8_stdio says why UTF-8).
+    utf8_stdio()
     # Parsed before anything is created, so a refused argument leaves nothing behind.
     args = parse_arguments(sys.argv[1:])
     if args.check_patterns:

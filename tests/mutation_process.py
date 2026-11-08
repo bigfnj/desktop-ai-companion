@@ -10,6 +10,7 @@ import io
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 
 
@@ -211,3 +212,22 @@ def read_utf8_marker(path):
     """Read a declared UTF-8 result marker strictly, without ANSI fallback."""
     with io.open(path, encoding="utf-8", errors="strict") as handle:
         return handle.read()
+
+
+def utf8_stdio():
+    """Make this process's stdout and stderr write UTF-8, whatever they are attached to (N-bd-w7-aibrain-1-03).
+
+    A harness prints lines out of the reports it grades, and those carry the markers the panes answer with (a check
+    mark, a cross, a warning sign). Python encodes a REDIRECTED stdout in the ANSI code page unless -X utf8 or
+    PYTHONIOENCODING says otherwise, and cp1252 holds none of those three, so the first FAIL detail carrying one raised
+    UnicodeEncodeError out of the scoring loop and ended the run with the rest of the selected cases unrun (python from
+    Git Bash with its output sent to a file). UTF-8 is what the gate and CI already get, since they start the harnesses
+    with -X utf8. "replace" can only matter for a lone surrogate, which the strict child-output decoding above never
+    produces. Rejected: errors="replace" on the ANSI encoding alone, which keeps the run going but prints every marker
+    as "?", so a FIRED detail could no longer tell a check mark from a cross. A stream with no reconfigure (a test's
+    StringIO) is left as it is. Each harness calls this first thing in main().
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(encoding="utf-8", errors="replace")
