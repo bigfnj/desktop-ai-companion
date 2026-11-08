@@ -34,9 +34,17 @@ namespace DesktopAICompanion
                 var pane = new DesktopAICompanion.Wpf.CompanionsPaneControl();
                 var grid = (Panel)typeof(DesktopAICompanion.Wpf.CompanionsPaneControl)
                     .GetField("_grid", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(pane);
+                // The BUILT-IN card only (N-audit-1106-254). The gallery lists whatever the run's data root and the folder
+                // beside the exe hold, so asserting no switch on every card failed for nothing wherever a tick-clock companion
+                // was installed (its card rightly has switches) and passed only because the gate's library is classic. The
+                // built-in eSheep is listed first in every library and is classic in all of them; the tick card below is
+                // built through the same BuildCard.
                 int cards = grid.Children.Count;
-                ok &= Check(sb, "tick switches: the gallery of classic companions shows no switch (" + cards + " cards)",
-                    cards > 0 && CheckBoxesIn(grid).Count == 0);
+                var builtInCard = cards > 0 ? grid.Children[0] as FrameworkElement : null;
+                List<string> builtInText = TextOf(builtInCard);
+                ok &= Check(sb, "tick switches: the gallery's built-in classic companion shows no switch (" + cards + " cards, first " +
+                    (builtInText.Count > 0 ? builtInText[0] : "none") + ")",
+                    builtInCard != null && builtInText.Contains("eSheep (default)") && CheckBoxesIn(builtInCard).Count == 0);
 
                 var rows = new List<TickSettingRow>
                 {

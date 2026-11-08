@@ -1301,6 +1301,11 @@ CASES = [
      "            Unloaded += delegate { try { if (_netCts != null) { _netCts.Cancel(); _netCts.Dispose(); _netCts = null; } } catch { } };\n",
      "            Unloaded += delegate { try { if (_netCts != null) { _netCts.Dispose(); _netCts = null; } } catch { } };\n",
      "wpf", "pane-gone: leaving the pane (Unloaded) cancels the token its download holds"),
+    # N-audit-1106-254: the check now reads only the built-in card; it must still see a row on a classic card.
+    ("bd-w9-host-2: the built-in classic card carries a switch row (N-audit-1106-254)", COMPANIONSPANE,
+     "            FrameworkElement egg = BuildEggArrivalRow(addId, row.DisplayName ?? row.Id, GetStats(addId).OffersEgg);\n",
+     "            FrameworkElement egg = BuildEggArrivalRow(addId, row.DisplayName ?? row.Id, GetStats(addId).OffersEgg || row.IsBuiltIn);\n",
+     "wpf", "tick switches: the gallery's built-in classic companion shows no switch"),
 ]
 
 
