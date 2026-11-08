@@ -6248,7 +6248,6 @@ Assert-True ((-not $w5cEmbedsBaseConf) -or $w5cShipsNotice) (
     'bd-w5-converter-1: PetStudio.csproj copies base-conf\NOTICE.txt to its output beside the embedded base-conf XML (ships ' +
     $w5cShipsNotice + ')')
 
-# LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # ---- burndown/w6-tests-core-1 ----
 # NO WARNING-LEVEL PIN BELOW THE SDK DEFAULT IN CoreTests (N-bd-w4-contracts-1-02): the src rule w4-contracts-1 pinned
 # above, carried to the harness that recompiles src's pure-logic files. Its project pinned WarningLevel 4, so the
@@ -6503,7 +6502,7 @@ Assert-True (
     $w7h1FormCode -cmatch 'SetNextBorderAnimation\(CurrentAnimation\.ID, TNextAnimation\.TOnly\.WINDOW \| TNextAnimation\.TOnly\.WINDOW_BOTTOM, out chosenOnly, absenceIsNormal: true, plays: HangsFromUnderside\);'
 ) 'w8-host-1: the window-underside border roll declines a pick that would not hang before it sounds'
 
-# LAST, and deliberately:this is the one assertion a BRANCH is expected to fail. Adding a source
+# LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever
 # stands here masks every assertion after it: mutate-hardening-guards.py scored a real case as
