@@ -192,6 +192,58 @@ namespace DesktopAICompanion.Shimeji
             CheckPackStaging(check);
             CheckPackPreview(check, log);
             CheckPackPreviewRefusals(check);
+            // ---- burndown/w9-host-1 ----
+            CheckSinglePreviewRemoval(check);
+        }
+
+        /// <summary>
+        /// A SINGLE preview's Remove takes every companion the preview bred, not only the window it was handed
+        /// (N-host-pack-abi-01): a tick preview that breeds gives each born companion its own transient registry entry
+        /// (StartUp.OpenBornTickPet), so StartUp.RemoveSinglePreview selects by that entry, and retires the preview so a
+        /// birth still queued gets no window. Driven on unshown windows and hand-made entries, through the selection
+        /// StartUp uses and the namespace gate OpenBornTickPet asks.
+        /// </summary>
+        private static void CheckSinglePreviewRemoval(Action<bool, string> check)
+        {
+            var forms = new List<FormCompanion>();
+            try
+            {
+                const string previewId = "preview:selftestsingle";
+                var own = new CompanionTypeRegistry.Entry { Id = previewId, IsTransient = true };
+                var other = new CompanionTypeRegistry.Entry { Id = "preview:selftestother", IsTransient = true };
+                var installed = new CompanionTypeRegistry.Entry { Id = previewId, IsTransient = false };
+                for (int i = 0; i < 5; i++) forms.Add(new FormCompanion());
+                FormCompanion handed = forms[0], bornA = forms[1], bornB = forms[2], otherPreview = forms[3], installedPet = forms[4];
+                var entries = new Dictionary<FormCompanion, CompanionTypeRegistry.Entry>
+                {
+                    { handed, own }, { bornA, own }, { bornB, own }, { otherPreview, other }, { installedPet, installed },
+                };
+                var pets = new FormCompanion[16];
+                pets[0] = installedPet; pets[1] = handed; pets[2] = bornA; pets[3] = otherPreview; pets[4] = bornB;
+
+                List<FormCompanion> taken = StartUp.SinglePreviewWindows(pets, 5, entries, previewId, handed);
+                check(taken.Count == 3 && taken.Contains(handed) && taken.Contains(bornA) && taken.Contains(bornB),
+                    "single preview: Remove takes the handed window and every companion the preview bred, and nothing else (took " + taken.Count + ")");
+                // The handed window already gone (it ended itself): what it bred still goes.
+                pets[1] = bornB; pets[4] = null;
+                List<FormCompanion> afterOwnEnd = StartUp.SinglePreviewWindows(pets, 4, entries, previewId, handed);
+                check(afterOwnEnd.Contains(bornA) && afterOwnEnd.Contains(bornB) && !afterOwnEnd.Contains(otherPreview) && !afterOwnEnd.Contains(installedPet),
+                    "single preview: what the preview bred still goes after the handed window has ended itself (took " + afterOwnEnd.Count + ")");
+
+                var previews = new TickPreviewPacks();
+                check(previews.MayOpenWindow(own), "single preview: WITNESS a live single preview's birth opens a window");
+                previews.Retire(previewId);
+                check(!previews.MayOpenWindow(own) && previews.MayOpenWindow(other) && previews.MayOpenWindow(new CompanionTypeRegistry.Entry { Id = "sp-alpha" }),
+                    "single preview: a birth still queued when the handle is removed gets no window, and no other preview's is refused");
+            }
+            catch (Exception e)
+            {
+                check(false, "single preview: the checks ran without an exception: " + e);
+            }
+            finally
+            {
+                foreach (FormCompanion f in forms) { try { f.Dispose(); } catch { } }
+            }
         }
 
         /// <summary>

@@ -128,6 +128,12 @@ namespace DesktopAICompanion
                             tokens.Add(new Token { Kind = TokenKind.Number, Offset = start, Number = (double)hex });
                             continue;
                         }
+                        // A leading zero followed by a digit is legacy octal in the source engine's non-strict JS (010 is 8,
+                        // while 08 and 09 fall back to decimal). Read as decimal here, 010 was a silently different 10, so the
+                        // form is refused by name, as octal string escapes are below (N-audit-1106-245). 0, 0.5 and 0e1 still
+                        // read: only a DIGIT after the zero is the octal form.
+                        if (c == '0' && i + 1 < s.Length && char.IsDigit(s[i + 1]))
+                        { error = "legacy octal numbers are outside the supported subset (at " + start + ")"; return false; }
                         while (i < s.Length && char.IsDigit(s[i])) i++;
                         if (i < s.Length && s[i] == '.') { i++; while (i < s.Length && char.IsDigit(s[i])) i++; }
                         if (i < s.Length && (s[i] == 'e' || s[i] == 'E'))

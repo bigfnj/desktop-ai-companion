@@ -1109,9 +1109,22 @@ namespace DesktopAICompanion
             finished = true;
             cycleTimer.Stop();
             elapsed.Stop();
-            SettleAndSample(out settledGdi, out settledUser, out settledHandles);
-            WriteMarker(passed, failure);
-            if (!passed) Environment.ExitCode = 1;
+            // The exit timer is armed whatever the verdict's own sampling and write do (N-audit-1106-242). `finished` is
+            // set above, so a throw from here used to reach CycleTimer_Tick's catch, whose Finish(false, ex) returned at
+            // once: no exit timer was armed and the soak never exited, with no marker to say why. A failed write now
+            // fails the run by its exit code and says so on stderr, and the process still leaves.
+            try
+            {
+                SettleAndSample(out settledGdi, out settledUser, out settledHandles);
+                WriteMarker(passed, failure);
+                if (!passed) Environment.ExitCode = 1;
+            }
+            catch (Exception verdictFailure)
+            {
+                Environment.ExitCode = 1;
+                try { Console.Error.WriteLine("resource churn: the verdict could not be written: " + verdictFailure.GetType().Name + ": " + verdictFailure.Message); }
+                catch { }
+            }
 
             exitTimer = new System.Windows.Forms.Timer
             {

@@ -130,6 +130,8 @@ namespace DesktopAICompanion.Plugins
                 ok &= StoreReviewFixes(sb);
                 ok &= DeclarativeFlagList(sb);
                 ok &= SignInStartQuestion(sb);
+                // ---- burndown/w9-host-1 ----
+                ok &= ModuleSettingsDamage(sb);
             }
             catch (Exception ex) { ok = false; sb.AppendLine("EXC: " + ex.GetType().Name + ": " + ex.Message); }
             finally
@@ -2514,6 +2516,66 @@ namespace DesktopAICompanion.Plugins
                 Version = "1.0.0",
                 Permissions = ModulePermissions.Speech | (declares ? ModulePermissions.ClaudeCodeSignIn : ModulePermissions.None),
             };
+        }
+
+        /// <summary>
+        /// A module's settings.json that cannot be read is reported, once, through the module's own log, and a damaged one
+        /// is kept beside itself before the module's next save replaces it (N-audit-1106-234). Load used to answer an empty
+        /// dictionary with no line, so every setting was silently back at its default. Driven through the host's own
+        /// ModuleSettings on a scratch folder; the atomic save is pinned as a source invariant, since no reachable input
+        /// makes an in-place write fail half-way.
+        /// </summary>
+        private static bool ModuleSettingsDamage(StringBuilder sb)
+        {
+            string root = SelfTestScratch.Create("module-settings");
+            bool ok = true;
+            try
+            {
+                string path = Path.Combine(root, "settings.json");
+                string damaged = "{\"greeting\":\"hello\",\"volume\":\"7";
+                File.WriteAllText(path, damaged);
+                var lines = new List<string>();
+                var first = new CompanionHost.ModuleSettings(path, lines.Add);
+                ok &= Check(sb, "settings damage: a damaged settings.json starts the module from its defaults",
+                    first.Get("greeting", "fallback") == "fallback");
+                ok &= Check(sb, "settings damage: a damaged settings.json is reported in the module's log, naming the kept copy (" +
+                        lines.Count + " line(s))",
+                    lines.Count == 1 && lines[0].Contains("damaged") && lines[0].Contains("settings.json.damaged"));
+                string copy = path + CompanionHost.ModuleSettings.DamagedSuffix;
+                ok &= Check(sb, "settings damage: the damaged bytes are kept as settings.json.damaged",
+                    File.Exists(copy) && File.ReadAllText(copy) == damaged);
+                new CompanionHost.ModuleSettings(path, lines.Add);
+                ok &= Check(sb, "settings damage: a second read of the same damaged file in one session adds no line (" +
+                        lines.Count + " line(s))",
+                    lines.Count == 1);
+
+                first.Set("greeting", "hi");
+                ok &= Check(sb, "settings damage: WITNESS the module's next save writes a readable file",
+                    first.Save() && new CompanionHost.ModuleSettings(path, lines.Add).Get("greeting", "") == "hi");
+                ok &= Check(sb, "settings damage: a save leaves no temporary file beside settings.json (" +
+                        string.Join(", ", Array.ConvertAll(Directory.GetFiles(root), Path.GetFileName)) + ")",
+                    Directory.GetFiles(root).Length == 2);
+
+                // Unreadable is not damaged: a file held without read sharing is reported by its error type, not copied.
+                string lockedPath = Path.Combine(root, "locked", "settings.json");
+                Directory.CreateDirectory(Path.GetDirectoryName(lockedPath));
+                File.WriteAllText(lockedPath, "{\"greeting\":\"kept\"}");
+                var lockedLines = new List<string>();
+                using (new FileStream(lockedPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+                    new CompanionHost.ModuleSettings(lockedPath, lockedLines.Add);
+                ok &= Check(sb, "settings damage: an unreadable settings.json is reported by its error, not called damaged (" +
+                        (lockedLines.Count > 0 ? lockedLines[0] : "no line") + ")",
+                    lockedLines.Count == 1 && lockedLines[0].Contains("IOException") && !lockedLines[0].Contains("damaged") &&
+                    !File.Exists(lockedPath + CompanionHost.ModuleSettings.DamagedSuffix));
+            }
+            catch (Exception ex) { ok = false; sb.AppendLine("EXC: settings damage: " + ex.GetType().Name + ": " + ex.Message); }
+            finally
+            {
+                string releaseDetail;
+                if (!SelfTestScratch.TryRelease(root, out releaseDetail))
+                    sb.AppendLine("NOTE: settings scratch left for the next sweep (" + releaseDetail + ")");
+            }
+            return ok;
         }
 
         /// <summary>

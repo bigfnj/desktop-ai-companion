@@ -271,6 +271,13 @@ namespace DesktopAICompanion
             AssertEqual(18446744073709551615.0, Eval("0xffffffffffffffff").Number, "0xffffffffffffffff did not read as 18446744073709551615 (a signed read gives -1).");
             AssertTrue(ParseError("0x1ffffffffffffffff").Contains("hex number too large"), "A 17-digit hex literal was not refused by name.");
 
+            // A leading-zero integer is legacy octal in the source engine (010 is 8), so it is refused by name rather than
+            // read as decimal 10 (N-audit-1106-245). A lone zero, a zero fraction and a zero exponent still read.
+            AssertTrue(ParseError("010").Contains("legacy octal numbers"), "010 was not refused by name (decimal reads it as 10, the source engine as 8).");
+            AssertTrue(ParseError("1 + 08").Contains("legacy octal numbers"), "08 after an operator was not refused by name.");
+            AssertEqual(0.5, Eval("0.5").Number, "WITNESS: 0.5 no longer reads.");
+            AssertEqual(10.0, Eval("0 + 10 + 0e1").Number, "WITNESS: a lone 0, 10 and 0e1 no longer read.");
+
             // String to number is ES5.1's: hex strings read, Infinity is case-sensitive, junk is NaN, blank is 0.
             AssertEqual(16.0, Eval("'0x10' * 1").Number, "'0x10' did not convert to 16.");
             AssertEqual(12.0, Eval("' 12 ' * 1").Number, "A padded decimal string did not convert.");

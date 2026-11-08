@@ -5001,6 +5001,31 @@ CASES = (
         b"         below the default. -->\n    <WarningLevel>9</WarningLevel>\n    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>\n",
         "w9-tests-scripts-1: no project under tests pins a WarningLevel below",
     ),
+    # ---- burndown/w9-host-1 ----
+    # N-audit-1106-234: a module settings save truncates settings.json in place again. "bd-w9-host-1:" for one --only.
+    (
+        "bd-w9-host-1: a module settings save writes settings.json in place again (N-audit-1106-234)",
+        os.path.join(REPO, "src", "dotNet", "Plugins", "CompanionHost.cs"),
+        b"                    SecureDownload.WriteAllBytesAtomic(_path, new UTF8Encoding(false).GetBytes(JsonSerializer.Serialize(_d)));\n",
+        b"                    File.WriteAllText(_path, JsonSerializer.Serialize(_d), new UTF8Encoding(false));\n",
+        "w9-host-1: a module settings save replaces settings.json whole through the atomic write",
+    ),
+    # N-host-pack-abi-01: the single preview's handle removes only the window it was handed again.
+    (
+        "bd-w9-host-1: a single preview's handle removes only its own window again (N-host-pack-abi-01)",
+        os.path.join(REPO, "src", "dotNet", "Plugins", "CompanionHost.cs"),
+        b"            try { if (_startUp != null) _startUp.RemoveSinglePreview(pet, _previewId); }\n",
+        b"            try { if (_startUp != null) _startUp.RemovePetInstance(pet); }\n",
+        "host-pack-abi: a pack preview's handle removes by namespace",
+    ),
+    # N-audit-1106-242: the churn's verdict sampling and write move back in front of the try, so a throw skips the timer.
+    (
+        "bd-w9-host-1: a resource churn whose verdict write throws never arms its exit timer (N-audit-1106-242)",
+        os.path.join(REPO, "src", "dotNet", "Program.cs"),
+        b"            try\n            {\n                SettleAndSample(out settledGdi, out settledUser, out settledHandles);\n                WriteMarker(passed, failure);\n",
+        b"            SettleAndSample(out settledGdi, out settledUser, out settledHandles);\n            WriteMarker(passed, failure);\n            try\n            {\n",
+        "w9-host-1: a resource churn whose verdict write throws still arms its exit timer",
+    ),
 )
 
 
