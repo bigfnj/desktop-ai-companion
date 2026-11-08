@@ -361,15 +361,45 @@ enclosing `<Condition>` with its own (conditions are parsed afresh per check, `B
 A companion's first behaviour, when no start behaviour is given, is selected from the route edges alone. The selected
 behaviour is initialised in the same step (4.5).
 
-**Special behaviours.** The host enters the behaviours the source binds by name on its lifecycle events:
+**Special behaviours.** The host enters these behaviours by name on its own events, as the parity contract states
+(`tools/ShimejiParity/CONTRACT.md` section 3, its input rules and the `forced` cause):
 
 | event | behaviour entered |
 |---|---|
-| ground lost | `Fall` |
-| drag started | `Dragged` |
-| released after a drag | `Thrown` |
+| the ground is lost: a bordered action's border no longer holds its anchor, Regist reaches its last tick, or a window-carrying action loses its grip on the window | `Fall` |
+| a left press that no hotspot takes, while the running action permits dragging (`draggable`, 4.1) | `Dragged` |
+| the left button is released while the companion is being dragged | `Thrown` |
 
-To be confirmed by the parity lane against `UserBehavior` before freeze.
+The host builds each by name without the enabled check, so a toggle that turns one off does not stop it, and each is
+entered with cause `forced`. "Being dragged" is a flag the Dragged and Regist actions set at every step, and the
+release and a lost ground clear it: a press and a release in the same tick throw nothing, because no Dragged step has
+set the flag yet. A press on an action that refuses dragging does nothing. A pack without the behaviour cannot build it
+when its event comes, and that companion is ended with an error while the others step on. In a parity trace, a press
+whose Dragged cannot be built writes no drag start, and a release writes its drag end before Thrown is built. `Fall` is
+also what the drop-ins enter (step 4 above, and 4.5 step 3). The host code is `TickBehaviour.Next`, `MousePressed` and
+`MouseReleased` (`src/dotNet/Shimeji/TickRuntime.cs`), and CoreTests pins these rules ("Tick engine lost ground
+enters Fall", "Tick input press drags, release throws only a dragged companion").
+
+**Pointer input.** Only the left button reaches the runtime; the right one stays the app's own. A left press or release,
+or a pointer move, on a companion's window is queued and handed to the engine at the start of the next step, before
+births are activated and before any companion steps (`TickHost.Pointer`, `TickWorld.StepOnce`; the contract's update
+order, section 4).
+
+- **A press** is taken by the first of the companion's hotspots (the list the last action step took from its current
+  variant, 4.5), in order, that contains the window-local point, mirrored for a right-facing companion (section 3),
+  and whose behaviour exists and is not turned off by its toggle. The press is then held at that point, and the
+  behaviour is entered at once with cause `forced`. The behaviour is looked up and its toggle read in the companion's
+  current type, and it is built from the type of the behaviour that is running, as the contract states. A hotspot
+  with no behaviour, or with one that is missing or turned off, never takes a press: the press goes on as if the
+  hotspot were not there, to the drag rule above.
+- **While the press is held**, pointer moves move the held point, and each step checks the hold (4.5 step 2). The hold
+  ends at the release, or at the first step that finds no hotspot under the held point, which records no release.
+- **A release** ends a hold, then throws a companion that is being dragged. One release can do both.
+
+A parity trace records these as the contract's `hotspot` and `drag` events: a hotspot press names its behaviour, a
+hotspot release names none and comes before a drag end from the same release, and a pointer move records nothing.
+CoreTests pins the hotspot rules ("Tick input hotspots hold, re-enter and mirror"). (Until N-bd-w7-docs-1-02 this said
+the table above was to be confirmed by the parity lane against `UserBehavior` before freeze.)
 
 ### 4.4 Limits in tick mode
 
@@ -401,8 +431,10 @@ cache boundaries rather than a tidier equivalent:
    and initialise that child). If the check holds, the action steps (`next`): its frame caches are cleared, the offer
    list is replaced by its offers, hotspots are taken from its current variant, and its effects run. A composite's
    effects are its active child's step.
-2. **Hotspots.** If the user is holding the button over a hotspot, a hotspot with a behaviour enters it now; one
-   without holds (a head-pat).
+2. **Hotspots.** While a hotspot press is held (4.3), the first of the companion's hotspots that contains the held
+   point keeps the hold. If it has a behaviour, that behaviour is entered again now, so a held hotspot re-enters its
+   behaviour at every step; one with no behaviour keeps the hold and enters nothing. When none contains the point, the
+   hold ends. Only a press that a hotspot with a behaviour took starts a hold (4.3).
 3. **Check again.** Unless a hotspot entered a behaviour, the action is checked a second time, with the caches step 1
    left. If it still holds and the companion is wholly off the screen, it drops in at a random x
    (`builtin:out-of-bounds-drop-x`) and enters `Fall`. If it no longer holds, the next behaviour is selected (4.3) and
@@ -665,15 +697,24 @@ the host's `AnimationReachability`, the converter's `PetGraph` and Studio's anal
 The behaviour debugger (Studio's timeline) builds classic nodes only, so it refuses a tick-clock companion by name;
 Preview runs one as it is.
 
-## 11. Open points to settle before freeze
+## 11. Points that were open before freeze
 
-1. The special-behaviour names and when the host enters them (4.3), from `UserBehavior`.
+Each is now settled. (Until N-bd-w7-docs-1-02 this section was titled "Open points to settle before freeze" and
+listed points 1 and 3 as open.)
+
+1. The special-behaviour names and when the host enters them: settled by the parity contract's input rules and its
+   `forced` cause (`tools/ShimejiParity/CONTRACT.md` section 3, signed at v1.1 and unchanged by v1.2). 4.3 states them,
+   with the host code and the CoreTests that pin them.
 2. The active-window rule used for `activeIE` and window actions (section 8), from the Windows environment. Settled
    outside the parity contract, which scripts the active window: the host follows the source's walk and CoreTests
    pin it (section 8).
-3. Hotspot input semantics: when a press triggers its behaviour, held versus released state, and a hotspot with no
-   behaviour (a held click or head-pat).
+3. Hotspot input semantics: the press and the release are settled by the same input rules, and the hold by the
+   host's step, which CoreTests pins. A press takes effect at the start of the next step; the first hotspot that
+   contains it and whose behaviour exists and is not turned off takes it, enters that behaviour and holds; the hold
+   ends at the release, or when no hotspot is under the held point. A hotspot with no behaviour never
+   takes a press: the press goes on to the next hotspot that contains it, then to the drag rule, and a press on one
+   alone never holds. 4.3 (pointer input) and 4.5 step 2 state the rules.
 
-Settled: selection costs no tick and draws once (4.3); the step order, the repeated check and the lazy cache
+Also settled: selection costs no tick and draws once (4.3); the step order, the repeated check and the lazy cache
 boundaries are the source's (4.5, section 6). Both came from the parity lane's review of the source, before any
 oracle trace contradicted the draft.
