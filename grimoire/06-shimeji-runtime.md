@@ -602,7 +602,9 @@ the parity lane before freeze.
   - route and behaviour edges lead to behaviour nodes, and action nodes have none (4.1);
   - route behaviours have unique names, and an off-route behaviour carries a route behaviour's name (4.2);
   - `<startup>` only on a `main` member;
-  - an action with Breed or Transform keeps a fallback edge, so a missing member does not respawn the companion;
+  - an action with Breed or Transform needs no edge of its own, and may carry none (the rule above): a missing
+    member is a runtime fallback to the current type (section 9), not a respawn. (This listed "keeps a fallback
+    edge" as a check until N-audit-1106-198; the validator has no such check and refuses any edge on an action.)
   - what a document USES is declared, judged from what it contains: a scripted binding (behaviour or composite child)
     needs `expressions`; an expression the parser finds reading or writing `mascot.variables` needs `variables`; a
     `BornMascot` or `TransformMascot`, as a parameter or a binding, needs `packs`; ComplexMove and ComplexJump need
@@ -619,8 +621,12 @@ the parity lane before freeze.
   (`Shimeji/TickFeatures.cs`). Companion Studio fills its own with the same tokens (`modules/PetStudio/StudioFeatures.cs`,
   compared with the app's by `--petstudio-selftest`) and leaves the per-class question to the format, because the
   host re-validates with its real class gate when Studio previews or installs. The converter compiles the validator
-  without either file, keeps the set empty and refuses tick companions by feature name until its migrations carry
-  every field.
+  without either file, so its own set is empty and its single-document checks (`Engine.TryValidate`, the round trip)
+  still refuse a tick companion by feature name. Its tick-pack paths do not consult that set: `TickPackEmitter` and
+  `PackConversion` emit tick packs and validate every emitted member with every format feature enabled
+  (`CompanionFormatFeatures.All`), refusing the pack by member name if one fails, and the host validates each
+  member again against its real set when it loads it. (Before N-audit-1106-199 this said the converter refused
+  every tick companion until its migrations carried every field.)
 - **Pack-level (`PackValidator`, over every member's parsed document; Studio and the host can both call it):**
   - every member is in the same pack, with one `main`, and member keys unique;
   - references resolve, or are reported as warnings (a scripted one is reported as known only at run time);
