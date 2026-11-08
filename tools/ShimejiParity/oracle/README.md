@@ -125,12 +125,24 @@ The private draft's `lib/` and `conf/` files must also match the source inventor
 with no missing or extra resource files. An incomplete directory scan is a refusal. The producer and comparer read
 the same source-archive pin from `source-pin.json`.
 
-Trace/2 error events carry the required `error` object. The current message-only seam writes `unclassified` with a
-null lookup and an empty `via`; it cannot attribute a typed lookup or a consequence wrapper from a diagnostic string.
-The optional stored-fault channel accepts explicit cause data from reviewed failure/catch hooks. Until those hooks
-are wired, typed lookup attribution and the fresh blank-behavior closure fixtures of CONTRACT 10.9 remain incomplete.
-The Java protocol probe checks payload transport, fallback and RNG/footer behavior with original synthetic API stubs;
-it does not establish pinned-runtime lookup attribution or catch/state-write equivalence.
+Trace/2 error events carry the required `error` object. Source-neutral failure hooks bind a cause to the identical
+thrown object; catch hooks consume that binding and attach their consequence label around the existing report.
+The runner resolves the searched member by Configuration identity and refKeys by stored action origin, preserving
+null, empty and space-only requested names. It never derives a code or operand from diagnostic text or reevaluates
+a source expression. Explicit behavior/action lookup failures, the BornCount/BornInterval range checks and the
+stored null target at ComplexMove arrival have hooks. Unsupported failure shapes remain `unclassified`; the
+message-only fallback has a null lookup and empty `via`. The lost-ground Fall carry preserves its bound cause.
+Startup retains its existing footer-only failure path and does not manufacture an error event.
+
+The V1 launcher passes `-XX:-OmitStackTraceInFastThrow` on observed and observation-off runs. Binding rejects an
+empty-stack throwable or a duplicate live binding, and consumes cause chains when read. A nonempty named hook
+defect list forces an aborted run with `V2_FAULT_CHANNEL_DEFECT` before its footer, including when a source exception
+already escaped. The new channel is disabled before binding/provenance work for trace/1; trace/2 observation-off
+proof runs retain it. A message that lacks a typed cause is not itself a channel defect.
+
+The Java protocol probe checks transport, hook identity/consumption, resolver and RNG/footer behavior using original
+synthetic API stubs. These controls do not establish pinned-runtime lookup attribution or catch/state-write
+equivalence. Fresh pinned-runtime and paired blank-behavior closure fixtures of CONTRACT 10.9 remain required.
 
 `V1ScenarioRunner.java` is original driver code compiled beside the draft JAR. It installs its controller before any
 environment class initialises, replaces the native factory before any companion exists (scenario-fed desktop,

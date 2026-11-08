@@ -65,6 +65,12 @@
     },
     "src/com/group_finity/mascot/action/Interact.java": {
       "sha256": "79ebb3813fccf832e97f905b0318942a3159dda032d5fd857306df0523e3a8d7"
+    },
+    "src/com/group_finity/mascot/action/Breed.java": {
+      "sha256": "3aec644882d7a2b9f9d1e6ea8f44c6218d7de9e52826bf6504310d5fa3ef137e"
+    },
+    "src/com/group_finity/mascot/action/Transform.java": {
+      "sha256": "d0437e78f76ca358b5ca7134d33867f5c08ea9ba5e07f5f34288cc1dbc093980"
     }
   },
   "javaRandomCounts": {
@@ -149,7 +155,7 @@
       "lineSha256": "5f3e7f22711c126e093eaca391470f6154e636d32fa7f29397b2ce58d22dce40",
       "op": "insert-before",
       "code": [
-        "if (com.group_finity.mascot.parity.DraftParityHooks.enabled()) { com.group_finity.mascot.parity.DraftParityHooks.fail(message); return; }"
+        "if (com.group_finity.mascot.parity.DraftParityHooks.enabled()) { com.group_finity.mascot.parity.DraftParityHooks.fail(message, com.group_finity.mascot.parity.DraftParityHooks.takeArmedFault()); return; }"
       ]
     },
     {
@@ -261,7 +267,9 @@
       "lineSha256": "789980e99e91fb455a7a88cde835354980c19a351c5a492be38ab17ba96c0afd",
       "op": "wrap-assigned-value",
       "call": "com.group_finity.mascot.parity.DraftParityHooks.scanned",
-      "arguments": ["this"]
+      "arguments": [
+        "this"
+      ]
     },
     {
       "file": "src/com/group_finity/mascot/action/ScanInteract.java",
@@ -269,7 +277,9 @@
       "lineSha256": "789980e99e91fb455a7a88cde835354980c19a351c5a492be38ab17ba96c0afd",
       "op": "wrap-assigned-value",
       "call": "com.group_finity.mascot.parity.DraftParityHooks.scanned",
-      "arguments": ["this"]
+      "arguments": [
+        "this"
+      ]
     },
     {
       "file": "src/com/group_finity/mascot/action/ScanJump.java",
@@ -277,7 +287,9 @@
       "lineSha256": "789980e99e91fb455a7a88cde835354980c19a351c5a492be38ab17ba96c0afd",
       "op": "wrap-assigned-value",
       "call": "com.group_finity.mascot.parity.DraftParityHooks.scanned",
-      "arguments": ["this"]
+      "arguments": [
+        "this"
+      ]
     },
     {
       "file": "src/com/group_finity/mascot/action/ComplexMove.java",
@@ -285,7 +297,9 @@
       "lineSha256": "84ce8e0f7d82c494bed094ae39558bc9ab644f99911543d8a3d84f2feb826d8e",
       "op": "wrap-assigned-value",
       "call": "com.group_finity.mascot.parity.DraftParityHooks.scanned",
-      "arguments": ["this"]
+      "arguments": [
+        "this"
+      ]
     },
     {
       "file": "src/com/group_finity/mascot/action/ComplexJump.java",
@@ -293,7 +307,9 @@
       "lineSha256": "84ce8e0f7d82c494bed094ae39558bc9ab644f99911543d8a3d84f2feb826d8e",
       "op": "wrap-assigned-value",
       "call": "com.group_finity.mascot.parity.DraftParityHooks.scanned",
-      "arguments": ["this"]
+      "arguments": [
+        "this"
+      ]
     },
     {
       "file": "src/com/group_finity/mascot/action/Interact.java",
@@ -395,6 +411,420 @@
       "code": [
         "if (com.group_finity.mascot.parity.DraftParityHooks.enabled()) { com.group_finity.mascot.parity.DraftParityHooks.refreshDisplay(this); return; }"
       ]
+    },
+    {
+      "file": "src/com/group_finity/mascot/config/Configuration.java",
+      "line": 286,
+      "op": "wrap-line",
+      "before": [
+        "{ try {"
+      ],
+      "after": [
+        "} catch (final com.group_finity.mascot.exception.BehaviorInstantiationException parityThrown) { throw com.group_finity.mascot.parity.DraftParityHooks.behaviorMissing(parityThrown, this, name); } }"
+      ],
+      "lineSha256": "175016f6439158628cae667d8b5b279a4be633827b844c58155929968a1fe1d4"
+    },
+    {
+      "file": "src/com/group_finity/mascot/config/Configuration.java",
+      "line": 294,
+      "op": "wrap-line",
+      "before": [
+        "{ try {"
+      ],
+      "after": [
+        "} catch (final com.group_finity.mascot.exception.BehaviorInstantiationException parityThrown) { throw com.group_finity.mascot.parity.DraftParityHooks.behaviorMissing(parityThrown, this, name); } }"
+      ],
+      "lineSha256": "175016f6439158628cae667d8b5b279a4be633827b844c58155929968a1fe1d4"
+    },
+    {
+      "file": "src/com/group_finity/mascot/config/Configuration.java",
+      "line": 211,
+      "op": "insert-before",
+      "code": [
+        "try {"
+      ],
+      "lineSha256": "494e804eec04c10f3361d685a8f5cb9a168295e46814d6bda7e68f979687cb6f"
+    },
+    {
+      "file": "src/com/group_finity/mascot/config/Configuration.java",
+      "line": 215,
+      "op": "insert-after",
+      "code": [
+        "} catch (final java.lang.NullPointerException parityThrown) { throw com.group_finity.mascot.parity.DraftParityHooks.nextBehaviorMissing(parityThrown, this, previousName, previousBehaviorFactory); }"
+      ],
+      "lineSha256": "86afdf70a95436e883aa7fc5c06a2ab083719054438f1218d15ebdaf287b4bac"
+    },
+    {
+      "file": "src/com/group_finity/mascot/config/Configuration.java",
+      "line": 127,
+      "op": "wrap-line",
+      "before": [
+        "{ try {"
+      ],
+      "after": [
+        "} catch (final com.group_finity.mascot.exception.ActionInstantiationException parityThrown) { throw com.group_finity.mascot.parity.DraftParityHooks.actionMissing(parityThrown, this, name); } }"
+      ],
+      "lineSha256": "df48d5aaf5387a6040f33f4533e10076be01b72d9ed3f20b4bf89ea62ac05923"
+    },
+    {
+      "file": "src/com/group_finity/mascot/action/Breed.java",
+      "line": 119,
+      "op": "wrap-line",
+      "before": [
+        "{ try {"
+      ],
+      "after": [
+        "} catch (final com.group_finity.mascot.exception.VariableException parityThrown) { throw com.group_finity.mascot.parity.DraftParityHooks.parameterInvalid(parityThrown, action, PARAMETER_BORNCOUNT); } }"
+      ],
+      "lineSha256": "87d7140ef946317133dd117371234bea90d75866783c583863ea2e884496514b"
+    },
+    {
+      "file": "src/com/group_finity/mascot/action/Breed.java",
+      "line": 125,
+      "op": "wrap-line",
+      "before": [
+        "{ try {"
+      ],
+      "after": [
+        "} catch (final com.group_finity.mascot.exception.VariableException parityThrown) { throw com.group_finity.mascot.parity.DraftParityHooks.parameterInvalid(parityThrown, action, PARAMETER_BORNINTERVAL); } }"
+      ],
+      "lineSha256": "e8e023626ffd0853c02a47af58520445424010b2744e115df1f0e618ee4059c7"
+    },
+    {
+      "file": "src/com/group_finity/mascot/action/ComplexMove.java",
+      "line": 185,
+      "op": "wrap-line",
+      "before": [
+        "try {"
+      ],
+      "after": [
+        "} catch (final java.lang.NullPointerException parityThrown) { throw com.group_finity.mascot.parity.DraftParityHooks.scanTargetMissing(parityThrown, this, target); }"
+      ],
+      "lineSha256": "96f6aa6321eb0eb6d0c1e574810795fc4e8adcd265a2d25bb5841e37433e895f"
+    },
+    {
+      "file": "src/com/group_finity/mascot/Mascot.java",
+      "line": 209,
+      "op": "wrap-line",
+      "before": [
+        "com.group_finity.mascot.parity.DraftParityHooks.arm(\"press\", e);",
+        "try {"
+      ],
+      "after": [
+        "} finally { com.group_finity.mascot.parity.DraftParityHooks.disarm(); }"
+      ],
+      "lineSha256": "83b54b85e4178ec9bdb06cd61f18d6290f48ed878129c75b67ac7680113fcf46"
+    },
+    {
+      "file": "src/com/group_finity/mascot/Mascot.java",
+      "line": 239,
+      "op": "wrap-line",
+      "before": [
+        "com.group_finity.mascot.parity.DraftParityHooks.arm(\"release\", e);",
+        "try {"
+      ],
+      "after": [
+        "} finally { com.group_finity.mascot.parity.DraftParityHooks.disarm(); }"
+      ],
+      "lineSha256": "351deab5ac16f96993173bebe443db3fa9e5700b7696af1b6351ee811c4ec9af"
+    },
+    {
+      "file": "src/com/group_finity/mascot/Mascot.java",
+      "line": 552,
+      "op": "wrap-line",
+      "before": [
+        "com.group_finity.mascot.parity.DraftParityHooks.armStep(e);",
+        "try {"
+      ],
+      "after": [
+        "} finally { com.group_finity.mascot.parity.DraftParityHooks.disarm(); }"
+      ],
+      "lineSha256": "2ac8faece6410c7db0aa7af478a54d3613d6fcc7f1fc46becface2899b078745"
+    },
+    {
+      "file": "src/com/group_finity/mascot/action/Breed.java",
+      "line": 104,
+      "op": "wrap-line",
+      "before": [
+        "com.group_finity.mascot.parity.DraftParityHooks.arm(\"birth\", e);",
+        "try {"
+      ],
+      "after": [
+        "} finally { com.group_finity.mascot.parity.DraftParityHooks.disarm(); }"
+      ],
+      "lineSha256": "8863326c734212ce46aa7ee177713cdb61ba1f18cb7de368d05f9c6f4be6bbbe"
+    },
+    {
+      "file": "src/com/group_finity/mascot/action/Breed.java",
+      "line": 110,
+      "op": "wrap-line",
+      "before": [
+        "com.group_finity.mascot.parity.DraftParityHooks.arm(\"birth\", e);",
+        "try {"
+      ],
+      "after": [
+        "} finally { com.group_finity.mascot.parity.DraftParityHooks.disarm(); }"
+      ],
+      "lineSha256": "8863326c734212ce46aa7ee177713cdb61ba1f18cb7de368d05f9c6f4be6bbbe"
+    },
+    {
+      "file": "src/com/group_finity/mascot/action/Transform.java",
+      "line": 60,
+      "op": "wrap-line",
+      "before": [
+        "com.group_finity.mascot.parity.DraftParityHooks.arm(\"transform\", e);",
+        "try {"
+      ],
+      "after": [
+        "} finally { com.group_finity.mascot.parity.DraftParityHooks.disarm(); }"
+      ],
+      "lineSha256": "f4ea81389f03f0c64b3303c37b6b5bda9ec6b56d4e4a0feb9c399edefad00d26"
+    },
+    {
+      "file": "src/com/group_finity/mascot/action/Transform.java",
+      "line": 65,
+      "op": "wrap-line",
+      "before": [
+        "com.group_finity.mascot.parity.DraftParityHooks.arm(\"transform\", e);",
+        "try {"
+      ],
+      "after": [
+        "} finally { com.group_finity.mascot.parity.DraftParityHooks.disarm(); }"
+      ],
+      "lineSha256": "f4ea81389f03f0c64b3303c37b6b5bda9ec6b56d4e4a0feb9c399edefad00d26"
+    },
+    {
+      "file": "src/com/group_finity/mascot/action/ScanMove.java",
+      "line": 133,
+      "op": "wrap-line",
+      "before": [
+        "com.group_finity.mascot.parity.DraftParityHooks.arm(\"arrive\", e);",
+        "try {"
+      ],
+      "after": [
+        "} finally { com.group_finity.mascot.parity.DraftParityHooks.disarm(); }"
+      ],
+      "lineSha256": "12f5d5569bfc715467ccbb6f852bcb2c9720246123a939cda128a53457cc7be5"
+    },
+    {
+      "file": "src/com/group_finity/mascot/action/ScanMove.java",
+      "line": 138,
+      "op": "wrap-line",
+      "before": [
+        "com.group_finity.mascot.parity.DraftParityHooks.arm(\"arrive\", e);",
+        "try {"
+      ],
+      "after": [
+        "} finally { com.group_finity.mascot.parity.DraftParityHooks.disarm(); }"
+      ],
+      "lineSha256": "12f5d5569bfc715467ccbb6f852bcb2c9720246123a939cda128a53457cc7be5"
+    },
+    {
+      "file": "src/com/group_finity/mascot/action/ScanMove.java",
+      "line": 143,
+      "op": "wrap-line",
+      "before": [
+        "com.group_finity.mascot.parity.DraftParityHooks.arm(\"arrive\", e);",
+        "try {"
+      ],
+      "after": [
+        "} finally { com.group_finity.mascot.parity.DraftParityHooks.disarm(); }"
+      ],
+      "lineSha256": "12f5d5569bfc715467ccbb6f852bcb2c9720246123a939cda128a53457cc7be5"
+    },
+    {
+      "file": "src/com/group_finity/mascot/action/ScanJump.java",
+      "line": 121,
+      "op": "wrap-line",
+      "before": [
+        "com.group_finity.mascot.parity.DraftParityHooks.arm(\"arrive\", e);",
+        "try {"
+      ],
+      "after": [
+        "} finally { com.group_finity.mascot.parity.DraftParityHooks.disarm(); }"
+      ],
+      "lineSha256": "12f5d5569bfc715467ccbb6f852bcb2c9720246123a939cda128a53457cc7be5"
+    },
+    {
+      "file": "src/com/group_finity/mascot/action/ScanJump.java",
+      "line": 126,
+      "op": "wrap-line",
+      "before": [
+        "com.group_finity.mascot.parity.DraftParityHooks.arm(\"arrive\", e);",
+        "try {"
+      ],
+      "after": [
+        "} finally { com.group_finity.mascot.parity.DraftParityHooks.disarm(); }"
+      ],
+      "lineSha256": "12f5d5569bfc715467ccbb6f852bcb2c9720246123a939cda128a53457cc7be5"
+    },
+    {
+      "file": "src/com/group_finity/mascot/action/ScanJump.java",
+      "line": 131,
+      "op": "wrap-line",
+      "before": [
+        "com.group_finity.mascot.parity.DraftParityHooks.arm(\"arrive\", e);",
+        "try {"
+      ],
+      "after": [
+        "} finally { com.group_finity.mascot.parity.DraftParityHooks.disarm(); }"
+      ],
+      "lineSha256": "12f5d5569bfc715467ccbb6f852bcb2c9720246123a939cda128a53457cc7be5"
+    },
+    {
+      "file": "src/com/group_finity/mascot/action/ScanInteract.java",
+      "line": 131,
+      "op": "wrap-line",
+      "before": [
+        "com.group_finity.mascot.parity.DraftParityHooks.arm(\"arrive\", e);",
+        "try {"
+      ],
+      "after": [
+        "} finally { com.group_finity.mascot.parity.DraftParityHooks.disarm(); }"
+      ],
+      "lineSha256": "895b187dff820ae9036be7d21af20790b6f684716aa4f7dafad049d608e8164f"
+    },
+    {
+      "file": "src/com/group_finity/mascot/action/ScanInteract.java",
+      "line": 136,
+      "op": "wrap-line",
+      "before": [
+        "com.group_finity.mascot.parity.DraftParityHooks.arm(\"arrive\", e);",
+        "try {"
+      ],
+      "after": [
+        "} finally { com.group_finity.mascot.parity.DraftParityHooks.disarm(); }"
+      ],
+      "lineSha256": "895b187dff820ae9036be7d21af20790b6f684716aa4f7dafad049d608e8164f"
+    },
+    {
+      "file": "src/com/group_finity/mascot/action/ScanInteract.java",
+      "line": 141,
+      "op": "wrap-line",
+      "before": [
+        "com.group_finity.mascot.parity.DraftParityHooks.arm(\"arrive\", e);",
+        "try {"
+      ],
+      "after": [
+        "} finally { com.group_finity.mascot.parity.DraftParityHooks.disarm(); }"
+      ],
+      "lineSha256": "895b187dff820ae9036be7d21af20790b6f684716aa4f7dafad049d608e8164f"
+    },
+    {
+      "file": "src/com/group_finity/mascot/action/ComplexMove.java",
+      "line": 194,
+      "op": "wrap-line",
+      "before": [
+        "com.group_finity.mascot.parity.DraftParityHooks.arm(\"arrive\", e);",
+        "try {"
+      ],
+      "after": [
+        "} finally { com.group_finity.mascot.parity.DraftParityHooks.disarm(); }"
+      ],
+      "lineSha256": "12f5d5569bfc715467ccbb6f852bcb2c9720246123a939cda128a53457cc7be5"
+    },
+    {
+      "file": "src/com/group_finity/mascot/action/ComplexMove.java",
+      "line": 199,
+      "op": "wrap-line",
+      "before": [
+        "com.group_finity.mascot.parity.DraftParityHooks.arm(\"arrive\", e);",
+        "try {"
+      ],
+      "after": [
+        "} finally { com.group_finity.mascot.parity.DraftParityHooks.disarm(); }"
+      ],
+      "lineSha256": "12f5d5569bfc715467ccbb6f852bcb2c9720246123a939cda128a53457cc7be5"
+    },
+    {
+      "file": "src/com/group_finity/mascot/action/ComplexMove.java",
+      "line": 204,
+      "op": "wrap-line",
+      "before": [
+        "com.group_finity.mascot.parity.DraftParityHooks.arm(\"arrive\", e);",
+        "try {"
+      ],
+      "after": [
+        "} finally { com.group_finity.mascot.parity.DraftParityHooks.disarm(); }"
+      ],
+      "lineSha256": "12f5d5569bfc715467ccbb6f852bcb2c9720246123a939cda128a53457cc7be5"
+    },
+    {
+      "file": "src/com/group_finity/mascot/action/ComplexJump.java",
+      "line": 184,
+      "op": "wrap-line",
+      "before": [
+        "com.group_finity.mascot.parity.DraftParityHooks.arm(\"arrive\", e);",
+        "try {"
+      ],
+      "after": [
+        "} finally { com.group_finity.mascot.parity.DraftParityHooks.disarm(); }"
+      ],
+      "lineSha256": "895b187dff820ae9036be7d21af20790b6f684716aa4f7dafad049d608e8164f"
+    },
+    {
+      "file": "src/com/group_finity/mascot/action/ComplexJump.java",
+      "line": 189,
+      "op": "wrap-line",
+      "before": [
+        "com.group_finity.mascot.parity.DraftParityHooks.arm(\"arrive\", e);",
+        "try {"
+      ],
+      "after": [
+        "} finally { com.group_finity.mascot.parity.DraftParityHooks.disarm(); }"
+      ],
+      "lineSha256": "895b187dff820ae9036be7d21af20790b6f684716aa4f7dafad049d608e8164f"
+    },
+    {
+      "file": "src/com/group_finity/mascot/action/ComplexJump.java",
+      "line": 194,
+      "op": "wrap-line",
+      "before": [
+        "com.group_finity.mascot.parity.DraftParityHooks.arm(\"arrive\", e);",
+        "try {"
+      ],
+      "after": [
+        "} finally { com.group_finity.mascot.parity.DraftParityHooks.disarm(); }"
+      ],
+      "lineSha256": "895b187dff820ae9036be7d21af20790b6f684716aa4f7dafad049d608e8164f"
+    },
+    {
+      "file": "src/com/group_finity/mascot/action/Interact.java",
+      "line": 53,
+      "op": "wrap-line",
+      "before": [
+        "com.group_finity.mascot.parity.DraftParityHooks.arm(\"interact\", e);",
+        "try {"
+      ],
+      "after": [
+        "} finally { com.group_finity.mascot.parity.DraftParityHooks.disarm(); }"
+      ],
+      "lineSha256": "12f5d5569bfc715467ccbb6f852bcb2c9720246123a939cda128a53457cc7be5"
+    },
+    {
+      "file": "src/com/group_finity/mascot/action/Interact.java",
+      "line": 58,
+      "op": "wrap-line",
+      "before": [
+        "com.group_finity.mascot.parity.DraftParityHooks.arm(\"interact\", e);",
+        "try {"
+      ],
+      "after": [
+        "} finally { com.group_finity.mascot.parity.DraftParityHooks.disarm(); }"
+      ],
+      "lineSha256": "12f5d5569bfc715467ccbb6f852bcb2c9720246123a939cda128a53457cc7be5"
+    },
+    {
+      "file": "src/com/group_finity/mascot/behavior/UserBehavior.java",
+      "line": 307,
+      "op": "wrap-line",
+      "before": [
+        "{ try {"
+      ],
+      "after": [
+        "} catch (final com.group_finity.mascot.exception.CantBeAliveException parityThrown) { throw com.group_finity.mascot.parity.DraftParityHooks.carryCause(parityThrown, ex); } }"
+      ],
+      "lineSha256": "22bdc74b4aaccedca91df7de3067dd2645b87b970da94454652e43e49b7e35fc"
     },
     {
       "file": "src/com/group_finity/mascot/Main.java",
