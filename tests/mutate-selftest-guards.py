@@ -23384,6 +23384,41 @@ CASES = (
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "WITNESS aibrain bd-w7: a remark whose probe got no answer is still recorded as an engine that is not reachable"),
+    # ---- burndown/w7-fortunes-1 ----
+    # Fortunes, burn-down wave 7. "bd-w7-fortunes-1:" for one --only.
+    # N-bd-w5-fortunes-1-01: the 8..280 rule every message calls "characters" counts user-perceived characters
+    # (extended grapheme clusters), not UTF-16 code units and not code points.
+    ("bd-w7-fortunes-1: the 8..280 rule counts UTF-16 code units again (N-bd-w5-fortunes-1-01)",
+     os.path.join(REPO, "modules", "Fortunes", "engine", "FortuneProvider.cs"),
+     b"                   CountCharactersUpTo(text, MinimumFortuneCharacters) >= MinimumFortuneCharacters &&\n"
+     b"                   (text.Length <= MaximumFortuneCharacters ||\n"
+     b"                    CountCharactersUpTo(text, MaximumFortuneCharacters + 1) <= MaximumFortuneCharacters) &&\n",
+     b"                   text.Length >= MinimumFortuneCharacters &&\n"
+     b"                   text.Length <= MaximumFortuneCharacters &&\n",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "an entry of 280 emoji, 560 UTF-16 code units, is 280 characters and loads"),
+    ("bd-w7-fortunes-1: a character is counted as a code point, not a grapheme cluster (N-bd-w5-fortunes-1-01)",
+     os.path.join(REPO, "modules", "Fortunes", "engine", "FortuneProvider.cs"),
+     b"                index += StringInfo.GetNextTextElementLength(text, index);\n",
+     b"                index += char.IsSurrogatePair(text, index) ? 2 : 1;\n",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "a flag is one character, not two code points"),
+    ("bd-w7-fortunes-1: the ceiling's walk stops at 280, so it never sees a 281st character (N-bd-w5-fortunes-1-01)",
+     os.path.join(REPO, "modules", "Fortunes", "engine", "FortuneProvider.cs"),
+     b"                    CountCharactersUpTo(text, MaximumFortuneCharacters + 1) <= MaximumFortuneCharacters) &&\n",
+     b"                    CountCharactersUpTo(text, MaximumFortuneCharacters) <= MaximumFortuneCharacters) &&\n",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "an entry of 281 emoji is 281 characters and is left out as over 280"),
+    ("bd-w7-fortunes-1: the floor is one character short (N-bd-w5-fortunes-1-01)",
+     os.path.join(REPO, "modules", "Fortunes", "engine", "FortuneProvider.cs"),
+     b"                   CountCharactersUpTo(text, MinimumFortuneCharacters) >= MinimumFortuneCharacters &&\n",
+     b"                   CountCharactersUpTo(text, MinimumFortuneCharacters - 1) >= MinimumFortuneCharacters - 1 &&\n",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "an entry of seven emoji, 14 UTF-16 code units, is seven characters and is left out as under 8"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
