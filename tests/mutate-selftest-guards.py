@@ -23311,6 +23311,15 @@ CASES = (
      b"                    prepared.Add(new PreparedMember { Name = member, Error = member + \": \" + failure.Message });\n",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
      SHIMEJI, "pack-conversion/member-refusal-no-write", "a refused member's error names its image set twice before the diagnostic: Image set 'Bad': Bad: "),
+    # ---- burndown/w7-contracts-1 ----
+    # Shared contracts, burn-down wave 7. "bd-w7-contracts-1:" for one --only.
+    # N-audit-1106-148: the named-clip refusal tells the author to leave <probability> out again, which the schema refuses.
+    ("bd-w7-contracts-1: the named-clip refusal no longer says its probability and loop must be 0 (N-audit-1106-148)",
+     os.path.join(REPO, "src", "dotNet", "CompanionXmlValidator.cs"),
+     b'                        + "its <probability> and <loop> must be 0, since they belong to classic sounds.");\n',
+     b'                        + "<probability> and <loop> belong to classic sounds.");\n',
+     HOST_CSPROJ, EXE,
+     SECURITY, None, 'a named clip with a probability is refused'),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

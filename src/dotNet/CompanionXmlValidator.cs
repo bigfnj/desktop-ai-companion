@@ -802,10 +802,12 @@ namespace DesktopAICompanion
                     sound.Loop < 0 || sound.Loop > 20)
                     throw new InvalidDataException("A sound entry is invalid.");
                 // A named clip plays when a pose names it, once per pose (grimoire/06): a probability or a loop on one
-                // would be accepted and silently ignored, so they stay with classic sounds.
+                // would be accepted and silently ignored, so they stay with classic sounds. The refusal says "must be 0",
+                // not "leave them out": the schema requires <probability> on every sound, so an author who removed it
+                // on the old wording's advice met an XSD error next (N-audit-1106-148).
                 if (named && (sound.Probability != 0 || sound.Loop != 0))
                     throw new InvalidDataException("Sound '" + sound.SoundId + "' is a named clip, which plays when a pose names it: "
-                        + "<probability> and <loop> belong to classic sounds.");
+                        + "its <probability> and <loop> must be 0, since they belong to classic sounds.");
                 if (!named)
                 {
                     int cumulativeProbability;
