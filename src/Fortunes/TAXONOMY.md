@@ -127,9 +127,11 @@ New or migrated packs must use v2.
 - `build-corpus.sh` is a pure assembler of labeled schema-v2 rows that already live in the
   repository. Each source id in `corpus-required-files.txt` resolves to `sources/<id>.tsv` beside
   it, else to `packs/<id>.txt` at the repository root; an id with neither fails instead of
-  silently shrinking the corpus. Every input row must have six fields, a source column equal to its
-  id, and text of 8 to 280 bytes (awk counts under the C locale). Rows are deduplicated on text (manifest order keeps the
-  first), sorted under the C locale by source then text, staged beside `fortunes.txt` and renamed
+  silently shrinking the corpus. Every input row must be valid UTF-8 with six fields, a source column
+  equal to its id, and text the module would load: HTML-decoded and trimmed as the module does it, then
+  8 to 280 user-perceived characters with no control character (a perl check that counts as the
+  module counts; one row the module refuses would empty the whole embedded corpus). Rows are
+  deduplicated on text (manifest order keeps the first), sorted under the C locale by source then text, staged beside `fortunes.txt` and renamed
   onto it. It reads no upstream checkout and writes no sidecar.
 - **Current-corpus provenance status:** the checked-in `fortunes.txt` is reproduced byte for byte
   from its two repository inputs, `sources/fortunes.tsv` and `packs/dadjokes.txt`.

@@ -524,6 +524,52 @@ build_preserved
 printf 'alpha\ttech\tquip\t0\t0\tshort\n' > "$build_fort/sources/alpha.tsv"
 expect_failure_matching "text length 5 outside 8..280" bash "$build_fort/build-corpus.sh"
 build_preserved
+
+# The text is counted as the module counts it (N-bd-w7-fortunes-1-01): decoded, zero-width characters
+# dropped, trimmed, then 8 to 280 user-perceived characters with no control character. The old check
+# counted the raw column's BYTES, so every refused row below except the five-byte one above passed it,
+# and one such row refuses the whole embedded corpus at load; each row pins one step of the rule. Built
+# from octal UTF-8 bytes, never literals: U+4F60 is \344\275\240, U+1F600 is \360\237\230\200, the flag
+# U+1F1EF U+1F1F5 is \360\237\207\257\360\237\207\265, and the Devanagari conjunct KA VIRAMA SSA is
+# \340\244\225\340\245\215\340\244\267.
+cjk='\344\275\240'
+emoji='\360\237\230\200'
+flag='\360\237\207\257\360\237\207\265'
+kvs='\340\244\225\340\245\215\340\244\267'
+# $1: the text column, as a printf format; $2: the refusal it must draw; $3: the step of the rule the row
+# pins, named when the builder admits the row, so a failure says which step went.
+refuse_text() {
+  local output
+  printf "alpha\ttech\tquip\t0\t0\t$1\n" > "$build_fort/sources/alpha.tsv"
+  if output="$(bash "$build_fort/build-corpus.sh" 2>&1)"; then
+    printf 'build-corpus admitted a row the module refuses: %s\n' "$3" >&2
+    exit 1
+  fi
+  printf '%s\n' "$output" | grep -Fq "$2" || {
+    printf 'failure did not contain %q: %s\n' "$2" "$output" >&2
+    exit 1
+  }
+  build_preserved
+}
+refuse_text "$cjk$cjk$cjk" "text length 3 outside 8..280" "three ideographs, 9 bytes"
+refuse_text "$emoji$emoji$emoji$emoji$emoji$emoji$emoji" "text length 7 outside 8..280" "seven emoji, 28 bytes"
+refuse_text "$flag$flag$flag$flag" "text length 4 outside 8..280" "four flags, 8 code points"
+refuse_text '&amp;&amp;&amp;&amp;' "text length 4 outside 8..280" "four escaped ampersands, decoded"
+refuse_text 'abc&amp;#x200B;&amp;#x200B;&amp;#x200B;&amp;#x200B;&amp;#x200B;' "text length 3 outside 8..280" \
+  "three letters and five twice-escaped zero-width spaces, decoded twice and dropped"
+refuse_text '&nbsp;&nbsp;&nbsp;short' "text length 5 outside 8..280" "escaped no-break spaces, trimmed after decoding"
+refuse_text 'A tab&#9;hides inside this fortune text.' "text holds a control character" "an escaped tab"
+refuse_text 'Not UTF-8 at all: \377 is a stray byte.' "not valid UTF-8" "a stray byte"
+# WITNESS: rows the module loads. 100 ideographs are 300 bytes and 100 characters, which the old check
+# refused; four conjuncts are eight characters to .NET 10, which has no Unicode 15.1 conjunct rule,
+# while perl's own \X makes them one.
+printf "alpha\ttech\tquip\t0\t0\t%s\nalpha\ttech\tquip\t0\t0\t$kvs$kvs$kvs$kvs\n" \
+  "$(printf "$cjk%.0s" $(seq 1 100))" > "$build_fort/sources/alpha.tsv"
+if ! (cd / && bash "$build_fort/build-corpus.sh") >/dev/null 2>&1 ||
+   [ "$(grep -c '^alpha' "$build_fort/fortunes.txt")" != 2 ]; then
+  echo "build-corpus refused a row the module loads (100 ideographs, or four conjuncts)" >&2
+  exit 1
+fi
 cp -- "$fixture/clean-alpha.tsv" "$build_fort/sources/alpha.tsv"
 
 # A clean build: four input rows, one text shared by alpha and beta, so three rows come out, the

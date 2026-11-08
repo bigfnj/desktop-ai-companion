@@ -2591,10 +2591,23 @@ namespace DesktopAICompanion.Ai
             }
         }
 
+        // A SOURCE IS COUNTED AS A READER COUNTS IT TOO (N-bd-w7-fortunes-1-02). What the user is told is a tagged
+        // row's "source must be 1..128 trimmed non-control characters", and the rule counted source.Length, UTF-16
+        // code units, so a source column of 65 emoji (130 code units) was refused under a message that says 128
+        // characters. It counts user-perceived characters now, the way IsValidFortuneText counts a fortune.
+        // The same rule names a plain pack by its file-name stem, and the file system is what bounds a name in code
+        // units: NTFS holds at most 255 per name, so every stem a folder can list already fits, and nothing writes
+        // a file named after a source (the importer copies under the chosen file's own name, and a download writes
+        // a catalog id that FortunesModule.IsPlainPackId checks). Counting characters can therefore only admit a
+        // name that already exists on disk; it never asks the file system for a longer one. Rejected: rewording
+        // the message to name code units, for the reason the fortune-length rule gives below.
+        private const int MaximumSourceCharacters = 128;
+
         private static bool IsValidCustomSource(string source)
         {
             return !string.IsNullOrEmpty(source) &&
-                   source.Length <= 128 &&
+                   (source.Length <= MaximumSourceCharacters ||
+                    CountCharactersUpTo(source, MaximumSourceCharacters + 1) <= MaximumSourceCharacters) &&
                    source == source.Trim() &&
                    !ContainsControlCharacter(source) &&
                    !ContainsUnpairedSurrogate(source);
