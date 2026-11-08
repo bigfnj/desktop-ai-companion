@@ -1630,8 +1630,12 @@ namespace DesktopAICompanion.Shimeji
             mascot.ArrivalBehaviour = null;
             Observer.Transformed(mascot, from, target.Name, behaviour);
             // Transform.java:51-65 sets the image set first and catches a behaviour that cannot be built or entered (a
-            // blank or unknown TransformBehavior): it reports the failure and the companion carries on, as the new type,
-            // in the behaviour it was in. Letting it escape ended the companion at the step's catch-all instead.
+            // blank or unknown TransformBehavior): it reports the failure and the companion carries on as the new type,
+            // with nothing rolled back. Which behaviour it carries on in depends on where it failed: a build failure (the
+            // name looked up) throws before anything is assigned, so the behaviour it was in stays; an Init failure comes
+            // after SetBehaviour has assigned the new behaviour and reported its entry, so the NEW behaviour stays
+            // (CONTRACT-v1.2-trace2-consolidated.md, C.2 H2). Letting it escape ended the companion at the step's catch-all
+            // instead.
             try
             {
                 mascot.SetBehaviour(BuildBehaviourByName(target, behaviour, mascot), "forced");

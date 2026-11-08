@@ -18348,6 +18348,8 @@ CASES = (
     # Re-pointed by feature/shimeji-host-limits (BACKLOG N-shimeji-host-wav-01): since the arrival and the caught Transform
     # failure (3cfcafb, 08e5736) the type switch and the behaviour's entry are apart, a try between them. The property is
     # their ORDER, so the mutant moves the switch past the entry: the behaviour is built and entered under the old type.
+    # Re-pointed again by burndown/parity-host-2 (the corrected comment over the catch, contract v1.2 Part E item 3); same
+    # mutant.
     ("shimeji-settings: Transform enters its behaviour under the old type's settings",
      os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
      b'            mascot.Type = target;\n'
@@ -18356,8 +18358,12 @@ CASES = (
      b'            mascot.ArrivalBehaviour = null;\n'
      b'            Observer.Transformed(mascot, from, target.Name, behaviour);\n'
      b'            // Transform.java:51-65 sets the image set first and catches a behaviour that cannot be built or entered (a\n'
-     b'            // blank or unknown TransformBehavior): it reports the failure and the companion carries on, as the new type,\n'
-     b"            // in the behaviour it was in. Letting it escape ended the companion at the step's catch-all instead.\n"
+     b'            // blank or unknown TransformBehavior): it reports the failure and the companion carries on as the new type,\n'
+     b'            // with nothing rolled back. Which behaviour it carries on in depends on where it failed: a build failure (the\n'
+     b'            // name looked up) throws before anything is assigned, so the behaviour it was in stays; an Init failure comes\n'
+     b'            // after SetBehaviour has assigned the new behaviour and reported its entry, so the NEW behaviour stays\n'
+     b"            // (CONTRACT-v1.2-trace2-consolidated.md, C.2 H2). Letting it escape ended the companion at the step's catch-all\n"
+     b'            // instead.\n'
      b'            try\n'
      b'            {\n'
      b'                mascot.SetBehaviour(BuildBehaviourByName(target, behaviour, mascot), "forced");\n'
