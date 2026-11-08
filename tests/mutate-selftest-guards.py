@@ -23931,6 +23931,13 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--shimeji-window-selftest", "dp-shimeji-window-selftest.txt",
      "single preview: a birth still queued when the handle is removed gets no window"),
+    # N-audit-1106-245: a leading-zero integer is read as decimal again. CoreTests drives SafeScript.
+    ("bd-w9-host-1: a leading-zero integer reads as decimal again (N-audit-1106-245)",
+     os.path.join(REPO, "src", "dotNet", "SafeScript.cs"),
+     b'                        { error = "legacy octal numbers are outside the supported subset (at " + start + ")"; return false; }\n',
+     b'                        { }\n',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "SafeScript JS edge semantics"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
