@@ -89,8 +89,14 @@ namespace DesktopAICompanion
             internal int FirstShown;
             internal readonly TrayQuestionArbiter Arbiter;
 
+            /// <summary>Every rig made since the queue section began, so its log check reads the lines of every outcome
+            /// and refusal the section drove (N-audit-1106-249: it read two of about twenty rigs, and never a refused,
+            /// withdrawn or cancelled line). Cleared where the section starts.</summary>
+            internal static readonly List<Rig> Made = new List<Rig>();
+
             internal Rig()
             {
+                lock (Made) Made.Add(this);
                 Arbiter = new TrayQuestionArbiter(
                     () => Clock.Now, () => Hold, View,
                     id => id == "remembrance" ? "Remembrance" : id,
@@ -228,6 +234,7 @@ namespace DesktopAICompanion
 
         private static void Arbiter(Action<string, bool> check)
         {
+            lock (Rig.Made) Rig.Made.Clear();
             // Shown at once, answered after the click guard.
             var r = new Rig();
             Task<TrayAnswer> a = r.Ask(Q("remembrance.meeting-over"));
@@ -406,17 +413,23 @@ namespace DesktopAICompanion
             r.Hold = QuestionHold.None; r.Ticks(1);
             check("queue: the first-shown hook (the bubble heads-up) fires once, not again on a re-show", r.FirstShown == 1 && r.View.Shows == 2);
 
-            // The log never carries the question.
-            var logs = new List<string>();
-            foreach (Rig each in new[] { r }) logs.AddRange(each.Log);
+            // The log never carries the question. Every rig this section made is read (Rig.Made), not the last one or
+            // two: the refused, withdrawn, cancelled and expired lines come from rigs further up (N-audit-1106-249).
             r = new Rig();
             r.Ask(Q("remembrance.meeting-over")); r.Press("keep");
             r.Ask(Q("remembrance.limit", 15)); r.Ticks(16);
             r.Ask(Q("bad key here"));
-            logs.AddRange(r.Log);
+            var logs = new List<string>();
+            lock (Rig.Made) foreach (Rig each in Rig.Made) logs.AddRange(each.Log);
             bool keys = logs.Exists(l => l.Contains("key=remembrance.meeting-over") && l.Contains("outcome=Chosen") && l.Contains("choice=keep"));
             bool clean = !logs.Exists(l => l.Contains("SENTINEL") || l.Contains("Bluebird"));
+            var kinds = new List<string>();
+            foreach (string kind in new[] { "reason=unknown-module", "reason=duplicate-key", "reason=too-many-pending", "reason=rate-limited",
+                                            "outcome=Withdrawn", "outcome=Cancelled", "outcome=Expired", "outcome=TimedOut", "[question] held " })
+                if (!logs.Exists(l => l.Contains(kind))) kinds.Add(kind);
             check("log: the lines carry the key, the outcome and the choice id (" + logs.Count + " lines captured)", keys && logs.Count >= 6);
+            check("log: WITNESS the privacy check reads every refusal and every way a question ends (missing: " +
+                (kinds.Count == 0 ? "none" : string.Join(", ", kinds)) + ")", kinds.Count == 0);
             check("log: no line carries the question's text, title or any label", clean);
         }
 

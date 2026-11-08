@@ -23897,6 +23897,17 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--hardening-selftest", "dp-hardening-selftest.txt",
      "hang: a window-wildcard pick under a window, which would not hang, is declined before its sound plays"),
+    # ---- burndown/w9-host-2 ----
+    # Host entries of burn-down wave 9. "bd-w9-host-2:" for one --only.
+    # N-audit-1106-249: the arbiter's refused line carries the question's text. The old privacy check read two rigs,
+    # neither with an arbiter refusal, so this survived it; it reads every rig of the queue section now.
+    ("bd-w9-host-2: the arbiter's refused line logs the question's text (N-audit-1106-249)",
+     os.path.join(REPO, "src", "dotNet", "TrayQuestions.cs"),
+     b'                + " reason=" + reason);\n',
+     b'                + " reason=" + reason + " text=" + (e != null ? e.Text : ""));\n',
+     HOST_CSPROJ, EXE,
+     "--trayquestions-selftest", "dp-trayquestions-selftest.txt",
+     "log: no line carries the question's text, title or any label"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
