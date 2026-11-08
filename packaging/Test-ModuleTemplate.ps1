@@ -9,7 +9,9 @@
     module from templates\desktop-ai-companion-module outside modules\, builds it, checks no placeholder token survived
     substitution, LOADS IT THROUGH THE REAL HOST, and removes it again.
 
-    The template is installed and uninstalled around the run, so the machine is left as it was found.
+    The template is installed into a private .NET CLI home under this run's scratch folder and deleted with it, so
+    the caller's own template list is never written: an author's own install of the template is neither replaced
+    nor removed, and the run asserts that its install stayed out of that list.
 
     BUILDS is not the same as WORKS, and the gap was real. Until 2026-09-11 the template defaulted
     minHostVersion to 1.4.8 -- pre-rebase numbering, and therefore ABOVE the shipped host -- so every
@@ -535,18 +537,94 @@ if (-not (Test-Path -LiteralPath $hostExe)) {
            "template that compiles but is refused at load is exactly the failure it exists to catch.")
 }
 
-$installed = $false
+# THE TEMPLATE IS INSTALLED IN A PRIVATE .NET CLI HOME, never the caller's own (N-audit-1106-267). This used to run
+# `dotnet new install <this folder> --force` against the caller's template list and uninstall it in the finally, so an
+# author who had installed the template from this folder, as docs\module-authoring.md says to, lost that install to the
+# check the same page tells them to run, while the header promised the machine was left as found. A private home under
+# this run's scratch root (the tests\Invoke-IsolatedGate.ps1 shape) holds the install, and Remove-Sample deletes it with
+# the scaffold, so the caller's list is never written: an author's install is neither replaced nor removed, and a run in
+# another checkout, whose folder is a different template package of the same short name, is never seen. Only the three
+# `dotnet new` calls see this environment; the build and the host run keep the caller's. DOTNET_ADD_GLOBAL_TOOLS_TO_PATH=0
+# because a fresh home's first run would otherwise add its disposable tools folder to the user's PATH, and the workload
+# notice is off because a fresh home has no record of the last check and would make it every run.
+$templateHome = Join-Path $sampleRoot 'dotnet-home'
+$templateHomeEnvironment = [ordered]@{
+    DOTNET_CLI_HOME = $templateHome
+    DOTNET_ADD_GLOBAL_TOOLS_TO_PATH = '0'
+    DOTNET_SKIP_FIRST_TIME_EXPERIENCE = '1'
+    DOTNET_NOLOGO = '1'
+    DOTNET_CLI_WORKLOAD_UPDATE_NOTIFY_DISABLE = 'true'
+}
+
+function Invoke-TemplateDotnetNew([string[]]$Arguments, [switch]$CallerHome) {
+    # Every `dotnet new` this script runs goes through here, so one place decides whose template list it reads or
+    # writes: the private home, or with -CallerHome the caller's own (read only, by Test-TemplateListed). Returns the
+    # output lines; the exit code is in $LASTEXITCODE. 2>&1 under 'Continue', since a redirected stderr line is a
+    # terminating error under 'Stop' in Windows PowerShell 5.1 (F212) and `dotnet new` writes notices there.
+    $saved = @{}
+    if (-not $CallerHome) {
+        foreach ($name in $templateHomeEnvironment.Keys) {
+            $saved[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
+            [Environment]::SetEnvironmentVariable($name, $templateHomeEnvironment[$name], 'Process')
+        }
+    }
+    $previousPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try { return @(& dotnet new @Arguments 2>&1 | ForEach-Object { "$_" }) }
+    finally {
+        $ErrorActionPreference = $previousPreference
+        foreach ($name in $saved.Keys) { [Environment]::SetEnvironmentVariable($name, $saved[$name], 'Process') }
+    }
+}
+
+function Test-TemplateListed([switch]$CallerHome) {
+    # `dotnet new uninstall` with no argument lists the installed template packages; a folder install is listed under
+    # its full path, on its own line and in its uninstall command. Matched as the WHOLE trimmed line or the command's
+    # last argument, case-insensitively, so another checkout's folder (a longer or different path) is not this one.
+    $lines = Invoke-TemplateDotnetNew @('uninstall') -CallerHome:$CallerHome
+    if ($LASTEXITCODE -ne 0) { throw "dotnet new uninstall (list) failed (exit $LASTEXITCODE): $($lines -join ' | ')" }
+    $folder = $templateDir.TrimEnd('\')
+    foreach ($line in $lines) {
+        $text = $line.Trim().Trim('"').TrimEnd('\')
+        if ($text.Equals($folder, [StringComparison]::OrdinalIgnoreCase) -or
+            $text.EndsWith(' ' + $folder, [StringComparison]::OrdinalIgnoreCase) -or
+            $text.EndsWith('"' + $folder, [StringComparison]::OrdinalIgnoreCase)) { return $true }
+    }
+    return $false
+}
+
+function Write-TemplateHomeCheck([string]$Label, [bool]$Passed) {
+    # The '[id] ' prefix tests\mutate-selftest-guards.py's TEMPLATE runner strips, so a case can name a label.
+    Write-Host ('  [template-home] ' + $(if ($Passed) { 'PASS: ' } else { 'FAIL: ' }) + $Label)
+    return $Passed
+}
+
+# Read BEFORE the install, so a caller list that already held this folder (an author's own install) is told apart from
+# one this run wrote to. Only the second is undone in the finally, which is what "left as it was found" means.
+$callerListedBefore = Test-TemplateListed -CallerHome
+$callerGained = $false
 try {
     Remove-Sample
 
-    Write-Host '=== install the template' -ForegroundColor Cyan
-    & dotnet new install $templateDir --force | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "dotnet new install failed (exit $LASTEXITCODE)." }
-    $installed = $true
+    Write-Host '=== install the template (private .NET CLI home)' -ForegroundColor Cyan
+    $installOutput = Invoke-TemplateDotnetNew @('install', $templateDir)
+    if ($LASTEXITCODE -ne 0) { throw "dotnet new install failed (exit $LASTEXITCODE): $($installOutput -join ' | ')" }
+    # BOTH halves, so neither can pass vacuously: the install landed in the private home (a listing that parsed nothing
+    # would fail here), and the caller's list did not gain it (the old shape, which this run must never reproduce).
+    $callerGained = (-not $callerListedBefore) -and (Test-TemplateListed -CallerHome)
+    $homeChecks = @(
+        (Write-TemplateHomeCheck 'WITNESS the template is installed in the private .NET CLI home' (Test-TemplateListed)),
+        (Write-TemplateHomeCheck "the template install stayed out of the caller's own template list" (-not $callerGained))
+    )
+    if ($homeChecks -contains $false) {
+        throw ("The template install did not stay in this run's private .NET CLI home ($templateHome), so it could replace " +
+               "or remove an author's own install (the FAIL lines above).")
+    }
 
     Write-Host '=== scaffold a module' -ForegroundColor Cyan
-    & dotnet new desktop-ai-companion-module -n $sampleName --moduleId $sampleId --displayName 'Template Check' -o $sampleDir | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "dotnet new desktop-ai-companion-module failed (exit $LASTEXITCODE)." }
+    $scaffoldOutput = Invoke-TemplateDotnetNew @('desktop-ai-companion-module', '-n', $sampleName, '--moduleId', $sampleId,
+                                                 '--displayName', 'Template Check', '-o', $sampleDir)
+    if ($LASTEXITCODE -ne 0) { throw "dotnet new desktop-ai-companion-module failed (exit $LASTEXITCODE): $($scaffoldOutput -join ' | ')" }
 
     $csproj = Join-Path $sampleDir ($sampleName + '.csproj')
     $source = Join-Path $sampleDir ($sampleName + '.cs')
@@ -715,17 +793,14 @@ try {
     Write-Host 'TEMPLATE OK (scaffolds, substitutes, builds, packages, and LOADS in the real host).' -ForegroundColor Green
 }
 finally {
+    # Remove-Sample deletes the private home with the scaffold, which is the whole uninstall: nothing else holds it.
     try { Remove-Sample }
     finally {
-        if ($installed) {
-            # Best-effort cleanup inside a finally, so its stderr must not become a terminating error that
-            # REPLACES the failure already in flight: under Windows PowerShell 5.1 a redirected stderr line
-            # is exactly that under 'Stop', and `dotnet new uninstall` writes one whenever the template is
-            # already gone (F212). Nothing here judges the result, as before.
-            $previousPreference = $ErrorActionPreference
-            $ErrorActionPreference = 'Continue'
-            try { & dotnet new uninstall $templateDir 2>&1 | Out-Null }
-            finally { $ErrorActionPreference = $previousPreference }
+        if ($callerGained) {
+            # Only when THIS run wrote to the caller's list (the failure above), and only what it wrote: the caller is put
+            # back to the state read before the install. Best-effort inside a finally, so a failure here must not replace
+            # the one in flight; Invoke-TemplateDotnetNew already keeps stderr from being a terminating error (F212).
+            $null = Invoke-TemplateDotnetNew @('uninstall', $templateDir) -CallerHome
         }
     }
 }
