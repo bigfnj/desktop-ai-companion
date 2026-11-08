@@ -22881,6 +22881,20 @@ CASES = (
      b"",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
      SHIMEJI, "pack-conversion/missing-next-unselectable", "the pack API did not report a dropped never-selected next entry once in Warnings and once in its member's notes (recovery False)"),
+    # N-audit-1106-161: the classic loader joins a pose Image to the img folder with no containment again, or contains
+    # it by text prefix without the separator (a sibling folder named img-other passes).
+    ("bd-w5-converter-1: the classic sprite loader reads outside the img folder (N-audit-1106-161)",
+     os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Shimeji", "SpriteSheetBuilder.cs"),
+     b"                if (!path.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))\n",
+     b"                if (path == null)\n",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, "compositor", "loader containment: a pose image outside the img folder was read or refused for another reason: /../outside.png"),
+    ("bd-w5-converter-1: the classic sprite loader contains by prefix without the separator (N-audit-1106-161)",
+     os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Shimeji", "SpriteSheetBuilder.cs"),
+     b"                if (!path.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))\n",
+     b"                if (!path.StartsWith(root, StringComparison.OrdinalIgnoreCase))\n",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, "compositor", "loader containment: a pose image outside the img folder was read or refused for another reason: /../img-other/x.png"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
