@@ -105,6 +105,69 @@ class StaleArtefactTests(unittest.TestCase):
                          "stale artefacts: no case is built after the clean rebuild failed its proof")
         self.assertEqual(code, 1)
 
+    def test_a_shards_cases_of_one_project_run_together(self):
+        """N-bd-tests-harness-1-02: a shard takes every Nth case, so its plan alternates projects, and each change of
+        project cost a clean rebuild of the one before. score() runs a project's cases together, in plan order within the
+        project, so the plan A, B, A pays one clean rebuild of A, not one of A and one of B; every case keeps its own index."""
+        with tempfile.TemporaryDirectory() as folder:
+            source = {"A": os.path.join(folder, "a.cs"), "B": os.path.join(folder, "b.cs")}
+            artefact = {"A": os.path.join(folder, "a.dll"), "B": os.path.join(folder, "b.dll")}
+            project = {"A": os.path.join(folder, "A.csproj"), "B": os.path.join(folder, "B.csproj")}
+            clock = [1000000000.0]
+            for key in ("A", "B"):
+                Path(source[key]).write_bytes(b"clean " + key.encode())
+                Path(artefact[key]).write_bytes(b"clean " + key.encode())
+                os.utime(artefact[key], (clock[0], clock[0]))
+            builds = []
+
+            def build(csproj):
+                key = next(k for k, v in project.items() if v == csproj)
+                text = Path(source[key]).read_bytes()
+                builds.append((key, text.decode()))
+                Path(artefact[key]).write_bytes(text)
+                clock[0] += 10
+                os.utime(artefact[key], (clock[0], clock[0]))
+                return True, ""
+
+            def selftest(flag, marker):
+                # Each of A's mutants fires A's assertion; B's mutant changes nothing B reads, so case two SURVIVES and
+                # its report is kept under ITS index, which is how the pairing of index and case is seen.
+                if flag == "--a-selftest" and Path(artefact["A"]).read_bytes() != b"clean A":
+                    return "FAIL: a's assertion\nRESULT=FAIL\n", 1
+                return "PASS: everything\nRESULT=PASS\n", 0
+
+            cases = [
+                ("case one", source["A"], b"clean A", b"mutant A", project["A"], artefact["A"], "--a-selftest", "a.txt",
+                 "a's assertion"),
+                ("case two", source["B"], b"clean B", b"mutant B", project["B"], artefact["B"], "--b-selftest", "b.txt",
+                 "b's assertion"),
+                ("case three", source["A"], b"clean A", b"other mutant A", project["A"], artefact["A"], "--a-selftest",
+                 "a.txt", "a's assertion"),
+            ]
+            output = io.StringIO()
+            with patch.object(self.harness, "RUN_TEMP", folder), \
+                 patch.object(self.harness, "DOCUMENTS_REMEMBRANCE", None), \
+                 patch.object(self.harness, "documents_watch_selfcheck", return_value=[]), \
+                 patch.object(self.harness, "build_all", return_value=(True, "")), \
+                 patch.object(self.harness, "build", side_effect=build), \
+                 patch.object(self.harness, "selftest", side_effect=selftest), \
+                 patch.object(self.harness.time, "sleep"), \
+                 contextlib.redirect_stdout(output):
+                code = self.harness.score(types.SimpleNamespace(cases=cases, indices=[1, 2, 3]))
+            kept_two = os.path.isfile(os.path.join(folder, "case-002-case-two.txt"))
+            restored = (Path(source["A"]).read_bytes(), Path(source["B"]).read_bytes())
+        self.assertEqual(builds, [("A", "mutant A"), ("A", "other mutant A"), ("A", "clean A"), ("B", "mutant B")],
+                         "case order: a shard's cases of one project run together, so A is rebuilt clean once")
+        console = output.getvalue()
+        # WITNESSES: both of A's cases still fire from their own mutants, case two is scored and its report keeps index 2,
+        # and every source is restored.
+        self.assertRegex(console, r"case one\s+FIRED")
+        self.assertRegex(console, r"case three\s+FIRED")
+        self.assertRegex(console, r"case two\s+SURVIVED")
+        self.assertTrue(kept_two, "case order: case two's report is kept under its own plan index")
+        self.assertEqual(restored, (b"clean A", b"clean B"))
+        self.assertEqual(code, 1)
+
     def test_a_project_shared_by_consecutive_cases_is_not_rebuilt_between_them(self):
         stale = {"X.csproj": "x.dll"}
         with patch.object(self.harness, "build", side_effect=AssertionError("no build for the next case's own project")):

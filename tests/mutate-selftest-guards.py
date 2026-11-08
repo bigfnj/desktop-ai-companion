@@ -24709,6 +24709,21 @@ CASES = (
      b"$true) { continue }",
      None, None, PRIVACY, None,
      "a profile root before a symbol outside the Basic Multilingual Plane"),
+    # N-bd-tests-harness-1-02, graded through MUTATION_UNITTESTS: score() runs a shard's cases in plan order again, paying a
+    # clean rebuild at every change of project, or groups them but pairs the grouped cases with the plan's indices in
+    # their old order, so a kept report is filed under another case's index.
+    ("bd-w11-tests-scripts-1: a shard's cases run in plan order again (N-bd-tests-harness-1-02)",
+     os.path.join(REPO, "tests", "mutate-selftest-guards.py"),
+     b'    return sorted(zip(plan.indices, plan.cases), key=lambda pair: (pair[1][4] is None, pair[1][4] or ""))\n',
+     b'    return list(zip(plan.indices, plan.cases))\n',
+     None, None, MUTATION_UNITTESTS, None,
+     "test_a_shards_cases_of_one_project_run_together"),
+    ("bd-w11-tests-scripts-1: the grouped cases lose their own plan indices (N-bd-tests-harness-1-02)",
+     os.path.join(REPO, "tests", "mutate-selftest-guards.py"),
+     b'    return sorted(zip(plan.indices, plan.cases), key=lambda pair: (pair[1][4] is None, pair[1][4] or ""))\n',
+     b'    return list(zip(plan.indices, sorted(plan.cases, key=lambda case: (case[4] is None, case[4] or ""))))\n',
+     None, None, MUTATION_UNITTESTS, None,
+     "test_a_shards_cases_of_one_project_run_together"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
@@ -25630,6 +25645,20 @@ def keep_report(index, name, report):
     return path
 
 
+def case_order(plan):
+    """The (index, case) pairs of a plan in the order score() runs them: grouped by the project each case builds, in plan
+    order within a project (a stable sort), the cases that build nothing last (N-bd-tests-harness-1-02).
+
+    A shard takes every Nth case of CASES, so neighbours in its plan are N cases apart and usually build different
+    projects, and rebuild_restored() pays a clean rebuild of the previous project at every change of project. Counted
+    over the 2884 cases of 2026-11-08 by replaying rebuild_restored's bookkeeping: 677 clean rebuilds in a 4-shard run in
+    plan order, 45 grouped, and 261 against 12 unsharded, since CASES itself interleaves projects. Grouping keeps the
+    guard whole: every case still runs against its own mutant and no other, because rebuild_restored still rebuilds
+    every other mutated project before a case writes its own. Each case keeps its plan index for its kept report, and
+    the shard controller reads the verdicts as a set, so the printed order is the only thing that moves."""
+    return sorted(zip(plan.indices, plan.cases), key=lambda pair: (pair[1][4] is None, pair[1][4] or ""))
+
+
 def score(plan):
     cases = plan.cases
     print(real_input_notice(os.environ))
@@ -25673,7 +25702,7 @@ def score(plan):
     stale = {}
     stopped = None
     try:
-        for index, (name, path, old, new, csproj, artifact, flag, marker, expect) in zip(plan.indices, cases):
+        for index, (name, path, old, new, csproj, artifact, flag, marker, expect) in case_order(plan):
             if withheld and name in NEEDS_REAL_INPUT:
                 not_run += 1
                 print("  %-52s NOT RUN (it tests the real Scroll Lock press, which %s=1 withholds, so it cannot fire)"
