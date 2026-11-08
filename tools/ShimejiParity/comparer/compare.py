@@ -1939,6 +1939,23 @@ def _trace2_check(name):
         boolean = copy.deepcopy(legacy)
         next(row for row in boolean[1] if row.get("kind") == "rng-draw")["occurrence"] = True
         require(compare(*boolean), "event-mismatch", "fail", "trace1 boolean event identity remains distinct")
+        for fault in ("tick range", "tick order"):
+            for side in (0, 1):
+                bad = copy.deepcopy(pair)
+                draw = next(row for row in bad[side] if row.get("kind") == "rng-draw")
+                if fault == "tick range":
+                    draw["tick"] = -1
+                else:
+                    bad[side].remove(draw)
+                    bad[side].insert(-1, draw)
+                report = compare(*bad)
+                require(report, "malformed", "unjudgeable", "integer occurrence exposes " + fault + " " + str(side))
+                diagnostic = "is outside 0.." if fault == "tick range" else "comes after tick"
+                _case_require(diagnostic in report["findings"][0]["message"], name,
+                              "integer occurrence reaches competing " + fault + " " + str(side))
+                draw["occurrence"] = 1.0
+                require(compare(*bad), "missing-field", "unjudgeable",
+                        "occurrence shape before " + fault + " " + str(side))
     elif name == "T2 lookahead":
         for codes in (("behavior-missing", "behavior-missing"), ("unclassified", "behavior-missing"),
                       ("behavior-missing", "unclassified"), ("unclassified", "unclassified")):
