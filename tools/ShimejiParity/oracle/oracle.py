@@ -584,6 +584,7 @@ def self_test(args):
     review_self_test(args, labels)
     synthetic_input_self_test(args, labels)
     timeout_footer_self_test(args, labels)
+    trace2_self_test(args, labels)
     return {"status": "pass", "witnesses": labels, "network_requests": 0}
 
 
@@ -923,6 +924,24 @@ def burndown_self_test(args, labels):
                 assert recorded.get("status") == "fail" and recorded.get("failed_check") == expected_stage, (
                     witness + " wrong or missing failed check " + str(expected_stage))
         labels.append("v1-failed-build-missing-scenario-proof-and-recheck-recorded-before-raising")
+        # A timed-out JVM can already have written a complete footer before hanging during shutdown. That file
+        # alone must not override the run result and satisfy the observation proof.
+        for off_status in ("complete", "timeout", "aborted", "error", "malformed"):
+            def run_for_proof(*unused, **keywords):
+                return {"scenario": V1_PROOF_SCENARIO, "status": "complete" if keywords.get("observe", True) else off_status,
+                        "trace": "synthetic-complete-footer", "timed_out": off_status == "timeout"}
+
+            def prove_only_completed(*unused):
+                assert off_status == "complete", "V2_PROOF_OFF_RUN_WITNESS"
+                return {"scenario": V1_PROOF_SCENARIO}
+
+            proof_globals = dict(base, v1_run=run_for_proof, v1_proof_case=lambda *unused: (root / "proof.json", ""),
+                                 v1_observation_proof=prove_only_completed)
+            isolated = SimpleNamespace(**vars(fixture_args))
+            isolated.output_root = root / ("off-proof-" + off_status)
+            result = FunctionType(v1.__code__, proof_globals, "v1")(isolated)
+            assert result["status"] == ("pass" if off_status == "complete" else "incomplete"), "V2_PROOF_OFF_RUN_WITNESS"
+        labels.append("trace2-observation-proof-requires-the-off-child-run-to-complete")
 
 
 def review_self_test(args, labels):
@@ -1210,6 +1229,162 @@ def timeout_footer_self_test(args, labels):
         labels.append("timeout-footer-counts-physical-prefix-states-events-draws-zero-malformed-and-entrypoint")
 
 
+def trace2_self_test(args, labels):
+    """Original synthetic records and killed-child results; never opens the private runtime/source cache."""
+    import copy
+    with tempfile.TemporaryDirectory(prefix="oracle-trace2-", dir=args.temp_root) as folder:
+        root = Path(folder)
+        trace = root / "prefix.jsonl"
+        header = {"type": "header", "schema": "shimeji-parity-trace/2", "scenario": {"id": "S-proof"},
+                  "runtime": "oracle", "build": {"artifactSha256": "a" * 64},
+                  "rng": {"kind": "tape", "values": [0.5]}}
+        draws = [{"type": "event", "kind": "rng-draw", "tick": 1, "sid": "m1", "value": 0.5},
+                 {"type": "event", "kind": "rng-draw", "tick": 2, "sid": "m1", "value": 0.5}]
+
+        def save(path, rows):
+            path.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+
+        for rng, expected in ((header["rng"], True), ({"kind": "tape", "values": [0.5, 0.5]}, False),
+                              ({"kind": "none"}, False), ({"kind": "splitmix64", "seed": "1"}, False)):
+            save(trace, [dict(header, rng=rng)] + draws)
+            v1_append_timeout_footer(trace, 4)
+            footer = json.loads(trace.read_text(encoding="utf-8").splitlines()[-1])
+            assert footer.get("tapeExhausted") is expected, "V2_TIMEOUT_FLAG_WITNESS"
+        save(trace, [header])
+        before = trace.read_bytes()
+        expect_refusal(lambda: v1_append_timeout_footer(trace, 4, observe=False),
+                       "V2_TIMEOUT_TRACE_OFF_UNVERIFIED", "V2_TIMEOUT_OFF_TALLY_WITNESS")
+        assert trace.read_bytes() == before, "V2_TIMEOUT_OFF_PREFIX_WITNESS"
+        for missing in (False, True):
+            trace.write_bytes(b"")
+            if missing:
+                trace.unlink()
+            expect_refusal(lambda: v1_append_timeout_footer(trace, 4, observe=False),
+                           "V2_TIMEOUT_TRACE_OFF_UNVERIFIED", "V2_TIMEOUT_OFF_EMPTY_WITNESS")
+            assert (not trace.exists()) if missing else trace.read_bytes() == b"", "V2_TIMEOUT_OFF_EMPTY_PREFIX_WITNESS"
+        save(trace, [dict(header, rng={"kind": "tape"})])
+        expect_refusal(lambda: v1_append_timeout_footer(trace, 4),
+                       "V1_TIMEOUT_TRACE_INVALID", "V2_TIMEOUT_RNG_WITNESS")
+        labels.append("trace2-timeout-flag-from-physical-prefix-and-off-tally-unverified")
+
+        pack = root / "pack"
+        pack.mkdir()
+        (pack / "synthetic.txt").write_bytes(b"original synthetic fixture")
+        scenario = root / "S-timeout-local.json"
+        write_json(scenario, {"id": scenario.stem, "pack": "pack", "ticks": 4, "rng": header["rng"], "dpiScale": 1})
+        stub = SimpleNamespace(validate_scenario=lambda *unused: None,
+                               pack_preflight=lambda *unused: [("synthetic.txt", pack / "synthetic.txt")],
+                               pack_sha256=lambda *unused: sha((pack / "synthetic.txt").read_bytes()))
+        payload = b""
+        child_timeout = True
+
+        def child(argv, *unused, **unused_keywords):
+            off = argv[-1] == "off"
+            output = Path(argv[-2] if off else argv[-1])
+            output.write_bytes(payload)
+            return {"timed_out": child_timeout, "exit_code": None if child_timeout else 0, "stderr": "", "stdout": ""}
+
+        copied = FunctionType(v1_run.__code__, dict(globals(), command=child,
+                              validate_shared_output=lambda *unused: None), "v1_run")
+        for i, records in enumerate(([header], [header, {"type": "footer", "status": "complete"}])):
+            payload = ("\n".join(json.dumps(row) for row in records) + "\n").encode("utf-8")
+            if i == 0:
+                payload += b"{"
+            try:
+                row = copied(SimpleNamespace(jdk_root=root / "unused"), stub, scenario, root / ("run" + str(i)), "", root, {}, True)
+            except Refusal as failure:
+                raise AssertionError("V2_TIMEOUT_SCENARIO_LOCAL_WITNESS " + str(failure)) from failure
+            assert row["status"] == "timeout" and row["timeout_footer_verified"] is False, "V2_TIMEOUT_SCENARIO_LOCAL_WITNESS"
+            assert row["detail"].startswith("V1_TIMEOUT_TRACE_INVALID "), "V2_TIMEOUT_SCENARIO_DETAIL_WITNESS"
+            assert Path(row["trace"]).read_bytes() == payload, "V2_TIMEOUT_SCENARIO_PREFIX_WITNESS"
+            emitted_header = json.loads((Path(row["trace"]).parent / "header.json").read_text(encoding="utf-8"))
+            assert emitted_header["schema"] == "shimeji-parity-trace/2", "V2_PRODUCER_SCHEMA_WITNESS"
+        payload = (json.dumps(header) + "\n").encode("utf-8")
+        row = copied(SimpleNamespace(jdk_root=root / "unused"), stub, scenario, root / "off-run", "", root, {}, False)
+        assert row["status"] == "timeout" and row["detail"].startswith("V2_TIMEOUT_TRACE_OFF_UNVERIFIED "), "V2_TIMEOUT_OFF_ENTRY_WITNESS"
+
+        def unrelated(*unused, **unused_keywords):
+            raise Refusal("SYNTHETIC_UNRELATED_REFUSAL")
+
+        copied_globals = dict(copied.__globals__, v1_append_timeout_footer=unrelated)
+        not_swallowed = FunctionType(v1_run.__code__, copied_globals, "v1_run")
+        expect_refusal(lambda: not_swallowed(SimpleNamespace(jdk_root=root / "unused"), stub, scenario,
+                                             root / "unrelated", "", root, {}, True),
+                       "SYNTHETIC_UNRELATED_REFUSAL", "V2_TIMEOUT_REFUSAL_SCOPE_WITNESS")
+        labels.append("trace2-timeout-prefix-refusal-is-scenario-local-and-unrelated-refusals-escape")
+
+        on = [header] + draws + [{"type": "footer", "ticks": 4, "status": "complete", "draws": 2,
+                                 "events": 2, "states": 0, "tapeExhausted": True}]
+        on_path, off_path = root / "on.jsonl", root / "off.jsonl"
+        save(on_path, on)
+        digest = trace_event_digest(on_path)
+        on[-1]["eventSequenceSha256"] = digest
+        off = [copy.deepcopy(header), {"type": "footer", "ticks": 4, "status": "complete", "draws": 0,
+                                      "events": 0, "states": 0, "tapeExhausted": True, "unobservedDraws": 2,
+                                      "unobservedEvents": 2, "eventSequenceSha256": digest}]
+
+        def proof(mine=on, theirs=off):
+            save(on_path, mine)
+            save(off_path, theirs)
+            return v1_observation_proof(on_path, off_path)
+
+        assert proof()["draws"] == 2, "V2_PROOF_POSITIVE_WITNESS"
+        for which in ("on", "off", "both", "missing", "not-bool"):
+            mine, theirs = copy.deepcopy(on), copy.deepcopy(off)
+            if which in ("on", "both"):
+                mine[-1]["tapeExhausted"] = False
+            if which in ("off", "both"):
+                theirs[-1]["tapeExhausted"] = False
+            if which == "missing":
+                theirs[-1].pop("tapeExhausted")
+            if which == "not-bool":
+                theirs[-1]["tapeExhausted"] = 1
+            expect_refusal(lambda: proof(mine, theirs), "V2_OBSERVATION_TALLY_REFUSAL", "V2_PROOF_FLAGS_WITNESS")
+        for key in ("unobservedDraws", "unobservedEvents"):
+            changed = copy.deepcopy(off)
+            changed[-1].pop(key)
+            expect_refusal(lambda: proof(on, changed), "V2_OBSERVATION_TALLY_REFUSAL", "V2_PROOF_DURABLE_TALLY_WITNESS")
+        changed = copy.deepcopy(off)
+        changed[-1]["status"] = "timeout"
+        changed[-1].pop("unobservedDraws")
+        expect_refusal(lambda: proof(on, changed), "V1_OBSERVATION_CHANGED_BEHAVIOUR", "V2_PROOF_TIMEOUT_WITNESS")
+        changed = copy.deepcopy(on)
+        changed[-1]["draws"] = 3
+        expect_refusal(lambda: proof(changed, off), "V2_OBSERVATION_TALLY_REFUSAL", "V2_PROOF_PHYSICAL_WITNESS")
+        changed = copy.deepcopy(off)
+        changed[0]["schema"] = "shimeji-parity-trace/1"
+        expect_refusal(lambda: proof(on, changed), "V2_OBSERVATION_TALLY_REFUSAL", "V2_PROOF_BINDING_WITNESS")
+        for kind in ("none", "splitmix64"):
+            mine, theirs = copy.deepcopy(on), copy.deepcopy(off)
+            mine[0]["rng"] = theirs[0]["rng"] = {"kind": kind, "seed": "1"}
+            expect_refusal(lambda: proof(mine, theirs), "V2_OBSERVATION_TALLY_REFUSAL", "V2_PROOF_NON_TAPE_FLAGS_WITNESS")
+            mine[-1]["tapeExhausted"] = theirs[-1]["tapeExhausted"] = False
+            assert proof(mine, theirs)["draws"] == 2, "V2_PROOF_NON_TAPE_POSITIVE_WITNESS"
+        save(off_path, off)
+
+        def no_public_grade(*unused):
+            raise AssertionError("V2_OFF_STATUS_WITNESS off artifact entered the public trace validator")
+
+        off_validator = SimpleNamespace(load_trace=no_public_grade, Unjudgeable=type("SyntheticUnjudgeable", (Exception,), {}))
+        off_status = v1_trace_status(off_validator, off_path, observe=False)
+        assert off_status[0] == "complete" and "proof-only" in off_status[1], "V2_OFF_STATUS_WITNESS"
+        changed = copy.deepcopy(off)
+        changed[-1]["status"] = "unknown"
+        save(off_path, changed)
+        assert v1_trace_status(off_validator, off_path, observe=False)[0] == "malformed", "V2_OFF_STATUS_CLASS_WITNESS"
+        child_timeout = False
+        payload = ("\n".join(json.dumps(row) for row in off) + "\n").encode("utf-8")
+        complete_stub = SimpleNamespace(**vars(stub), **vars(off_validator))
+        row = copied(SimpleNamespace(jdk_root=root / "unused"), complete_stub, scenario,
+                     root / "off-complete", "", root, {}, False)
+        assert row["status"] == "complete" and row["proof_only"] is True, "V2_OFF_ENTRY_STATUS_WITNESS"
+        for key in ("runtime", "build"):
+            changed = copy.deepcopy(off)
+            changed[0][key] = "other" if key == "runtime" else {"artifactSha256": "b" * 64}
+            expect_refusal(lambda: proof(on, changed), "V2_OBSERVATION_TALLY_REFUSAL", "V2_PROOF_BUILD_WITNESS")
+        labels.append("trace2-observation-proof-validates-flags-physical-draws-durable-tally-and-completion")
+
+
 def png(red, green, blue):
     def chunk(kind, payload):
         return struct.pack(">I", len(payload)) + kind + payload + struct.pack(">I", zlib.crc32(kind + payload) & 0xffffffff)
@@ -1480,12 +1655,36 @@ def mutate(args):
         ("bd-codex-parity2-final: timeout-state-count", [('counts["states"] ' + '+= 1', 'counts["states"] += 0')], "V1_TIMEOUT_STATES_WITNESS"),
         ("bd-codex-parity2-final: timeout-event-count", [('counts["events"] ' + '+= 1', 'counts["events"] += 0')], "V1_TIMEOUT_EVENTS_WITNESS"),
         ("bd-codex-parity2-final: timeout-draw-count", [('counts["draws"] ' + '+= 1', 'counts["draws"] += 0')], "V1_TIMEOUT_DRAWS_WITNESS"),
-        ("bd-codex-parity2-final: timeout-entrypoint-zero-footer", [('        v1_append_timeout_footer(trace, ' + 'doc["ticks"])',
-            '        with trace.open("a", encoding="utf-8") as stream:\n            stream.write(json.dumps({"type": "footer", "ticks": doc["ticks"], "status": "timeout", "draws": 0, "states": 0, "events": 0}) + chr(10))')], "V1_TIMEOUT_ENTRY_WITNESS"),
+        ("bd-codex-parity2-final: timeout-entrypoint-zero-footer", [('            v1_append_timeout_footer(trace, ' + 'doc["ticks"], observe=observe)',
+            '            with trace.open("a", encoding="utf-8") as stream:\n                stream.write(json.dumps({"type": "footer", "ticks": doc["ticks"], "status": "timeout", "draws": 0, "states": 0, "events": 0}) + chr(10))')], "V1_TIMEOUT_ENTRY_WITNESS"),
         ("bd-codex-parity2-final: timeout-record-separator", [('if prefix and not prefix.' + 'endswith(', 'if False and not prefix.endswith(')], "V1_TIMEOUT_SEPARATOR_WITNESS"),
         ("bd-codex-parity2-final: timeout-invalid-json", [('raise Refusal("V1_TIMEOUT_TRACE_INVALID cannot count an incomplete ' + 'or malformed JSONL prefix") from failure', 'records = []')], "V1_TIMEOUT_INVALID_WITNESS"),
         ("bd-codex-parity2-final: timeout-record-shape", [('if not isinstance(row, dict) or row.get("type") ' + 'not in ("header", "state", "event"):', 'if False:')], "V1_TIMEOUT_INVALID_WITNESS"),
         ("bd-codex-parity2-final: timeout-header-order", [('if (index == 0 and kind != "header") or ' + '(index > 0 and kind == "header"):', 'if False:')], "V1_TIMEOUT_INVALID_WITNESS")])
+    # ---- burndown/codex-parity-3 ----
+    legs.extend([
+        ("bd-codex-parity-3: timeout-prefix-exhaustion", [('footer["tapeExhausted"] = rng["kind"] == "tape" ' + 'and counts["draws"] > len(rng["values"])',
+                                                        'footer["tapeExhausted"] = False')], "V2_TIMEOUT_FLAG_WITNESS"),
+        ("bd-codex-parity-3: timeout-off-no-tally", [('    if not observe:\n        raise Refusal("V2_TIMEOUT_' + 'TRACE_OFF_UNVERIFIED',
+                                                   '    if False:\n        raise Refusal("V2_TIMEOUT_TRACE_OFF_UNVERIFIED')], "V2_TIMEOUT_OFF_TALLY_WITNESS"),
+        ("bd-codex-parity-3: timeout-off-without-header", [('    if not observe:\n        raise Refusal("V2_TIMEOUT_' + 'TRACE_OFF_UNVERIFIED',
+                                                        '    if not observe and trace.is_file() and trace.stat().st_size:\n        raise Refusal("V2_TIMEOUT_TRACE_OFF_UNVERIFIED')], "V2_TIMEOUT_OFF_EMPTY_WITNESS"),
+        ("bd-codex-parity-3: timeout-rng-shape", [('raise Refusal("V1_TIMEOUT_TRACE_INVALID missing declared RNG ' + 'for prefix exhaustion")', 'rng = {"kind": "none"}')], "V2_TIMEOUT_RNG_WITNESS"),
+        ("bd-codex-parity-3: timeout-scenario-local", [('            timeout_unverified = ' + 'str(failure)', '            raise')], "V2_TIMEOUT_SCENARIO_LOCAL_WITNESS"),
+        ("bd-codex-parity-3: timeout-refusal-scope", [('            if not str(failure).startswith((' + '"V1_TIMEOUT_TRACE_INVALID ", "V2_TIMEOUT_TRACE_OFF_UNVERIFIED ")):',
+                                                    '            if False:')], "V2_TIMEOUT_REFUSAL_SCOPE_WITNESS"),
+        ("bd-codex-parity-3: proof-flags", [('type(footer.get("tapeExhausted")) is not bool ' + 'or footer["tapeExhausted"] != exhausted', 'False')], "V2_PROOF_FLAGS_WITNESS"),
+        ("bd-codex-parity-3: proof-durable-tally", [('type(off[-1].get(key)) is not int ' + 'or off[-1][key] < 0', 'False')], "V2_PROOF_DURABLE_TALLY_WITNESS"),
+        ("bd-codex-parity-3: proof-physical-counts", [('on[-1].get("draws") != actual_draws ' + 'or on[-1].get("events") != actual_events', 'False')], "V2_PROOF_PHYSICAL_WITNESS"),
+        ("bd-codex-parity-3: proof-binding", [('on[0].get("schema") != "shimeji-parity-trace/2" ' + 'or off[0].get("schema") != "shimeji-parity-trace/2"', 'False')], "V2_PROOF_BINDING_WITNESS")])
+    legs.extend([
+        ("bd-codex-parity-3: producer-schema", [('V1_TRACE_SCHEMA = ' + '"shimeji-parity-trace/2"', 'V1_TRACE_SCHEMA = "shimeji-parity-trace/1"')], "V2_PRODUCER_SCHEMA_WITNESS"),
+        ("bd-codex-parity-3: proof-entrypoint", [('        v2_observation_tally(' + 'on, off)', '        pass')], "V2_PROOF_FLAGS_WITNESS"),
+        ("bd-codex-parity-3: proof-off-status", [('    if not observe:\n        # This is only ' + "the child's completion status", '    if False:\n        # This is only the child\'s completion status')], "V2_OFF_STATUS_WITNESS"),
+        ("bd-codex-parity-3: proof-build-binding", [('or on[0].get("build") ' + '!= off[0].get("build")', 'or False')], "V2_PROOF_BUILD_WITNESS"),
+        ("bd-codex-parity-3: proof-runtime-binding", [('or on[0].get("runtime") ' + '!= off[0].get("runtime")', 'or False')], "V2_PROOF_BUILD_WITNESS")])
+    legs.append(("bd-codex-parity-3: proof-off-status-class", [('        if footer.get("status") ' + '!= "complete":', '        if False:')], "V2_OFF_STATUS_CLASS_WITNESS"))
+    legs.append(("bd-codex-parity-3: proof-off-run-status", [('                if off["status"] ' + '!= "complete":', '                if False:')], "V2_PROOF_OFF_RUN_WITNESS"))
     if args.only:
         legs = [leg for leg in legs if args.only in leg[0]]
         if not legs:
@@ -1773,6 +1972,7 @@ def shared(args):
 
 V1_RUNNER = "V1ScenarioRunner.java"
 V1_TIMEOUT = 120
+V1_TRACE_SCHEMA = "shimeji-parity-trace/2"
 V1_MAIN_CLASS = "com.group_finity.mascot.parity.V1ScenarioRunner"
 V1_HELPERS = ("DraftParityHooks.java", "DraftTraceWriter.java", "NativeFactoryImpl.java", "ScenarioEnvironment.java")
 V1_HELPER_PATH = "src/com/group_finity/mascot/parity/"
@@ -1865,8 +2065,12 @@ def validate_draft_resources(args, state):
     return validate_private_resources(state["source"], inventory)
 
 
-def v1_append_timeout_footer(trace, ticks):
+def v1_append_timeout_footer(trace, ticks, observe=True):
     """The killed child may have flushed a valid prefix; footer counts must describe those actual records."""
+    # An off JVM may be killed before even its header is written. Its mode is an invocation fact, not something
+    # that can safely be inferred from the available prefix; no durable off tally means no manufactured footer.
+    if not observe:
+        raise Refusal("V2_TIMEOUT_TRACE_OFF_UNVERIFIED no durable unobserved draw tally")
     prefix = trace.read_bytes() if trace.is_file() else b""
     try:
         records = [json.loads(line) for line in prefix.decode("utf-8").splitlines() if line.strip()]
@@ -1885,15 +2089,24 @@ def v1_append_timeout_footer(trace, ticks):
             counts["events"] += 1
             if row.get("kind") == "rng-draw":
                 counts["draws"] += 1
+    footer = {"type": "footer", "ticks": ticks, "status": "timeout", **counts}
+    if records and records[0].get("schema") == "shimeji-parity-trace/2":
+        # An off run has withheld the observations we would count. A killed JVM has no final durable tally;
+        # absent draw lines cannot prove that it did not exhaust its tape (CONTRACT 10.5.3).
+        rng = records[0].get("rng", {})
+        if rng.get("kind") not in ("none", "tape", "splitmix64") or (
+                rng.get("kind") == "tape" and not isinstance(rng.get("values"), list)):
+            raise Refusal("V1_TIMEOUT_TRACE_INVALID missing declared RNG for prefix exhaustion")
+        footer["tapeExhausted"] = rng["kind"] == "tape" and counts["draws"] > len(rng["values"])
     # Do not rewrite, discard, or repair prefix records. An unterminated valid final record only needs its LF.
     with trace.open("ab") as stream:
         if prefix and not prefix.endswith(b"\n"):
             stream.write(b"\n")
-        stream.write((json.dumps({"type": "footer", "ticks": ticks, "status": "timeout", **counts}) + "\n").encode("utf-8"))
+        stream.write((json.dumps(footer) + "\n").encode("utf-8"))
     return counts
 
 
-def v1_trace_status(compare, trace):
+def v1_trace_status(compare, trace, observe=True):
     """One distinct status per way a run can fail: the footer's own status, else the comparer's trace check."""
     lines = [line for line in trace.read_text(encoding="utf-8").splitlines() if line.strip()] if trace.is_file() else []
     if not lines:
@@ -1906,6 +2119,12 @@ def v1_trace_status(compare, trace):
         return "truncated", "the last line is not a footer"
     if footer.get("type") == "footer" and footer.get("status") in ("timeout", "aborted", "error"):
         return footer["status"], "footer status " + footer["status"]
+    if not observe:
+        # This is only the child's completion status, never a cross-runtime verdict. Its final-only states and
+        # withheld events are judged with the traced partner by v1_observation_proof, not by load_trace.
+        if footer.get("status") != "complete":
+            return "malformed", "unrecognized trace-off footer status"
+        return "complete", "proof-only trace-off artifact; requires the paired observation proof"
     try:
         compare.load_trace(str(trace), "oracle")
     except compare.Unjudgeable as failure:
@@ -2014,7 +2233,7 @@ def v1_run(args, compare, scenario_path, root, classpath, runner, build, observe
     run, workdir = v1_run_directory(root, doc.get("id"), observe)
     pack = scenario_path.parent / doc["pack"]
     v1_copy_pack(compare.pack_preflight(str(pack)), workdir)
-    header = {"type": "header", "schema": "shimeji-parity-trace/1", "runtime": "oracle",
+    header = {"type": "header", "schema": V1_TRACE_SCHEMA, "runtime": "oracle",
               "scenario": {"id": doc["id"], "sha256": sha(raw), "packSha256": compare.pack_sha256(str(pack))},
               "build": build, "rng": doc["rng"], "tickMs": 40, "dpiScale": doc["dpiScale"],
               "runId": str(uuid.uuid4()), "startedUtc": datetime.datetime.now(datetime.timezone.utc).isoformat()}
@@ -2027,9 +2246,20 @@ def v1_run(args, compare, scenario_path, root, classpath, runner, build, observe
         argv.append("off")
     record = command(argv, workdir, timeout=V1_TIMEOUT)
     write_json(run / "launch.json", record)
+    timeout_unverified = None
     if record["timed_out"]:
-        v1_append_timeout_footer(trace, doc["ticks"])
-    status, detail = v1_trace_status(compare, trace)
+        try:
+            v1_append_timeout_footer(trace, doc["ticks"], observe=observe)
+        except Refusal as failure:
+            # Only an inability to tally this killed child's prefix is local to the scenario. Input, build,
+            # containment and resource refusals still escape and fail their phase; do not catch Refusal in v1().
+            if not str(failure).startswith(("V1_TIMEOUT_TRACE_INVALID ", "V2_TIMEOUT_TRACE_OFF_UNVERIFIED ")):
+                raise
+            timeout_unverified = str(failure)
+    if timeout_unverified is not None:
+        status, detail = "timeout", timeout_unverified
+    else:
+        status, detail = v1_trace_status(compare, trace, observe=observe)
     if status in ("aborted", "error"):
         # The runner's own refusal names itself; otherwise the first exception line is the source's.
         stderr = [line.strip() for line in record["stderr"].splitlines() if line.strip()]
@@ -2041,7 +2271,8 @@ def v1_run(args, compare, scenario_path, root, classpath, runner, build, observe
             status = "scenario-invalid"
     return {"scenario": doc["id"], "status": status, "detail": detail[:400], "trace": str(trace),
             "trace_sha256": sha(trace.read_bytes()) if trace.is_file() else None, "exit_code": record["exit_code"],
-            "timed_out": record["timed_out"], "observe": observe}
+            "timed_out": record["timed_out"], "observe": observe, "proof_only": not observe,
+            "timeout_footer_verified": record["timed_out"] and timeout_unverified is None}
 
 
 def trace_event_digest(path):
@@ -2063,6 +2294,8 @@ def v1_observation_proof(on_trace, off_trace):
     # final population as a run whose companions all disposed.
     if on[-1].get("status") != "complete" or off[-1].get("status") != "complete" or off[-1].get("ticks") != ticks:
         raise Refusal("V1_OBSERVATION_CHANGED_BEHAVIOUR a run did not complete all its ticks")
+    if on[0].get("schema") == "shimeji-parity-trace/2" or off[0].get("schema") == "shimeji-parity-trace/2":
+        v2_observation_tally(on, off)
     strip = lambda row: {k: v for k, v in row.items() if k != "velocity"}
     final_on = [strip(row) for row in on if row.get("type") == "state" and row["tick"] == ticks]
     final_off = [strip(row) for row in off if row.get("type") == "state" and row["tick"] == ticks]
@@ -2078,6 +2311,31 @@ def v1_observation_proof(on_trace, off_trace):
     if on_digest != trace_event_digest(on_trace):
         raise Refusal("V1_OBSERVATION_CHANGED_BEHAVIOUR event sequence digest does not match the traced records")
     return {"scenario": on[0]["scenario"]["id"], "final_states": len(final_on), "draws": on[-1]["draws"]}
+
+
+def v2_observation_tally(on, off):
+    """Proof-only trace/2 tallies never substitute for the public comparer's physical draw records."""
+    if (on[0].get("schema") != "shimeji-parity-trace/2" or off[0].get("schema") != "shimeji-parity-trace/2"
+            or on[0].get("rng") != off[0].get("rng") or on[0].get("scenario") != off[0].get("scenario")
+            or on[0].get("runtime") != off[0].get("runtime") or on[0].get("build") != off[0].get("build")):
+        raise Refusal("V2_OBSERVATION_TALLY_REFUSAL trace versions or runtime/build/scenario/RNG binding differ")
+    actual_draws = sum(row.get("kind") == "rng-draw" for row in on if row.get("type") == "event")
+    actual_events = sum(row.get("type") == "event" for row in on)
+    if (on[-1].get("draws") != actual_draws or on[-1].get("events") != actual_events
+            or off[-1].get("draws") != 0 or off[-1].get("events") != 0
+            or any(row.get("type") == "event" for row in off)):
+        raise Refusal("V2_OBSERVATION_TALLY_REFUSAL physical counts differ")
+    for key in ("unobservedDraws", "unobservedEvents"):
+        if type(off[-1].get(key)) is not int or off[-1][key] < 0:
+            raise Refusal("V2_OBSERVATION_TALLY_REFUSAL missing durable " + key)
+    rng = on[0].get("rng", {})
+    if rng.get("kind") not in ("none", "tape", "splitmix64") or (
+            rng.get("kind") == "tape" and not isinstance(rng.get("values"), list)):
+        raise Refusal("V2_OBSERVATION_TALLY_REFUSAL missing declared RNG")
+    exhausted = rng["kind"] == "tape" and actual_draws > len(rng["values"])
+    for footer in (on[-1], off[-1]):
+        if type(footer.get("tapeExhausted")) is not bool or footer["tapeExhausted"] != exhausted:
+            raise Refusal("V2_OBSERVATION_TALLY_REFUSAL exhaustion flag differs from actual draws")
 
 
 V1_DOCUMENT_SCENARIO = "S-slice-stand-walk-01"
@@ -2301,7 +2559,7 @@ def v1(args):
     root = args.output_root / ("v1-" + uuid.uuid4().hex[:8])
     root.mkdir(parents=True)
     rows = []
-    result = {"status": "running", "schema": "shimeji-parity-trace/1", "results": rows,
+    result = {"status": "running", "schema": V1_TRACE_SCHEMA, "results": rows,
               "tool_sha256": sha((HERE / "oracle.py").read_bytes()), "runner_sha256": sha((HERE / V1_RUNNER).read_bytes()),
               "evidence": str(root)}
 
@@ -2351,8 +2609,12 @@ def v1(args):
                 proof["reason"] = "the traced run is " + traced["status"]
             else:
                 off = v1_run(args, compare, proof_path, root, classpath, runner, build, observe=False)
-                proof = dict(v1_observation_proof(traced["trace"], off["trace"]), status="pass")
-                result["observation_proof"] = proof
+                if off["status"] != "complete":
+                    proof["reason"] = "the trace-off run is " + off["status"]
+                    proof["run"] = off
+                else:
+                    proof = dict(v1_observation_proof(traced["trace"], off["trace"]), status="pass")
+                    result["observation_proof"] = proof
         phase = "document-witnesses"
         documents = v1_document_witnesses(args, compare, root, classpath, runner, build, rows)
         result["document_witnesses"] = documents
@@ -2471,8 +2733,10 @@ def v1_failures(args):
           lambda lines: first_state(lines, lambda row: row["pose"] is not None)["pose"].update(image="img/Witness/other.png"), "pose")
     judge("wrong action age", "state-mismatch",
           lambda lines: first_state(lines, lambda row: row["actionAge"] is not None).update(actionAge=first_state(lines, lambda row: row["actionAge"] is not None)["actionAge"] + 1), "actionAge")
-    judge("extra event", "extra-event",
-          lambda lines: insert_event(lines, {"type": "event", "tick": two, "sid": states[0]["sid"], "kind": "error", "message": "witness"}))
+    extra_error = {"type": "event", "tick": two, "sid": states[0]["sid"], "kind": "error", "message": "witness"}
+    if base[0]["schema"] == "shimeji-parity-trace/2":
+        extra_error["error"] = {"code": "unclassified", "lookup": None, "via": []}
+    judge("extra event", "extra-event", lambda lines: insert_event(lines, extra_error))
     judge("missing event", "missing-event", lambda lines: drop_first(lines, "birth-request"))
     judge("wrong RNG use: another site", "event-mismatch", draw_site)
     judge("wrong RNG use: an extra draw", "rng-draw-count", extra_draw)
