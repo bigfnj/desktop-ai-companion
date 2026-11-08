@@ -6025,6 +6025,18 @@ Assert-True ($w5pPins.Count -eq 2 -and $w5pPins['build.yml'] -ceq $w5pPins['rele
     "w5-packaging-ci-1: build.yml and release.yml install one Pillow pin (build $($w5pPins['build.yml']), release $($w5pPins['release.yml']))")
 Assert-True ($w5pReleaseScrubAt -ge 0 -and $w5pReleasePillowAt -gt $w5pReleaseScrubAt) (
     "w5-packaging-ci-1: release.yml installs Pillow after the signing key is scrubbed (scrub $w5pReleaseScrubAt, Pillow $w5pReleasePillowAt)")
+# CI RUNS THE MUTATION-INFRASTRUCTURE UNIT TESTS (N-bd-w2-tests-scripts-1-01). 256b90e wired tests\run_mutation_capture_checks.py
+# into the local gate only, so a green CI run said nothing about the byte capture and restore rules every harness grades
+# through. Same per-step slicing, comments dropped: exactly one build.yml step runs it and throws on its exit code, with no
+# if: or continue-on-error to skip or excuse it. WITNESS: the step-key pattern matches the module self-test step's if:.
+$w5pBuildSteps = @([regex]::Split((Get-Content -LiteralPath (Join-Path $repoRoot '.github\workflows\build.yml') -Raw),
+    '(?m)^      - name:') | Select-Object -Skip 1 | ForEach-Object { $_ -replace '(?m)^[ \t]*#.*$', '' })
+$w5pCaptureSteps = @($w5pBuildSteps | Where-Object {
+    $_ -cmatch '(?m)^          python -X utf8 \.\\tests\\run_mutation_capture_checks\.py\r?\n          if \(\$LASTEXITCODE -ne 0\) \{ throw ' })
+Assert-True (@($w5pBuildSteps | Where-Object { $_ -cmatch '\A Run each module''s own self-test\r?\n' -and $_ -cmatch '(?m)^        if: ' }).Count -eq 1) (
+    'w5-packaging-ci-1: WITNESS the step-key pattern matches the build.yml module self-test step''s if:')
+Assert-True ($w5pCaptureSteps.Count -eq 1 -and $w5pCaptureSteps[0] -cnotmatch '(?m)^        (if|continue-on-error): ') (
+    "w5-packaging-ci-1: build.yml runs run_mutation_capture_checks.py in one step that throws on its exit code and cannot be skipped (found $($w5pCaptureSteps.Count))")
 
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that

@@ -4439,6 +4439,27 @@ CASES = (
         b"      - name: Remove the signing certificate from the runner\n",
         "w5-packaging-ci-1: release.yml installs Pillow after the signing key is scrubbed",
     ),
+    # build.yml's mutation-infrastructure unit-test step stops failing on the runner's exit code, or becomes skippable.
+    (
+        "bd-w5-packaging-ci-1: build.yml ignores the mutation unit tests' exit code",
+        BUILD_YML,
+        b"          python -X utf8 .\\tests\\run_mutation_capture_checks.py\n"
+        b"          if ($LASTEXITCODE -ne 0) { throw \"run_mutation_capture_checks.py failed (exit $LASTEXITCODE).\" }\n",
+        b"          python -X utf8 .\\tests\\run_mutation_capture_checks.py\n",
+        "w5-packaging-ci-1: build.yml runs run_mutation_capture_checks.py in one step",
+    ),
+    (
+        "bd-w5-packaging-ci-1: build.yml's mutation unit-test step can be skipped",
+        BUILD_YML,
+        b"        shell: pwsh\n"
+        b"        run: |\n"
+        b"          python -X utf8 .\\tests\\run_mutation_capture_checks.py\n",
+        b"        if: false\n"
+        b"        shell: pwsh\n"
+        b"        run: |\n"
+        b"          python -X utf8 .\\tests\\run_mutation_capture_checks.py\n",
+        "w5-packaging-ci-1: build.yml runs run_mutation_capture_checks.py in one step",
+    ),
 )
 
 
