@@ -5263,6 +5263,34 @@ CASES = (
         b"                System.Threading.Tasks.TaskCreationOptions.RunContinuationsAsynchronously);\n",
         "tray-questions: AskAsync copies and validates the question",
     ),
+    # ---- burndown/w11-options-ui-1 ----
+    # The Options UI entry of burn-down wave 11. "bd-w11-options-ui-1:" for one --only.
+    # N-bd-w10-host-1-01: the pane's Uninstall removes a count of chosen pets again, deletes the folder before it removes
+    # anything, or RemoveEveryPetOfType passes born companions over, so a companion of the type keeps running from the
+    # deleted folder.
+    (
+        "bd-w11-options-ui-1: Uninstall removes one chosen pet through RemoveOnePet again (N-bd-w10-host-1-01)",
+        PETSPANE,
+        b'                try { if (Program.Mainthread != null) Program.Mainthread.RemoveEveryPetOfType(id); } catch { }\n',
+        b'                try { if (Program.Mainthread != null) Program.Mainthread.RemoveOnePet(id); } catch { }\n',
+        "w11-options-ui-1: Uninstall removes every companion of the type through RemoveEveryPetOfType before the delete",
+    ),
+    (
+        "bd-w11-options-ui-1: Uninstall deletes the folder before it removes the companions (N-bd-w10-host-1-01)",
+        PETSPANE,
+        b'                try { if (Program.Mainthread != null) Program.Mainthread.RemoveEveryPetOfType(id); } catch { }\n'
+        b'                if (Directory.Exists(dir)) Directory.Delete(dir, true);\n',
+        b'                if (Directory.Exists(dir)) Directory.Delete(dir, true);\n'
+        b'                try { if (Program.Mainthread != null) Program.Mainthread.RemoveEveryPetOfType(id); } catch { }\n',
+        "w11-options-ui-1: Uninstall removes every companion of the type through RemoveEveryPetOfType before the delete",
+    ),
+    (
+        "bd-w11-options-ui-1: RemoveEveryPetOfType passes born companions over (N-bd-w10-host-1-01)",
+        os.path.join(REPO, "src", "dotNet", "StartUp.cs"),
+        b'                if (RemovePetInstance(pet)) removed++;\n            return removed;\n',
+        b'                if (!bornPets.Contains(pet) && RemovePetInstance(pet)) removed++;\n            return removed;\n',
+        "w11-options-ui-1: RemoveEveryPetOfType removes every window the selection takes, with no born test of its own",
+    ),
 )
 
 

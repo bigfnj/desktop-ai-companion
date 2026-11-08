@@ -1729,10 +1729,11 @@ namespace DesktopAICompanion
         ///
         /// A companion born this session is passed over (N-audit-1106-246, N-bd-w2-host-1-01). Every caller offers this
         /// for a count read from OnScreenMix, which leaves born companions out: the tray's Remove row, the Companions
-        /// pane's Remove button and its uninstall loop, and the ABI's RemoveOne beside its OnScreenMix. Walking every
-        /// pet newest-first took the hatchling a chosen pet had just bred, so a born companion vanished while the
-        /// chosen pet and the count shown for it stayed the same. A type with only born companions up has no row, no
-        /// button and no count, and answers false here.
+        /// pane's Remove button, and the ABI's RemoveOne beside its OnScreenMix (the pane's Uninstall takes every pet of
+        /// the type through RemoveEveryPetOfType instead, N-bd-w10-host-1-01). Walking every pet newest-first took the
+        /// hatchling a chosen pet had just bred, so a born companion vanished while the chosen pet and the count shown
+        /// for it stayed the same. A type with only born companions up has no row, no button and no count, and answers
+        /// false here.
         /// </summary>
         public bool RemoveOnePet(string id)
         {
@@ -1757,6 +1758,47 @@ namespace DesktopAICompanion
                     return KillSheep(pet);
             }
             return false;
+        }
+
+        /// <summary>
+        /// Remove EVERY live companion of an installed type, the ones the user chose and the ones born this session alike,
+        /// because the type's library folder is about to be deleted: the Companions pane's Uninstall (N-bd-w10-host-1-01).
+        /// The pane used to call RemoveOnePet once per pet its card counted. That count is OnScreenMix's, which leaves born
+        /// companions out, and RemoveOnePet passes them over, so every companion of the type born this session kept running
+        /// from a folder that no longer existed until the app exited. Selected first and removed after, as RemovePackPreview
+        /// does, because KillSheep compacts the array the walk would read. KillSheep persists the reduced mix; a born
+        /// companion was never in it, so its removal writes nothing (SetPetMix skips an unchanged mix). The count removed.
+        /// </summary>
+        internal int RemoveEveryPetOfType(string id)
+        {
+            int removed = 0;
+            foreach (FormCompanion pet in PetsOfInstalledType(sheeps, iSheeps, petEntries, id))
+                if (RemovePetInstance(pet)) removed++;
+            return removed;
+        }
+
+        /// <summary>
+        /// The windows an uninstall of <paramref name="typeId"/> takes: every window whose registry entry is that installed
+        /// type's, chosen or born (a born window holds its type's entry too, OpenBornTickPet), so whether a window was born is
+        /// deliberately not asked. Keyed as OnScreenMix keys them, by the window's entry: a companion that transformed keeps
+        /// the entry of the window it had. Never a preview (its entry is transient) and never one of the default type's pets,
+        /// which hold no entry; an empty id takes nothing. Case-insensitive, as RemoveOneChosenPet matches. Pure over the
+        /// arrays given, for --shimeji-window-selftest.
+        /// </summary>
+        internal static List<FormCompanion> PetsOfInstalledType(FormCompanion[] pets, int count,
+            IDictionary<FormCompanion, CompanionTypeRegistry.Entry> entries, string typeId)
+        {
+            var taken = new List<FormCompanion>();
+            if (pets == null || entries == null || string.IsNullOrEmpty(typeId)) return taken;
+            for (int i = 0; i < count && i < pets.Length; i++)
+            {
+                FormCompanion pet = pets[i];
+                CompanionTypeRegistry.Entry entry;
+                if (pet != null && entries.TryGetValue(pet, out entry) && entry != null && !entry.IsTransient
+                    && string.Equals(entry.Id, typeId, StringComparison.OrdinalIgnoreCase))
+                    taken.Add(pet);
+            }
+            return taken;
         }
 
         /// <summary>

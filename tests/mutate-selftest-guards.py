@@ -24697,6 +24697,31 @@ CASES = (
      HOST_CSPROJ, EXE,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
      'parity: the pack hash refuses entries that differ only in case, as the comparer does'),
+    # ---- burndown/w11-options-ui-1 ----
+    # The Options UI entry of burn-down wave 11. "bd-w11-options-ui-1:" for one --only.
+    # N-bd-w10-host-1-01: an uninstall's selection leaves companions of the type running again. --shimeji-window-selftest
+    # drives StartUp.PetsOfInstalledType, the selection StartUp.RemoveEveryPetOfType removes before the pane deletes the folder.
+    ("bd-w11-options-ui-1: the uninstall selection takes only the first companion of the type (N-bd-w10-host-1-01)",
+     os.path.join(REPO, "src", "dotNet", "StartUp.cs"),
+     b'                    taken.Add(pet);\n',
+     b'                    { taken.Add(pet); break; }\n',
+     HOST_CSPROJ, EXE,
+     "--shimeji-window-selftest", "dp-shimeji-window-selftest.txt",
+     "uninstall: a type with only born companions up has every one of them taken"),
+    ("bd-w11-options-ui-1: the uninstall selection matches the type id case-sensitively (N-bd-w10-host-1-01)",
+     os.path.join(REPO, "src", "dotNet", "StartUp.cs"),
+     b'                    && string.Equals(entry.Id, typeId, StringComparison.OrdinalIgnoreCase))\n',
+     b'                    && string.Equals(entry.Id, typeId, StringComparison.Ordinal))\n',
+     HOST_CSPROJ, EXE,
+     "--shimeji-window-selftest", "dp-shimeji-window-selftest.txt",
+     "uninstall: the type id is matched whatever its case"),
+    ("bd-w11-options-ui-1: the uninstall selection takes a preview that carries the type's id (N-bd-w10-host-1-01)",
+     os.path.join(REPO, "src", "dotNet", "StartUp.cs"),
+     b'                if (pet != null && entries.TryGetValue(pet, out entry) && entry != null && !entry.IsTransient\n',
+     b'                if (pet != null && entries.TryGetValue(pet, out entry) && entry != null\n',
+     HOST_CSPROJ, EXE,
+     "--shimeji-window-selftest", "dp-shimeji-window-selftest.txt",
+     "uninstall: every companion of the type goes, chosen and born, and no other type's"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

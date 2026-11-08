@@ -2675,7 +2675,7 @@ Assert-True (
 # already did. The install also swaps the on-screen copies onto the new definition.
 $installTypeBody = Get-MethodBody $petHostCodeHost 'public bool InstallType(string typeId, string animationsXml, out string error)' @("`n        private ", "`n        internal ", "`n        public ")
 $uninstallTypeBody = Get-MethodBody $petHostCodeHost 'public bool UninstallType(string typeId, out string error)' @("`n        private ", "`n        internal ", "`n        public ")
-$uninstallPetBody = Get-MethodBody $companionsPaneCodeHost 'private void UninstallPet(string id, string name, int onScreen)' @("`n        private ", "`n        internal ", "`n        public ")
+$uninstallPetBody = Get-MethodBody $companionsPaneCodeHost 'private void UninstallPet(string id, string name)' @("`n        private ", "`n        internal ", "`n        public ")
 Assert-True ($installTypeBody.Length -gt 0 -and $uninstallTypeBody.Length -gt 0 -and $uninstallPetBody.Length -gt 0) (
     'InstallType, UninstallType and UninstallPet were located')
 Assert-True (
@@ -3239,7 +3239,7 @@ Assert-True (
 # UninstallPet is contained by the one library rule (RA-315): the last inline copy of the containment F337
 # folded into CompanionProvenance.SafeLibraryDirectory kept accepting what the install and download paths
 # refused. ARGUMENT: the shared helper is called with the id, and the inline StartsWith test is gone.
-$uninstallPetBody = Get-MethodBody $companionsPaneCodeHost 'private void UninstallPet(string id, string name, int onScreen)' `
+$uninstallPetBody = Get-MethodBody $companionsPaneCodeHost 'private void UninstallPet(string id, string name)' `
     @("`n        private ", "`n        internal ", "`n        public ")
 Assert-True ($uninstallPetBody.Length -gt 0) 'UninstallPet was located'
 Assert-True (
@@ -6901,6 +6901,26 @@ $w10OldWalk = '                if (pet == null) continue;'
 Assert-True ($w10Remove -cmatch '^public bool RemoveOnePet\(string id\)\s*\{\s*return RemoveOneChosenPet\(id\);\s*\}\s*$' -and
     $w10Remove -cnotmatch 'if \(pet == null\) continue;' -and $w10OldWalk -cmatch 'if \(pet == null\) continue;') (
     'w10-host-1: Remove takes one of the companions the user chose, through RemoveOneChosenPet (WITNESS: the old walk matches)')
+# ---- burndown/w11-options-ui-1 ----
+# UNINSTALL REMOVES EVERY COMPANION OF THE TYPE BEFORE ITS FOLDER GOES, BORN ONES INCLUDED (N-bd-w10-host-1-01). The pane
+# called RemoveOnePet once per pet its card counted, an OnScreenMix count that leaves born companions out, so a hatchling
+# of the type kept running from the deleted folder until exit. --shimeji-window-selftest drives the selection
+# (StartUp.PetsOfInstalledType); the pane's confirmation dialog and StartUp's live desktop are out of a self-test's reach,
+# so the wiring is pinned here. ORDER: the removal comes before the delete. ARGUMENT: the id. ABSENCE: no RemoveOnePet
+# and no count loop in the pane, no born test in RemoveEveryPetOfType. WITNESS: the old loop's line matches the absent
+# count pattern, and RemoveOneChosenPet's body matches the absent born pattern.
+$w11Uninstall = Get-MethodBody $companionsPaneCodeHost 'private void UninstallPet(string id, string name)' @("`n        private ", "`n        internal ", "`n        public ")
+$w11Every = Get-MethodBody $startUpCodeHost 'internal int RemoveEveryPetOfType(string id)' @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($w11Uninstall.Length -gt 0 -and $w11Every.Length -gt 0 -and $w2Chosen.Length -gt 0) 'w11-options-ui-1: UninstallPet, RemoveEveryPetOfType and RemoveOneChosenPet were located'
+$w11Removal = $w11Uninstall.IndexOf('Program.Mainthread.RemoveEveryPetOfType(id);', [StringComparison]::Ordinal)
+$w11Delete = $w11Uninstall.IndexOf('Directory.Delete(dir, true);', [StringComparison]::Ordinal)
+$w11OldLoop = '                for (int i = 0; i < onScreen; i++)'
+Assert-True ($w11Removal -ge 0 -and $w11Delete -gt $w11Removal -and
+    $w11Uninstall -cnotmatch 'RemoveOnePet\(' -and $w11Uninstall -cnotmatch 'i < onScreen' -and $w11OldLoop -cmatch 'i < onScreen') (
+    "w11-options-ui-1: Uninstall removes every companion of the type through RemoveEveryPetOfType before the delete, with no counted RemoveOnePet loop (WITNESS: the old loop matches; removal at $w11Removal, delete at $w11Delete)")
+Assert-True ($w11Every -cmatch 'foreach \(FormCompanion pet in PetsOfInstalledType\(sheeps, iSheeps, petEntries, id\)\)\s*if \(RemovePetInstance\(pet\)\) removed\+\+;' -and
+    $w11Every -cnotmatch 'bornPets' -and $w2Chosen -cmatch 'bornPets\.Contains\(pet\)') (
+    'w11-options-ui-1: RemoveEveryPetOfType removes every window the selection takes, with no born test of its own (WITNESS: RemoveOneChosenPet''s born test matches)')
 
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
