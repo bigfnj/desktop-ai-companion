@@ -582,6 +582,7 @@ def self_test(args):
     v1_self_test(args, labels)
     burndown_self_test(args, labels)
     review_self_test(args, labels)
+    screens_preflight_self_test(args, labels)
     synthetic_input_self_test(args, labels)
     timeout_footer_self_test(args, labels)
     trace2_self_test(args, labels)
@@ -1155,6 +1156,76 @@ def synthetic_input_self_test(args, labels):
         journal()
         validate_shared_output(inputs)
         labels.append("managed-synthetic-inputs-complete-building-partial-and-custom-consumer-controls")
+
+
+def screens_preflight_self_test(args, labels):
+    """The real shared validator must reject bad screens before the producer derives or writes a run."""
+    comparison = comparer()  # Fresh from this checkout, not a replacement test validator.
+    witness = "V1_" + "SCREENS_PREFLIGHT_WITNESS"
+    stage_refusal = "V1_SCREENS_PREFLIGHT_NEXT_STAGE"
+    rejected, accepted = [], []
+    with tempfile.TemporaryDirectory(prefix="oracle-screens-preflight-", dir=args.temp_root) as folder:
+        root = Path(folder)
+        inputs = root / "inputs"
+        inputs.mkdir()
+        scenario = inputs / "S-screens-preflight.json"
+        runs = root / "unwritten-runs"
+        calls = []
+
+        def next_stage(*unused, **unused_keywords):
+            calls.append("run-directory")
+            raise Refusal(stage_refusal)
+
+        def forbidden(stage):
+            def reached(*unused, **unused_keywords):
+                calls.append(stage)
+                raise AssertionError(witness + " reached " + stage)
+            return reached
+
+        # Keep validate_shared_output as the real read-only consumer.
+        copied = FunctionType(v1_run.__code__, dict(globals(), v1_run_directory=next_stage,
+                              v1_copy_pack=forbidden("pack-copy"), command=forbidden("child-command")),
+                              "v1_run", argdefs=v1_run.__defaults__)
+        base = {"schema": "shimeji-parity-scenario/1", "id": scenario.stem, "pack": "pack",
+                "screens": [{"x": 0, "y": 0, "w": 1280, "h": 720}],
+                "workArea": {"x": 0, "y": 0, "w": 1280, "h": 680}, "dpiScale": 1.0, "ticks": 1,
+                "rng": {"kind": "none"}, "settings": {},
+                "mascots": [{"sid": "m1", "imageSet": "Alpha", "behavior": "Stand", "anchor": [640, 680], "lookRight": False}],
+                "activeWindow": [{"tick": 0, "visible": False}], "input": [{"tick": 0, "cursor": [100, 100]}]}
+        positives = (("one-screen", base["screens"]),
+                     ("multiple-screens", [{"x": -1280, "y": -120, "w": 1280, "h": 720}, base["screens"][0]]))
+        negatives = (("empty-list", []), ("null", None), ("empty-object", {}),
+                     ("screen-object", base["screens"][0]), ("empty-string", ""), ("string", "screen"),
+                     ("zero", 0), ("number", 1), ("false", False), ("true", True))
+        for valid, cases in ((True, positives), (False, negatives)):
+            for name, screens in cases:
+                write_json(scenario, dict(base, screens=screens))
+                before = scenario.read_bytes()
+                inventory = sorted(path.relative_to(root).as_posix() for path in root.rglob("*"))
+                calls.clear()
+                try:
+                    copied(args, comparison, scenario, runs, "unused-classpath", root / "unused-runner.jar", {})
+                except comparison.Unjudgeable as failure:
+                    assert not valid and failure.cls == "scenario-invalid" and "screens is not a list of one or more screens" in str(failure), witness + " wrong refusal for " + name
+                    assert not calls, witness + " invalid input reached a run stage: " + name
+                    rejected.append(name)
+                except Refusal as failure:
+                    if not valid or str(failure) != stage_refusal or calls != ["run-directory"]:
+                        raise AssertionError(witness + " missing early screen refusal for " + name) from None
+                    accepted.append(name)
+                except Exception as failure:
+                    raise AssertionError(witness + " wrong boundary for " + name + ": " + type(failure).__name__) from None
+                else:
+                    raise AssertionError(witness + " no boundary reached for " + name)
+                assert scenario.read_bytes() == before, witness + " input was rewritten: " + name
+                assert sorted(path.relative_to(root).as_posix() for path in root.rglob("*")) == inventory, witness + " run/header output was written: " + name
+                assert not runs.exists(), witness + " run directory was created: " + name
+        assert len(rejected) == 10 and len(accepted) == 2, witness + " incomplete controls"
+    assert not root.exists(), witness + " scratch remains"
+    labels.append("v1-screens-preflight-real-validator-before-run-artifacts")
+    return {"status": "pass", "rejected": rejected, "acceptedNextStage": accepted,
+            "nextStageSentinel": stage_refusal, "failureWitness": witness,
+            "comparer_sha256": sha(Path(comparison.__file__).read_bytes()), "removed_scratch": str(root)}
 
 
 def timeout_footer_self_test(args, labels):
@@ -1793,6 +1864,9 @@ def mutate(args):
         ("bd-codex-parity-3-anchors: fault-jvm-off-flag", [
             ('    if not observe:\n        argv.append(' + '"off")',
              '    if not observe:\n        argv.remove("-XX:-OmitStackTraceInFastThrow")\n        argv.append("off")')], "V2_FAULT_JVM_FLAG_WITNESS")])
+    legs.append(("bd-codex-parity-screens: wrapper-validator-wiring", [
+        ('    compare.' + 'validate_scenario(doc)\n    # The id is checked',
+         '    # The id is checked')], "V1_SCREENS_PREFLIGHT_WITNESS"))
     if args.only:
         legs = [leg for leg in legs if args.only in leg[0]]
         if not legs:
@@ -1800,14 +1874,21 @@ def mutate(args):
     results = []
     with tempfile.TemporaryDirectory(prefix="oracle-mutations-", dir=os.environ["TEMP"]) as folder:
         root = Path(folder)
-        shutil.copyfile(HERE / "source-pin.json", root / "source-pin.json")
+        # The self-test loads the real public comparer. Keep the same oracle/comparer
+        # sibling layout in private mutations rather than silently skipping that check.
+        scripts = root / "oracle"
+        scripts.mkdir()
+        comparisons = root / "comparer"
+        comparisons.mkdir()
+        shutil.copyfile(HERE / "source-pin.json", scripts / "source-pin.json")
+        shutil.copyfile(HERE.parent / "comparer" / "compare.py", comparisons / "compare.py")
         for label, replacements, witness in legs:
             mutated = original
             for old, new in replacements:
                 if mutated.count(old) != 1:
                     raise Refusal("MUTATION_PATTERN_REFUSAL " + label)
                 mutated = mutated.replace(old, new)
-            script = root / (re.sub(r"[^A-Za-z0-9._-]", "_", label) + ".py")
+            script = scripts / (re.sub(r"[^A-Za-z0-9._-]", "_", label) + ".py")
             script.write_bytes(mutated.encode("utf-8"))
             executed_sha256 = sha(script.read_bytes())
             executed_mtime_ns = script.stat().st_mtime_ns
