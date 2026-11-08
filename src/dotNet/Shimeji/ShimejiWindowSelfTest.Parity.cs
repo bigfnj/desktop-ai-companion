@@ -40,7 +40,8 @@ namespace DesktopAICompanion.Shimeji
         /// <summary>
         /// N-bd-parity-host-1-03: build.commit is the full source revision the project file stamped into its own metadata
         /// value, never the informational (product) version and never a placeholder, and the command refuses a build
-        /// without one before it reads anything or opens a trace. This build's own stamp is required: the window self-test
+        /// without one before it opens a trace or reads anything but the scenario (read first, since the trace path is
+        /// compared with the pack it names). This build's own stamp is required: the window self-test
         /// runs from a git checkout (the gate, CI, the mutation harness), and a build with none could not run the parity
         /// tooling at all.
         /// </summary>
@@ -72,13 +73,16 @@ namespace DesktopAICompanion.Shimeji
                 "parity run: a placeholder, a version, the all-zero id, upper case, 39 or 41 characters are no source revision;"
                 + " 40 lowercase hex is (" + string.Join(", ", accepted) + ")");
 
-            // The command itself: exit 2, its line, and no trace, before the scenario (which does not exist) is read.
+            // The command itself: exit 2, its line, and no trace, ahead of any refusal of the scenario (which does not
+            // exist). The pets and converter arguments are folders the trace is not in: a trace path inside an input is
+            // refused before this refusal (ParityRun.ClaimTracePath), and with both set to root, as they were, it was.
             string trace = Path.Combine(root, "refused.jsonl");
             var log = new StringWriter();
             int exit;
             try
             {
-                exit = ParityRunCommand.Execute(new[] { ParityRunCommand.Flag, Path.Combine(root, "absent.json"), root, trace, root }, 0, log, unstamped);
+                exit = ParityRunCommand.Execute(new[] { ParityRunCommand.Flag, Path.Combine(root, "absent.json"), Path.Combine(root, "absent-pets"), trace,
+                    Path.Combine(root, "absent-converter") }, 0, log, unstamped);
             }
             catch (Exception e)
             {
@@ -706,6 +710,70 @@ namespace DesktopAICompanion.Shimeji
             string[] staleCommand = command(converterTrace, absentConverter);
             check(staleCommand[0] == "2" && staleCommand[1] == "none",
                 "parity run: a command refused before the run removes an earlier file at its trace path too (exit " + staleCommand[0] + ", trace " + staleCommand[1] + ")");
+
+            // Follow-up to N-bd-w12-review-03: a trace path that is one of the run's inputs is refused by name with exit 2
+            // before anything is released, and the input is left byte for byte as it was. Releasing first deleted it, on
+            // a refused run too, and a complete run had always overwritten it. One check per input kind, each through the
+            // command and, where the run has that input, through ParityRun.Run, and each with the trace spelled otherwise
+            // than the input (case, "..", "/", a trailing separator on the input), so the paths are compared as Windows
+            // resolves them, not as strings. A leg that fails puts its input back, so the checks after it read what they
+            // always read.
+            Func<string, string, string, string, string, string, string> kept = (scenarioArg, petsArg, traceArg, converterArg, input, want) =>
+            {
+                byte[] before = File.ReadAllBytes(input);
+                var legLog = new StringWriter();
+                string legExit;
+                try
+                {
+                    legExit = (converterArg == null ? ParityRun.Run(scenarioArg, petsArg, traceArg, build, legLog)
+                        : ParityRunCommand.Execute(new[] { ParityRunCommand.Flag, scenarioArg, petsArg, traceArg, converterArg }, 0, legLog, typeof(ParityRun).Assembly, true))
+                        .ToString(CultureInfo.InvariantCulture);
+                }
+                catch (Exception e)
+                {
+                    legExit = "threw";
+                    legLog.Write(e.GetType().Name + ": " + e.Message);
+                }
+                string after = !File.Exists(input) ? "deleted" : Convert.ToBase64String(File.ReadAllBytes(input)) == Convert.ToBase64String(before) ? "kept" : "overwritten";
+                if (legExit == "2" && after == "kept" && legLog.ToString().Contains(want)) return "";
+                File.WriteAllBytes(input, before);
+                return (converterArg == null ? "run" : "command") + ": exit " + legExit + ", input " + after + ", " + legLog.ToString().Trim() + "; ";
+            };
+            string inputScenario = Path.Combine(root, "S-input-scenario.json");
+            File.Copy(goodScenario, inputScenario, true);
+            string scenarioTrace = inputScenario.ToUpperInvariant();
+            string scenarioWant = "refused " + scenarioTrace + ": the trace path is the scenario file " + inputScenario + "; ";
+            string asScenario = kept(inputScenario, goodPets, scenarioTrace, null, inputScenario, scenarioWant)
+                + kept(inputScenario, goodPets, scenarioTrace, codeless, inputScenario, scenarioWant);
+            check(asScenario.Length == 0,
+                "parity run: a trace path that is the scenario file is refused by name before anything is released, the scenario kept (exit 2, "
+                + (asScenario.Length == 0 ? "run and command" : asScenario.Trim()) + ")");
+            string converterDll = Path.Combine(codeless, "stand-in.dll"), dllTrace = Path.Combine(codeless, "STAND-IN.DLL");
+            string asConverter = kept(goodScenario, goodPets, converterDll, codeless, converterDll, "refused " + converterDll + ": the trace path is inside the converter " + codeless + "; ")
+                + kept(goodScenario, goodPets, dllTrace, converterDll, converterDll, "refused " + dllTrace + ": the trace path is the converter " + converterDll + "; ");
+            check(asConverter.Length == 0,
+                "parity run: a trace path that is the converter file or inside its folder is refused by name before anything is released, the converter kept (exit 2, "
+                + (asConverter.Length == 0 ? "folder and file" : asConverter.Trim()) + ")");
+            string petsInput = Path.Combine(goodPets, "Par", "animations.xml"), petsTrace = Path.Combine(goodPets, "Par", "..", "Par", "animations.xml");
+            string petsSlash = goodPets + Path.DirectorySeparatorChar;
+            string petsWant = "refused " + petsTrace + ": the trace path is inside the pets folder " + petsSlash + "; ";
+            string inPets = kept(goodScenario, petsSlash, petsTrace, null, petsInput, petsWant) + kept(goodScenario, petsSlash, petsTrace, codeless, petsInput, petsWant);
+            check(inPets.Length == 0,
+                "parity run: a trace path inside the pets folder is refused by name before anything is released, the pet kept (exit 2, "
+                + (inPets.Length == 0 ? "run and command" : inPets.Trim()) + ")");
+            string packInput = Path.Combine(pack, "readme.txt");
+            string packTrace = Path.Combine(root, "PACK") + Path.AltDirectorySeparatorChar + "readme.txt";
+            string packWant = "refused " + packTrace + ": the trace path is inside the scenario's pack folder " + Path.GetFullPath(pack) + "; ";
+            string inPack = kept(goodScenario, goodPets, packTrace, null, packInput, packWant) + kept(goodScenario, goodPets, packTrace, codeless, packInput, packWant);
+            check(inPack.Length == 0,
+                "parity run: a trace path inside the scenario's pack folder is refused by name before anything is released, the pack kept (exit 2, "
+                + (inPack.Length == 0 ? "run and command" : inPack.Trim()) + ")");
+            // WITNESS: a trace beside the pets folder whose name only starts like it is no input, and the run completes.
+            string besidePets = goodPets + "-beside.jsonl";
+            int besideExit = ParityRun.Run(goodScenario, goodPets, besidePets, build, new StringWriter());
+            check(besideExit == 0 && File.Exists(besidePets),
+                "parity run: WITNESS a trace path beside the pets folder, its name starting like the folder's, is no input and runs to a trace (exit "
+                + besideExit + ", trace " + (File.Exists(besidePets) ? "written" : "none") + ")");
 
             // CONTRACT v1.1 section 1: a left-button edge for a companion not active at dispatch is scenario-invalid.
             string[] absent = go(goodMap, ",{\"tick\":2,\"sid\":\"m1.b1\",\"press\":\"left\"}", xml, false);

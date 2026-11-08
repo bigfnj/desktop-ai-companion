@@ -24905,12 +24905,14 @@ CASES = (
     # "bd-w12-shimeji-host-1:" for one --only.
     ("bd-w12-shimeji-host-1: a scenario file that does not exist escapes the command again (N-bd-w11-shimeji-host-1-01)",
      os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
-     b'            catch (Exception e) when (IsArgumentFault(e))\n'
-     b'            {\n'
-     b'                log.WriteLine("refused " + scenarioPath + ": the scenario cannot be read: " + e.Message);\n',
-     b'            catch (Exception e) when (e == null)\n'
-     b'            {\n'
-     b'                log.WriteLine("refused " + scenarioPath + ": the scenario cannot be read: " + e.Message);\n',
+     # Re-pointed by the burndown/w13-shimeji-host-1 follow-up, which moved the scenario's read into ScenarioFile.Read
+     # (read before the trace path is claimed, its fault refused after): its filter narrowed to nothing, as before.
+     b'                catch (Exception e) when (IsArgumentFault(e))\n'
+     b'                {\n'
+     b'                    return new ScenarioFile(scenarioPath, null, e);\n',
+     b'                catch (Exception e) when (e == null)\n'
+     b'                {\n'
+     b'                    return new ScenarioFile(scenarioPath, null, e);\n',
      HOST_CSPROJ, EXE,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
      'parity run: a scenario file that does not exist is refused by name, with exit 2 and no trace file'),
@@ -24992,14 +24994,17 @@ CASES = (
      'parity run: a converter folder with no *.dll is refused by name, since its hash would bind no code'),
     ("bd-w13-shimeji-host-1: a refused run leaves an earlier file at its trace path (N-bd-w12-review-03)",
      os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
-     b'            if (!ReleaseTracePath(tracePath, log)) return 2;\n',
+     # Re-pointed by the follow-up, which made the release ClaimTracePath's last step: Run stops claiming, as it stopped
+     # releasing before.
+     b'            if (!ClaimTracePath(scenarioFile, petsDir, tracePath, null, log)) return 2;\n',
      b'',
      HOST_CSPROJ, EXE,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
      'parity run: a refused run removes an earlier file at its trace path, so exit 2 leaves no trace of another run'),
     ("bd-w13-shimeji-host-1: a command refused before the run leaves an earlier trace file (N-bd-w12-review-03)",
      os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
-     b'            if (!ParityRun.ReleaseTracePath(args[at + 3], log)) return 2;\n',
+     # Re-pointed by the follow-up, as the case above: the command stops claiming its trace path.
+     b'            if (!ParityRun.ClaimTracePath(scenario, args[at + 2], args[at + 3], args[at + 4], log)) return 2;\n',
      b'',
      HOST_CSPROJ, EXE,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
@@ -25029,6 +25034,37 @@ CASES = (
      HOST_CSPROJ, EXE,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
      'parity run: a pack whose files cannot be read is refused by name'),
+    # Follow-up to N-bd-w12-review-03: a trace path that is one of the run's inputs is refused before the release, so
+    # nothing it reads is deleted or overwritten. Each case drops one input kind's comparison from ParityRun's
+    # InputAtTracePath, and the --shimeji-window-selftest check for that kind (which fails on 1c119dba) must fail.
+    ("bd-w13-shimeji-host-1: a trace path that is the scenario file is released again (review-03 follow-up)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'            if ((named = Overlap(trace, scenario.Argument, false, "the scenario file ")) != null) return named;\n',
+     b'',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity run: a trace path that is the scenario file is refused by name before anything is released'),
+    ("bd-w13-shimeji-host-1: a trace path that is the converter is released again (review-03 follow-up)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'            if (converter != null && (named = Overlap(trace, converter, true, "the converter ")) != null) return named;\n',
+     b'',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity run: a trace path that is the converter file or inside its folder is refused by name before anything is released'),
+    ("bd-w13-shimeji-host-1: a trace path inside the pets folder is released again (review-03 follow-up)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'            if ((named = Overlap(trace, petsDir, true, "the pets folder ")) != null) return named;\n',
+     b'',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity run: a trace path inside the pets folder is refused by name before anything is released'),
+    ("bd-w13-shimeji-host-1: a trace path inside the scenario's pack folder is released again (review-03 follow-up)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'            if (pack != null && (named = Overlap(trace, pack, true, "the scenario\'s pack folder ")) != null) return named;\n',
+     b'',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity run: a trace path inside the scenario\'s pack folder is refused by name before anything is released'),
     # ---- burndown/w12-tests-scripts-1 ----
     # N-bd-w11-tests-scripts-1-02, graded through PRIVACY: either listing de-duplicates with Sort-Object again, which
     # compares culture-aware and merges a composed and a decomposed spelling of one path, or the ordinal helper both use

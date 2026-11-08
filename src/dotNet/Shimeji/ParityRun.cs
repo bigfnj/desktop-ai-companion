@@ -1055,8 +1055,17 @@ namespace DesktopAICompanion.Shimeji
             }
             // N-bd-w12-review-03: the trace path is released before any refusal below, so a refused command leaves no
             // file a caller could take for this run (ParityRun.ReleaseTracePath says why, and why not a refusal).
-            if (!ParityRun.ReleaseTracePath(args[at + 3], log)) return 2;
-            // The build's identity first, before the data-root gate and before anything is read or a trace opened. A
+            //
+            // The order of the next two lines is what keeps that release off the command's own inputs (the follow-up to
+            // N-bd-w12-review-03, which released first and so deleted the scenario, a converter file or a pack file named
+            // as the trace path, even on a refused run). The scenario's pack is an input only the scenario names, so the
+            // scenario is read first, once, before anything else: nothing can be compared with a pack folder no one has
+            // read yet. ClaimTracePath then refuses a trace path that is any input, by name with exit 2, BEFORE it releases
+            // anything, and only then releases it, still ahead of every other refusal. The run below is handed these same
+            // bytes rather than reading the file again, so the pack it hashes is the pack the claim compared against.
+            ParityRun.ScenarioFile scenario = ParityRun.ScenarioFile.Read(args[at + 1]);
+            if (!ParityRun.ClaimTracePath(scenario, args[at + 2], args[at + 3], args[at + 4], log)) return 2;
+            // The build's identity next, before the data-root gate and before anything else is read or a trace opened. A
             // missing or malformed revision is refused rather than written as a placeholder, which the comparer's non-empty
             // check would pass while it names nothing (contract review item 13), and it is never replaced by the product
             // version (N-bd-parity-host-1-03).
@@ -1099,7 +1108,7 @@ namespace DesktopAICompanion.Shimeji
                 { "engineSha256", ParityRun.Sha256(File.ReadAllBytes(typeof(TickWorld).Assembly.Location)) },
                 { "converterSha256", converterSha256 },
             };
-            return ParityRun.Run(args[at + 1], args[at + 2], args[at + 3], build, log);
+            return ParityRun.Run(scenario, args[at + 2], args[at + 3], build, log, false);
         }
 
         /// <summary>
@@ -1183,8 +1192,10 @@ namespace DesktopAICompanion.Shimeji
         /// leave a previous successful v1-latest.json looking like the current run". A folder at the path is left (the
         /// open below refuses it), and so is a link: deleting it would delete the caller's link, not the trace behind it.
         /// One that cannot be removed (read-only, held open) is refused by name with exit 2, as an unwritable trace is.
+        /// Private: its only way in is <see cref="ClaimTracePath"/>, so nothing releases a path no one has compared with
+        /// the inputs.
         /// </summary>
-        internal static bool ReleaseTracePath(string tracePath, TextWriter log)
+        private static bool ReleaseTracePath(string tracePath, TextWriter log)
         {
             try
             {
@@ -1195,6 +1206,199 @@ namespace DesktopAICompanion.Shimeji
             {
                 log.WriteLine("refused " + tracePath + ": the trace cannot be replaced: " + e.Message);
                 return false;
+            }
+        }
+
+        /// <summary>The scenario file as the run reads it, once: its bytes, or the argument fault reading them threw. Read
+        /// before the trace path is claimed, because only its bytes name the pack, and refused (the fault) only after the
+        /// claim, so "the scenario cannot be read" still leaves no earlier file at the trace path.</summary>
+        internal sealed class ScenarioFile
+        {
+            public readonly string Argument;
+            public readonly byte[] Bytes;
+            public readonly Exception Fault;
+
+            private ScenarioFile(string argument, byte[] bytes, Exception fault)
+            {
+                Argument = argument;
+                Bytes = bytes;
+                Fault = fault;
+            }
+
+            internal static ScenarioFile Read(string scenarioPath)
+            {
+                try
+                {
+                    return new ScenarioFile(scenarioPath, File.ReadAllBytes(scenarioPath), null);
+                }
+                catch (Exception e) when (IsArgumentFault(e))
+                {
+                    return new ScenarioFile(scenarioPath, null, e);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Follow-up to N-bd-w12-review-03: refuse a trace path that is one of the run's inputs, then release it. Releasing
+        /// first deleted the input itself, on every run including a refused one, and a complete run had always overwritten
+        /// it. A run never deletes or overwrites what it reads, so a trace path that resolves to the scenario file, to the
+        /// converter (the file, or anything in the folder), or to anything in the pets folder or the scenario's pack folder
+        /// is refused by name with exit 2 before anything is released or written, and the input stays as it was. Inside
+        /// the pack matters even for a new file: the pack is hashed before the trace is opened, so a trace written into it
+        /// leaves a pack that no longer matches the hash in the header. The pack comes from <paramref name="scenario"/>'s
+        /// bytes, so the scenario is read before this, and its "pack" is read even when the scenario will be refused for
+        /// something else: the folder it names is still the caller's. The converter is null for the in-process callers,
+        /// which have none.
+        /// </summary>
+        internal static bool ClaimTracePath(ScenarioFile scenario, string petsDir, string tracePath, string converter, TextWriter log)
+        {
+            string input = InputAtTracePath(scenario, petsDir, tracePath, converter);
+            if (input != null)
+            {
+                log.WriteLine("refused " + tracePath + ": the trace path is " + input + "; a parity run never deletes or overwrites its inputs");
+                return false;
+            }
+            return ReleaseTracePath(tracePath, log);
+        }
+
+        /// <summary>Which input the trace path is, in words for the refusal, or null. One line per input kind, each compared
+        /// on paths resolved by <see cref="ResolvedPath"/>; an input that resolves to nothing (an empty or malformed
+        /// argument) names no file and is refused later by its own line.</summary>
+        private static string InputAtTracePath(ScenarioFile scenario, string petsDir, string tracePath, string converter)
+        {
+            // A trace path no full path can be made of names no file: there is nothing there to release or overwrite, and
+            // opening it is refused below as an unwritable trace, as it was.
+            string trace = ResolvedPath(tracePath);
+            if (trace == null) return null;
+            string named;
+            if ((named = Overlap(trace, scenario.Argument, false, "the scenario file ")) != null) return named;
+            if (converter != null && (named = Overlap(trace, converter, true, "the converter ")) != null) return named;
+            if ((named = Overlap(trace, petsDir, true, "the pets folder ")) != null) return named;
+            string pack = PackFolderOf(scenario);
+            if (pack != null && (named = Overlap(trace, pack, true, "the scenario's pack folder ")) != null) return named;
+            return null;
+        }
+
+        /// <summary>"<paramref name="what"/><paramref name="input"/>" when the trace is the input, "inside ..." when the
+        /// input is a folder (<paramref name="folder"/>) and the trace is anywhere under it, else null. The way Windows
+        /// compares names: case-insensitive (ordinal), on paths <see cref="ResolvedPath"/> made full, long-named and
+        /// link-free, with no trailing separator; under means the folder's path plus a separator, so a sibling whose
+        /// name only starts the same ("pets2" beside "pets") is not inside it.</summary>
+        private static string Overlap(string trace, string input, bool folder, string what)
+        {
+            string resolved = ResolvedPath(input);
+            if (resolved == null) return null;
+            if (string.Equals(trace, resolved, StringComparison.OrdinalIgnoreCase)) return what + input;
+            string under = resolved[resolved.Length - 1] == Path.DirectorySeparatorChar ? resolved : resolved + Path.DirectorySeparatorChar;
+            if (folder && trace.StartsWith(under, StringComparison.OrdinalIgnoreCase)) return "inside " + what + input;
+            return null;
+        }
+
+        /// <summary>The scenario's pack folder from the bytes the run will read, or null when they name none (unreadable,
+        /// not JSON, no "pack" string, or one no path can be made of: each refused later by its own line).</summary>
+        private static string PackFolderOf(ScenarioFile scenario)
+        {
+            if (scenario.Bytes == null) return null;
+            try
+            {
+                using (JsonDocument doc = JsonDocument.Parse(scenario.Bytes))
+                {
+                    JsonElement pack;
+                    if (doc.RootElement.ValueKind != JsonValueKind.Object || !doc.RootElement.TryGetProperty("pack", out pack)
+                        || pack.ValueKind != JsonValueKind.String)
+                        return null;
+                    return PackFolder(scenario.Argument, pack.GetString());
+                }
+            }
+            catch (JsonException)
+            {
+                return null;
+            }
+            catch (Exception e) when (IsArgumentFault(e))
+            {
+                return null;
+            }
+        }
+
+        /// <summary>CONTRACT section 1: the pack, relative to the scenario's own folder. One definition for the claim and
+        /// the run, so the folder the claim protects is the folder the run hashes.</summary>
+        private static string PackFolder(string scenarioPath, string pack)
+        {
+            return Path.GetFullPath(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(scenarioPath)), pack));
+        }
+
+        /// <summary>
+        /// A path as Windows resolves it, for comparing two of them: Path.GetFullPath (relative parts, "." and "..", "/",
+        /// trailing dots and spaces), then the deepest part that exists resolved through a handle by GetFinalPathNameByHandle
+        /// (8.3 short names to long ones, every junction and symbolic link along it, a SUBST or mapped drive, the \\?\ form),
+        /// with the part that does not exist yet put back after it and any trailing separator taken off. A trace path rarely
+        /// exists, and a new file under an existing folder is still under that folder's real path. Where no handle can be
+        /// opened (no access, a dangling link) the full path stands as it is, so two spellings of one file only those
+        /// resolutions would join are then compared as written. Null when no full path can be made of it.
+        /// </summary>
+        private static string ResolvedPath(string path)
+        {
+            string full;
+            try
+            {
+                full = Path.GetFullPath(path);
+            }
+            catch (Exception e) when (IsArgumentFault(e) || e is NotSupportedException)
+            {
+                return null;
+            }
+            full = WithoutTrailingSeparator(full);
+            string existing = full;
+            var missing = new Stack<string>();
+            while (!File.Exists(existing) && !Directory.Exists(existing))
+            {
+                string parent = Path.GetDirectoryName(existing);
+                if (parent == null) return full;
+                missing.Push(Path.GetFileName(existing));
+                existing = parent;
+            }
+            string resolved = FinalPathOrNull(existing) ?? existing;
+            foreach (string name in missing) resolved = Path.Combine(resolved, name);
+            return WithoutTrailingSeparator(resolved);
+        }
+
+        private static string WithoutTrailingSeparator(string full)
+        {
+            string root = Path.GetPathRoot(full);
+            while (full.Length > (root == null ? 0 : root.Length) && (full[full.Length - 1] == Path.DirectorySeparatorChar || full[full.Length - 1] == Path.AltDirectorySeparatorChar))
+                full = full.Substring(0, full.Length - 1);
+            return full;
+        }
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode, SetLastError = true)]
+        private static extern Microsoft.Win32.SafeHandles.SafeFileHandle CreateFileW(
+            string fileName, uint desiredAccess, uint shareMode, IntPtr securityAttributes, uint creationDisposition, uint flagsAndAttributes, IntPtr templateFile);
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode, SetLastError = true)]
+        private static extern int GetFinalPathNameByHandleW(Microsoft.Win32.SafeHandles.SafeFileHandle handle, StringBuilder path, int count, int flags);
+
+        /// <summary>Where an existing file or folder really is (OptionsWindow.FinalDirectoryPath's call): no access asked,
+        /// every share mode so a file another process holds still resolves, FILE_FLAG_BACKUP_SEMANTICS so a folder opens,
+        /// and the \\?\ prefix taken off (\\?\UNC\ back to \\) so a path no handle could resolve compares like with like.
+        /// Null when it cannot be resolved.</summary>
+        private static string FinalPathOrNull(string existing)
+        {
+            const uint shareAll = 0x1 | 0x2 | 0x4, openExisting = 3, backupSemantics = 0x02000000;
+            using (Microsoft.Win32.SafeHandles.SafeFileHandle handle = CreateFileW(existing, 0, shareAll, IntPtr.Zero, openExisting, backupSemantics, IntPtr.Zero))
+            {
+                if (handle == null || handle.IsInvalid) return null;
+                var buffer = new StringBuilder(512);
+                int written = GetFinalPathNameByHandleW(handle, buffer, buffer.Capacity, 0);
+                if (written > buffer.Capacity)
+                {
+                    buffer = new StringBuilder(written);
+                    written = GetFinalPathNameByHandleW(handle, buffer, buffer.Capacity, 0);
+                }
+                if (written <= 0 || written > buffer.Capacity) return null;
+                string final = buffer.ToString(0, written);
+                if (final.StartsWith(@"\\?\UNC\", StringComparison.OrdinalIgnoreCase)) return @"\\" + final.Substring(8);
+                if (final.StartsWith(@"\\?\", StringComparison.Ordinal)) return final.Substring(4);
+                return final;
             }
         }
 
@@ -1262,23 +1466,29 @@ namespace DesktopAICompanion.Shimeji
         /// carrying the withheld totals and the event digest (<see cref="ParityTraceWriter"/>).</param>
         public static int Run(string scenarioPath, string petsDir, string tracePath, Dictionary<string, string> build, TextWriter log, bool traceOff = false)
         {
-            // N-bd-w12-review-03: released here too, for the callers that come in below the command (the window self-test);
-            // after ParityRunCommand.Execute released it, there is nothing left to release.
-            if (!ReleaseTracePath(tracePath, log)) return 2;
+            // N-bd-w12-review-03: claimed here too, for the callers that come in below the command (the window self-test),
+            // in the command's order (ParityRunCommand.Execute says why): the scenario read once, then a trace path that is
+            // an input refused before anything is released, then the release, then every other refusal.
+            ScenarioFile scenarioFile = ScenarioFile.Read(scenarioPath);
+            if (!ClaimTracePath(scenarioFile, petsDir, tracePath, null, log)) return 2;
+            return Run(scenarioFile, petsDir, tracePath, build, log, traceOff);
+        }
+
+        /// <summary>The run on a scenario already read and a trace path already claimed (<see cref="ClaimTracePath"/>).</summary>
+        internal static int Run(ScenarioFile scenarioFile, string petsDir, string tracePath, Dictionary<string, string> build, TextWriter log, bool traceOff)
+        {
+            string scenarioPath = scenarioFile.Argument;
             // N-bd-w11-shimeji-host-1-01: a path argument that names nothing (this scenario file, the pets folder in
             // LoadPets, the trace's folder below) is refused by name with exit 2, its line and no trace, as a refused map or
             // pack is. It is the caller's argument error, not scenario-invalid: there is no scenario to judge. Unchecked,
-            // each threw FileNotFound or DirectoryNotFoundException out of the command, an unhandled exception's exit.
-            byte[] scenarioBytes;
-            try
+            // each threw FileNotFound or DirectoryNotFoundException out of the command, an unhandled exception's exit. The
+            // read itself is ScenarioFile.Read's, before the claim; its fault is refused here, after the release.
+            if (scenarioFile.Fault != null)
             {
-                scenarioBytes = File.ReadAllBytes(scenarioPath);
-            }
-            catch (Exception e) when (IsArgumentFault(e))
-            {
-                log.WriteLine("refused " + scenarioPath + ": the scenario cannot be read: " + e.Message);
+                log.WriteLine("refused " + scenarioPath + ": the scenario cannot be read: " + scenarioFile.Fault.Message);
                 return 2;
             }
+            byte[] scenarioBytes = scenarioFile.Bytes;
             // N-bd-w10-shimeji-host-1-01: a scenario that is not JSON, lacks a field or holds one the run cannot read is
             // scenario-invalid (CONTRACT sections 1 and 6), refused here with exit 2, its line and no trace, before the
             // pets and the pack are read. The oracle refuses the same scenario before it writes anything (oracle.py v1_run
@@ -1327,7 +1537,7 @@ namespace DesktopAICompanion.Shimeji
                 string packDir, packSha256;
                 try
                 {
-                    packDir = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(scenarioPath)), scenario.Pack));
+                    packDir = PackFolder(scenarioPath, scenario.Pack);
                 }
                 catch (Exception e) when (IsArgumentFault(e))
                 {
