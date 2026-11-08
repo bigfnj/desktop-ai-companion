@@ -24506,6 +24506,22 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--wpf-options-selftest", "dp-wpf-options-selftest.txt",
      "about: the exit's CloseOpenWindow closes the About window"),
+    # N-shimeji-1106-15: a switch row's or the egg row's label is coloured locally, black, which the property checks pass
+    # and the dark theme draws as nothing. --wpf-options-selftest renders the rows in both themes.
+    ("bd-w10-host-1: a tick switch row's label is drawn black whatever the theme (N-shimeji-1106-15)",
+     os.path.join(REPO, "src", "Portable", "Wpf", "CompanionsPaneControl.cs"),
+     b'                    Content = new TextBlock { Text = r.Label, FontSize = 10, TextWrapping = TextWrapping.Wrap },\n',
+     b'                    Content = new TextBlock { Text = r.Label, FontSize = 10, TextWrapping = TextWrapping.Wrap, Foreground = System.Windows.Media.Brushes.Black },\n',
+     HOST_CSPROJ, EXE,
+     "--wpf-options-selftest", "dp-wpf-options-selftest.txt",
+     "tick switches: in the dark theme every switch row and the egg row draw their label as live ink"),
+    ("bd-w10-host-1: the egg row's label is drawn black whatever the theme (N-shimeji-1106-15)",
+     os.path.join(REPO, "src", "Portable", "Wpf", "CompanionsPaneControl.cs"),
+     b'                Content = new TextBlock { Text = label, FontSize = 10, TextWrapping = TextWrapping.Wrap },\n',
+     b'                Content = new TextBlock { Text = label, FontSize = 10, TextWrapping = TextWrapping.Wrap, Foreground = System.Windows.Media.Brushes.Black },\n',
+     HOST_CSPROJ, EXE,
+     "--wpf-options-selftest", "dp-wpf-options-selftest.txt",
+     "tick switches: in the dark theme every switch row and the egg row draw their label as live ink"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
