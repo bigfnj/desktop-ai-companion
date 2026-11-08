@@ -4364,8 +4364,10 @@ CASES = (
     (
         "bd-w3-tests-harness-1: the offline checks never fail on a shard controller check (N-release-180-02)",
         os.path.join(REPO, "tests", "Invoke-OfflineScriptChecks.ps1"),
-        b"    if ($null -ne $checkExit -and $checkExit -ne 0) { $failures.Add(\"$label (exit $checkExit)\") }\n}\n\nif ($failures.Count -gt 0) {",
-        b"}\n\nif ($failures.Count -gt 0) {",
+        # Re-pointed by burndown/w9-tests-scripts-2 (N-bd-w5-contracts-1-01): the mutation-tooling block now closes its own
+        # -not $ParityOnly block, so one more "}" stands before the throw. Same mutant: the pwsh loop's exit check goes.
+        b"    if ($null -ne $checkExit -and $checkExit -ne 0) { $failures.Add(\"$label (exit $checkExit)\") }\n}\n}\n\nif ($failures.Count -gt 0) {",
+        b"}\n}\n\nif ($failures.Count -gt 0) {",
         "w3-tests-harness-1: the offline script checks run every mutation-tooling check",
     ),
     # ---- burndown/w4-contracts-1 ----
