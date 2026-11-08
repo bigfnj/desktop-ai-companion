@@ -214,18 +214,19 @@ jobs:
       # WHAT THIS STEP RUNS IS A SUBSET of build.yml, not a copy (N-cxr-w2-05). This comment used to say the
       # freshness check was the only build.yml step left out; it was one of several. Run here: the CoreTests,
       # Invoke-SelfTests.ps1, Test-ModuleSelfTests.ps1, Invoke-OfflineScriptChecks.ps1, Test-AtomicPublish.ps1,
-      # Test-StagingPathSafety.ps1 and the source invariants (and, in their own steps above, the native installer
-      # shutdown checks and Test-IsolatedMsiLifecycle.ps1). Left to build.yml and the local gate:
+      # Test-StagingPathSafety.ps1, the source invariants, and the three checks that judge shipped bytes:
+      # Test-AgentBroker.ps1 (the broker, TLS and worker harnesses, at its default Release configuration, as the gate
+      # passes it), Invoke-ShimejiConvertChecks.ps1 (the converter's verify and selftest over Companions\) and
+      # companion-border-invariants.ps1. In their own steps above: the native installer shutdown checks and
+      # Test-IsolatedMsiLifecycle.ps1. Left to build.yml and the local gate:
       #   - the repository's publish state and records: Test-ModuleSourceDiscovery.ps1, Test-ModulePublishFreshness.ps1
       #     (red by design on the MinHostVersion release above), Test-ContentCatalogIntegrity.ps1 and
       #     Test-BacklogClosingCriteria.ps1;
       #   - the test tooling itself: the isolated-environment and cleanup checks, the two out-of-gate harness
-      #     compiles and Test-ModuleTemplate.ps1;
-      #   - three checks that DO judge shipped bytes: Test-AgentBroker.ps1 (the broker, TLS and worker harnesses),
-      #     the ShimejiConvert verify and selftest over Companions\, and companion-border-invariants.ps1.
-      # The last group is the honest gap: a tag on a commit build.yml never ran ships without them. What covers it
-      # today is docs\RELEASE-CHECKLIST.md step 3: the commit is pushed to master and build.yml is confirmed before
-      # the tag.
+      #     compiles and Test-ModuleTemplate.ps1.
+      # Until N-bd-w5-packaging-ci-1-02 the three shipped-bytes checks were left to build.yml as well, so a tag on a
+      # commit build.yml never ran shipped without them. The converter block was inline in build.yml and the gate,
+      # which is why it became one shared runner before it could be called here rather than a third copy.
       #
       # AFTER the ZIP and the MSI are built and the certificate is gone from the store, on purpose. The self-tests
       # launch the built exe and write beside it, and the CoreTests build may touch the build tree; by now the
@@ -277,7 +278,8 @@ jobs:
           }
           foreach ($checkScript in @('tests\Test-ModuleSelfTests.ps1', 'tests\Invoke-OfflineScriptChecks.ps1',
                                      'packaging\Test-AtomicPublish.ps1', 'packaging\Test-StagingPathSafety.ps1',
-                                     'tests\runtime-hardening-selftest.ps1')) {
+                                     'tests\runtime-hardening-selftest.ps1', 'tests\Test-AgentBroker.ps1',
+                                     'tests\Invoke-ShimejiConvertChecks.ps1', 'tests\companion-border-invariants.ps1')) {
             try { & (Join-Path $PWD.Path $checkScript) }
             catch { $failures += "${checkScript}: $($_.Exception.Message)" }
           }

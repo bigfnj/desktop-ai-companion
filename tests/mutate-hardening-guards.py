@@ -4686,6 +4686,8 @@ CASES = (
         "refuses a settled sample below 1",
     ),
     # N-bd-codex-converter-1-03: the CLI round-trip suite is removed from the selftest, and the gate's floor is left behind.
+    # Re-pointed by burndown/w8-packaging-ci-1 (N-bd-w5-packaging-ci-1-02): the floor's one copy is in the shared runner
+    # tests\Invoke-ShimejiConvertChecks.ps1 now, and the label reads "floor equals" for that one copy.
     (
         "bd-w6-tests-scripts-1: the CLI round-trip suite is removed from the ShimejiConvert selftest",
         PROGRAM_CS,
@@ -4695,14 +4697,14 @@ CASES = (
         b"            Console.WriteLine(cliDetail);\n"
         b"            if (!cliOk) ok = false;\n",
         b"",
-        "ShimejiConvert suite floors equal the suites run",
+        "ShimejiConvert suite floor equals the suites run",
     ),
     (
-        "bd-w6-tests-scripts-1: the gate's ShimejiConvert suite floor drifts back below the registrations",
-        os.path.join(REPO, "tests", "run-gate.ps1"),
-        b"            $shimejiSuiteFloor = 13\n",
-        b"            $shimejiSuiteFloor = 9\n",
-        "ShimejiConvert suite floors equal the suites run",
+        "bd-w6-tests-scripts-1: the shared runner's ShimejiConvert suite floor drifts back below the registrations",
+        os.path.join(REPO, "tests", "Invoke-ShimejiConvertChecks.ps1"),
+        b"        $shimejiSuiteFloor = 13\n",
+        b"        $shimejiSuiteFloor = 9\n",
+        "ShimejiConvert suite floor equals the suites run",
     ),
     # ---- burndown/w5-converter-1 ----
     # N-bd-w2-docs-1-01: Pet Studio embeds the base-conf XML again without copying its BSD notice to its output.
@@ -4833,6 +4835,83 @@ CASES = (
         b"            return StageExtraType(registry, id, CompanionCatalog.TryReadPetXml, Program.MyData,\n",
         b"            return StageExtraType(registry, id, delegate (string i, out string x, out string e) { x = Program.MyData.GetXml(); e = null; return true; }, Program.MyData,\n",
         "stale-pet-xml: a companion added by id",
+    ),
+    # ---- burndown/w8-packaging-ci-1 ----
+    # N-bd-w5-packaging-ci-1-02: the release's test step drops one of the three checks that judge shipped bytes, or names
+    # the converter runner only outside the list its loop invokes; build.yml's corpus step echoes the shared runner or may
+    # fail without failing the job; the gate names the runner without invoking it, passes a run that reported no suite
+    # count, or a caller grows its own converter build or floor again. "bd-w8-packaging-ci-1:" for one --only.
+    (
+        "bd-w8-packaging-ci-1: the release drops the AgentBroker harnesses from its runner list",
+        RELEASE_YML,
+        b"                                     'tests\\runtime-hardening-selftest.ps1', 'tests\\Test-AgentBroker.ps1',\n",
+        b"                                     'tests\\runtime-hardening-selftest.ps1',\n",
+        "w8-packaging-ci-1: the release runs the shipped-bytes checks",
+    ),
+    (
+        "bd-w8-packaging-ci-1: the release names the converter runner only in an echo after its loop",
+        RELEASE_YML,
+        b"                                     'tests\\Invoke-ShimejiConvertChecks.ps1', 'tests\\companion-border-invariants.ps1')) {\n"
+        b"            try { & (Join-Path $PWD.Path $checkScript) }\n"
+        b"            catch { $failures += \"${checkScript}: $($_.Exception.Message)\" }\n"
+        b"          }\n",
+        b"                                     'tests\\companion-border-invariants.ps1')) {\n"
+        b"            try { & (Join-Path $PWD.Path $checkScript) }\n"
+        b"            catch { $failures += \"${checkScript}: $($_.Exception.Message)\" }\n"
+        b"          }\n"
+        b"          Write-Host 'tests\\Invoke-ShimejiConvertChecks.ps1'\n",
+        "w8-packaging-ci-1: the release runs the shipped-bytes checks",
+    ),
+    (
+        "bd-w8-packaging-ci-1: the release drops the companion border invariants from its runner list",
+        RELEASE_YML,
+        b"                                     'tests\\Invoke-ShimejiConvertChecks.ps1', 'tests\\companion-border-invariants.ps1')) {\n",
+        b"                                     'tests\\Invoke-ShimejiConvertChecks.ps1')) {\n",
+        "w8-packaging-ci-1: the release runs the shipped-bytes checks",
+    ),
+    (
+        "bd-w8-packaging-ci-1: build.yml's corpus step only echoes the shared converter runner",
+        BUILD_YML,
+        b"        run: .\\tests\\Invoke-ShimejiConvertChecks.ps1\n",
+        b"        run: Write-Host .\\tests\\Invoke-ShimejiConvertChecks.ps1\n",
+        "w8-packaging-ci-1: build.yml's corpus step runs the shared",
+    ),
+    (
+        "bd-w8-packaging-ci-1: build.yml's corpus step may fail without failing the job",
+        BUILD_YML,
+        b"        shell: pwsh\n        run: .\\tests\\Invoke-ShimejiConvertChecks.ps1\n",
+        b"        continue-on-error: true\n        shell: pwsh\n        run: .\\tests\\Invoke-ShimejiConvertChecks.ps1\n",
+        "w8-packaging-ci-1: build.yml's corpus step runs the shared",
+    ),
+    (
+        "bd-w8-packaging-ci-1: the gate only names the shared converter runner",
+        os.path.join(REPO, "tests", "run-gate.ps1"),
+        b"        foreach ($line in @(& (Join-Path $repoRoot 'tests\\Invoke-ShimejiConvertChecks.ps1'))) {\n",
+        b"        foreach ($line in @(Write-Output (Join-Path $repoRoot 'tests\\Invoke-ShimejiConvertChecks.ps1'))) {\n",
+        "w8-packaging-ci-1: the gate calls the shared converter runner",
+    ),
+    (
+        "bd-w8-packaging-ci-1: the gate passes a converter run that reported no suite count",
+        os.path.join(REPO, "tests", "run-gate.ps1"),
+        b"    if (-not $shimejiAborted -and $shimejiSuiteCount -le 0) {\n",
+        b"    if ($false) {\n",
+        "w8-packaging-ci-1: the gate calls the shared converter runner",
+    ),
+    (
+        "bd-w8-packaging-ci-1: the gate keeps a ShimejiConvert suite floor of its own again",
+        os.path.join(REPO, "tests", "run-gate.ps1"),
+        b"    $shimejiAborted = $false\n",
+        b"    $shimejiAborted = $false\n    $shimejiSuiteFloor = 13\n",
+        "w8-packaging-ci-1: the converter build, verbs and suite floor live only",
+    ),
+    (
+        "bd-w8-packaging-ci-1: build.yml builds the converter inline again",
+        BUILD_YML,
+        b"        run: .\\tests\\Test-AgentBroker.ps1\n",
+        b"        run: |\n"
+        b"          .\\tests\\Test-AgentBroker.ps1\n"
+        b"          dotnet build tools\\ShimejiConvert\\ShimejiConvert.csproj -c Release --nologo -v:minimal\n",
+        "w8-packaging-ci-1: the converter build, verbs and suite floor live only",
     ),
 )
 
