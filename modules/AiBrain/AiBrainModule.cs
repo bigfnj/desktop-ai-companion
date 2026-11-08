@@ -203,7 +203,10 @@ namespace DesktopAICompanion.AiBrainModule
                                  //        Ollama auto-start listens on the local endpoint's own address and port. A
                                  //        cloud that answers its check with a redirect is still asked, so a base URL
                                  //        that redirects stays an error on each remark, not a silent local answer
-                                 //        (N-bd-w3-aibrain-1-01).
+                                 //        (N-bd-w3-aibrain-1-01). Test connection says a base URL that redirects
+                                 //        answered with a redirect from its host and to check the URL, where it said
+                                 //        the host was not reachable, and Refresh models names a redirect the same
+                                 //        way (N-bd-w4-aibrain-1-01).
                                  // 1.7.0: one Claude Code sign-in, shared with Remembrance (host 1.8.0's
                                  //        IHostCredentials, BACKLOG N-cli-token-02, the owner's decision of
                                  //        2026-10-29). The host keeps the token once, behind a grant the user gives on
@@ -1463,14 +1466,17 @@ namespace DesktopAICompanion.AiBrainModule
             {
                 TimeSpan timeout = TimeSpan.FromSeconds(Math.Max(10, Math.Min(120, s.TimeoutSeconds)));
                 bool local = localSlot;
-                ICompanionBrainBackend backend = local
-                    ? BuildLocalBackend(s, normalized, timeout)
-                    : (ICompanionBrainBackend)new OpenAiCompatBackend(normalized, s.ApiKey, timeout);
+                Func<AiSettings, string, bool, ICompanionBrainBackend> seam = ConnectionTestBackendForDiagnostics;
+                ICompanionBrainBackend backend = seam != null
+                    ? seam(s, normalized, local)
+                    : local
+                        ? BuildLocalBackend(s, normalized, timeout)
+                        : (ICompanionBrainBackend)new OpenAiCompatBackend(normalized, s.ApiKey, timeout);
                 using (backend)
                 {
                     var sw = System.Diagnostics.Stopwatch.StartNew();
                     if (!await backend.IsAvailableAsync(CancellationToken.None).ConfigureAwait(false))
-                        return "✗ Not reachable at " + normalized;
+                        return ProbeRefusalLine(backend, normalized);
                     // Test the card's own slot: the cloud model on the Cloud provider card, the local one on Local provider.
                     // A blank cloud model is refused, not defaulted: this used to substitute the LOCAL default
                     // "gemma3:4b" and report the provider's 400 (F101).
@@ -1491,6 +1497,24 @@ namespace DesktopAICompanion.AiBrainModule
         }
 
         /// <summary>
+        /// Test connection's line for a probe that answered "not reachable", from the reason the probe kept
+        /// (<see cref="IAvailabilityProbeStatus"/>). The probe reads every answer as reachable but a redirect, which it
+        /// refuses (SendAndCheckAnsweredAsync) and keeps as an AiBackendHttpException; that is the host's own answer, so it
+        /// gets the line an answered status gets, HTTP 30x from the host with what to check. This said "Not reachable at"
+        /// for it, which sent the user to the network for a base URL that redirects (N-bd-w4-aibrain-1-01). A transport
+        /// failure, a timeout, and a backend that keeps no reason (OllamaClient, whose probe is a success probe) still say
+        /// not reachable. Rejected: following the redirect to see where it goes, which is what the no-redirect transport
+        /// exists to never do with a key on the request.
+        /// </summary>
+        internal static string ProbeRefusalLine(ICompanionBrainBackend backend, string endpoint)
+        {
+            IAvailabilityProbeStatus probe = backend as IAvailabilityProbeStatus;
+            AiBackendHttpException answered = probe == null ? null : probe.LastProbeFailure as AiBackendHttpException;
+            if (answered != null) return DescribeHttpFailure(answered, endpoint);
+            return "✗ Not reachable at " + endpoint;
+        }
+
+        /// <summary>
         /// The pane's line for an answered HTTP failure: the status, the host it came from, the likely cause
         /// for the ones a user can fix themselves, and the provider's own words when it sent any. "AI backend
         /// returned HTTP 401." named neither the host nor the key (F107), and the provider's error.message
@@ -1508,7 +1532,14 @@ namespace DesktopAICompanion.AiBrainModule
                 case 402: cause = "the provider wants payment or credits on this key"; break;
                 case 404: cause = "check the base URL (it usually ends in /v1) and the model id"; break;
                 case 429: cause = "the provider is rate-limiting this key"; break;
-                default: cause = ex.StatusCode >= 500 ? "the provider is having trouble; try again later" : ""; break;
+                default:
+                    // A redirect, over the range EnsureNotRedirect refuses: the host answered and pointed elsewhere, and
+                    // the request is not sent on, so the fix is the URL (N-bd-w4-aibrain-1-01). It had no cause and read
+                    // as a bare "HTTP 301 from <host>".
+                    if (ex.StatusCode >= 300 && ex.StatusCode <= 399)
+                        cause = "the base URL redirects, and a redirect is never followed; check the base URL (it usually ends in /v1)";
+                    else cause = ex.StatusCode >= 500 ? "the provider is having trouble; try again later" : "";
+                    break;
             }
             string line = "✗ HTTP " + ex.StatusCode.ToString(CultureInfo.InvariantCulture) + " from " + host +
                           (cause.Length > 0 ? ": " + cause : "");
@@ -3567,6 +3598,15 @@ namespace DesktopAICompanion.AiBrainModule
         /// listed against, the pending copy or the saved ones (BACKLOG N-audit-1106-009), with no server of any kind.
         /// </summary>
         internal Func<AiSettings, string, bool, ICompanionBrainBackend> ListingBackendForDiagnostics;
+
+        /// <summary>
+        /// Test seam: the backend a "Test connection" press probes and chats through, handed the settings it tests, the
+        /// normalized endpoint and whether it is the local slot (true) or the cloud's (false). Null in the shipped module,
+        /// which builds the real client from those same three. It exists so the self-test can put the real
+        /// OpenAiCompatBackend over a handler double behind the press and see the pane line a redirecting base URL gets
+        /// (BACKLOG N-bd-w4-aibrain-1-01), with no server of any kind. Same shape as ListingBackendForDiagnostics.
+        /// </summary>
+        internal Func<AiSettings, string, bool, ICompanionBrainBackend> ConnectionTestBackendForDiagnostics;
 
         /// <summary>How long the audition waits for its end-of-run eviction before handing the pane its text:
         /// RetireBrainAsync's own bound, for the same reason (RA-056).</summary>
