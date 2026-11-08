@@ -4804,6 +4804,24 @@ CASES = (
         b"                WindowTopHit underside = hwndWindow == (IntPtr)0 && (Animations.HasUndersideGrip(CurrentAnimation.ID) || true)\n",
         "w7-host-1: the window-underside walk runs only for an animation that can hang from one",
     ),
+    # ---- burndown/w8-host-1 ----
+    # N-bd-w7-host-1-01: Blinking LED's engine asks the command line for a self-test flag again, so the no-real-input
+    # variable stops withholding in a full app started by mistake. Invisible to the module self-test, which runs under
+    # a self-test flag. "bd-w8-host-1:" for one --only.
+    (
+        "bd-w8-host-1: the engine's withholding asks for a self-test flag again (N-bd-w7-host-1-01)",
+        os.path.join(REPO, "modules", "BlinkingLed", "BlinkingLedModule.cs"),
+        b"            return RealInputDisabled(readVariable);\n",
+        b"            return RealInputDisabled(readVariable) && Array.Exists(Environment.GetCommandLineArgs(), a => a.EndsWith(\"-selftest\"));\n",
+        "w8-host-1: the engine withholds real input on the variable alone, in any process",
+    ),
+    (
+        "bd-w8-host-1: the engine hands its decision the command line again (N-bd-w7-host-1-01)",
+        os.path.join(REPO, "modules", "BlinkingLed", "engine", "ScrollLockBlinker.cs"),
+        b"                    decided = BlinkingLedModule.WithholdsRealInput(Environment.GetEnvironmentVariable) ? 1 : 2;\n",
+        b"                    decided = BlinkingLedModule.WithholdsRealInput(Environment.GetEnvironmentVariable) && Environment.GetCommandLineArgs().Length > 1 ? 1 : 2;\n",
+        "w8-host-1: the engine withholds real input on the variable alone, in any process",
+    ),
 )
 
 

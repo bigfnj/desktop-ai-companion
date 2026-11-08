@@ -115,14 +115,16 @@ namespace DesktopAICompanion.BlinkingLed
         private static int _realInputDecision;
 
         /// <summary>
-        /// Whether this PROCESS withholds every real keypress: its command line carries a self-test flag and
-        /// DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT reads 1 (<c>BlinkingLedModule.WithholdsRealInput</c>, from the real
-        /// environment and the real command line). False in every normal start, whatever the environment holds, because a
-        /// normal start carries no self-test flag. <see cref="SendScrollLockKeypress"/>, the one place SendInput is called,
-        /// asks this first, so it covers every blinker in the process whatever its <see cref="KeypressSender"/> says: the
-        /// self-test's own instances and the one the convention runner Init'd through the real loader and shuts down
-        /// after the self-test has returned, which nothing in the self-test can pin. A read that throws propagates to
-        /// Toggle()'s callers, which record it as -1 and send nothing.
+        /// Whether this PROCESS withholds every real keypress: DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT reads 1
+        /// (<c>BlinkingLedModule.WithholdsRealInput</c>, from the real environment), in ANY process, a normal start
+        /// included. The command line plays no part (N-bd-w7-host-1-01): until 1.0.9 this also asked for a self-test flag,
+        /// so a lane build that started as the full app by mistake, its flag list collapsed into one argument, sent real
+        /// Scroll Lock blinks in the owner's session with the variable set. A process that carries the variable has been
+        /// asked for no real input, whatever it was started as. <see cref="SendScrollLockKeypress"/>, the one place
+        /// SendInput is called, asks this first, so it covers every blinker in the process whatever its
+        /// <see cref="KeypressSender"/> says: the self-test's own instances and the one the convention runner Init'd
+        /// through the real loader and shuts down after the self-test has returned, which nothing in the self-test can
+        /// pin. A read that throws propagates to Toggle()'s callers, which record it as -1 and send nothing.
         /// </summary>
         internal static bool RealInputWithheld
         {
@@ -131,8 +133,7 @@ namespace DesktopAICompanion.BlinkingLed
                 int decided = _realInputDecision;
                 if (decided == 0)
                 {
-                    decided = BlinkingLedModule.WithholdsRealInput(Environment.GetEnvironmentVariable,
-                                                                  Environment.GetCommandLineArgs()) ? 1 : 2;
+                    decided = BlinkingLedModule.WithholdsRealInput(Environment.GetEnvironmentVariable) ? 1 : 2;
                     _realInputDecision = decided;
                 }
                 return decided == 1;
@@ -424,22 +425,24 @@ namespace DesktopAICompanion.BlinkingLed
 
         /// <summary>The real keypress: two INPUTs, key down and key up, through SendInput. Unless this process withholds
         /// real input (<see cref="RealInputWithheld"/>): then nothing is sent, the press is counted as withheld and
-        /// answered as refused with <see cref="WithheldWin32Error"/>, and one line says why when a log sink is wired (not
-        /// for the convention runner's own instance, which shuts down after the self-test's last Shutdown has dropped the
-        /// static sink); the process record counts the press either way (<c>BlinkingLedModule.RecordRealInputAfterShutdown</c>).</summary>
+        /// answered as refused with <see cref="WithheldWin32Error"/>, and the process's FIRST withheld press logs one line
+        /// saying why when a log sink is wired (not for the convention runner's own instance, which shuts down after the
+        /// self-test's last Shutdown has dropped the static sink); the process record counts the press either way
+        /// (<c>BlinkingLedModule.RecordRealInputAfterShutdown</c>).</summary>
         private static bool SendScrollLockKeypress(out int win32Error)
         {
             // FIRST, ahead of the counter and of the call (the owner's "Skip on agent runs", 2026-10-14). The self-test pins
             // its own instances' senders to fakes, but the instance the convention runner Init'd through the real loader
             // keeps this one, and the loader shuts it down after the self-test has returned: a Shutdown that pressed (the
             // mutation case "burn: Shutdown clears a light this session never drove again" puts that back) pressed a lit
-            // Scroll Lock for real with the variable set. Withholding here closes that for every instance at once, and
-            // only in a self-test process, so no normal start can lose its blink to an environment variable.
+            // Scroll Lock for real with the variable set. Withholding here closes that for every instance at once, in any
+            // process that carries the variable, a full app started by mistake included (N-bd-w7-host-1-01). Logged once
+            // per process, not per press: a running blinker reaches here on every tick, and Hyper ticks every second.
             if (RealInputWithheld)
             {
                 WithheldKeypressCount++;
                 win32Error = WithheldWin32Error;
-                Log("real input withheld: a Scroll Lock press was not sent, because this self-test process runs with DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT=1");
+                if (WithheldKeypressCount == 1) Log("real input withheld: a Scroll Lock press was not sent, because this process runs with DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT=1; no press is sent while it does, and this line is not repeated");
                 return false;
             }
             RealKeypressCount++;

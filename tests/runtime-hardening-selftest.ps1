@@ -6391,6 +6391,24 @@ Assert-True (
     $w7h1FormCode -cnotmatch 'underside = hwndWindow == \(IntPtr\)0 \? RiseDetect'
 ) 'w7-host-1: the window-underside walk runs only for an animation that can hang from one'
 
+# ---- burndown/w8-host-1 ----
+# N-bd-w7-host-1-01: Blinking LED's engine withholds every real Scroll Lock press when
+# DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT reads 1 in ANY process, because a lane build that started as the full app
+# by mistake (its flag list collapsed into one argument) blinked the real key with the variable set: the decision then
+# also asked the command line for a self-test flag. The module self-test runs under a self-test flag, so it cannot see
+# a decision that asks for one again; this pins it on the comment-stripped sources, as the ARGUMENT of the engine's one
+# decision and the absence of any command-line read in the decision or in the engine.
+$w8h1Module = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'modules\BlinkingLed\BlinkingLedModule.cs') -Raw)
+$w8h1Decision = Get-MethodBody $w8h1Module 'internal static bool WithholdsRealInput(Func<string, string> readVariable)' $coreMemberStops
+$w8h1Withheld = Get-MethodBody $briEngine 'internal static bool RealInputWithheld' $coreMemberStops
+Assert-True ($w8h1Decision.Length -gt 0 -and $w8h1Withheld.Length -gt 0) 'w8-host-1: the engine decision WithholdsRealInput and its reader RealInputWithheld were located'
+Assert-True (
+    $w8h1Decision -cmatch 'return RealInputDisabled\(readVariable\);\s*\}\s*$' -and
+    $w8h1Decision -cnotmatch 'CommandLine|&&|\|\|' -and
+    $w8h1Withheld -cmatch 'decided = BlinkingLedModule\.WithholdsRealInput\(Environment\.GetEnvironmentVariable\) \? 1 : 2;' -and
+    $briEngine -cnotmatch 'GetCommandLineArgs|Environment\.CommandLine'
+) 'w8-host-1: the engine withholds real input on the variable alone, in any process: its decision reads no command line'
+
 # LAST, and deliberately:this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever

@@ -11957,41 +11957,49 @@ CASES = (
     # widens the withholding or narrows it in a process whose own instances stay pinned (the self-test's decision fails
     # closed), so none of them sends a real press; the case that would (the check taken out of the sender) is pinned by a
     # source invariant in tests/mutate-hardening-guards.py instead.
+    # Re-pointed in burn-down wave 8 (N-bd-w7-host-1-01): the withholding now applies in ANY process with the variable at
+    # 1, a normal start included, and reads no command line, so RunsASelfTest is gone. The two cases that pinned the old
+    # command-line half now pin the new rule from the side this self-test can see (a decision that reads the command line
+    # again and so lets this process press, and one that misses a form of the request); the side it cannot see, a
+    # decision that asks for a self-test flag again, is a source invariant in tests/runtime-hardening-selftest.ps1 with
+    # its case "bd-w8-host-1: the engine's withholding asks for a self-test flag again" in tests/mutate-hardening-guards.py.
     ("blinkingled-resume: the engine decides from an empty environment, so this self-test process is not withheld",
      SCROLLLOCK_BLINKER,
-     b'                    decided = BlinkingLedModule.WithholdsRealInput(Environment.GetEnvironmentVariable,',
-     b'                    decided = BlinkingLedModule.WithholdsRealInput(name => null,',
+     b'                    decided = BlinkingLedModule.WithholdsRealInput(Environment.GetEnvironmentVariable) ? 1 : 2;',
+     b'                    decided = BlinkingLedModule.WithholdsRealInput(name => null) ? 1 : 2;',
      BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
      "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
      "with DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT=1, this self-test process withholds every real press"),
 
-    ("blinkingled-resume: the engine's withholding ignores the command line, so the variable would silence a normal start",
+    ("blinkingled-resume: the engine's withholding reads the command line again, so a process the variable asked for no real input still presses",
      BLINKINGLED_MODULE,
-     b'        internal static bool RunsASelfTest(string[] commandLine)\n'
-     b'        {\n'
-     b'            if (commandLine == null) return false;',
-     b'        internal static bool RunsASelfTest(string[] commandLine)\n'
-     b'        {\n'
-     b'            if (commandLine == null || commandLine != null) return true;',
+     b'            return RealInputDisabled(readVariable);\n'
+     b'        }',
+     b'            return RealInputDisabled(readVariable) && Environment.GetCommandLineArgs().Length < 2;\n'
+     b'        }',
      BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
      "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
-     "WITNESS the same variable in a normal start, with no self-test flag, withholds nothing"),
+     "the engine withholds real input in any process run with DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT=1"),
 
-    ("blinkingled-resume: the engine's withholding misses a --<name>-selftest flag",
+    ("blinkingled-resume: the engine's withholding misses a spaced 1, so a process that asked for no real input presses",
      BLINKINGLED_MODULE,
-     b'                if (arg.EndsWith("-selftest", StringComparison.Ordinal)) return true;',
-     b'                if (arg.EndsWith("-selftests", StringComparison.Ordinal)) return true;',
+     b'            return RealInputDisabled(readVariable);\n'
+     b'        }',
+     b'            return readVariable(NoRealInputVariable) == "1";\n'
+     b'        }',
      BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
      "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
-     "the engine withholds real input in a self-test process run with DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT=1"),
+     "the engine withholds real input in any process run with DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT=1"),
 
     ("blinkingled-resume: the engine withholds whatever the variable says",
      BLINKINGLED_MODULE,
-     b'            return RealInputDisabled(readVariable) && RunsASelfTest(commandLine);',
-     b'            return RunsASelfTest(commandLine);',
+     b'            return RealInputDisabled(readVariable);\n'
+     b'        }',
+     b'            return readVariable != null;\n'
+     b'        }',
      BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
      "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
-     "WITNESS a self-test process without the variable at 1 withholds nothing"),
+     "WITNESS a process without the variable at 1 withholds nothing"),
 
     # The pane's failed write during a stop returns before ApplyState(true), as the tray's does. Each half of the rule taken
     # away in turn, so each check fires on its own.
@@ -23647,6 +23655,42 @@ CASES = (
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "Shutdown unsubscribed every host event it subscribed to -- still attached: CredentialChanged"),
+
+    # ---- burndown/w8-host-1 ----
+    # Host entries of burn-down wave 8. "bd-w8-host-1:" for one --only.
+    # N-bd-w7-host-1-01: a flag list collapsed into ONE argument that starts with a quote, or that holds a switch after
+    # a space or comma, is let through again and starts the full app. --hardening-selftest drives FindUnknownSwitch.
+    ("bd-w8-host-1: a switch behind a leading quote or space is let through (N-bd-w7-host-1-01)",
+     os.path.join(REPO, "src", "dotNet", "Program.cs"),
+     b'                    if (arg.TrimStart(SwitchQuoteOrSpace).StartsWith("--", StringComparison.Ordinal) ||\n'
+     b'                        HoldsSwitchAfterSeparator(arg)) return arg;\n',
+     b'                    if (HoldsSwitchAfterSeparator(arg)) return arg;\n',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "launch switches: a switch behind a leading quote or space is refused"),
+    ("bd-w8-host-1: a word followed by a switch is let through (N-bd-w7-host-1-01)",
+     os.path.join(REPO, "src", "dotNet", "Program.cs"),
+     b'                    if (arg.TrimStart(SwitchQuoteOrSpace).StartsWith("--", StringComparison.Ordinal) ||\n'
+     b'                        HoldsSwitchAfterSeparator(arg)) return arg;\n',
+     b'                    if (arg.TrimStart(SwitchQuoteOrSpace).StartsWith("--", StringComparison.Ordinal)) return arg;\n',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "launch switches: a quoted flag list collapsed into one argument is refused"),
+    ("bd-w8-host-1: a known switch carries a collapsed list as its value (N-bd-w7-host-1-01)",
+     os.path.join(REPO, "src", "dotNet", "Program.cs"),
+     b'                if (HoldsSwitchAfterSeparator(arg)) return arg;\n'
+     b'                if (Array.IndexOf(known, arg) >= 0) continue;\n',
+     b'                if (Array.IndexOf(known, arg) >= 0) continue;\n',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "launch switches: a quoted flag list collapsed into one argument is refused"),
+    ("bd-w8-host-1: a legacy companion input holding a dash pair is refused (N-bd-w7-host-1-01)",
+     os.path.join(REPO, "src", "dotNet", "Program.cs"),
+     b'                    if (IsLegacyCompanionInput(arg)) continue;\n',
+     b'                    if (IsLegacyCompanionInput(arg) && arg.Length == 0) continue;\n',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "launch switches: WITNESS a legacy companion input may hold a dash pair in its path"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

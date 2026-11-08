@@ -1920,6 +1920,22 @@ namespace DesktopAICompanion
                     Program.FindUnknownSwitch(new[] { "--hardening-selftest --audio-selftest" }) != null);
                 Check("launch switches: an unknown flag beside reset is still refused before dispatch",
                     Program.FindUnknownSwitch(new[] { FactoryReset.Flag, "--typo" }) == "--typo");
+                // N-bd-w7-host-1-01: a flag list that arrives as ONE argument starting with a quote, the shape a
+                // PowerShell array takes through powershell.exe -File, started the full app in burn-down wave 7.
+                const string quotedList = "'--hardening-selftest','--audio-selftest'";
+                Check("launch switches: a quoted flag list collapsed into one argument is refused",
+                    Program.FindUnknownSwitch(new[] { quotedList }) == quotedList &&
+                    Program.FindUnknownSwitch(new[] { "\"--hardening-selftest\" \"--audio-selftest\"" }) != null &&
+                    Program.FindUnknownSwitch(new[] { "fixture --hardening-selftest" }) != null &&
+                    Program.FindUnknownSwitch(new[] { "--reopen-options=Modules --hardening-selftest" }) != null);
+                Check("launch switches: a switch behind a leading quote or space is refused",
+                    Program.FindUnknownSwitch(new[] { "\"--hardening-selftest\"" }) == "\"--hardening-selftest\"" &&
+                    Program.FindUnknownSwitch(new[] { "'--hardening-selftest'" }) != null &&
+                    Program.FindUnknownSwitch(new[] { "  --hardening-selftest" }) != null &&
+                    Program.FindUnknownSwitch(new[] { "\" --hardening-selftest\"" }) != null);
+                Check("launch switches: WITNESS a legacy companion input may hold a dash pair in its path, and a plain word is no switch",
+                    Program.FindUnknownSwitch(new[] { "localxml=C:\\pets --old\\pet.xml", "LOCALXML='C:\\a','--b'",
+                        "webxml=https://example.invalid/a --b", "install=x --y", "fixture", "'fixture'" }) == null);
                 foreach (string emptyModuleArgument in new[] {
                     "--module-selftest=", "--module-selftest=   ", "--module-selftest=\t",
                     "--module-selftest=\"", "--module-selftest=\"\"", "--module-selftest=  \"\"  ",
