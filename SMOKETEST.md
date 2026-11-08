@@ -596,8 +596,9 @@ The log is on by default, so L1 needs nothing switched on first. Installed copie
 `%LOCALAPPDATA%\DesktopAICompanion\`; a portable copy writes to `data\` beside the executable.
 
 - [ ] **L1. A launch leaves a record.** `diagnostics.log` exists and its first line names the product and
-      version. A `tray icon set: success=...` line is present whether or not the icon appeared, which is the
-      whole reason this exists.
+      version. A `tray icon set: noThrow=... shellHasIt=...` line is present whether or not the icon appeared,
+      which is the whole reason this exists. `shellHasIt` is the shell's own answer (`True`, `False`, or
+      `unknown` when it cannot be asked); `noThrow=True` means only that setting the icon did not throw.
 - [ ] **L2. Animation is absent.** No per-frame movement lines, with the companion walking around. Tick
       Animation in Preferences and they start appearing without a restart.
 - [ ] **L3. The previous run survives a restart.** Restart the app; the launch you just inspected is now in
