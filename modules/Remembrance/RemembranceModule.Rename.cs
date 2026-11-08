@@ -24,19 +24,118 @@ namespace DesktopAICompanion.RemembranceModule
         /// and writes to them, so the rename waits until there are none.</summary>
         private int _stopsInFlight;
 
-        /// <summary>The Older recordings line, read when the pane is built. Names only; nothing is moved.</summary>
+        // ---- the Older recordings line, read off the UI thread (N-audit-1106-286) ----
+        // Every pane Load walked the storage folder and each day folder in it (CaptureStore.PlanRenames) ON THE UI THREAD to
+        // fill this line, and Load runs on every build of the pane and on every NotifyInfoChanged refresh, so a storage
+        // folder on a slow or offline share stalled the whole Options window each time. The walk now runs on a pool thread,
+        // one at a time. Load shows the line the last walk read for the same folder and layout, or says the folder is being
+        // read, and a walk that lands with a different line tells the open pane, whose refresh then shows it; a walk that
+        // reads the same line says nothing, so that refresh does not start another round. A Load while a walk runs asks for
+        // one more after it, so the newest folder and layout are always the last read. Rejected: a short bounded wait in
+        // Load for a walk that finishes quickly, which keeps the line exact on a fast disk but still stalls the UI thread for
+        // the whole bound on every refresh of a pane whose folder is slow, the defect itself in a smaller size.
+        private readonly object _olderLock = new object();
+        private string _olderFor;          // the folder and layout _olderLine describes; null until a walk lands
+        private string _olderLine;
+        private string _olderWantedRoot;   // the newest Load's folder and layout, which the next walk reads
+        private string _olderWantedLayout;
+        private bool _olderAsked;          // a Load came after the running walk read what it walks
+        private bool _olderWalking;        // the single-flight gate
+        private int _olderGeneration;      // moved on by a rename, so a walk that read the folder before it is not kept
+        private Task _olderWalk = Task.CompletedTask;
+        private int _olderNotices;         // how many times a walk told the pane, for the self-test
+
+        /// <summary>The line while no walk has read this folder and layout yet.</summary>
+        internal const string OlderRecordingsReading = "Reading the storage folder…";
+
+        /// <summary>The walk behind a delegate, so the self-test can hold one open and see Load answer without it
+        /// (N-audit-1106-286). Defaults to the real plan, which only reads.</summary>
+        internal static Func<CaptureStore, RenamePlan> PlanOlderRecordings = store => store.PlanRenames();
+
+        /// <summary>The Older recordings line for Load, which runs on the UI thread: the settings are read here, the folder
+        /// never is (N-audit-1106-286). Names only; nothing is moved.</summary>
         private string OlderRecordingsLine()
         {
+            string root, layout;
             try
             {
-                string root = StorageRoot();
+                root = StorageRoot();
                 if (root == null) return CaptureStore.NoDefaultRootReason;   // no folder to read (N-modules-fixes-02)
                 if (!CaptureStore.IsFullFolder(root)) return CaptureStore.RelativeRootReason;   // nor here (N-followups-02)
-                var store = new CaptureStore(root, CurrentFolderLayout());
-                return DescribePlan(store.PlanRenames());
+                layout = CurrentFolderLayout();
             }
             catch (Exception ex) { return "Could not read the storage folder (" + ex.GetType().Name + ")."; }
+            string line;
+            lock (_olderLock)
+            {
+                line = _olderFor == OlderKey(root, layout) ? _olderLine : null;
+                _olderWantedRoot = root;
+                _olderWantedLayout = layout;
+                _olderAsked = true;
+                if (!_olderWalking)
+                {
+                    _olderWalking = true;
+                    _olderWalk = Task.Run(() => WalkOlderRecordings());
+                }
+            }
+            return line ?? OlderRecordingsReading;
         }
+
+        private static string OlderKey(string root, string layout) { return root + "\n" + layout; }
+
+        /// <summary>The walk, on a pool thread, until no Load has asked for another. Logs nothing: the line it reads is
+        /// counts, and a failure is the line itself.</summary>
+        private void WalkOlderRecordings()
+        {
+            while (true)
+            {
+                string root, layout;
+                int generation;
+                lock (_olderLock)
+                {
+                    if (!_olderAsked) { _olderWalking = false; return; }
+                    _olderAsked = false;
+                    root = _olderWantedRoot;
+                    layout = _olderWantedLayout;
+                    generation = _olderGeneration;
+                }
+                string line;
+                try { line = DescribePlan(PlanOlderRecordings(new CaptureStore(root, layout))); }
+                catch (Exception ex) { line = "Could not read the storage folder (" + ex.GetType().Name + ")."; }
+                string key = OlderKey(root, layout);
+                bool changed = false;
+                lock (_olderLock)
+                {
+                    if (generation == _olderGeneration)
+                    {
+                        changed = _olderFor != key || !string.Equals(_olderLine, line, StringComparison.Ordinal);
+                        _olderFor = key;
+                        _olderLine = line;
+                    }
+                }
+                if (changed)
+                {
+                    Interlocked.Increment(ref _olderNotices);
+                    NotifyInfoChanged();
+                }
+            }
+        }
+
+        /// <summary>After a rename: the line read before it describes names that have moved, so the next Load says the
+        /// folder is being read until a walk after the rename lands, and a walk already running is not kept.</summary>
+        private void ForgetOlderRecordingsLine()
+        {
+            lock (_olderLock)
+            {
+                _olderGeneration++;
+                _olderFor = null;
+                _olderLine = null;
+            }
+        }
+
+        /// <summary>The walk Load last started, for the self-test.</summary>
+        internal Task OlderWalkForSelfTest { get { lock (_olderLock) return _olderWalk; } }
+        internal int OlderNoticesForSelfTest { get { return Volatile.Read(ref _olderNotices); } }
 
         /// <summary>What the line says about a plan. Counts only, never a name. Pure, for the self-test.</summary>
         internal static string DescribePlan(RenamePlan plan)
@@ -135,6 +234,7 @@ namespace DesktopAICompanion.RemembranceModule
             {
                 RenamePlan plan = store.PlanRenames();
                 RenameReport report = CaptureStore.ApplyRenames(plan);
+                if (plan.Groups.Count > 0) ForgetOlderRecordingsLine();   // before the pane's reload reads it (N-audit-1106-286)
                 if (plan.Groups.Count > 0) Log(RenameLogLine(report, plan));
                 return DescribeRename(report, plan);
             });

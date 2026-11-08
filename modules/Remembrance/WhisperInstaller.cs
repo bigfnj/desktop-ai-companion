@@ -943,6 +943,10 @@ namespace DesktopAICompanion.RemembranceModule
 
         // ---- verification --------------------------------------------------------------------------
 
+        /// <summary>How long the check lets whisper-cli run before it is stopped: five minutes, the figure its failure
+        /// names. Behind a field so the self-test can have a stand-in child overrun it in a moment (N-audit-1106-290).</summary>
+        internal static TimeSpan VerifyBound = TimeSpan.FromMinutes(5);
+
         /// <summary>
         /// Run the real CLI against the real model on generated silence: one second for the install check, or the
         /// <paramref name="clipSamples"/> (at 16 kHz mono) a caller asks for. The Whisper Validate asks
@@ -984,9 +988,22 @@ namespace DesktopAICompanion.RemembranceModule
                 psi.ArgumentList.Add("-otxt");
                 psi.ArgumentList.Add("-of"); psi.ArgumentList.Add(Path.Combine(scratch, "check"));
 
-                using (Process process = Process.Start(psi))
+                // IN A KILL-ON-CLOSE JOB, as the transcription run is (N-bd-remembrance-1-01): started and contained through
+                // Transcriber's own StartChild and AttachJob, so closing the app during a Validate or a setup check ends
+                // whisper-cli with it, where a plain Process.Start left it running for up to the five minutes below. A job
+                // Windows refuses fails the check, with the run's own reason: transcription stops a child it cannot
+                // contain (N-cxr-w1-02), so a check that passed one would be a tick for a setup that cannot transcribe.
+                // Rejected: a job of the installer's own, a second copy of the P/Invoke and a third way to start the child.
+                using (Process process = Transcriber.StartChild(psi))
+                using (IDisposable job = Transcriber.AttachJob(process))
                 {
                     if (process == null) { detail = "the process did not start."; return false; }
+                    if (job == null)
+                    {
+                        Transcriber.StopChild(process);
+                        detail = Transcriber.JobRefusedReason;
+                        return false;
+                    }
                     // Both pipes drained CONCURRENTLY, then the wait -- same defect and same fix as
                     // Transcriber.RunWhisper. Blocking on stderr first meant stdout could fill its 4 KB
                     // pipe and stop the child forever, and because a blocking read only returns at EOF,
@@ -994,9 +1011,12 @@ namespace DesktopAICompanion.RemembranceModule
                     // never fire.
                     System.Threading.Tasks.Task<string> errorText = process.StandardError.ReadToEndAsync();
                     System.Threading.Tasks.Task<string> outputText = process.StandardOutput.ReadToEndAsync();
-                    if (!process.WaitForExit(5 * 60 * 1000))
+                    if (!process.WaitForExit((int)VerifyBound.TotalMilliseconds))
                     {
-                        try { process.Kill(true); } catch { }
+                        // ENDED AND WAITED FOR, NOT ONLY TOLD TO END (N-audit-1106-290). The finally below deletes the
+                        // scratch folder next, and a kill only starts a process's end: a whisper-cli still on its way out
+                        // holds check.wav open, so the delete failed in silence and the folder stayed in %TEMP% for good.
+                        Transcriber.StopChild(process);
                         detail = "it did not finish within five minutes.";
                         return false;
                     }

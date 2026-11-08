@@ -135,7 +135,18 @@ namespace DesktopAICompanion.RemembranceModule
                                  //        is a failed run that says so, and whisper-cli's own "<name>.whisper.txt" stays
                                  //        beside the audio until the transcript is on disk; the write's failure was
                                  //        swallowed, the words deleted first, and "Transcript ready." said
-                                 //        (N-audit-1106-289).
+                                 //        (N-audit-1106-289). A recording whose transcription fails while Whisper is set
+                                 //        up says "Saved, but transcription failed" with the reason, on the Status line
+                                 //        and aloud; it said Whisper was not set up whatever went wrong
+                                 //        (N-bd-w6-remembrance-1-01). The Whisper check behind Validate and "Set up
+                                 //        Whisper for me" runs whisper-cli in the kill-on-close job transcription uses, and
+                                 //        fails with the same reason when Windows refuses it; closing the app during a
+                                 //        check left whisper-cli running for up to five minutes (N-bd-remembrance-1-01). A
+                                 //        check that overran waits for whisper-cli to end before it deletes its scratch
+                                 //        folder, which was left in %TEMP% for good (N-audit-1106-290). The Older
+                                 //        recordings line reads the storage folder in the background and says so until it
+                                 //        has; every open and refresh of the Options pane walked it on the UI thread, so a
+                                 //        folder on a slow or offline share stalled the window (N-audit-1106-286).
                                  // 2.10.0: one Claude Code sign-in, shared with AI Brain (host 1.8.0's
                                  //        IHostCredentials, BACKLOG N-cli-token-02, the owner's decision of
                                  //        2026-10-29), behind the ClaudeCodeSignIn grant, so MinHostVersion rises to
@@ -1259,8 +1270,29 @@ namespace DesktopAICompanion.RemembranceModule
                             ((long)Transcriber.TryReadDuration(audio).TotalSeconds).ToString(CultureInfo.InvariantCulture) +
                             " s of audio in " + ((long)stopwatch.Elapsed.TotalSeconds).ToString(CultureInfo.InvariantCulture) + " s");
                     }
-                    _lastStatus = (did ? "Transcribed: " : "Saved (Whisper not set up): ") + paths.BaseName;
-                    Announce(did ? "Transcript ready." : "Recording saved. Set up Whisper to transcribe it.");
+                    // A FAILED RUN IS NOT A MISSING SETUP (N-bd-w6-remembrance-1-01). Every run that did not transcribe said
+                    // "Saved (Whisper not set up)" and "Set up Whisper to transcribe it.", so a whisper-cli that ran out of
+                    // time, a job Windows refused, a bad model or a transcript that could not be written sent a user whose
+                    // Whisper IS set up off to set it up again, and the stub's reason was on no screen. Setup is named only
+                    // when the two paths name no files, the test the busy flag above made and the one RunWhisper refuses
+                    // on; any other failure gives the stub's own reason, as "Transcribe a WAV file..." does.
+                    string notTranscribed = did ? null : Transcriber.PendingReason(transcript);
+                    if (did)
+                    {
+                        _lastStatus = "Transcribed: " + paths.BaseName;
+                        Announce("Transcript ready.");
+                    }
+                    else if (!WhisperConfigured(whisperExe, model))
+                    {
+                        _lastStatus = "Saved (Whisper not set up): " + paths.BaseName;
+                        Announce("Recording saved. Set up Whisper to transcribe it.");
+                    }
+                    else
+                    {
+                        _lastStatus = "Saved, but transcription failed" +
+                                      (string.IsNullOrEmpty(notTranscribed) ? "" : " (" + notTranscribed + ")") + ": " + paths.BaseName;
+                        Announce("Recording saved, but transcription failed.");
+                    }
                     NotifyInfoChanged();   // the Status line says it is transcribed while the summary runs (N-cli-model-effort-07)
 
                     // Only worth summarizing a transcript Whisper actually produced: the stub text is setup
@@ -5899,6 +5931,8 @@ namespace DesktopAICompanion.RemembranceModule
                 SelfCheckTranscriptKeeping(check, scratch, wav, startedAt);
                 SelfCheckJobRefused(check, wav);
                 SelfCheckUnsavedTranscript(check, scratch, wav, startedAt);
+                SelfCheckVerifyChild(check, wav);
+                SelfCheckStopFailureStatus(check, scratch);
             }
             catch (Exception ex) { check("wav length: " + ex.Message, false); }
             finally
@@ -6133,6 +6167,203 @@ namespace DesktopAICompanion.RemembranceModule
                 Transcriber.StartChild = savedStart;
                 Transcriber.AttachJob = savedAttach;
                 try { System.IO.File.Delete(whisperText); } catch { }
+            }
+        }
+
+        /// <summary>
+        /// The whisper verify probe behind Validate and "Set up Whisper for me" runs its child the way a transcription does.
+        /// Windows PowerShell stands in for whisper-cli through Transcriber.StartChild, as in SelfCheckJobRefused, and the
+        /// real WhisperInstaller.TryVerify runs. First the kill-on-close job is refused: the check must fail with the run's
+        /// own reason and leave no child behind (N-bd-remembrance-1-01). Then the job holds nothing, the stand-in holds
+        /// check.wav open past a bound shortened through WhisperInstaller.VerifyBound, and the kill is made to land late
+        /// through Transcriber.KillChild, as a real one may: the check must wait the child out, so its scratch folder is
+        /// gone when it returns (N-audit-1106-290). Every stand-in ends by itself in 15 seconds if its subject regresses.
+        /// </summary>
+        private static void SelfCheckVerifyChild(Action<string, bool> check, string wav)
+        {
+            Func<ProcessStartInfo, Process> savedStart = Transcriber.StartChild;
+            Func<Process, IDisposable> savedAttach = Transcriber.AttachJob;
+            Action<Process> savedKill = Transcriber.KillChild;
+            TimeSpan savedBound = WhisperInstaller.VerifyBound;
+            Process refused = null, overran = null;
+            string folder = null;
+            try
+            {
+                string powershell = System.IO.Path.Combine(Environment.SystemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe");
+                if (!System.IO.File.Exists(powershell))
+                {
+                    check("verify probe: Windows PowerShell, the stand-in child, is not on this machine", false);
+                    return;
+                }
+                // A short bound for both legs, so a probe that stopped attaching the job returns in a moment, not in five minutes.
+                WhisperInstaller.VerifyBound = TimeSpan.FromSeconds(2);
+
+                // ---- the job refused: no tick, and no child left running (N-bd-remembrance-1-01) ----
+                bool aliveWhenRefused = false;
+                Transcriber.StartChild = delegate(ProcessStartInfo psi)
+                {
+                    psi.ArgumentList.Clear();
+                    foreach (string arg in new[] { "-NoProfile", "-NonInteractive", "-Command", "Start-Sleep -Seconds 15" })
+                        psi.ArgumentList.Add(arg);
+                    return Process.Start(psi);
+                };
+                Transcriber.AttachJob = delegate(Process child)
+                {
+                    try
+                    {
+                        refused = Process.GetProcessById(child.Id);
+                        aliveWhenRefused = !refused.HasExited;
+                    }
+                    catch { }
+                    return null;
+                };
+                string refusedDetail;
+                bool refusedPassed = WhisperInstaller.TryVerify(powershell, wav, out refusedDetail, 16000);
+                check("WITNESS verify probe: the stand-in whisper-cli was running when its job was refused", aliveWhenRefused);
+                check("verify probe: a whisper-cli whose job Windows refuses fails the check with the run's own reason (N-bd-remembrance-1-01): " +
+                      (refusedDetail ?? "(none)"),
+                    !refusedPassed && refusedDetail == Transcriber.JobRefusedReason);
+                check("verify probe: a whisper-cli whose job Windows refuses has ended by the time the check returns (N-bd-remembrance-1-01)",
+                    refused != null && refused.HasExited);
+
+                // ---- the overrun: the child is waited out before the scratch folder goes (N-audit-1106-290) ----
+                bool heldAtKill = false;
+                Transcriber.AttachJob = delegate { return new CancellationTokenSource(); };
+                Transcriber.StartChild = delegate(ProcessStartInfo psi)
+                {
+                    int at = psi.ArgumentList.IndexOf("-f");
+                    string clip = at >= 0 && at + 1 < psi.ArgumentList.Count ? psi.ArgumentList[at + 1] : "";
+                    folder = System.IO.Path.GetDirectoryName(clip);
+                    psi.ArgumentList.Clear();
+                    // Opened with no sharing, retried until it is: the probe's own look at the file below can hold it for
+                    // an instant, and a stand-in that lost that race would hold nothing.
+                    foreach (string arg in new[] { "-NoProfile", "-NonInteractive", "-Command",
+                        "$held = $null; while ($held -eq $null) { try { $held = [System.IO.File]::Open('" + clip.Replace("'", "''") +
+                        "', 'Open', 'Read', 'None') } catch { Start-Sleep -Milliseconds 50 } }; Start-Sleep -Seconds 15" })
+                        psi.ArgumentList.Add(arg);
+                    Process child = Process.Start(psi);
+                    if (child != null) overran = Process.GetProcessById(child.Id);
+                    return child;
+                };
+                Transcriber.KillChild = delegate(Process child)
+                {
+                    string clip = System.IO.Path.Combine(folder ?? "", "check.wav");
+                    heldAtKill = SpinWait.SpinUntil(delegate { return HeldOpen(clip); }, TimeSpan.FromSeconds(20));
+                    int id = child.Id;
+                    // The kill lands late, as TerminateProcess may: it only starts the end, and the call returns at once.
+                    Task.Run(delegate
+                    {
+                        Thread.Sleep(1500);
+                        try { using (Process late = Process.GetProcessById(id)) late.Kill(true); } catch { }
+                    });
+                };
+                string overrunDetail;
+                bool overrunPassed = WhisperInstaller.TryVerify(powershell, wav, out overrunDetail, 16000);
+                bool folderGone = folder != null && !System.IO.Directory.Exists(folder);
+                check("WITNESS verify probe: the stand-in held check.wav open when the overrun's kill was asked for", heldAtKill);
+                check("verify probe: a whisper-cli that overran is waited out, so its scratch folder is gone when the check returns (N-audit-1106-290): " +
+                      (overrunDetail ?? "(none)"),
+                    !overrunPassed && overrunDetail == "it did not finish within five minutes." && folderGone);
+            }
+            catch (Exception ex) { check("verify probe: " + ex.Message, false); }
+            finally
+            {
+                Transcriber.StartChild = savedStart;
+                Transcriber.AttachJob = savedAttach;
+                Transcriber.KillChild = savedKill;
+                WhisperInstaller.VerifyBound = savedBound;
+                foreach (Process stand in new[] { refused, overran })
+                {
+                    if (stand == null) continue;
+                    try { if (!stand.HasExited) stand.Kill(true); stand.WaitForExit(5000); } catch { }
+                    stand.Dispose();
+                }
+                try { if (folder != null && System.IO.Directory.Exists(folder)) System.IO.Directory.Delete(folder, true); } catch { }
+            }
+        }
+
+        /// <summary>True while another process holds <paramref name="path"/> open with no sharing: the open below, which
+        /// shares everything, is then refused.</summary>
+        private static bool HeldOpen(string path)
+        {
+            if (!System.IO.File.Exists(path)) return false;
+            try
+            {
+                using (new System.IO.FileStream(path, System.IO.FileMode.Open, System.IO.FileAccess.Read,
+                           System.IO.FileShare.ReadWrite | System.IO.FileShare.Delete)) { }
+                return false;
+            }
+            catch (System.IO.IOException) { return true; }
+        }
+
+        /// <summary>
+        /// A recording whose transcription fails while Whisper is set up says it failed, and why, on the Status line and
+        /// aloud; only one whose two Whisper paths name no files sends the user to set Whisper up (N-bd-w6-remembrance-1-01).
+        /// The stop is the module's own, on fake devices, and the run is the real Transcribe with whisper-cli stood in by
+        /// Transcriber.Whisper, so the reason read back is the one the stub on disk carries.
+        /// </summary>
+        private static void SelfCheckStopFailureStatus(Action<string, bool> check, string scratch)
+        {
+            Transcriber.WhisperRun savedRun = Transcriber.Whisper;
+            SynchronizationContext previous = SynchronizationContext.Current;
+            var ui = new RecorderSelfCheck.QueueSynchronizationContext();
+            try
+            {
+                SynchronizationContext.SetSynchronizationContext(ui);
+                string store = System.IO.Path.Combine(scratch, "stop-failure");
+                System.IO.Directory.CreateDirectory(store);
+                string exe = System.IO.Path.Combine(scratch, "stop-failure-whisper-cli.exe");
+                string model = System.IO.Path.Combine(scratch, "stop-failure-ggml-base.en.bin");
+                System.IO.File.WriteAllBytes(exe, new byte[16]);
+                System.IO.File.WriteAllBytes(model, new byte[16]);
+                Transcriber.Whisper = delegate(string w, string e, string m, out bool ok, out string why)
+                {
+                    ok = false;
+                    why = "simulated: whisper-cli exited 3";
+                    return "";
+                };
+                using (new RecorderSelfCheck.FakeDevices())
+                {
+                    var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                    DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings s = host.SettingsFor(Id);
+                    s.Set("storageLocation", store);
+                    s.Set("summaryModelsCache", "alpha:1b");
+                    s.Set("whisperExe", exe);
+                    s.Set("whisperModel", model);
+                    var module = new RemembranceModule();
+                    module.Init(host);
+                    try
+                    {
+                        Func<string> stopAndRead = delegate
+                        {
+                            module.StartRecordingForSelfTest();
+                            Thread.Sleep(80);
+                            module.StopRecordingForSelfTest();
+                            bool finished = SpinWait.SpinUntil(delegate { ui.Drain(); return module.RenameRefusalForSelfTest() == null; },
+                                TimeSpan.FromSeconds(15));
+                            ui.Drain();
+                            return finished ? module.StatusLine().Split('|')[0].Trim() : "(the stop did not finish)";
+                        };
+                        string failed = stopAndRead();
+                        check("stop failure: with Whisper set up, a failed transcription says so and why, never that Whisper is not set up (N-bd-w6-remembrance-1-01): " +
+                              failed,
+                            failed.StartsWith("Saved, but transcription failed (simulated: whisper-cli exited 3): ", StringComparison.Ordinal)
+                            && host.SaidLines.Contains("Recording saved, but transcription failed.")
+                            && !host.SaidLines.Contains("Recording saved. Set up Whisper to transcribe it."));
+                        s.Set("whisperExe", "");
+                        string unset = stopAndRead();
+                        check("WITNESS stop failure: with no whisper-cli set, the stop still says Whisper is not set up: " + unset,
+                            unset.StartsWith("Saved (Whisper not set up): ", StringComparison.Ordinal)
+                            && host.SaidLines.Contains("Recording saved. Set up Whisper to transcribe it."));
+                    }
+                    finally { module.Shutdown(); }
+                }
+            }
+            catch (Exception ex) { check("stop failure: " + ex.Message, false); }
+            finally
+            {
+                Transcriber.Whisper = savedRun;
+                SynchronizationContext.SetSynchronizationContext(previous);
             }
         }
 
