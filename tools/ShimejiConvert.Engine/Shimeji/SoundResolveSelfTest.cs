@@ -626,6 +626,39 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     || error == null || error.IndexOf("/childs[1]/child[1]/next[1]/@probability", StringComparison.Ordinal) < 0)
                     failures.Add("ROUNDTRIP_CHILD_NEXT_DETECTED: a serializer dropping child/next probability was not refused at its path");
             }
+            // A sequence may repeat <action> (the schema's sequence content is an unbounded choice), and since
+            // N-bd-w4-options-ui-1-01 the DTO keeps every one: the runtime and the validator still read the first, and a
+            // load and save returns the rest unchanged. While SequenceNode.Action was a single string this input failed
+            // the round trip at the second action's path. Only Action is named here, so the check compiles against the
+            // old single-string field too and fails on it.
+            var actionInput = XElement.Parse(original);
+            XNamespace actionNs = actionInput.Name.Namespace;
+            XElement actionSequence = actionInput.Element(actionNs + "animations").Element(actionNs + "animation").Element(actionNs + "sequence");
+            actionSequence.Elements(actionNs + "action").Remove();
+            actionSequence.Add(new XElement(actionNs + "action", "flip"), new XElement(actionNs + "action", "faceCursor"));
+            XmlData.RootNode parsedActions;
+            if (!ShimejiEngine.TryValidate(actionInput.ToString(), out parsedActions, out error))
+                failures.Add("ROUNDTRIP_SEQUENCE_ACTIONS_WITNESS: synthetic two-action input is invalid: " + error);
+            else
+            {
+                if (!ShimejiEngine.RoundTrips(actionInput.ToString(), out error))
+                    failures.Add("ROUNDTRIP_SEQUENCE_ACTIONS: the public document API lost a sequence's second action: " + error);
+                string first = parsedActions.Animations.Animation[0].Sequence.Action;
+                if (first != "flip")
+                    failures.Add("ROUNDTRIP_SEQUENCE_ACTIONS_FIRST: the action the runtime reads is not the first written: " + (first ?? "(none)"));
+                // WITNESS: the comparison sees a later action, so the pass above is the DTO keeping it and not the
+                // comparison skipping it. A serializer that drops it is refused at its path.
+                Func<XmlData.RootNode, string> dropLaterActions = delegate(XmlData.RootNode input)
+                {
+                    XElement emitted = XElement.Parse(ShimejiEngine.Serialize(input));
+                    foreach (XElement sequence in emitted.Descendants(actionNs + "sequence"))
+                        foreach (XElement later in sequence.Elements(actionNs + "action").Skip(1).ToList()) later.Remove();
+                    return emitted.ToString();
+                };
+                if (ShimejiEngine.RoundTripsCore(parsedActions, actionInput.ToString(), dropLaterActions, out error)
+                    || error == null || error.IndexOf("/animations[1]/animation[1]/sequence[1]/action[2]", StringComparison.Ordinal) < 0)
+                    failures.Add("ROUNDTRIP_SEQUENCE_ACTIONS_DETECTED: a serializer dropping a sequence's later action was not refused at its path: " + error);
+            }
             // The string overload compares with the ORIGINAL text, so information a parse loses cannot hide
             // behind a DTO that never held it. The DTO keeps every schema-valid field now, so the loss is
             // injected through the parse seam.
