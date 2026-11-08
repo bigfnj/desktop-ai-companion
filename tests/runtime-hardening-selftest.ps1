@@ -6391,6 +6391,43 @@ Assert-True (
     $w7h1FormCode -cnotmatch 'underside = hwndWindow == \(IntPtr\)0 \? RiseDetect'
 ) 'w7-host-1: the window-underside walk runs only for an animation that can hang from one'
 
+# ---- burndown/w8-studio-1 ----
+# ONE FAILURE NAMES EVERY PUBLISH VERDICT (N-bd-converter-1-02). Test-ModulePublishFreshness.ps1 threw on a version
+# MISMATCH before it printed or threw its STALE verdict. A mismatch is the normal state while a module waits on its
+# publish, so a payload gone stale with its versions agreeing (through a source-linked file or the bundled ModuleKit)
+# was named nowhere in the run; at 2dcaeba8 that hid agentbroker.zip. The script needs git history, tags and committed
+# zips to run, so the shape is pinned here, comment-stripped, between the MISMATCH report and the all-current line: the
+# ORDER (the one line-start throw comes after the degraded and STALE reports) and the ARGUMENT (it throws the list each
+# of the three blocks adds its own sentence to). Every index below sits behind the count or order test before it.
+# WITNESS: the same measure over this file with each block throwing its own sentence again, which is the old shape,
+# must fail, so a measure that cannot see a throw cannot pass.
+$w8sMeasure = {
+    param([string] $Code)
+    $mismatchAt = $Code.IndexOf('Write-Host "MISMATCH $($m.Id)', [StringComparison]::Ordinal)
+    $degradedAt = $Code.IndexOf('Write-Host ''Watch set degraded', [StringComparison]::Ordinal)
+    $staleAt = $Code.IndexOf('Write-Host "STALE $($s.Id)', [StringComparison]::Ordinal)
+    $allAt = $Code.IndexOf('Write-Host "All $($ids.Count) published', [StringComparison]::Ordinal)
+    $throwsAt = @()
+    if ($mismatchAt -ge 0 -and $allAt -gt $mismatchAt) {
+        $throwsAt = @([regex]::Matches($Code.Substring($mismatchAt, $allAt - $mismatchAt), '(?m)^[ \t]*throw\b') |
+            ForEach-Object { $mismatchAt + $_.Index })
+    }
+    $holds = $mismatchAt -ge 0 -and $mismatchAt -lt $degradedAt -and $degradedAt -lt $staleAt -and
+        $throwsAt.Count -eq 1 -and $staleAt -lt $throwsAt[0] -and
+        $Code.IndexOf('$verdicts.Add("Module version(s) disagree', $mismatchAt, $degradedAt - $mismatchAt, [StringComparison]::Ordinal) -ge 0 -and
+        $Code.IndexOf('$verdicts.Add("$($degraded.Count) module watch set(s) degraded', $degradedAt, $staleAt - $degradedAt, [StringComparison]::Ordinal) -ge 0 -and
+        $Code.IndexOf('$verdicts.Add("Published module payload(s) are behind their source', $staleAt, $throwsAt[0] - $staleAt, [StringComparison]::Ordinal) -ge 0 -and
+        $Code.Substring($throwsAt[0]) -cmatch '^[ \t]*throw \(\$verdicts -join '
+    [pscustomobject]@{ Holds = $holds; Detail = "mismatch $mismatchAt, degraded $degradedAt, stale $staleAt, throws at $($throwsAt -join '/')" }
+}
+$w8sFresh = Remove-PsLineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'packaging\Test-ModulePublishFreshness.ps1') -Raw)
+$w8sNow = & $w8sMeasure $w8sFresh
+$w8sOld = & $w8sMeasure ($w8sFresh.Replace('$verdicts.Add(', 'throw ('))
+Assert-True ($w8sFresh.Length -gt 0 -and -not $w8sOld.Holds) (
+    "w8-studio-1: WITNESS the publish-verdict measure fails the old shape, each verdict throwing on its own ($($w8sOld.Detail))")
+Assert-True ($w8sNow.Holds) (
+    "w8-studio-1: every freshness verdict is reported before one throw carrying them all ($($w8sNow.Detail))")
+
 # LAST, and deliberately:this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever
