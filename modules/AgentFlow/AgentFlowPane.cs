@@ -443,9 +443,10 @@ namespace DesktopAICompanion.AgentFlow
             // all. Reported against v1.2.4: "agentflow pet does not see pearl", with Hornet on
             // screen. The on-screen ones are added first so the likely choice stays near the top.
             IReadOnlyList<CompanionTypeInfo> installed = InstalledPets();
+            Dictionary<string, string> rows = PetRowMap(installed);
             foreach (CompanionTypeInfo type in installed)
             {
-                string display = PetRow(type, installed);
+                string display = RowOf(type, rows);
                 if (display.Length > 0 && display != PetAnimations.AnyPet
                     && !choices.Contains(display))
                     choices.Add(display);
@@ -482,6 +483,8 @@ namespace DesktopAICompanion.AgentFlow
         /// </summary>
         private IReadOnlyList<CompanionTypeInfo> _installedForLoad;
         private List<string> _onScreenForLoad;
+        /// <summary>PetRows over _installedForLoad, for the same load and cleared with it (N-cxr-w34-04).</summary>
+        private Dictionary<string, string> _rowsForLoad;
 
         /// <summary>Type ids of the pets currently on screen, in the order the host reports.</summary>
         private List<string> OnScreenPetTypeIds()
@@ -527,24 +530,65 @@ namespace DesktopAICompanion.AgentFlow
         }
 
         /// <summary>
-        /// The dropdown row for an installed pet: its display name, with its type id after it when another installed pet
-        /// shows the same name (N-audit-1106-109). The display name is the animations.xml header's, and nothing makes it
-        /// unique, so two pets called the same were one row: only the first could be chosen, and a stored choice of the
-        /// second came back as the first on the next Apply, because PetTypeIdFor answered the first match. A unique name
-        /// keeps its plain row, so nothing changes for the usual install. Pure, over the list the caller fetched once
-        /// (F042: every fetch is a header read per pet).
+        /// Every installed pet's dropdown row, keyed by type id: its display name, with its type id after it while another
+        /// installed pet shows the same row (N-audit-1106-109). The display name is the animations.xml header's, and
+        /// nothing makes it unique, so two pets called the same were one row: only the first could be chosen, and a stored
+        /// choice of the second came back as the first on the next Apply, because PetTypeIdFor answered the first match. A
+        /// unique name keeps its plain row, so nothing changes for the usual install. Pure, over the list the caller
+        /// fetched once (F042: every fetch is a header read per pet).
+        ///
+        /// ONE map over the whole list, suffixed again until no two pets share a row (N-cxr-w34-04). This was a per-pet
+        /// test against the other pets' DISPLAY names, so a generated row could equal another pet's literal name: pets
+        /// "Twin" (a) and "Twin" (b) became "Twin (a)" and "Twin (b)", while a third pet literally named "Twin (a)" kept
+        /// that row, the dropdown dropped it as a duplicate, and any Apply while it was the stored pet saved a in its place.
+        /// Now every pet in a shared row, generated or literal, takes its own id, round after round. Each round lengthens
+        /// only rows that collided, each by its own id, so a collision survives a round only where another pet's literal
+        /// name spells the longer row too; the cap of one round per pet stops a list of such names from looping, and a row
+        /// still shared after it falls back to PetTypeIdFor's first match, which is where every shared row stood before. A
+        /// pet with no type id cannot be stored, so it takes part in nothing here and keeps its display name (RowOf).
         /// </summary>
-        internal static string PetRow(CompanionTypeInfo type, IReadOnlyList<CompanionTypeInfo> installed)
+        internal static Dictionary<string, string> PetRows(IReadOnlyList<CompanionTypeInfo> installed)
         {
-            string display = PetDisplay(type);
-            if (display.Length == 0 || installed == null) return display;
-            foreach (CompanionTypeInfo other in installed)
+            var rows = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            if (installed == null) return rows;
+            foreach (CompanionTypeInfo type in installed)
+                if (type != null && !string.IsNullOrEmpty(type.TypeId) && !rows.ContainsKey(type.TypeId))
+                    rows[type.TypeId] = PetDisplay(type);
+            for (int round = 0; round <= rows.Count; round++)
             {
-                if (other == null || string.Equals(other.TypeId, type.TypeId, StringComparison.OrdinalIgnoreCase)) continue;
-                if (string.Equals(PetDisplay(other), display, StringComparison.OrdinalIgnoreCase))
-                    return display + " (" + type.TypeId + ")";
+                var sharing = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+                foreach (KeyValuePair<string, string> row in rows)
+                {
+                    if (row.Value.Length == 0) continue;
+                    List<string> ids;
+                    if (!sharing.TryGetValue(row.Value, out ids)) sharing[row.Value] = ids = new List<string>();
+                    ids.Add(row.Key);
+                }
+                bool shared = false;
+                foreach (List<string> ids in sharing.Values)
+                {
+                    if (ids.Count < 2) continue;
+                    shared = true;
+                    foreach (string id in ids) rows[id] = rows[id] + " (" + id + ")";
+                }
+                if (!shared) break;
             }
-            return display;
+            return rows;
+        }
+
+        /// <summary>A pet's row from <see cref="PetRows"/>, or its display name when it has no type id to key one by.</summary>
+        internal static string RowOf(CompanionTypeInfo type, Dictionary<string, string> rows)
+        {
+            string row;
+            if (type != null && !string.IsNullOrEmpty(type.TypeId) && rows != null && rows.TryGetValue(type.TypeId, out row))
+                return row;
+            return PetDisplay(type);
+        }
+
+        /// <summary>The load's row map when one is building, else one over the list the caller holds.</summary>
+        private Dictionary<string, string> PetRowMap(IReadOnlyList<CompanionTypeInfo> installed)
+        {
+            return _rowsForLoad ?? PetRows(installed);
         }
 
         /// <summary>
@@ -576,15 +620,17 @@ namespace DesktopAICompanion.AgentFlow
         {
             if (string.IsNullOrEmpty(display) || display == PetAnimations.AnyPet)
                 return PetAnimations.AnyPet;
-            // By the ROW, which is unique among installed pets (N-audit-1106-109), not by the display name, which is not.
+            // By the ROW, which PetRows makes unique among installed pets (N-audit-1106-109, N-cxr-w34-04), not by the
+            // display name, which is not. Every row first, and only then a type id: in one pass, a pet listed earlier
+            // whose type id happened to spell another pet's row answered for it.
             IReadOnlyList<CompanionTypeInfo> installed = InstalledPets();
+            Dictionary<string, string> rows = PetRowMap(installed);
             foreach (CompanionTypeInfo type in installed)
-            {
-                if (type == null) continue;
-                if (string.Equals(PetRow(type, installed), display, StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(type.TypeId, display, StringComparison.OrdinalIgnoreCase))
+                if (type != null && string.Equals(RowOf(type, rows), display, StringComparison.OrdinalIgnoreCase))
                     return type.TypeId ?? PetAnimations.AnyPet;
-            }
+            foreach (CompanionTypeInfo type in installed)
+                if (type != null && string.Equals(type.TypeId, display, StringComparison.OrdinalIgnoreCase))
+                    return type.TypeId;
             // The marked row of a pet that is no longer installed maps back to its id, so an
             // Apply with the row still selected keeps the user's choice (RA-041).
             if (display.EndsWith(RemovedPetSuffix, StringComparison.Ordinal)
@@ -598,9 +644,10 @@ namespace DesktopAICompanion.AgentFlow
             if (string.IsNullOrEmpty(typeId) || typeId == PetAnimations.AnyPet)
                 return PetAnimations.AnyPet;
             IReadOnlyList<CompanionTypeInfo> installed = InstalledPets();
+            Dictionary<string, string> rows = PetRowMap(installed);
             foreach (CompanionTypeInfo type in installed)
                 if (type != null && string.Equals(type.TypeId, typeId, StringComparison.OrdinalIgnoreCase))
-                    return PetRow(type, installed);
+                    return RowOf(type, rows);
             return PetAnimations.AnyPet;
         }
 
@@ -713,6 +760,7 @@ namespace DesktopAICompanion.AgentFlow
             // Both host answers, fetched once for this build. See InstalledPets.
             _installedForLoad = FetchInstalledPets();
             _onScreenForLoad = FetchOnScreenPetTypeIds();
+            _rowsForLoad = PetRows(_installedForLoad);
             try
             {
                 string pet = null;
@@ -729,6 +777,7 @@ namespace DesktopAICompanion.AgentFlow
             {
                 _installedForLoad = null;
                 _onScreenForLoad = null;
+                _rowsForLoad = null;
             }
         }
 

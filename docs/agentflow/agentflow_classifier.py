@@ -291,9 +291,18 @@ BUNDLE_GLOB = os.path.join(
 # decides. Opening on those characters rather than on ANY quote is deliberate: a match still has to
 # start where a label could, so a stray quote inside a single-quoted or regex literal cannot shift
 # every later quote in the region from opening to closing and hide the labels after it.
+#
+# The backslash opener takes a WHOLE escape, the backslash and the character it escapes
+# (N-cxr-w34-03). It used to take the backslash alone, and then the opener itself shifted a quote:
+# a literal holding one escaped backslash (two backslashes between its quotes) opened on the first,
+# the body paired the second with the literal's own closing quote, and the match ran on to close
+# at the NEXT literal's opening quote. That literal decodes to no verb and is dropped, and the label
+# after it was never read, so a hidden "Yes, allow everything ..." behind it printed "audit OK".
+# In well-formed JS a backslash inside a literal is always followed by the character it escapes, so
+# taking both loses no label the lone backslash found.
 _OPTION_VERBS = ("Yes", "No", "Submit", "Send")
 _BUNDLE_OPTION = re.compile(r'"((?:[' + "".join(sorted(set(v[0] for v in _OPTION_VERBS)))
-                            + r']|\\)(?:[^"\\]|\\.)*)"')
+                            + r']|\\.)(?:[^"\\]|\\.)*)"')
 _DISPLAYED_VERB = re.compile("(?:" + "|".join(_OPTION_VERBS) + ")")
 
 _BACKSLASH = chr(92)   # built, not written: this file is edited by tools that eat escapes
@@ -677,6 +686,14 @@ def selftest(verbose=True):
     code, said = run_audit("Yes", "No", "Shown below", _BACKSLASH + "x41llow everything")
     _check(r, "WITNESS audit (N-cxr-w1-06): a literal that does not DISPLAY a verb is not extracted",
            code == 0 and "Shown below" not in said and "Allow everything" not in said)
+    # N-cxr-w34-03: an escaped-backslash literal must not swallow the label after it. Two backslashes
+    # (one escape) and four (two escapes) both used to hide it; the second label is the fail-open
+    # shape, a complete grant that classifies approve-once through the "yes, allow " template.
+    code, said = run_audit("Yes", "No", _BACKSLASH * 2, "Yes, and keep going forever")
+    code4, said4 = run_audit("Yes", "No", _BACKSLASH * 4, "Yes, allow everything from now on")
+    _check(r, "audit (N-cxr-w34-03): a label right after an escaped-backslash literal is extracted and flagged",
+           code == 1 and "Yes, and keep going forever" in said
+           and code4 == 1 and "needs its own entry" in said4)
 
     passed = sum(1 for _, ok in r if ok)
     if verbose:
@@ -813,6 +830,11 @@ def mutate():
                                 re.compile('"((?:Yes|No|Submit|Send)(?:[^"' + _BACKSLASH * 2 + ']|'
                                            + _BACKSLASH * 2 + '.)*)"'))
     run("opening verb required before decoding", apply_fn, restore_fn, "opening letter is escaped")
+    # The opener as N-cxr-w1-06 left it: a lone backslash, which shifts the next quote (N-cxr-w34-03).
+    apply_fn, restore_fn = swap("_BUNDLE_OPTION",
+                                re.compile('"((?:[NSY]|' + _BACKSLASH * 2 + ')(?:[^"' + _BACKSLASH * 2
+                                           + ']|' + _BACKSLASH * 2 + '.)*)"'))
+    run("backslash opener takes one character", apply_fn, restore_fn, "N-cxr-w34-03")
     apply_fn, restore_fn = swap("_BUNDLE_OPTION",
                                 re.compile('"((?:Yes|No|Submit|Send)[^"' + _BACKSLASH * 2 + ']{0,60})"'))
     run("extractor back to 60 chars, no escapes", apply_fn, restore_fn, "longer than 63 characters")
