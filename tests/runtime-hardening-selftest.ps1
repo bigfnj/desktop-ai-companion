@@ -6516,6 +6516,17 @@ Assert-True (
     $w9h1SettingsSave -cnotmatch 'File\.(WriteAll|Create|Open|AppendAll)'
 ) 'w9-host-1: a module settings save replaces settings.json whole through the atomic write, never truncating it in place'
 
+# N-audit-1106-242: the resource-churn soak arms its exit timer whatever the verdict's sampling and marker write do.
+# Finish sets `finished` first, so a throw from WriteMarker reached the tick's catch, whose Finish(false, ex) returned at
+# once, and the process never exited. Running the churn is a soak, so this pins the ORDER: the sampling and the write sit
+# in a try whose catch fails the exit code, and the timer is armed after that try/catch closes.
+$w9h1Churn = Get-MethodBody (Remove-LineComments $programSource) 'private void Finish(bool passed, Exception failure)' @("`n        private ", "`n        public ")
+Assert-True ($w9h1Churn.Length -gt 0) 'w9-host-1: the resource churn Finish was located'
+Assert-True (
+    $w9h1Churn -cmatch 'finished = true;[\s\S]*try\s*\{\s*SettleAndSample\(out settledGdi, out settledUser, out settledHandles\);\s*WriteMarker\(passed, failure\);[^{}]*\}\s*catch \(Exception \w+\)\s*\{\s*Environment\.ExitCode = 1;[\s\S]*?\}\s*\}\s*exitTimer = new System\.Windows\.Forms\.Timer' -and
+    ([regex]::Matches($w9h1Churn, 'WriteMarker\(')).Count -eq 1
+) 'w9-host-1: a resource churn whose verdict write throws still arms its exit timer, failing by exit code'
+
 # LAST, and deliberately:this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever

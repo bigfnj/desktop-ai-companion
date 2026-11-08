@@ -4956,6 +4956,14 @@ CASES = (
         b"            try { if (_startUp != null) _startUp.RemovePetInstance(pet); }\n",
         "host-pack-abi: a pack preview's handle removes by namespace",
     ),
+    # N-audit-1106-242: the churn's verdict sampling and write move back in front of the try, so a throw skips the timer.
+    (
+        "bd-w9-host-1: a resource churn whose verdict write throws never arms its exit timer (N-audit-1106-242)",
+        os.path.join(REPO, "src", "dotNet", "Program.cs"),
+        b"            try\n            {\n                SettleAndSample(out settledGdi, out settledUser, out settledHandles);\n                WriteMarker(passed, failure);\n",
+        b"            SettleAndSample(out settledGdi, out settledUser, out settledHandles);\n            WriteMarker(passed, failure);\n            try\n            {\n",
+        "w9-host-1: a resource churn whose verdict write throws still arms its exit timer",
+    ),
 )
 
 
