@@ -5676,8 +5676,9 @@ Assert-True ($w2CoreUnregistered.Count -eq 0 -and @(@('TestW2WitnessGroup') | Wh
     $(if ($w2CoreUnregistered.Count) { ' -- not registered: ' + ($w2CoreUnregistered -join ', ') } else { '' }))
 # A class is also called once per focused --*-only switch in some harnesses (AgentBroker.Core.Tests runs each check class
 # from its own switch AND from the default run the gate uses), so "called somewhere" alone misses a deleted default-run
-# call. The CALL SITES are therefore also floored, pinned to the count the harnesses carry today, as the gate pins
-# $shimejiSuiteFloor: deleting one fails here and has to be a deliberate edit of this number, while adding one costs nothing.
+# call. The CALL SITES are therefore also floored, pinned to the count the harnesses carry today, as
+# tests\Invoke-ShimejiConvertChecks.ps1 pins $shimejiSuiteFloor: deleting one fails here and has to be a deliberate edit of
+# this number, while adding one costs nothing.
 $w2BrokerCallSiteFloor = 118
 $w2BrokerClasses = 0
 $w2BrokerCallSites = 0
@@ -6208,11 +6209,13 @@ $w6SoakVerdictAt = $w6Soak.IndexOf("foreach (`$counter in @('GdiObjects', 'UserO
 Assert-True ($w6SoakSettledAt -ge 0 -and $w6SoakGuard.Success -and $w6SoakGuard.Index -gt $w6SoakSettledAt -and $w6SoakVerdictAt -gt $w6SoakGuard.Index) (
     "w6-tests-scripts-1: the resource soak refuses a settled sample below 1 on gdi, user or handles before it reads a growth verdict (series at $w6SoakSettledAt, guard at $($w6SoakGuard.Index), verdict at $w6SoakVerdictAt)")
 
-# N-bd-codex-converter-1-03: the ShimejiConvert suite floor in the gate and in CI EQUALS the suites the selftest runs:
-# RunAll's registrations plus each suite Program.SelfTest calls and counts after them (the CLI round-trip suite, the only
-# permanent killer of Verify's wiring). Both floors sat at 9 while the suites grew to 13, so removing the CLI suite left
-# both green. Derived from the sources, so a deleted registration fails the runtime floor and a floor left behind fails
-# here; adding a suite is a deliberate floor edit.
+# N-bd-codex-converter-1-03: the ShimejiConvert suite floor EQUALS the suites the selftest runs: RunAll's registrations
+# plus each suite Program.SelfTest calls and counts after them (the CLI round-trip suite, the only permanent killer of
+# Verify's wiring). The gate's and CI's floors sat at 9 while the suites grew to 13, so removing the CLI suite left both
+# green. Derived from the sources, so a deleted registration fails the runtime floor and a floor left behind fails here;
+# adding a suite is a deliberate floor edit. Re-pointed by burndown/w8-packaging-ci-1: the floor has one copy now, in
+# tests\Invoke-ShimejiConvertChecks.ps1, which the gate, build.yml and release.yml all call (N-bd-w5-packaging-ci-1-02),
+# and the w8 block below holds it the only copy.
 $w6EngineCode = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'tools\ShimejiConvert.Engine\Shimeji\EngineSelfTest.cs') -Raw)
 $w6RunAll = Get-MethodBody $w6EngineCode 'public static bool RunAll(out string detail, out int ran)' @("`n        private ", "`n        internal ", "`n        public ")
 $w6CliCode = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'tools\ShimejiConvert\Program.cs') -Raw)
@@ -6220,12 +6223,11 @@ $w6CliSelfTest = Get-MethodBody $w6CliCode 'private static int SelfTest()' @("`n
 $w6EngineSuites = [regex]::Matches($w6RunAll, 'new \{ Name = "\w+", Run = \(SubTest\)\w+\.Run \}').Count
 $w6CliSuites = [regex]::Matches($w6CliSelfTest, '= \w+SelfTest\(out \w+\);\s*ran\+\+;').Count
 $w6Registered = $w6EngineSuites + $w6CliSuites
-$w6GateFloor = [regex]::Match((Remove-PsLineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'tests\run-gate.ps1') -Raw)), '(?m)^\s*\$shimejiSuiteFloor = (\d+)\s*$')
-$w6CiFloor = [regex]::Match([regex]::Replace((Get-Content -LiteralPath (Join-Path $repoRoot '.github\workflows\build.yml') -Raw), '(?m)^\s*#.*$', ''), '(?m)^\s*\$shimejiSuiteFloor = (\d+)\s*$')
-Assert-True ($w6EngineSuites -gt 0 -and $w6GateFloor.Success -and $w6CiFloor.Success) (
-    "w6-tests-scripts-1: the ShimejiConvert suite registrations and both suite floors were read (engine $w6EngineSuites, CLI $w6CliSuites)")
-Assert-True ($w6GateFloor.Success -and $w6CiFloor.Success -and [int]$w6GateFloor.Groups[1].Value -eq $w6Registered -and [int]$w6CiFloor.Groups[1].Value -eq $w6Registered) (
-    "w6-tests-scripts-1: ShimejiConvert suite floors equal the suites run, in the gate and in CI -- registered $w6Registered, gate $($w6GateFloor.Groups[1].Value), CI $($w6CiFloor.Groups[1].Value)")
+$w6RunnerFloor = [regex]::Match((Remove-PsLineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'tests\Invoke-ShimejiConvertChecks.ps1') -Raw)), '(?m)^\s*\$shimejiSuiteFloor = (\d+)\s*$')
+Assert-True ($w6EngineSuites -gt 0 -and $w6RunnerFloor.Success) (
+    "w6-tests-scripts-1: the ShimejiConvert suite registrations and the shared runner's suite floor were read (engine $w6EngineSuites, CLI $w6CliSuites)")
+Assert-True ($w6RunnerFloor.Success -and [int]$w6RunnerFloor.Groups[1].Value -eq $w6Registered) (
+    "w6-tests-scripts-1: the ShimejiConvert suite floor equals the suites run, in the runner the gate, CI and the release call -- registered $w6Registered, floor $($w6RunnerFloor.Groups[1].Value)")
 # ---- burndown/w5-converter-1 ----
 # N-bd-w2-docs-1-01: Pet Studio embeds the BSD-licensed base behaviour XML from the engine's base-conf folder, and
 # petstudio.zip is its output folder zipped (packaging/New-ModuleDistZip.ps1), so the project must copy that folder's
@@ -6390,6 +6392,51 @@ Assert-True (
     $w7h1FormCode -cmatch 'WindowTopHit underside = hwndWindow == \(IntPtr\)0 && Animations\.HasUndersideGrip\(CurrentAnimation\.ID\)\s*\?\s*RiseDetect\(y, ins\) : WindowTopHit\.None;' -and
     $w7h1FormCode -cnotmatch 'underside = hwndWindow == \(IntPtr\)0 \? RiseDetect'
 ) 'w7-host-1: the window-underside walk runs only for an animation that can hang from one'
+
+# ---- burndown/w8-packaging-ci-1 ----
+# THE RELEASE RUNS THE CHECKS THAT JUDGE SHIPPED BYTES, AND THE CONVERTER CHECKS HAVE ONE COPY (N-bd-w5-packaging-ci-1-02).
+# release.yml's test step ran neither Test-AgentBroker.ps1, the ShimejiConvert verify and selftest over Companions\, nor
+# companion-border-invariants.ps1, so a tag on a commit build.yml never ran published without them. The converter block sat
+# inline in the gate and in build.yml, so it became tests\Invoke-ShimejiConvertChecks.ps1 before release.yml could call it.
+# Asserted as the CONDITION: each name must be in the list literal of the foreach that INVOKES `& (Join-Path $PWD.Path
+# $checkScript)`, sliced from the comment-stripped test step above ($w2pTestStep), so a name in a comment or an echo
+# elsewhere in the step does not count. WITNESS: the slice holds a runner the step has always run.
+$w8pTestList = [regex]::Match($w2pTestStep, '(?s)foreach \(\$checkScript in @\(([^)]*)\)\) \{\s*try \{ & \(Join-Path \$PWD\.Path \$checkScript\) \}')
+$w8pListed = @(if ($w8pTestList.Success) { [regex]::Matches($w8pTestList.Groups[1].Value, "'([^']+)'") | ForEach-Object { $_.Groups[1].Value } })
+Assert-True ($w8pTestList.Success -and $w8pListed -ccontains 'tests\Test-ModuleSelfTests.ps1') (
+    "w8-packaging-ci-1: WITNESS the release test step's runner list was sliced from the loop that invokes it ($($w8pListed.Count) scripts)")
+$w8pMissing = @(@('tests\Test-AgentBroker.ps1', 'tests\Invoke-ShimejiConvertChecks.ps1', 'tests\companion-border-invariants.ps1') |
+    Where-Object { $w8pListed -cnotcontains $_ })
+Assert-True ($w8pListed.Count -gt 0 -and $w8pMissing.Count -eq 0) (
+    'w8-packaging-ci-1: the release runs the shipped-bytes checks: AgentBroker harnesses, converter checks, border invariants' +
+    $(if ($w8pMissing.Count) { ' -- not in its runner list: ' + ($w8pMissing -join ', ') } else { '' }))
+# build.yml's corpus step runs the shared runner as its whole body, with no if: or continue-on-error to skip or excuse it.
+$w8pBuildYml = (Get-Content -LiteralPath (Join-Path $repoRoot '.github\workflows\build.yml') -Raw) -replace '(?m)^[ \t]*#.*$', ''
+$w8pCorpusSteps = @([regex]::Split($w8pBuildYml, '(?m)^      - name:') | Select-Object -Skip 1 |
+    Where-Object { $_ -cmatch '\A Convert and verify the shipped companion corpus\r?\n' })
+Assert-True ($w8pCorpusSteps.Count -eq 1 -and
+    $w8pCorpusSteps[0] -cmatch '(?m)^        run: \.\\tests\\Invoke-ShimejiConvertChecks\.ps1[ \t]*\r?$' -and
+    $w8pCorpusSteps[0] -cnotmatch '(?m)^        (if|continue-on-error): ') (
+    "w8-packaging-ci-1: build.yml's corpus step runs the shared converter runner, unconditionally (step found $($w8pCorpusSteps.Count) time(s))")
+# The gate invokes it, collects its throw, and fails a run whose pass reported no suite count (ORDER: call, catch, guard),
+# because the summary prints that count and "0 suites" must never read as a green converter.
+$w8pGate = Remove-PsLineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'tests\run-gate.ps1') -Raw)
+$w8pGateCallAt = $w8pGate.IndexOf("foreach (`$line in @(& (Join-Path `$repoRoot 'tests\Invoke-ShimejiConvertChecks.ps1'))) {", [StringComparison]::Ordinal)
+$w8pGateCatchAt = $w8pGate.IndexOf("`$failures.Add('Invoke-ShimejiConvertChecks.ps1: ' + `$_.Exception.Message)", [StringComparison]::Ordinal)
+$w8pGateEmptyAt = $w8pGate.IndexOf("if (-not `$shimejiAborted -and `$shimejiSuiteCount -le 0) {", [StringComparison]::Ordinal)
+Assert-True ($w8pGateCallAt -ge 0 -and $w8pGateCatchAt -gt $w8pGateCallAt -and $w8pGateEmptyAt -gt $w8pGateCatchAt) (
+    "w8-packaging-ci-1: the gate calls the shared converter runner and fails on its throw or an empty count (call $w8pGateCallAt, catch $w8pGateCatchAt, guard $w8pGateEmptyAt)")
+# ONE COPY. The converter build, its exe and the suite floor appear in no caller's code: a second floor would be one the
+# w6-tests-scripts-1 check above no longer reads. WITNESS: the rule matches the runner itself, so it can see the shape.
+$w8pCopyRule = 'ShimejiConvert\.csproj|ShimejiConvert\.exe|\$shimejiSuiteFloor\s*='
+$w8pRunner = Remove-PsLineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'tests\Invoke-ShimejiConvertChecks.ps1') -Raw)
+$w8pCopies = @(foreach ($w8pCaller in @(@('tests\run-gate.ps1', $w8pGate), @('build.yml', $w8pBuildYml),
+                                       @('release.yml', ((Get-Content -LiteralPath (Join-Path $repoRoot '.github\workflows\release.yml') -Raw) -replace '(?m)^[ \t]*#.*$', '')))) {
+    if ($w8pCaller[1] -cmatch $w8pCopyRule) { $w8pCaller[0] }
+})
+Assert-True ($w8pRunner -cmatch $w8pCopyRule -and $w8pCopies.Count -eq 0) (
+    'w8-packaging-ci-1: the converter build, verbs and suite floor live only in the shared runner (WITNESS: the rule matches the runner)' +
+    $(if ($w8pCopies.Count) { ' -- an inline copy in: ' + ($w8pCopies -join ', ') } else { '' }))
 
 # LAST, and deliberately:this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that

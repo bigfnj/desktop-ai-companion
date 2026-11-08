@@ -95,7 +95,8 @@ try {
     # self-test runner names), a missing dotnet -- is a terminating ApplicationFailedException out of `&`
     # under the Stop above, and it left this try through its finally with no GATE FAILED summary and every
     # later section skipped (measured under 5.1 and 7.6 by the re-audit). Five native invocations had that
-    # shape: this build, the CoreTests run, the ShimejiConvert build and its two verbs; each now collects.
+    # shape: this build, the CoreTests run, the ShimejiConvert build and its two verbs; each now collects (the
+    # converter's three in tests\Invoke-ShimejiConvertChecks.ps1 since N-bd-w5-packaging-ci-1-02).
     $coreTestsBuilt = $false
     try {
         & dotnet build (Join-Path $repoRoot 'tests\DesktopAICompanion.CoreTests\DesktopAICompanion.CoreTests.csproj') `
@@ -339,80 +340,30 @@ try {
     }
     catch { $failures.Add('Test-ModuleSelfTests.ps1: ' + $_.Exception.Message) }
 
-    # The Shimeji converter's output half: grade every shipped pet with the app's REAL validator (via the
-    # source-linked ShimejiConvert.Engine) and round-trip it through the DTOs. This is the emitter's
-    # regression net -- it must stay all-valid and all-round-trip before any Shimeji-side parsing is trusted.
-    # Not built by build.ps1 (a dev/module-shared tool, not the one shipped product), so build it here.
+    # The Shimeji converter: build it, verify every shipped pet with the app's REAL validator and a DTO round trip, and
+    # run its selftest against the suite floor. ONE runner since N-bd-w5-packaging-ci-1-02, shared with build.yml's
+    # "Convert and verify the shipped companion corpus" step and release.yml's test step: this gate and build.yml each
+    # carried the block inline, and release.yml carried none of it. The runner collects its own failures and throws them
+    # together, collected here like the other .ps1 steps. Its one output line on a pass is the suite count, read for the
+    # summary below; the converter's own lines reach the log through Write-Host.
     Write-Host '=== shimeji converter (verify + selftest)' -ForegroundColor Cyan
-    $shimejiBuilt = $false
-    try {
-        & dotnet build (Join-Path $repoRoot 'tools\ShimejiConvert\ShimejiConvert.csproj') `
-            -c Release --nologo -v:minimal
-        $shimejiBuilt = ($LASTEXITCODE -eq 0)
-        if (-not $shimejiBuilt) { $failures.Add("ShimejiConvert build (exit $LASTEXITCODE)") }
-    }
-    catch { $failures.Add('ShimejiConvert build: ' + $_.Exception.Message) }
-    # Initialised ahead of the branch that sets it: the summary line reads it, and under Set-StrictMode
-    # an unassigned variable is a terminating error on the PASSING path only (the $CountPrefix lesson).
+    # Initialised ahead of the try that sets it: the summary line reads it, and under Set-StrictMode an unassigned
+    # variable is a terminating error on the PASSING path only (the $CountPrefix lesson).
     $shimejiSuiteCount = 0
-    if ($shimejiBuilt) {
-        $shimejiExe = Join-Path $repoRoot 'tools\ShimejiConvert\bin\Release\ShimejiConvert.exe'
-        if (-not (Test-Path -LiteralPath $shimejiExe)) {
-            $failures.Add('ShimejiConvert.exe missing after build')
+    $shimejiAborted = $false
+    try {
+        foreach ($line in @(& (Join-Path $repoRoot 'tests\Invoke-ShimejiConvertChecks.ps1'))) {
+            if ("$line" -like 'SHIMEJI-SUITE-COUNT:*') { $shimejiSuiteCount = [int]"$line".Substring('SHIMEJI-SUITE-COUNT: '.Length) }
         }
-        else {
-            # Output half: every shipped pet stays valid + round-trips.
-            try {
-                & $shimejiExe verify (Join-Path $repoRoot 'Companions')
-                if ($LASTEXITCODE -ne 0) { $failures.Add("ShimejiConvert verify (exit $LASTEXITCODE)") }
-            }
-            catch { $failures.Add('ShimejiConvert verify: ' + $_.Exception.Message) }
-            # Input half: the parser + Group 1/2/3 classifier, AND the bundled-conf census. Both run
-            # under `selftest` below -- BundledConfSelfTest asserts 91 actions as 54 Group1 / 31 Group2 /
-            # 6 Group3 against the BUNDLED conf, which is the gil/shimeji-ee reference set.
-            #
-            # This comment used to say the census "is a dev step -- that config is copyrighted and must
-            # not live in this repo", three lines above the call that runs it, and quoted the superseded
-            # 53/32/6 split. It moved to 54/31/6 on 2026-08-28 when ClimbWall stopped being reported as
-            # needing selfX/selfY. The code is the authority; see BundledConfSelfTest.cs:34.
-            #
-            # THE COUNT IS READ (N-deadcode-04). F452 made the CLI print `SELFTEST-COUNT: N` after the
-            # detail, the sentinel tests\Invoke-SelfTests.ps1 already emits, so that a deleted suite
-            # registration is a number that changed rather than a quieter PASS -- and then nothing read
-            # the number: this gate and build.yml checked the exit code alone, so a registration deleted
-            # from EngineSelfTest.RunAll still passed. The output is captured so the sentinel can be
-            # parsed and re-emitted line by line so the log keeps the detail; the exit code stays the
-            # verdict. stdout only, no 2>&1: under Windows PowerShell a native stderr line arriving
-            # through a redirect while $ErrorActionPreference is Stop is a terminating error (RA-346),
-            # and a stack trace on stderr is a nonzero exit the line above already reports.
-            #
-            # A FLOOR, pinned to the registrations RunAll carries today, and the pin is the point (the
-            # same stance as the hardening self-test's literal limits, F292): a registration deleted from
-            # RunAll fails here and has to be a deliberate edit of this number, and so does adding one (below).
-            # `-le 0` alone would only catch the sentinel going missing.
-            #
-            # 13 = RunAll's 12 registrations plus the CLI round-trip suite Program.SelfTest runs after them. It sat at
-            # 9 while the registrations grew to 13, so four suites could go, the CLI one among them (the only
-            # permanent killer of Verify's wiring), with this step green (N-bd-codex-converter-1-03). The hardening
-            # self-test now derives the registrations from the sources and holds this number and build.yml's equal
-            # to them, so adding a suite costs a deliberate edit here too: that is the price of the floor not
-            # drifting below what it guards again.
-            $shimejiSuiteFloor = 13
-            try {
-                $shimejiSelfTestOutput = @(& $shimejiExe selftest | ForEach-Object { "$_" })
-                $shimejiSelfTestExit = $LASTEXITCODE
-                foreach ($line in $shimejiSelfTestOutput) { Write-Host $line }
-                if ($shimejiSelfTestExit -ne 0) { $failures.Add("ShimejiConvert selftest (exit $shimejiSelfTestExit)") }
-                foreach ($line in $shimejiSelfTestOutput) {
-                    if ($line -like 'SELFTEST-COUNT:*') { $shimejiSuiteCount = [int]$line.Substring('SELFTEST-COUNT: '.Length) }
-                }
-                if ($shimejiSuiteCount -lt $shimejiSuiteFloor) {
-                    $failures.Add("ShimejiConvert selftest ran $shimejiSuiteCount suite(s), below the $shimejiSuiteFloor registered in EngineSelfTest.RunAll" +
-                        $(if ($shimejiSuiteCount -le 0) { ' (no SELFTEST-COUNT line at all: the suites did not run, or the sentinel moved)' } else { '; a registration was deleted, or this floor needs a deliberate edit' }))
-                }
-            }
-            catch { $failures.Add('ShimejiConvert selftest: ' + $_.Exception.Message) }
-        }
+    }
+    catch {
+        $shimejiAborted = $true
+        $failures.Add('Invoke-ShimejiConvertChecks.ps1: ' + $_.Exception.Message)
+    }
+    # A summary that can print "0 suites" would report a green converter over a runner that ran nothing, the same rule as
+    # the self-test count above. Not doubled up on a throw, which is already in the list with its cause.
+    if (-not $shimejiAborted -and $shimejiSuiteCount -le 0) {
+        $failures.Add('Invoke-ShimejiConvertChecks.ps1 reported no suite count, so the converter selftest did not run')
     }
 
     Write-Host ''

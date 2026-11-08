@@ -196,50 +196,14 @@ jobs:
       - name: Convert and verify the shipped companion corpus
         # The local gate runs these and CI did not, so a regression in the shipped Companions
         # corpus or in the Shimeji converter was invisible on every pull request.
+        #
+        # ONE runner (N-bd-w5-packaging-ci-1-02): tests\Invoke-ShimejiConvertChecks.ps1 builds the converter, runs
+        # `verify` over Companions\ and `selftest` against its suite floor, and throws its collected failures once,
+        # which fails this step. This step and tests\run-gate.ps1 each carried that block inline, with a floor apiece
+        # the hardening self-test had to hold equal, and release.yml's test step ran none of it; all three now call
+        # the runner, and the floor, the output-path assertion and the reasons for each live there.
         shell: pwsh
-        run: |
-          dotnet build tools\ShimejiConvert\ShimejiConvert.csproj -c Release --nologo -v:minimal
-          if ($LASTEXITCODE -ne 0) { throw 'ShimejiConvert build failed.' }
-          # No TFM folder: the csproj sets AppendTargetFrameworkToOutputPath=false and
-          # OutputPath=bin\Release\. The path here named bin\Release\net10.0-windows\, which has
-          # never existed, so this step could only ever fail to find the exe, and it was worse than
-          # that: $LASTEXITCODE still held 0 from the dotnet build above, so if pwsh's
-          # $ErrorActionPreference were not 'stop' on GitHub's runners, BOTH guards below would pass
-          # and the step would exit 0 having verified nothing. run-gate.ps1 has always had the path
-          # right, which is why the local gate caught corpus regressions and CI did not.
-          # Existence is asserted rather than assumed, so a future output-path change fails loudly.
-          $convert = 'tools\ShimejiConvert\bin\Release\ShimejiConvert.exe'
-          if (-not (Test-Path -LiteralPath $convert)) { throw "ShimejiConvert.exe missing after build: $convert" }
-          & $convert verify Companions
-          if ($LASTEXITCODE -ne 0) { throw 'ShimejiConvert verify failed.' }
-          # THE COUNT IS READ (N-deadcode-04), the way tests\run-gate.ps1 reads it. F452 made the CLI print
-          # `SELFTEST-COUNT: N` after the detail, the sentinel tests\Invoke-SelfTests.ps1 already emits, so
-          # that a registration deleted from EngineSelfTest.RunAll is a number that changed rather than a
-          # quieter PASS -- and then nothing read the number: this step checked the exit code alone, so a
-          # deleted registration still passed here. The output is captured so the sentinel can be parsed
-          # and re-emitted line by line so the log keeps the detail; the exit code stays the verdict.
-          # stdout only, no 2>&1, for parity with the gate (RA-346).
-          #
-          # A FLOOR, pinned to the registrations RunAll carries today, and the pin is the point: a
-          # registration deleted from RunAll fails here and has to be a deliberate edit of this number,
-          # and so does adding one. `-le 0` alone would only catch the sentinel going missing.
-          # 13 = RunAll's 12 registrations plus the CLI round-trip suite (N-bd-codex-converter-1-03); the
-          # hardening self-test holds this and tests\run-gate.ps1's floor equal to the registrations it counts.
-          $shimejiSuiteFloor = 13
-          $shimejiSuiteCount = 0
-          $shimejiSelfTestOutput = @(& $convert selftest | ForEach-Object { "$_" })
-          $shimejiSelfTestExit = $LASTEXITCODE
-          foreach ($line in $shimejiSelfTestOutput) { Write-Host $line }
-          if ($shimejiSelfTestExit -ne 0) { throw "ShimejiConvert selftest failed (exit $shimejiSelfTestExit)." }
-          foreach ($line in $shimejiSelfTestOutput) {
-            if ($line -like 'SELFTEST-COUNT:*') { $shimejiSuiteCount = [int]$line.Substring('SELFTEST-COUNT: '.Length) }
-          }
-          if ($shimejiSuiteCount -lt $shimejiSuiteFloor) {
-            throw ("ShimejiConvert selftest ran $shimejiSuiteCount suite(s), below the $shimejiSuiteFloor registered in " +
-              "EngineSelfTest.RunAll (N-deadcode-04)" +
-              $(if ($shimejiSuiteCount -le 0) { ': no SELFTEST-COUNT line at all, so the suites did not run or the sentinel moved.' }
-                else { ': a registration was deleted, or this floor needs a deliberate edit.' }))
-          }
+        run: .\tests\Invoke-ShimejiConvertChecks.ps1
 
       - name: Check the backlog's machine-checkable closing criteria
         # run-gate.ps1 has called this since it was written and CI never did, so the two gate
