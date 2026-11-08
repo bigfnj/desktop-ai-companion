@@ -127,10 +127,14 @@ New or migrated packs must use v2.
 - `build-corpus.sh` is a pure assembler of labeled schema-v2 rows that already live in the
   repository. Each source id in `corpus-required-files.txt` resolves to `sources/<id>.tsv` beside
   it, else to `packs/<id>.txt` at the repository root; an id with neither fails instead of
-  silently shrinking the corpus. Every input row must be valid UTF-8 with six fields, a source column
-  equal to its id, and text the module would load: HTML-decoded and trimmed as the module does it, then
-  8 to 280 user-perceived characters with no control character (a perl check that counts as the
-  module counts; one row the module refuses would empty the whole embedded corpus). Rows are
+  silently shrinking the corpus. Every input row must be valid UTF-8 with six fields, a line no longer
+  than the module's line cap in UTF-16 code units, a source column equal to its id and within the
+  module's source length, a level, topic and genre from the module's sets, a profanity flag of `0` or
+  `1`, and text the module would load: HTML-decoded and trimmed as the module does it, then 8 to 280
+  user-perceived characters with no control character (a perl check that counts as the module counts;
+  one row the module refuses would empty the whole embedded corpus). The sets and the two limits are
+  read from `modules/Fortunes/engine/FortuneProvider.cs` itself, and a shape the builder cannot read
+  stops the build. Rows are
   deduplicated on text (manifest order keeps the first), sorted under the C locale by source then text, staged beside `fortunes.txt` and renamed
   onto it. It reads no upstream checkout and writes no sidecar.
 - **Current-corpus provenance status:** the checked-in `fortunes.txt` is reproduced byte for byte

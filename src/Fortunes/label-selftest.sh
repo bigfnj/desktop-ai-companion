@@ -485,6 +485,12 @@ build_root="$fixture/build"
 build_fort="$build_root/src/Fortunes"
 mkdir -p -- "$build_fort/sources" "$build_root/packs"
 cp -- "$SOURCE_DIR/build-corpus.sh" "$build_fort/"
+# The builder reads the module's sets and limits from the module's source (N-bd-w8-fortunes-1-01), so the fixture
+# carries the real file: every row below is judged by the rule the module ships with.
+rule_copy="$build_root/modules/Fortunes/engine/FortuneProvider.cs"
+mkdir -p -- "${rule_copy%/*}"
+cp -- "$SOURCE_DIR/../../modules/Fortunes/engine/FortuneProvider.cs" "$rule_copy"
+cp -- "$rule_copy" "$fixture/rule-original.cs"
 printf 'prior\tgeneral\tgeneral\t0\t0\tPreserve this prior output.\n' > "$build_fort/fortunes.txt"
 before_build="$(sha256_file "$build_fort/fortunes.txt")"
 build_preserved() {
@@ -507,21 +513,23 @@ build_preserved
 
 # Inputs at both resolution paths: a primary source beside the builder and a downloadable pack.
 printf 'alpha\nbeta\n' > "$build_fort/corpus-required-files.txt"
-printf 'alpha\ttech\tquip\t0\t0\tA durable scratch fortune.\nalpha\tlife\tdark\t1\t0\tA second scratch fortune.\n' \
+# Every level and both profanity flags appear, so a builder that refuses one of them fails the clean build below.
+# (These rows used to carry a level of "0" or "1" and a topic of "facts", none of which the module loads.)
+printf 'alpha\ttech\tquip\tgeneral\t0\tA durable scratch fortune.\nalpha\tlife\tdark\tedgy\t1\tA second scratch fortune.\n' \
   > "$build_fort/sources/alpha.tsv"
-printf 'beta\tfacts\tgeneral\t0\t0\tA durable scratch fortune.\nbeta\tfacts\tgeneral\t0\t0\tA pack-only fortune line.\n' \
+printf 'beta\tscience\tfact\tgeneral\t0\tA durable scratch fortune.\nbeta\thealth-body\tuplifting\tnsfw\t0\tA pack-only fortune line.\n' \
   > "$build_root/packs/beta.txt"
 cp -- "$build_fort/sources/alpha.tsv" "$fixture/clean-alpha.tsv"
 
 # Row validation refuses before anything is combined: a short row, a source column that disagrees
 # with its file, and a text outside the 8..280 bound.
-printf 'alpha\ttech\tquip\t0\tFive fields only.\n' > "$build_fort/sources/alpha.tsv"
+printf 'alpha\ttech\tquip\tgeneral\tFive fields only.\n' > "$build_fort/sources/alpha.tsv"
 expect_failure_matching "expected 6 tab-separated fields" bash "$build_fort/build-corpus.sh"
 build_preserved
-printf 'gamma\ttech\tquip\t0\t0\tA row filed under the wrong source.\n' > "$build_fort/sources/alpha.tsv"
+printf 'gamma\ttech\tquip\tgeneral\t0\tA row filed under the wrong source.\n' > "$build_fort/sources/alpha.tsv"
 expect_failure_matching 'source column is "gamma"' bash "$build_fort/build-corpus.sh"
 build_preserved
-printf 'alpha\ttech\tquip\t0\t0\tshort\n' > "$build_fort/sources/alpha.tsv"
+printf 'alpha\ttech\tquip\tgeneral\t0\tshort\n' > "$build_fort/sources/alpha.tsv"
 expect_failure_matching "text length 5 outside 8..280" bash "$build_fort/build-corpus.sh"
 build_preserved
 
@@ -536,11 +544,13 @@ cjk='\344\275\240'
 emoji='\360\237\230\200'
 flag='\360\237\207\257\360\237\207\265'
 kvs='\340\244\225\340\245\215\340\244\267'
-# $1: the text column, as a printf format; $2: the refusal it must draw; $3: the step of the rule the row
-# pins, named when the builder admits the row, so a failure says which step went.
-refuse_text() {
+# refuse_row's $1: the row after "alpha<TAB>", as a printf format; refuse_text's $1: the text column alone. $2: the
+# refusal it must draw; $3: the step of the rule the row pins, named when the builder admits the row, so a failure
+# says which step went.
+refuse_text() { refuse_row "tech\tquip\tgeneral\t0\t$1" "$2" "$3"; }
+refuse_row() {
   local output
-  printf "alpha\ttech\tquip\t0\t0\t$1\n" > "$build_fort/sources/alpha.tsv"
+  printf "alpha\t$1\n" > "$build_fort/sources/alpha.tsv"
   if output="$(bash "$build_fort/build-corpus.sh" 2>&1)"; then
     printf 'build-corpus admitted a row the module refuses: %s\n' "$3" >&2
     exit 1
@@ -560,25 +570,88 @@ refuse_text 'abc&amp;#x200B;&amp;#x200B;&amp;#x200B;&amp;#x200B;&amp;#x200B;' "t
 refuse_text '&nbsp;&nbsp;&nbsp;short' "text length 5 outside 8..280" "escaped no-break spaces, trimmed after decoding"
 refuse_text 'A tab&#9;hides inside this fortune text.' "text holds a control character" "an escaped tab"
 refuse_text 'Not UTF-8 at all: \377 is a stray byte.' "not valid UTF-8" "a stray byte"
+
+# The rest of the module's row rule (N-bd-w8-fortunes-1-01): TryParseCurrentRow refuses a level, topic or genre
+# outside FortuneTaxonomy's sets (ordinal, so case counts) and a profanity flag other than 0 or 1, and
+# TryParseTaggedContent a line over MaximumTaggedLineCharacters, counted in UTF-16 code units. The builder checked
+# none of them, so every row below passed it and would have emptied the embedded corpus at load. U+1F44D U+1F3FD
+# (a thumbs-up with a skin tone, one character) is \360\237\221\215\360\237\217\275: four code units, so 260 of
+# them make a line of 546 code points and 1066 code units. The padding is a twice-escaped zero-width space, which
+# the module decodes and drops, so it lengthens the line and not the text: 81 of them and a 26-character text
+# make a line of exactly 1024 code units after the 26 of "alpha<TAB>tech<TAB>quip<TAB>general<TAB>0<TAB>".
+thumb='\360\237\221\215\360\237\217\275'
+zw81="$(printf '&amp;#x200B;%.0s' $(seq 1 81))"
+refuse_row 'Tech\tquip\tgeneral\t0\tA topic spelled in the wrong case.' 'unknown topic "Tech"' "a topic outside the set, by case"
+refuse_row 'tech\tpuns\tgeneral\t0\tA genre the module does not have.' 'unknown genre "puns"' "a genre outside the set"
+refuse_row 'tech\tquip\tspicy\t0\tA level the module does not have.' 'unknown level "spicy"' "a level outside the set"
+refuse_row 'tech\tquip\tgeneral\t2\tA flag that is neither 0 nor 1.' 'profanity flag is "2"' "a profanity flag of 2"
+refuse_row 'tech\tquip\tgeneral\t01\tA flag with a leading zero.' 'profanity flag is "01"' "a profanity flag of 01"
+refuse_text "$(printf "$thumb%.0s" $(seq 1 260))" "line is 1066 UTF-16 code units, over the module limit of 1024" \
+  "a line of 546 code points and 1066 UTF-16 code units"
+refuse_text "A line a unit over the cap.$zw81" "line is 1025 UTF-16 code units" "a line one code unit over the cap"
+# A source one character over MaximumSourceCharacters (the manifest grammar keeps an id ASCII).
+long_id="$(printf 'a%.0s' $(seq 1 129))"
+printf '%s\n' "$long_id" > "$build_fort/corpus-required-files.txt"
+printf '%s\ttech\tquip\tgeneral\t0\tA source id one character too long.\n' "$long_id" > "$build_fort/sources/$long_id.tsv"
+expect_failure_matching "source is 129 characters, over the module limit of 128" bash "$build_fort/build-corpus.sh"
+build_preserved
+rm -f -- "$build_fort/sources/$long_id.tsv"
+printf 'alpha\nbeta\n' > "$build_fort/corpus-required-files.txt"
+
+# The sets and limits are read from the module's source, and what cannot be read stops the build: a missing source,
+# a set or limit in another shape, declared twice, or holding something other than plain literals (a block comment
+# around a member included). A member commented out with // is not a member. $1: a perl substitution that makes the
+# fixture's copy of the source from the original; $2: what the build must say.
+refuse_rule() {
+  perl -0pe "$1" -- "$fixture/rule-original.cs" > "$rule_copy"
+  if cmp -s "$fixture/rule-original.cs" "$rule_copy"; then
+    printf 'the substitution changed nothing in the module source: %s\n' "$1" >&2
+    exit 1
+  fi
+  expect_failure_matching "$2" bash "$build_fort/build-corpus.sh"
+  build_preserved
+}
+printf 'alpha\ttech\tquip\tgeneral\t0\tA row for the rule checks.\n' > "$build_fort/sources/alpha.tsv"
+rm -f -- "$rule_copy"
+expect_failure_matching "cannot read the module's row rule from" bash "$build_fort/build-corpus.sh"
+build_preserved
+refuse_rule 's/TopicSet = new HashSet<string>\(/TopicSet = BuildSet(/' "cannot read TopicSet in the shape"
+refuse_rule 's/\z/\nstatic class Twin { static readonly HashSet<string> GenreSet = new HashSet<string>(new[] { "x" }); }\n/' \
+  "cannot read GenreSet in the shape"
+refuse_rule 's/"life" \}/"life", \/* "animals", *\/ }/' "cannot read TopicSet in the shape"
+refuse_rule 's/(const int MaximumSourceCharacters = )128;/${1}MaxSource;/' "cannot read MaximumSourceCharacters in the shape"
+perl -0pe 's/"life" \}/"life", \/\/ "animals",\n }/' -- "$fixture/rule-original.cs" > "$rule_copy"
+grep -Fq '"life", // "animals",' "$rule_copy" || { echo "the commented member never reached the module source copy" >&2; exit 1; }
+refuse_row 'animals\tquip\tgeneral\t0\tA topic the module has only in a comment.' 'unknown topic "animals"' \
+  "a set member commented out with //"
+cp -- "$fixture/rule-original.cs" "$rule_copy"
+
 # WITNESS: rows the module loads. 100 ideographs are 300 bytes and 100 characters, which the old check
 # refused; four conjuncts are eight characters to .NET 10, which has no Unicode 15.1 conjunct rule,
-# while perl's own \X makes them one.
-printf "alpha\ttech\tquip\t0\t0\t%s\nalpha\ttech\tquip\t0\t0\t$kvs$kvs$kvs$kvs\n" \
-  "$(printf "$cjk%.0s" $(seq 1 100))" > "$build_fort/sources/alpha.tsv"
+# while perl's own \X makes them one. A line of exactly 1024 code units and a source of exactly 128 characters sit
+# on the module's limits, which refuse only what is longer.
+id128="$(printf 'a%.0s' $(seq 1 128))"
+printf 'alpha\nbeta\n%s\n' "$id128" > "$build_fort/corpus-required-files.txt"
+printf '%s\ttech\tquip\tgeneral\t0\tA source id exactly at its limit.\n' "$id128" > "$build_fort/sources/$id128.tsv"
+printf "alpha\ttech\tquip\tgeneral\t0\t%s\nalpha\ttech\tquip\tgeneral\t0\t$kvs$kvs$kvs$kvs\nalpha\ttech\tquip\tgeneral\t0\t%s\n" \
+  "$(printf "$cjk%.0s" $(seq 1 100))" "A line exactly at the cap.$zw81" > "$build_fort/sources/alpha.tsv"
 if ! (cd / && bash "$build_fort/build-corpus.sh") >/dev/null 2>&1 ||
-   [ "$(grep -c '^alpha' "$build_fort/fortunes.txt")" != 2 ]; then
-  echo "build-corpus refused a row the module loads (100 ideographs, or four conjuncts)" >&2
+   [ "$(grep -c '^alpha' "$build_fort/fortunes.txt")" != 3 ] ||
+   [ "$(grep -c "^$id128" "$build_fort/fortunes.txt")" != 1 ]; then
+  echo "build-corpus refused a row the module loads (100 ideographs, four conjuncts, a 1024-unit line or a 128-character source)" >&2
   exit 1
 fi
+rm -f -- "$build_fort/sources/$id128.tsv"
+printf 'alpha\nbeta\n' > "$build_fort/corpus-required-files.txt"
 cp -- "$fixture/clean-alpha.tsv" "$build_fort/sources/alpha.tsv"
 
 # A clean build: four input rows, one text shared by alpha and beta, so three rows come out, the
 # duplicate resolved in manifest order (alpha keeps it), sorted C-locale by source then text.
 (cd / && bash "$build_fort/build-corpus.sh") >/dev/null
-grep -Fqx $'alpha\ttech\tquip\t0\t0\tA durable scratch fortune.' "$build_fort/fortunes.txt"
+grep -Fqx $'alpha\ttech\tquip\tgeneral\t0\tA durable scratch fortune.' "$build_fort/fortunes.txt"
 # An `if`, not a bare `! grep`: set -e ignores a negated command, so that form could never stop the script
 # (N-audit-1106-141). Ahead of the row counts so a kept duplicate is reported as itself.
-if grep -Fq $'beta\tfacts\tgeneral\t0\t0\tA durable scratch fortune.' "$build_fort/fortunes.txt"; then
+if grep -Fq $'beta\tscience\tfact\tgeneral\t0\tA durable scratch fortune.' "$build_fort/fortunes.txt"; then
   echo "build-corpus kept beta's copy of a text alpha already supplies" >&2
   exit 1
 fi
@@ -590,7 +663,7 @@ expect_no_match "$build_fort" '.build-corpus.*'
 # to compare against a missing one.
 (cd / && bash "$build_fort/build-corpus.sh" --check) | grep -Fq 'OK: fortunes.txt matches its 2 input source(s), 3 rows.'
 built_hash="$(sha256_file "$build_fort/fortunes.txt")"
-printf 'beta\tfacts\tgeneral\t0\t0\tA row added by hand.\n' >> "$build_fort/fortunes.txt"
+printf 'beta\tscience\tfact\tgeneral\t0\tA row added by hand.\n' >> "$build_fort/fortunes.txt"
 drifted_hash="$(sha256_file "$build_fort/fortunes.txt")"
 expect_failure_matching "STALE: " bash "$build_fort/build-corpus.sh" --check
 [ "$(sha256_file "$build_fort/fortunes.txt")" = "$drifted_hash" ]
