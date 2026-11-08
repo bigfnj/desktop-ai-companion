@@ -10,6 +10,100 @@ namespace DesktopAICompanion.Shimeji
     internal sealed class TickCantBeAliveException : Exception
     {
         public TickCantBeAliveException(string message) : base(message) { }
+
+        /// <summary>Thrown where a typed cause arises: <paramref name="cause"/> rides the exception to whichever wrapper
+        /// catches it, so the wrapper reports the cause the failed lookup or read formed and never forms one itself.</summary>
+        public TickCantBeAliveException(string message, TickFaultCause cause) : base(message) { Cause = cause; }
+
+        /// <summary>The typed cause (CONTRACT 10.3.2), or null: unclassified.</summary>
+        public readonly TickFaultCause Cause;
+    }
+
+    /// <summary>
+    /// CONTRACT 10.3.2 and 10.3.3: a fault's typed cause, formed only where the cause arises (the failed lookup or read)
+    /// from operands already stored at that site: the member searched and the name it was asked for, or the failing
+    /// action's own refKey (its actionStack entry) and the parameter it read. Nothing is evaluated again to form one,
+    /// and no message is ever read to choose a code. Each factory answers null when an operand is not available (an
+    /// action with no refKey: a pack run without a parity map, as the product runs), and null is reported as
+    /// <c>unclassified</c> with a null lookup. Requested names are taken as the runtime looked them up, before any
+    /// <c>?? ""</c>: "", " " and null stay three operands (CH6).
+    /// </summary>
+    internal sealed class TickFaultCause
+    {
+        public const string BehaviorMissing = "behavior-missing";
+        public const string ActionMissing = "action-missing";
+        public const string VariantMissing = "variant-missing";
+        public const string ParameterInvalid = "parameter-invalid";
+        public const string ScanTargetMissing = "scan-target-missing";
+        public const string Unclassified = "unclassified";
+
+        public readonly string Code;
+        public readonly string ImageSet;
+        public readonly string Behavior;
+        public readonly string Action;
+        public readonly string RefKey;
+        public readonly string Parameter;
+
+        private TickFaultCause(string code, string imageSet, string behavior, string action, string refKey, string parameter)
+        {
+            Code = code;
+            ImageSet = imageSet;
+            Behavior = behavior;
+            Action = action;
+            RefKey = refKey;
+            Parameter = parameter;
+        }
+
+        /// <summary>A behaviour <paramref name="requested"/> by name is not a root behaviour of <paramref name="searched"/>,
+        /// the member whose configuration was searched (a birth's child after the BornMascot fallback, a Transform's
+        /// target, an arrival target's own member).</summary>
+        public static TickFaultCause OfMissingBehaviour(TickType searched, string requested)
+        {
+            if (searched == null || string.IsNullOrEmpty(searched.Name)) return null;
+            return new TickFaultCause(BehaviorMissing, searched.Name, requested, null, null, null);
+        }
+
+        /// <summary>An action <paramref name="requested"/> by name that <paramref name="searched"/> does not declare.</summary>
+        public static TickFaultCause OfMissingAction(TickType searched, string requested)
+        {
+            if (searched == null || string.IsNullOrEmpty(searched.Name)) return null;
+            return new TickFaultCause(ActionMissing, searched.Name, null, requested, null, null);
+        }
+
+        /// <summary>An initialised action with no variant it can play, named by its own stored refKey.</summary>
+        public static TickFaultCause OfMissingVariant(TickAction action)
+        {
+            return action == null || string.IsNullOrEmpty(action.RefKey) ? null : new TickFaultCause(VariantMissing, null, null, null, action.RefKey, null);
+        }
+
+        /// <summary>A parameter or guard attribute an initialised action read: <paramref name="parameter"/> is the host's
+        /// name for a built-in, which is the source schema's canonical key. A synthetic lowering parameter is never passed
+        /// here (its read reports unclassified, CH8).</summary>
+        public static TickFaultCause OfParameter(TickAction action, string parameter)
+        {
+            if (action == null || string.IsNullOrEmpty(action.RefKey) || string.IsNullOrEmpty(parameter)) return null;
+            return new TickFaultCause(ParameterInvalid, null, null, null, action.RefKey, parameter);
+        }
+
+        /// <summary>An initialised action that needs its scan target and has none.</summary>
+        public static TickFaultCause OfMissingScanTarget(TickAction action)
+        {
+            return action == null || string.IsNullOrEmpty(action.RefKey) ? null : new TickFaultCause(ScanTargetMissing, null, null, null, action.RefKey, null);
+        }
+    }
+
+    /// <summary>CONTRACT 10.3.4's closed wrapper vocabulary: the seven sites that catch a fault and choose its consequence.
+    /// A fault the companion's step catches, or one reported where it arises, has no wrapper (null, written <c>[]</c>).
+    /// No wrapper rethrows, so a fault carries at most one (C.2 H10).</summary>
+    internal static class TickFaultVia
+    {
+        public const string Startup = "startup";
+        public const string Press = "press";
+        public const string Release = "release";
+        public const string Birth = "birth";
+        public const string Transform = "transform";
+        public const string Arrive = "arrive";
+        public const string Interact = "interact";
     }
 
     /// <summary>One random stream for the whole world. The world names each draw's site when it logs it.</summary>
@@ -42,7 +136,12 @@ namespace DesktopAICompanion.Shimeji
         void DisposeRequested(TickMascot mascot, string reason);
         void Disposed(TickMascot mascot);
         void RandomDrawn(TickMascot mascot, string site, double value, string purpose);
-        void Fault(TickMascot mascot, string message);
+
+        /// <summary>A fault: <paramref name="message"/> in the engine's own words (the product log and its throttle read
+        /// it); <paramref name="cause"/> the typed cause formed where it arose, or null for unclassified; <paramref
+        /// name="via"/> the wrapper that caught it (<see cref="TickFaultVia"/>), or null when the step caught it or it was
+        /// reported where it arose.</summary>
+        void Fault(TickMascot mascot, string message, TickFaultCause cause, string via);
 
         /// <summary>Mute ran: a named clip to stop, or null for every clip (CONTRACT event `mute`).</summary>
         void Muted(TickMascot mascot, string clip);
@@ -264,7 +363,9 @@ namespace DesktopAICompanion.Shimeji
             return _world.Draw(_mascot, "script:" + _mascot.Type.Name + "#" + (_attribute ?? "?") + "#" + k, "script");
         }
 
-        public void ReportFault(string source, string message) { _world.ReportFault(_mascot, message + " in '" + source + "'"); }
+        // A script's own fault (a parameter that refers to itself, a script error) has no typed cause: the context does not
+        // know which action or parameter is being read, so it is unclassified, reported where it arises.
+        public void ReportFault(string source, string message) { _world.ReportFault(_mascot, message + " in '" + source + "'", null, null); }
 
         private ITickBorder Resolve(ScriptBorderId border)
         {
@@ -454,13 +555,15 @@ namespace DesktopAICompanion.Shimeji
 
         protected bool VariantHolds(TickVariantDef v)
         {
-            return v.When == null || Truth(Context.Evaluate(v.When, "variant"), "variant condition");
+            // A variant's condition is no authored parameter: a scripted one is the converter's synthetic
+            // AnimationCondition<n>, a literal one a selection condition, so its fault is unclassified (CONTRACT 10.3.3, CH8).
+            return v.When == null || Truth(Context.Evaluate(v.When, "variant"), "variant condition", null);
         }
 
         /// <summary>Animation.next: the pose for this action age moves the companion and sets its image.</summary>
         protected void PlayPose(TickVariantDef variant)
         {
-            if (variant == null) throw new TickCantBeAliveException("action '" + Name + "' has no variant whose condition holds");
+            if (variant == null) throw new TickCantBeAliveException("action '" + Name + "' has no variant whose condition holds", TickFaultCause.OfMissingVariant(this));
             TickPoseDef pose = variant.PoseAt(Time);
             Mascot.ApplyPose(pose, OwnerType);
         }
@@ -480,16 +583,18 @@ namespace DesktopAICompanion.Shimeji
         protected internal bool EvalBool(string name, ScriptProgram guard, bool fallback)
         {
             if (!Present(name, guard)) return fallback;
-            return Truth(Read(name, guard), name);
+            return Truth(Read(name, guard), name, name);
         }
 
+        // A read that is not of the required type is parameter-invalid where it arises (via []), named by this action's
+        // stored refKey and the built-in's canonical key, which is the name read here.
         protected internal int EvalInt(string name, ScriptProgram guard, int fallback)
         {
             if (!Present(name, guard)) return fallback;
             ScriptValue v = Read(name, guard);
             if (v.Kind != ScriptValueKind.Number)
             {
-                World.ReportFault(Mascot, Name + ": " + name + " is not a number (" + v.ToDisplayString() + ")");
+                World.ReportFault(Mascot, Name + ": " + name + " is not a number (" + v.ToDisplayString() + ")", TickFaultCause.OfParameter(this, name), null);
                 if (v.Kind == ScriptValueKind.Null) return fallback;
             }
             return TickScriptContext.JavaInt(v.ToNumber());
@@ -504,7 +609,7 @@ namespace DesktopAICompanion.Shimeji
             ScriptValue v = Read(name, null);
             if (v.Kind != ScriptValueKind.Number)
             {
-                World.ReportFault(Mascot, Name + ": " + name + " is not a number (" + v.ToDisplayString() + ")");
+                World.ReportFault(Mascot, Name + ": " + name + " is not a number (" + v.ToDisplayString() + ")", TickFaultCause.OfParameter(this, name), null);
                 if (v.Kind == ScriptValueKind.Null) return fallback;
             }
             return v.ToNumber();
@@ -517,12 +622,15 @@ namespace DesktopAICompanion.Shimeji
             return v.Kind == ScriptValueKind.Null ? null : v.ToDisplayString();
         }
 
-        protected bool Truth(ScriptValue v, string what)
+        /// <param name="parameter">The authored parameter read, typed parameter-invalid when it is not a boolean; null for
+        /// a read that names no authored parameter (a variant condition), which is unclassified.</param>
+        protected bool Truth(ScriptValue v, string what, string parameter)
         {
             if (v.Kind == ScriptValueKind.Boolean) return v.Number != 0;
             // The source casts to Boolean and a non-boolean ends the companion; the engine reports it and reads the
             // value's truth instead (recorded as approximate where a converted pack depends on it).
-            World.ReportFault(Mascot, Name + ": " + what + " is not a boolean (" + v.ToDisplayString() + ")");
+            World.ReportFault(Mascot, Name + ": " + what + " is not a boolean (" + v.ToDisplayString() + ")",
+                parameter == null ? null : TickFaultCause.OfParameter(this, parameter), null);
             return v.IsTruthy;
         }
     }
@@ -650,7 +758,7 @@ namespace DesktopAICompanion.Shimeji
         private int TurnDuration()
         {
             TickVariantDef v = CurrentVariant();
-            if (v == null) throw new TickCantBeAliveException("action '" + Name + "' has no variant for turning=" + _turning);
+            if (v == null) throw new TickCantBeAliveException("action '" + Name + "' has no variant for turning=" + _turning, TickFaultCause.OfMissingVariant(this));
             return v.Duration;
         }
 
@@ -725,7 +833,7 @@ namespace DesktopAICompanion.Shimeji
                 if (Children[Current].HasNext()) break;
                 if (++guard > Children.Length * 2 + 2)
                 {
-                    World.ReportFault(Mascot, Name + ": a looping sequence whose children all end at once");
+                    World.ReportFault(Mascot, Name + ": a looping sequence whose children all end at once", null, null);
                     Current = Children.Length;
                     break;
                 }
@@ -857,18 +965,19 @@ namespace DesktopAICompanion.Shimeji
             int interval = _action.EvalInt("BornInterval", 1);
             // Java's int remainder by 0 throws ArithmeticException, which nothing in the source catches. Init refuses
             // an interval below 1, so only a script that later yields 0 gets here; the companion ends (recorded divergence).
-            if (interval == 0) throw new TickCantBeAliveException(_action.Name + ": BornInterval became 0");
+            if (interval == 0) throw new TickCantBeAliveException(_action.Name + ": BornInterval became 0", TickFaultCause.OfParameter(_action, "BornInterval"));
             return _action.Time % interval == 0;
         }
 
+        // Outside the range Breed accepts: parameter-invalid, named by the breeding action's refKey and the key it read.
         public void ValidateBornCount()
         {
-            if (_action.EvalInt("BornCount", 1) < 1) throw new TickCantBeAliveException(_action.Name + ": BornCount must be positive");
+            if (_action.EvalInt("BornCount", 1) < 1) throw new TickCantBeAliveException(_action.Name + ": BornCount must be positive", TickFaultCause.OfParameter(_action, "BornCount"));
         }
 
         public void ValidateBornInterval()
         {
-            if (_action.EvalInt("BornInterval", 1) < 1) throw new TickCantBeAliveException(_action.Name + ": BornInterval must be positive");
+            if (_action.EvalInt("BornInterval", 1) < 1) throw new TickCantBeAliveException(_action.Name + ": BornInterval must be positive", TickFaultCause.OfParameter(_action, "BornInterval"));
         }
 
         /// <summary>breed: BornCount children of BornMascot (else the parent's type), placed from the parent's anchor.</summary>
@@ -904,8 +1013,10 @@ namespace DesktopAICompanion.Shimeji
                 catch (TickCantBeAliveException e)
                 {
                     // The source shows the error first and then disposes the child it made (Breed.java:104-105,
-                    // :110-111), so the fault is reported before the refusal, as the oracle's trace has them.
-                    _world.ReportFault(parent, "a birth failed: " + e.Message);
+                    // :110-111), so the fault is reported before the refusal, as the oracle's trace has them. It is the
+                    // birth wrapper's (CONTRACT 10.3.4), with the cause the failed lookup formed: a blank or unknown
+                    // BornBehavior is behavior-missing in the CHILD's member, which the lookup searched.
+                    _world.ReportFault(parent, "a birth failed: " + e.Message, e.Cause, TickFaultVia.Birth);
                     _world.Observer.BirthRefused(parent, attempt, "error");
                     continue;
                 }
@@ -1255,15 +1366,17 @@ namespace DesktopAICompanion.Shimeji
             }
             catch (TickCantBeAliveException e)
             {
-                _world.ReportFault(this, e.Message);
+                // The step itself caught it: no wrapper (CONTRACT 10.3.4, via []).
+                _world.ReportFault(this, e.Message, e.Cause, null);
                 Dispose("error");
             }
             catch (Exception e)
             {
                 // Anything else is a fault the source would have died of too (a null Affordance at ActionBase.java:95,
                 // a cast): this companion ends, reported, and the step goes on for the rest. Escaping here would leave
-                // the step half done and, in the app, throw out of the tick timer.
-                _world.ReportFault(this, "internal fault: " + e.GetType().Name + ": " + e.Message);
+                // the step half done and, in the app, throw out of the tick timer. Not the host's own fault class, so it
+                // carries no typed cause: unclassified, never typed from its message (CH9).
+                _world.ReportFault(this, "internal fault: " + e.GetType().Name + ": " + e.Message, null, null);
                 Dispose("error");
             }
             Time++;
@@ -1382,9 +1495,11 @@ namespace DesktopAICompanion.Shimeji
             {
                 // Main.createMascot catches a first behaviour that cannot be built (a missing name, a class that refuses
                 // its definition), shows the error and disposes the mascot, which never joins the manager. Same here:
-                // reported, disposed, not added; the caller sees Disposing.
-                ReportFault(m, (e is TickCantBeAliveException ? "" : "internal fault: " + e.GetType().Name + ": ")
-                    + "the first behaviour could not be built: " + e.Message);
+                // reported, disposed, not added; the caller sees Disposing. The startup wrapper's (CONTRACT 10.3.4): the
+                // host's own fault class carries the cause it was thrown with, anything else is unclassified.
+                var own = e as TickCantBeAliveException;
+                ReportFault(m, (own != null ? "" : "internal fault: " + e.GetType().Name + ": ")
+                    + "the first behaviour could not be built: " + e.Message, own == null ? null : own.Cause, TickFaultVia.Startup);
                 m.Dispose("error");
                 return m;
             }
@@ -1471,15 +1586,17 @@ namespace DesktopAICompanion.Shimeji
         public void Press(TickMascot mascot, TickPoint local)
         {
             if (!mascot.Animating || mascot.Behaviour == null) return;
+            // The press wrapper (CONTRACT 10.3.4). Any other exception escapes the step as it always has: the run ends in
+            // error and no error event is written (agreed with the oracle side, Part E of the signed text).
             try { mascot.Behaviour.MousePressed(local); }
-            catch (TickCantBeAliveException e) { ReportFault(mascot, e.Message); mascot.Dispose("error"); }
+            catch (TickCantBeAliveException e) { ReportFault(mascot, e.Message, e.Cause, TickFaultVia.Press); mascot.Dispose("error"); }
         }
 
         public void Release(TickMascot mascot)
         {
             if (!mascot.Animating || mascot.Behaviour == null) return;
             try { mascot.Behaviour.MouseReleased(); }
-            catch (TickCantBeAliveException e) { ReportFault(mascot, e.Message); mascot.Dispose("error"); }
+            catch (TickCantBeAliveException e) { ReportFault(mascot, e.Message, e.Cause, TickFaultVia.Release); mascot.Dispose("error"); }
         }
 
         /// <summary>Mascot's mouse-motion listener: while a hotspot is held, the held point follows the pointer.</summary>
@@ -1503,7 +1620,9 @@ namespace DesktopAICompanion.Shimeji
             return value;
         }
 
-        public void ReportFault(TickMascot mascot, string message) { Observer.Fault(mascot, message); }
+        /// <summary>Every fault goes through here, with its cause and wrapper stated by the caller: the site that formed
+        /// the cause, or the wrapper that caught the exception carrying it. Null cause: unclassified; null via: none.</summary>
+        public void ReportFault(TickMascot mascot, string message, TickFaultCause cause, string via) { Observer.Fault(mascot, message, cause, via); }
 
         /// <summary>The source's drop-in: from 256 px above the screen (multiscreen) or work area, at a random x.</summary>
         public void DropIn(TickMascot mascot, string site)
@@ -1521,11 +1640,13 @@ namespace DesktopAICompanion.Shimeji
         }
 
         /// <summary>Configuration.buildBehavior(name): by name, no enabled check; a missing name cannot be built.</summary>
+        // Each failed lookup by name types itself here, where it arises: behavior-missing in the member searched, with the
+        // name as it was asked for (name, not name ?? "", so "", " " and null stay three operands, CONTRACT 10.3.3).
         public TickBehaviour BuildBehaviourByName(TickType type, string name)
         {
             TickBehaviourDef def;
             if (!type.RootByName.TryGetValue(name ?? "", out def))
-                throw new TickCantBeAliveException("no behaviour named '" + name + "' in " + type.Name);
+                throw new TickCantBeAliveException("no behaviour named '" + name + "' in " + type.Name, TickFaultCause.OfMissingBehaviour(type, name));
             return Build(type, def);
         }
 
@@ -1535,7 +1656,7 @@ namespace DesktopAICompanion.Shimeji
         {
             TickBehaviourDef def;
             if (!type.RootByName.TryGetValue(name ?? "", out def))
-                throw new TickCantBeAliveException("no behaviour named '" + name + "' in " + type.Name);
+                throw new TickCantBeAliveException("no behaviour named '" + name + "' in " + type.Name, TickFaultCause.OfMissingBehaviour(type, name));
             if (Settings.IsBehaviourEnabled(def, mascot.Type.Name)) return Build(type, def);
             DropIn(mascot, "builtin:disabled-behavior-drop-x");
             return BuildBehaviourByName(type, "Fall");
@@ -1548,7 +1669,7 @@ namespace DesktopAICompanion.Shimeji
         {
             TickBehaviourDef def;
             if (!child.Type.RootByName.TryGetValue(name ?? "", out def))
-                throw new TickCantBeAliveException("no behaviour named '" + name + "' in " + child.Type.Name);
+                throw new TickCantBeAliveException("no behaviour named '" + name + "' in " + child.Type.Name, TickFaultCause.OfMissingBehaviour(child.Type, name));
             // The enabled check reads the PARENT's image-set settings, because the source asks with the parent.
             TickBehaviour b = Settings.IsBehaviourEnabled(def, parent.Type.Name) ? Build(child.Type, def) : BuildBehaviourByName(child.Type, "Fall");
             child.SetBehaviour(b, "forced");
@@ -1614,7 +1735,8 @@ namespace DesktopAICompanion.Shimeji
             if (e.When == null) return true;
             ScriptValue v = context.Evaluate(e.When, "when:" + e.Target.Name);
             if (v.Kind == ScriptValueKind.Boolean) return v.Number != 0;
-            ReportFault(mascot, "the condition of '" + e.Target.Name + "' is not a boolean (" + v.ToDisplayString() + ")");
+            // A route edge's condition is no action's parameter: unclassified, reported where it arises.
+            ReportFault(mascot, "the condition of '" + e.Target.Name + "' is not a boolean (" + v.ToDisplayString() + ")", null, null);
             return v.IsTruthy;
         }
 
@@ -1642,7 +1764,7 @@ namespace DesktopAICompanion.Shimeji
             }
             catch (TickCantBeAliveException e)
             {
-                ReportFault(mascot, "Transform into " + target.Name + ": " + e.Message);
+                ReportFault(mascot, "Transform into " + target.Name + ": " + e.Message, e.Cause, TickFaultVia.Transform);
             }
         }
 
@@ -1688,7 +1810,7 @@ namespace DesktopAICompanion.Shimeji
         {
             TickActDef def;
             if (!type.Actions.TryGetValue(name ?? "", out def))
-                throw new TickCantBeAliveException("no action named '" + name + "' in " + type.Name);
+                throw new TickCantBeAliveException("no action named '" + name + "' in " + type.Name, TickFaultCause.OfMissingAction(type, name));
             return BuildAction(type, def, incoming);
         }
 
@@ -1709,7 +1831,9 @@ namespace DesktopAICompanion.Shimeji
                 case "Sequence":
                 case "Select":
                 {
-                    // ActionBuilder.createActions: each child is built with only its own reference's parameters.
+                    // ActionBuilder.createActions: each child is built with only its own reference's parameters. The
+                    // reference's refKey is applied AFTER the child is built (C.2 H7), so a fault in the child's
+                    // constructor cannot know it and stays unclassified; it never takes the declaration's key (CH7).
                     var children = new TickAction[def.Children.Length];
                     for (int i = 0; i < children.Length; i++)
                     {
@@ -1743,7 +1867,7 @@ namespace DesktopAICompanion.Shimeji
             public void DisposeRequested(TickMascot mascot, string reason) { }
             public void Disposed(TickMascot mascot) { }
             public void RandomDrawn(TickMascot mascot, string site, double value, string purpose) { }
-            public void Fault(TickMascot mascot, string message) { }
+            public void Fault(TickMascot mascot, string message, TickFaultCause cause, string via) { }
             public void Muted(TickMascot mascot, string clip) { }
             public void Sound(TickMascot mascot, string clip, string op) { }
             public void ScanTargeted(TickMascot mascot, string affordance, TickMascot target) { }

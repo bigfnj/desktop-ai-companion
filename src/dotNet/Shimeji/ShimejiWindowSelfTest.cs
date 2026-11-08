@@ -87,7 +87,7 @@ namespace DesktopAICompanion.Shimeji
                 // three times and then once as suppressed (TickFaultThrottle), so one broken pack cannot fill the rotating
                 // diagnostic log and push out the launch's record.
                 const string repeated = "selftest: the same fault, reported ten times";
-                for (int i = 0; i < 10; i++) host.Fault(stander, repeated);
+                for (int i = 0; i < 10; i++) host.Fault(stander, repeated, null, null);
                 string logText = log.ToString();
                 int logged = 0;
                 for (int at = logText.IndexOf(repeated, StringComparison.Ordinal); at >= 0; at = logText.IndexOf(repeated, at + 1, StringComparison.Ordinal)) logged++;

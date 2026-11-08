@@ -846,9 +846,34 @@ namespace DesktopAICompanion.Shimeji
             _out.WriteLine(Event(mascot, "rng-draw").Str("site", site).Num("occurrence", _draws).Num("value", value).Str("purpose", purpose).End());
         }
 
-        public void Fault(TickMascot mascot, string message)
+        /// <summary>CONTRACT 10.3: the message in the engine's own words, byte for byte, and the typed error object beside
+        /// it. The code and its operands are what the engine formed where the fault arose (<see cref="TickFaultCause"/>);
+        /// this writer only spells them, and never reads the message to choose one.</summary>
+        public void Fault(TickMascot mascot, string message, TickFaultCause cause, string via)
         {
-            _out.WriteLine(Event(mascot, "error").Str("message", message).End());
+            _out.WriteLine(Event(mascot, "error").Str("message", message).Raw("error", ErrorObject(cause, via)).End());
+        }
+
+        /// <summary>The 10.3.1 object: code, lookup (exactly the code's operand set of 10.3.2, or null for unclassified)
+        /// and via (the wrapper that caught the fault, outermost first; empty when the step caught it or it was reported
+        /// where it arose).</summary>
+        internal static string ErrorObject(TickFaultCause cause, string via)
+        {
+            string lookup = "null";
+            if (cause != null)
+            {
+                var l = new JsonLine();
+                switch (cause.Code)
+                {
+                    case TickFaultCause.BehaviorMissing: l.Str("imageSet", cause.ImageSet).Str("behavior", cause.Behavior); break;
+                    case TickFaultCause.ActionMissing: l.Str("imageSet", cause.ImageSet).Str("action", cause.Action); break;
+                    case TickFaultCause.ParameterInvalid: l.Str("refKey", cause.RefKey).Str("parameter", cause.Parameter); break;
+                    default: l.Str("refKey", cause.RefKey); break;   // variant-missing, scan-target-missing
+                }
+                lookup = l.End();
+            }
+            return new JsonLine().Str("code", cause == null ? TickFaultCause.Unclassified : cause.Code).Raw("lookup", lookup)
+                .StrList("via", via == null ? new string[0] : new[] { via }).End();
         }
 
         public void Muted(TickMascot mascot, string clip)

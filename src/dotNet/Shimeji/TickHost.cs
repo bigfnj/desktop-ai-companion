@@ -353,7 +353,7 @@ namespace DesktopAICompanion.Shimeji
                 {
                     // One companion that cannot be drawn ends, reported, as TickMascot.Tick ends one that cannot step, and
                     // the others are drawn. Escaping here threw out of the tick timer's handler, where nothing catches it.
-                    _world.ReportFault(m, "its frame could not be drawn: " + e.GetType().Name + ": " + e.Message);
+                    _world.ReportFault(m, "its frame could not be drawn: " + e.GetType().Name + ": " + e.Message, null, null);
                     m.Dispose("error");
                     try { form.RenderTick(null, 0, 0, 0, 0, false); } catch { }
                 }
@@ -436,7 +436,8 @@ namespace DesktopAICompanion.Shimeji
 
         public void RandomDrawn(TickMascot mascot, string site, double value, string purpose) { }
 
-        public void Fault(TickMascot mascot, string message)
+        // The product logs the message alone, as before; the typed cause and wrapper are the parity trace's (CONTRACT 10.3).
+        public void Fault(TickMascot mascot, string message, TickFaultCause cause, string via)
         {
             string line = _faults.Next(mascot.Type.Name, message);
             if (line != null) _log("tick companion " + mascot.Sid + " (" + mascot.Type.Name + "): " + line);
