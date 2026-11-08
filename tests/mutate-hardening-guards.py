@@ -4740,6 +4740,14 @@ CASES = (
         b"                    _directory = root;\n",
         "w7-host-1: the diagnostic log starts in the folder of the instance slot this process took",
     ),
+    # N-audit-1106-225: the underside walk runs on every upward tick again, whatever the animation declares.
+    (
+        "bd-w7-host-1: every rising classic pet walks the windows for an underside again (N-audit-1106-225)",
+        os.path.join(REPO, "src", "dotNet", "FormCompanion.cs"),
+        b"                WindowTopHit underside = hwndWindow == (IntPtr)0 && Animations.HasUndersideGrip(CurrentAnimation.ID)\n",
+        b"                WindowTopHit underside = hwndWindow == (IntPtr)0 && (Animations.HasUndersideGrip(CurrentAnimation.ID) || true)\n",
+        "w7-host-1: the window-underside walk runs only for an animation that can hang from one",
+    ),
 )
 
 

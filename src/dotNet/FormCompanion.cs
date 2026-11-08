@@ -1553,7 +1553,15 @@ namespace DesktopAICompanion
                 // The underside of a window is checked FIRST, for the same reason the window top is checked
                 // before the taskbar: a window is inside the screen, so testing the screen border first would
                 // let a jumping pet pass straight through one on its way to the top of the display.
-                WindowTopHit underside = hwndWindow == (IntPtr)0 ? RiseDetect(y, ins) : WindowTopHit.None;
+                //
+                // ONLY AN ANIMATION THAT CAN HANG LOOKS UP (N-audit-1106-225). RiseDetect enumerates every top-level window,
+                // with a title read and a title-bar query per visible one, on every upward tick. Its hit is used only when
+                // the border pick below lands on an edge whose only is exactly window-bottom (GripFor), so for an animation
+                // that declares no such edge every walk was thrown away, after a border roll whose winner was discarded.
+                // The motion is unchanged: a refused hit already fell through to the screen-top test with the handle given
+                // back, which is where a pet with no grip now goes directly.
+                WindowTopHit underside = hwndWindow == (IntPtr)0 && Animations.HasUndersideGrip(CurrentAnimation.ID)
+                    ? RiseDetect(y, ins) : WindowTopHit.None;
                 if (underside.Found)
                 {
                     TNextAnimation.TOnly chosenOnly;

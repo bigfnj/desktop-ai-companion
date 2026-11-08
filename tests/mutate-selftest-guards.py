@@ -23338,6 +23338,21 @@ CASES = (
      HOST_CSPROJ, EXE,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
      "alpha re-push: WITNESS a new frame and a new place are each pushed once"),
+    # N-audit-1106-225: the underside predicate counts an edge of weight 0, or the window wildcard, as a grip.
+    ("bd-w7-host-1: a weight-0 window-bottom edge counts as an underside grip (N-audit-1106-225)",
+     os.path.join(REPO, "src", "dotNet", "Animations.cs"),
+     b"                if (edge.only == TNextAnimation.TOnly.WINDOW_BOTTOM && edge.Probability > 0) return true;\n",
+     b"                if (edge.only == TNextAnimation.TOnly.WINDOW_BOTTOM) return true;\n",
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "hang: an animation whose border edges cannot hang does not look for an underside"),
+    ("bd-w7-host-1: the window wildcard counts as an underside grip (N-audit-1106-225)",
+     os.path.join(REPO, "src", "dotNet", "Animations.cs"),
+     b"                if (edge.only == TNextAnimation.TOnly.WINDOW_BOTTOM && edge.Probability > 0) return true;\n",
+     b"                if (TNextAnimation.Eligible(edge.only, TNextAnimation.TOnly.WINDOW | TNextAnimation.TOnly.WINDOW_BOTTOM) && edge.Probability > 0) return true;\n",
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "hang: an animation whose border edges cannot hang does not look for an underside"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

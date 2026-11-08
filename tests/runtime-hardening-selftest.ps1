@@ -6295,6 +6295,15 @@ Assert-True (
     $w7h1StartBody -cnotmatch '_directory = root;'
 ) 'w7-host-1: the diagnostic log starts in the folder of the instance slot this process took'
 
+# N-audit-1106-225: RiseDetect walks every top-level window on every upward tick, and its hit is used only by an
+# animation with an exact window-bottom edge. --hardening-selftest proves Animations.HasUndersideGrip; this pins that
+# the walk is GATED on it, as the CONDITION of the call, so a predicate left standing but no longer asked fails.
+$w7h1FormCode = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\FormCompanion.cs') -Raw)
+Assert-True (
+    $w7h1FormCode -cmatch 'WindowTopHit underside = hwndWindow == \(IntPtr\)0 && Animations\.HasUndersideGrip\(CurrentAnimation\.ID\)\s*\?\s*RiseDetect\(y, ins\) : WindowTopHit\.None;' -and
+    $w7h1FormCode -cnotmatch 'underside = hwndWindow == \(IntPtr\)0 \? RiseDetect'
+) 'w7-host-1: the window-underside walk runs only for an animation that can hang from one'
+
 # LAST, and deliberately:this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever
