@@ -825,7 +825,7 @@ namespace DesktopAICompanion.Shimeji
                 var cleanLog = new StringWriter();
                 var cleanWriter = new ParityTraceWriter(cleanOut, new Dictionary<string, ParityMap>());
                 cleanWriter.BehaviourEntered(one, null, held.Name, "forced");
-                int cleanExit = ParityRun.Finish(cleanWriter, 7, "complete", cleanLog);
+                int cleanExit = ParityRun.Finish(cleanWriter, 7, "complete", null, cleanLog);
                 check(cleanWriter.ProvenanceFault == null && cleanExit == 0 && cleanOut.ToString().Contains("\"status\":\"complete\"")
                       && cleanLog.ToString().Length == 0,
                     "parity trace: WITNESS an attributable behaviour event leaves the run complete (exit " + cleanExit + ", "
@@ -836,7 +836,7 @@ namespace DesktopAICompanion.Shimeji
                 faultWriter.BehaviourEntered(one, "NoSuchBehaviour", held.Name, "forced");
                 check(faultWriter.ProvenanceFault != null && faultWriter.ProvenanceFault.Contains("from 'NoSuchBehaviour'"),
                     "parity trace: an unattributable behaviour name is recorded as a provenance fault (" + faultWriter.ProvenanceFault + ")");
-                int faultExit = ParityRun.Finish(faultWriter, 7, "complete", faultLog);
+                int faultExit = ParityRun.Finish(faultWriter, 7, "complete", null, faultLog);
                 string faultFooter = faultOut.ToString();
                 check(faultExit != 0 && faultFooter.Contains("\"type\":\"footer\",\"ticks\":7,\"status\":\"error\"")
                       && faultLog.ToString().Contains("parity trace: ") && faultLog.ToString().Contains("from 'NoSuchBehaviour'"),

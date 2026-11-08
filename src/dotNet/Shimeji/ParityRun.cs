@@ -445,13 +445,15 @@ namespace DesktopAICompanion.Shimeji
         }
     }
 
-    /// <summary>CONTRACT section 2: none (any draw fails the run), a checked tape, or splitmix64.</summary>
+    /// <summary>CONTRACT section 2 with v1.2's 10.4: none (a draw yields 0.5; the comparer fails it as
+    /// rng-unexpected-draw), a checked tape (a draw past its end yields 0.5 and the run goes on), or splitmix64.</summary>
     internal sealed class ParityRandom : ITickRandom
     {
         private readonly string _kind;
         private readonly List<double> _tape = new List<double>();
         private ulong _state;
         private int _next;
+        private int _drawn;
 
         public ParityRandom(JsonElement rng)
         {
@@ -466,16 +468,24 @@ namespace DesktopAICompanion.Shimeji
             }
         }
 
-        /// <summary>Set when a draw was impossible (a directed run drew, or the tape ran out); the run then ends with
-        /// status error and the comparer reports the class.</summary>
-        public string Exhausted;
+        /// <summary>CONTRACT 10.5.1: whether this run actually drew more values than its tape holds; false for none and
+        /// splitmix64. It is the footer's tapeExhausted on every trace/2 run, trace-off included. Exhaustion is behaviour
+        /// the comparer grades from the draw records (rng-tape-exhausted), never a run failure, so nothing here ends the
+        /// run or sets its status. Trace/1 ended the run in error instead, and the comparer, which grades a run failure
+        /// before any RNG class, could then never report the exhaustion for the host (N-parity-1107-04).</summary>
+        public bool TapeExhausted { get { return _kind == "tape" && _drawn > _tape.Count; } }
+
+        /// <summary>How many values the tape holds; 0 for none and splitmix64, which have none.</summary>
+        public int TapeLength { get { return _tape.Count; } }
 
         public double Next()
         {
+            _drawn++;
             switch (_kind)
             {
                 case "tape":
-                    if (_next >= _tape.Count) { Exhausted = "rng-tape-exhausted"; return 0.5; }
+                    // 10.4: a draw past the end yields exactly 0.5, and the rng-draw event records that value.
+                    if (_next >= _tape.Count) return 0.5;
                     return _tape[_next++];
                 case "splitmix64":
                     unchecked
@@ -610,8 +620,11 @@ namespace DesktopAICompanion.Shimeji
 
         public void Header(string scenarioId, string scenarioSha, string packSha, Dictionary<string, string> build, string rngJson, double dpiScale)
         {
+            // CONTRACT 10.1 and 10.2: the schema is the trace's only version declaration, and no other header field changes
+            // with it. Trace/2 is what the host writes: every footer carries tapeExhausted and a tape's end is not a run
+            // failure (10.5).
             var w = new JsonLine();
-            w.Str("type", "header").Str("schema", "shimeji-parity-trace/1").Str("runtime", "host");
+            w.Str("type", "header").Str("schema", "shimeji-parity-trace/2").Str("runtime", "host");
             w.Raw("scenario", "{\"id\":" + JsonLine.Quote(scenarioId) + ",\"sha256\":" + JsonLine.Quote(scenarioSha)
                 + ",\"packSha256\":" + JsonLine.Quote(packSha) + "}");
             var b = new StringBuilder("{");
@@ -890,12 +903,15 @@ namespace DesktopAICompanion.Shimeji
             return "[" + r.X + "," + r.Y + "," + (r.X + r.Width) + "," + (r.Y + r.Height) + "]";
         }
 
-        public void Footer(int ticks, string status)
+        public void Footer(int ticks, string status, bool tapeExhausted)
         {
             // A trace-off footer counts the lines it holds (no draws or events) and carries what it withheld, as the
             // oracle's observation run does (CONTRACT v1.1 sections 3 and 5); an ordinary host footer needs none of it.
+            // tapeExhausted is required on EVERY trace/2 footer, trace-off included (10.5.1, 10.8): the observation proof
+            // compares the two runs' flags, and a trace-off run has no draw lines to read it from.
             JsonLine footer = new JsonLine().Str("type", "footer").Num("ticks", ticks).Str("status", status)
-                .Num("draws", _traceOff ? 0 : _draws).Num("states", _states).Num("events", _traceOff ? 0 : _events);
+                .Num("draws", _traceOff ? 0 : _draws).Num("states", _states).Num("events", _traceOff ? 0 : _events)
+                .Bool("tapeExhausted", tapeExhausted);
             if (_traceOff)
                 footer.Num("unobservedDraws", _draws).Num("unobservedEvents", _events).Str("eventSequenceSha256", EventSequenceSha256);
             _trace.WriteLine(footer.End());
@@ -1153,12 +1169,13 @@ namespace DesktopAICompanion.Shimeji
                     // Every start companion is initialised; now they join the manager without a step (CONTRACT section 4).
                     world.ActivateStartup();
                     writer.States(world);
+                    // A tape's end does not stop the loop (CONTRACT 10.5.1): a draw past it yields 0.5, the run steps on to
+                    // tick N, and Finish logs the exhaustion and writes it as the footer's tapeExhausted.
                     for (int t = 1; t <= ticks; t++)
                     {
                         writer.Tick = t;
                         world.StepOnce();
                         writer.States(world);
-                        if (random.Exhausted != null) { status = "error"; log.WriteLine(random.Exhausted); break; }
                     }
                     writer.FinalStates(world);
                 }
@@ -1167,7 +1184,7 @@ namespace DesktopAICompanion.Shimeji
                     // Nothing more is dispatched and the tick writes no state lines; the footer says aborted, and the exit
                     // is a refusal's, since the scenario, not the runtime, is at fault.
                     log.WriteLine(e.Message);
-                    Finish(writer, ticks, "aborted", log);
+                    Finish(writer, ticks, "aborted", random, log);
                     return 2;
                 }
                 catch (Exception e)
@@ -1175,22 +1192,28 @@ namespace DesktopAICompanion.Shimeji
                     status = "error";
                     log.WriteLine("run failed: " + e);
                 }
-                return Finish(writer, ticks, status, log);
+                return Finish(writer, ticks, status, random, log);
             }
         }
 
         /// <summary>The end of every run: a name the writer could not tie to a node (its ProvenanceFault, decision 67)
         /// turns the status to error and is logged, then the footer is written and the exit code returned. Run's only
         /// ending; internal so ShimejiWindowSelfTest drives these same lines with a writer it has fed an unattributable
-        /// behaviour event, since no converted pack reaches one.</summary>
-        internal static int Finish(ParityTraceWriter writer, int ticks, string status, TextWriter log)
+        /// behaviour event, since no converted pack reaches one (it passes no random: such a writer drew nothing).</summary>
+        internal static int Finish(ParityTraceWriter writer, int ticks, string status, ParityRandom random, TextWriter log)
         {
             if (writer.ProvenanceFault != null)
             {
                 status = "error";
                 log.WriteLine("parity trace: " + writer.ProvenanceFault);
             }
-            writer.Footer(ticks, status);
+            // CONTRACT 10.8: exhaustion leaves the status alone and is still logged, as information. It is read from the
+            // draws the run actually made, so an aborted or failed run reports it too, for what it drew before it stopped.
+            bool tapeExhausted = random != null && random.TapeExhausted;
+            if (tapeExhausted)
+                log.WriteLine("rng-tape-exhausted (information): the run drew past the end of its " + random.TapeLength
+                    + "-value tape; each draw past the end yielded 0.5 and the run went on");
+            writer.Footer(ticks, status, tapeExhausted);
             return status == "complete" ? 0 : 1;
         }
 
