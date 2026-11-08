@@ -1376,9 +1376,14 @@ namespace DesktopAICompanion.Wpf
                 nameStack.Children.Add(new TextBlock { Text = module.Description, FontSize = 11, Foreground = Brushes.Gray, TextWrapping = TextWrapping.Wrap });
             // Shown BEFORE install, per its own declared permissions -- a consent signal, not a hard gate.
             // The tooltip says which half of the set the app enforces, because the line reads as a control
-            // (the register records ModulePermissions.Animation as declarative for exactly this reason): the
-            // host gates its own Audio, Network, Voice and Companions verbs on the flags; the rest, Animation
-            // among them, are the module's statement of what it does.
+            // (the register records ModulePermissions.Animation as declarative for exactly this reason). The
+            // enforced half is EnforcedPermissions at the top of this class, the flags CompanionHost checks with
+            // ModuleDeclares before it acts; every other flag is the module's statement of what it does, and
+            // DeclarativePermissionNames derives those from the enum. This comment names neither list on
+            // purpose: a hand copy of the enforced flags here went stale when ClaudeCodeSignIn joined the set.
+            // The tooltip's enforced sentence is still written by hand, because each enforced flag gets its own
+            // wording (ClaudeCodeSignIn holds only while the user allows it), so a flag added to
+            // EnforcedPermissions needs words there as well.
             string permsText = module.Permissions == ModulePermissions.None
                 ? "no special permissions"
                 : "wants: " + PermissionsText(module.Permissions);
