@@ -599,6 +599,26 @@ MUTATION_EXPECTATIONS = (
 if len(CASES) != len(MUTATION_EXPECTATIONS):
     raise AssertionError("each mutation needs one explicit leg/verdict/class expectation")
 CASES = tuple(case + expectation for case, expectation in zip(CASES, MUTATION_EXPECTATIONS))
+CASES += (
+    ("bd-codex-parity-screens: require-list", "Screens containers",
+     'if not isinstance(s["screens"], list) or not s["screens"]:', 'if not s["screens"]:',
+     "trace1 screens object: ('exact', None)", "exact", None),
+    ("bd-codex-parity-screens: require-nonempty", "Screens containers",
+     'if not isinstance(s["screens"], list) or not s["screens"]:', 'if not isinstance(s["screens"], list):',
+     "trace1 screens empty: ('exact', None)", "exact", None),
+    ("bd-codex-parity-screens: refusal-class", "Screens containers",
+     'bad("screens is not a list of one or more screens")',
+     'raise Unjudgeable("malformed", "screens is not a list of one or more screens")',
+     "trace1 screens null: ('unjudgeable', 'malformed')", "unjudgeable", "malformed"),
+    ("bd-codex-parity-screens: multiple-screens", "Screens containers",
+     'if not isinstance(s["screens"], list) or not s["screens"]:',
+     'if not isinstance(s["screens"], list) or not s["screens"] or len(s["screens"]) != 1:',
+     "trace1 screens multiple: ('unjudgeable', 'scenario-invalid')", "unjudgeable", "scenario-invalid"),
+    ("bd-codex-parity-screens: validation-before-traces", "Screens precedence",
+     'if scenario is not None:\n            validate_scenario(scenario)',
+     'if False:\n            validate_scenario(scenario)',
+     "trace1 screens before oracle header: ('unjudgeable', 'missing-field')", "unjudgeable", "missing-field"),
+)
 
 
 def loaded_source(path, expected):

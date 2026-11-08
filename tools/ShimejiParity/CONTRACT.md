@@ -29,6 +29,13 @@ retains shimeji-parity-scenario/1, whose fields are unchanged: the inactive butt
 verdict made before v1.1 is judged under v1 and is not re-judged under v1.1 without fresh traces.
 Comparer result metadata in section 6 is not a trace or scenario field.
 
+**(Screens clarification, 2026-11-08; joint review pending)** The non-empty screen-list rule in section 1 is a
+forward input-validation exception to the trace/1 grade freeze above and in 10.1. A newly requested comparison
+with a supplied scenario rejects empty or non-list `screens` as `scenario-invalid`, including a trace/1 pair.
+Archived verdicts and comparisons without a supplied scenario are not re-graded; valid non-empty lists keep
+their existing behavior. This clarification retains scenario/1 and both trace schemas and changes no screen
+element or rectangle rule. It does not reorder the CLI's existing source-pack preflight.
+
 ## 1. Scenario (`scenario.json`, schema `shimeji-parity-scenario/1`)
 
 ```json
@@ -53,6 +60,7 @@ Comparer result metadata in section 6 is not a trace or scenario field.
 
 - `pack` is relative to the scenario file. It is a Shimeji-EE layout (`conf/actions.xml`, `conf/behaviors.xml`,
   `img/<Set>/*.png`). The host side converts the same pack with the converter under test.
+- **(Screens clarification)** `screens` must be a list of one or more screens; anything else is `scenario-invalid`.
 - `ticks` is N, the number of manager steps of 40 ms. A trace has the startup snapshot at tick 0 and one snapshot
   after each step, ticks 1 to N.
 - `settings` applies to every image set. `typeSettings` overrides it per image set, as the source keys its settings

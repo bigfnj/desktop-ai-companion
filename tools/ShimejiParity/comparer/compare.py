@@ -161,6 +161,8 @@ def validate_scenario(s):
     for k in ("id", "pack", "screens", "workArea", "dpiScale", "ticks", "rng", "settings", "mascots"):
         if k not in s:
             bad(f"lacks {k!r}")
+    if not isinstance(s["screens"], list) or not s["screens"]:
+        bad("screens is not a list of one or more screens")
     if not isinstance(s["ticks"], int) or s["ticks"] < 0:
         bad("ticks is not a non-negative integer")
     if not isinstance(s["rng"], dict) or s["rng"].get("kind") not in ("none", "tape", "splitmix64"):
@@ -997,6 +999,7 @@ BURNDOWN_CHECKS = ("N269 source pin", "N269 unbound report", "N270 typed state",
                    "R2 truncated peer proof", "R2 truncated validation", "F3 interrupted snapshot", "F3 disposal lifecycle")
 BURNDOWN_CHECKS += tuple("T2 CC" + str(number) for number in range(1, 18)) + (
     "T2 timeout snapshot", "T2 trace1 freeze", "T2 lookahead", "T2 occurrence")
+BURNDOWN_CHECKS += ("Screens containers", "Screens precedence", "Screens physical CLI")
 
 
 def _case_require(value, name, detail):
@@ -2034,8 +2037,92 @@ def _trace2_check(name):
         raise ValueError("unknown trace/2 check " + name)
 
 
+def _screens_check(name):
+    def require(report, verdict, cls, detail):
+        _case_require((report["verdict"], report["class"]) == (verdict, cls), name,
+                      detail + ": " + repr((report["verdict"], report["class"])))
+
+    missing = object()
+    invalid = (("missing", missing), ("null", None), ("empty", []), ("empty object", {}),
+               ("object", {"x": 0, "y": 0, "w": 1280, "h": 720}), ("empty string", ""),
+               ("string", "screen"), ("zero", 0), ("one", 1), ("false", False), ("true", True))
+    single = _scenario()["screens"]
+    valid = (("single", single), ("multiple", single + [{"x": -1920, "y": 0, "w": 1920, "h": 1080}]))
+
+    if name == "Screens containers":
+        for version, factory in (("trace1", _reference), ("trace2", _trace2_reference)):
+            for label, value in invalid:
+                scenario = _scenario()
+                if value is missing:
+                    scenario.pop("screens")
+                else:
+                    scenario["screens"] = copy.deepcopy(value)
+                require(compare(*factory(), scenario=scenario), "unjudgeable", "scenario-invalid",
+                        version + " screens " + label)
+            for label, value in valid:
+                scenario = _scenario()
+                scenario["screens"] = copy.deepcopy(value)
+                require(compare(*factory(), scenario=scenario), "exact", None, version + " screens " + label)
+            require(compare(*factory()), "exact", None, version + " trace-only freeze")
+    elif name == "Screens precedence":
+        for version, factory in (("trace1", _reference), ("trace2", _trace2_reference)):
+            for runtime in ("oracle", "host"):
+                pair = factory()
+                pair[0 if runtime == "oracle" else 1][0]["schema"] = "not-a-trace"
+                scenario = _scenario()
+                scenario["screens"] = []
+                require(compare(*pair, scenario=scenario), "unjudgeable", "scenario-invalid",
+                        version + " screens before " + runtime + " header")
+                scenario["screens"] = copy.deepcopy(single)
+                require(compare(*pair, scenario=scenario), "unjudgeable", "missing-field",
+                        version + " valid screens retain " + runtime + " header failure")
+    elif name == "Screens physical CLI":
+        import contextlib
+        import io
+        import tempfile
+        with tempfile.TemporaryDirectory(prefix="screens-cli-") as directory:
+            folder = Path(directory)
+            pack = folder / "pack"
+            pack.mkdir()
+            (pack / "synthetic.txt").write_text("screens CLI pack binding witness", encoding="utf-8")
+            pack_digest = pack_sha256(pack)
+            paths = [folder / (runtime + ".jsonl") for runtime in ("oracle", "host")]
+            scenario_path, report_path = folder / "scenario.json", folder / "report.json"
+            for version, factory in (("trace1", _reference), ("trace2", _trace2_reference)):
+                for label, value in invalid + valid:
+                    scenario = _scenario()
+                    scenario["pack"] = "pack"
+                    if value is missing:
+                        scenario.pop("screens")
+                    else:
+                        scenario["screens"] = copy.deepcopy(value)
+                    raw = json.dumps(scenario).encode("utf-8")
+                    scenario_path.write_bytes(raw)
+                    pair = factory()
+                    for trace, path in zip(pair, paths):
+                        trace[0]["scenario"].update(sha256=sha256_bytes(raw), packSha256=pack_digest)
+                        path.write_text("\n".join(json.dumps(row) for row in trace) + "\n", encoding="utf-8")
+                    output = io.StringIO()
+                    with contextlib.redirect_stdout(output):
+                        status = main(["compare.py", str(paths[0]), str(paths[1]), "--scenario", str(scenario_path),
+                                       "--json", str(report_path)])
+                    report = json.loads(report_path.read_text(encoding="utf-8"))
+                    accepted = label in ("single", "multiple")
+                    require(report, "exact" if accepted else "unjudgeable", None if accepted else "scenario-invalid",
+                            version + " physical CLI " + label)
+                    _case_require(status == (0 if accepted else 2), name, version + " CLI exit " + label)
+                    if not accepted:
+                        _case_require("screens" in output.getvalue() and "pack " not in output.getvalue(), name,
+                                      version + " CLI screens diagnostic " + label)
+        _case_require(not folder.exists(), name, "physical CLI scratch removed")
+    else:
+        raise ValueError("unknown screens check " + name)
+
+
 def burndown_check(name):
     """Focused public-comparer witnesses, also callable by the small source-mutation runner."""
+    if name.startswith("Screens "):
+        return _screens_check(name)
     if name.startswith("T2 "):
         return _trace2_check(name)
     if name.startswith("F3 "):
