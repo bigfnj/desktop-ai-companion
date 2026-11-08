@@ -486,7 +486,7 @@ touches `modules/<Id>/` needs a republish commit.**
 | The loader | `src/dotNet/Plugins/ModuleHost.cs` |
 | The host bridge (real `IHost`) | `src/dotNet/Plugins/CompanionHost.cs` |
 | Existing modules | `modules/<Name>/`, one folder each; `modules-dist/modules.json` lists the ones that ship (`modules/TestModule` is a test fixture and does not) |
-| Module self-tests | `src/dotNet/Plugins/*ModuleSelfTest.cs` |
+| Module self-tests | your module's own `SelfTest` ([The self-test](#the-self-test)), run by `--module-selftest=<id>` (`src/dotNet/Plugins/ModuleConventionSelfTest.cs`) and graded by `tests/Test-ModuleSelfTests.ps1`; `src/dotNet/Plugins/*ModuleSelfTest.cs` holds only the three pre-SDK modules' bespoke host checks |
 | Template | `templates/desktop-ai-companion-module/` (its project file is `SampleModule.templateproj`; the folder's README says why) |
 | Packaging | `packaging/New-ModulePublish.ps1` |
 | The gate | `tests/run-gate.ps1` |
