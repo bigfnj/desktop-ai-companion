@@ -22164,7 +22164,7 @@ CASES = (
     # N-cxr-w1-02: the refusal is reported but the child is left running.
     ("bd-w3-remembrance-1: a refused whisper job reports and leaves the child running (N-cxr-w1-02)",
      TRANSCRIBER,
-     b"                        StopUncontained(proc);\n",
+     b"                        StopChild(proc);\n",
      b"",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
@@ -23647,6 +23647,73 @@ CASES = (
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "Shutdown unsubscribed every host event it subscribed to -- still attached: CredentialChanged"),
+    # ---- burndown/w8-remembrance-1 ----
+    # Remembrance, burn-down wave 8. "bd-w8-remembrance-1:" for one --only. Each is the defect as it shipped, put back.
+    # N-bd-w6-remembrance-1-01: every failed transcription after a stop says Whisper is not set up again.
+    ("bd-w8-remembrance-1: a failed transcription after a stop says Whisper is not set up (N-bd-w6-remembrance-1-01)",
+     REMEMBRANCE_MODULE,
+     b"                    else if (!WhisperConfigured(whisperExe, model))\n",
+     b"                    else if (!did)\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "stop failure: with Whisper set up, a failed transcription says so and why"),
+
+    # N-bd-remembrance-1-01: the verify probe starts whisper-cli in no kill-on-close job again.
+    ("bd-w8-remembrance-1: the whisper verify probe attaches no job (N-bd-remembrance-1-01)",
+     WHISPER_INSTALLER,
+     b"                using (IDisposable job = Transcriber.AttachJob(process))\n",
+     b"                using (IDisposable job = new CancellationTokenSource())\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "verify probe: a whisper-cli whose job Windows refuses fails the check with the run's own reason"),
+
+    # N-bd-remembrance-1-01: a refused job fails the check but leaves the child it could not contain running.
+    ("bd-w8-remembrance-1: the verify probe leaves a child whose job was refused running (N-bd-remembrance-1-01)",
+     WHISPER_INSTALLER,
+     b"                        Transcriber.StopChild(process);\n"
+     b"                        detail = Transcriber.JobRefusedReason;\n",
+     b"                        detail = Transcriber.JobRefusedReason;\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "verify probe: a whisper-cli whose job Windows refuses has ended by the time the check returns"),
+
+    # N-audit-1106-290: the overrun's kill is asked for and not waited out, so the scratch folder's delete races it.
+    ("bd-w8-remembrance-1: the verify probe deletes its scratch folder without waiting for the kill (N-audit-1106-290)",
+     WHISPER_INSTALLER,
+     b"                        Transcriber.StopChild(process);\n"
+     b"                        detail = \"it did not finish within five minutes.\";\n",
+     b"                        try { Transcriber.KillChild(process); } catch { }\n"
+     b"                        detail = \"it did not finish within five minutes.\";\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "verify probe: a whisper-cli that overran is waited out, so its scratch folder is gone"),
+
+    # N-audit-1106-286: Load walks the storage folder for the Older recordings line on its own thread again.
+    ("bd-w8-remembrance-1: Load walks the storage folder synchronously again (N-audit-1106-286)",
+     os.path.join(REPO, "modules", "Remembrance", "RemembranceModule.Rename.cs"),
+     b"            return line ?? OlderRecordingsReading;\n",
+     b"            return DescribePlan(PlanOlderRecordings(new CaptureStore(root, layout)));\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "rename pane: Load answers while the storage folder's walk is still running"),
+
+    # N-audit-1106-286: every walk tells the pane, so each refresh's Load starts a walk that refreshes it again.
+    ("bd-w8-remembrance-1: a walk that read the same line tells the pane anyway (N-audit-1106-286)",
+     os.path.join(REPO, "modules", "Remembrance", "RemembranceModule.Rename.cs"),
+     b"                        changed = _olderFor != key || !string.Equals(_olderLine, line, StringComparison.Ordinal);\n",
+     b"                        changed = true;\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a walk that reads the same line again does not tell the pane, so the refresh does not loop"),
+
+    # N-audit-1106-286: the rename keeps the line read before it, so the pane's reload says the old count again.
+    ("bd-w8-remembrance-1: the rename keeps the Older recordings line read before it (N-audit-1106-286)",
+     os.path.join(REPO, "modules", "Remembrance", "RemembranceModule.Rename.cs"),
+     b"                if (plan.Groups.Count > 0) ForgetOlderRecordingsLine();   // before the pane's reload reads it (N-audit-1106-286)\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "rename pane: after a rename the line read before it is gone"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

@@ -260,10 +260,43 @@ namespace DesktopAICompanion.RemembranceModule
             host.SettingsFor(RemembranceModule.Id).Set("whisperExe", @"c:\seeded\whisper-cli.exe");
             var module = new RemembranceModule();
             module.Init(host);
+            Func<CaptureStore, RenamePlan> planWas = RemembranceModule.PlanOlderRecordings;
+            var walking = new System.Threading.ManualResetEventSlim(false);
+            var walkGate = new System.Threading.ManualResetEventSlim(false);
+            int refreshes = 0;
+            Action noteRefresh = () => System.Threading.Interlocked.Increment(ref refreshes);
+            OptionsPane pane = host.OptionsPanes[0];
             try
             {
-                OptionsPane pane = host.OptionsPanes[0];
+                // ---- the Older recordings line is read off the UI thread (N-audit-1106-286) ----
+                // The walk is held open; Load must answer without it, saying the folder is being read. The hold is bounded,
+                // so a Load that walks on its own thread again returns late with the count and fails here rather than hangs.
+                RemembranceModule.PlanOlderRecordings = store =>
+                {
+                    walking.Set();
+                    walkGate.Wait(TimeSpan.FromSeconds(5));
+                    return planWas(store);
+                };
+                pane.InfoChanged += noteRefresh;
+                var held = System.Diagnostics.Stopwatch.StartNew();
+                IReadOnlyDictionary<string, string> whileHeld = pane.Load();
+                held.Stop();
+                string heldLine;
+                whileHeld.TryGetValue(RemembranceModule.OlderRecordingsKey, out heldLine);
+                check("rename pane: Load answers while the storage folder's walk is still running, saying it is being read (N-audit-1106-286): " +
+                      (heldLine ?? "(none)") + " after " + held.ElapsedMilliseconds + " ms",
+                    heldLine == RemembranceModule.OlderRecordingsReading);
+                check("WITNESS rename pane: the walk Load started is the one held open", walking.Wait(TimeSpan.FromSeconds(10)));
+                walkGate.Set();
+                bool told = System.Threading.SpinWait.SpinUntil(
+                    () => module.OlderNoticesForSelfTest == 1 && System.Threading.Volatile.Read(ref refreshes) > 0, TimeSpan.FromSeconds(10));
+                check("rename pane: the walk that lands tells the open pane, so its refresh shows the line (N-audit-1106-286)", told);
                 IReadOnlyDictionary<string, string> shown = pane.Load();
+                bool settled = module.OlderWalkForSelfTest.Wait(TimeSpan.FromSeconds(10));
+                int afterSettled = module.OlderNoticesForSelfTest;
+                check("rename pane: a walk that reads the same line again does not tell the pane, so the refresh does not loop (N-audit-1106-286): " +
+                      afterSettled + " notices",
+                    settled && afterSettled == 1);
                 SettingField line = pane.Schema.FirstOrDefault(f => f != null && f.Id == RemembranceModule.OlderRecordingsKey);
                 PaneAction button = pane.Actions.FirstOrDefault(a => a != null && a.Label == RemembranceModule.RenameOlderLabel);
                 check("rename pane: the Storage card shows the Older recordings line, read from the folder, and the button",
@@ -291,8 +324,24 @@ namespace DesktopAICompanion.RemembranceModule
                 check("rename pane: ...and logs one line of counts, naming no meeting",
                     host.LoggedLines.Count(l => l.Contains("renamed older recordings: 1 of 1")) == 1
                     && !host.LoggedLines.Any(l => l.Contains("renamed older recordings") && l.Contains("Board")));
+                // The pane's reload after the rename: the line read before it is not shown, and the next walk's is.
+                string reloaded;
+                pane.Load().TryGetValue(RemembranceModule.OlderRecordingsKey, out reloaded);
+                bool walked = module.OlderWalkForSelfTest.Wait(TimeSpan.FromSeconds(10));
+                string afterWalk;
+                pane.Load().TryGetValue(RemembranceModule.OlderRecordingsKey, out afterWalk);
+                check("rename pane: after a rename the line read before it is gone, and the next walk's says what is left (N-audit-1106-286): " +
+                      (reloaded ?? "(none)") + " / " + (afterWalk ?? "(none)"),
+                    reloaded == RemembranceModule.OlderRecordingsReading && walked
+                    && afterWalk != null && afterWalk.StartsWith("Every recording here has the new names", StringComparison.Ordinal));
             }
-            finally { module.Shutdown(); }
+            finally
+            {
+                walkGate.Set();
+                pane.InfoChanged -= noteRefresh;
+                RemembranceModule.PlanOlderRecordings = planWas;
+                module.Shutdown();
+            }
         }
     }
 }

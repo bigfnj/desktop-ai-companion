@@ -276,7 +276,7 @@ namespace DesktopAICompanion.RemembranceModule
                     // CREATE_SUSPENDED) cannot close.
                     if (job == null)
                     {
-                        StopUncontained(proc);
+                        StopChild(proc);
                         why = JobRefusedReason;
                         return "";
                     }
@@ -330,13 +330,26 @@ namespace DesktopAICompanion.RemembranceModule
         internal const string JobRefusedReason =
             "Windows would not let Remembrance tie whisper-cli to the app, so it was stopped rather than left to run on its own after the app closes.";
 
-        /// <summary>End a whisper-cli that is in no job, and wait for it to be gone, so nothing it does outlives this
-        /// call. Best-effort: one that has already exited is the outcome wanted.</summary>
-        private static void StopUncontained(Process proc)
+        /// <summary>
+        /// End a whisper-cli and wait for it to be gone, so nothing it does outlives this call: one in no job, which would
+        /// otherwise run on after the app closes (N-cxr-w1-02), and the verify probe's after its five minutes, whose
+        /// scratch folder is deleted next and cannot be while the child still holds check.wav open (N-audit-1106-290).
+        /// The wait is bounded, so a child that will not end cannot hold the caller; best-effort, since one that has
+        /// already exited is the outcome wanted. Both the probe and the run stop their child here, so there is one way
+        /// to end one.
+        /// </summary>
+        internal static void StopChild(Process proc)
         {
-            try { proc.Kill(true); } catch { }
+            try { KillChild(proc); } catch { }
             try { proc.WaitForExit(5000); } catch { }
         }
+
+        /// <summary>The kill StopChild asks for, behind a delegate so the self-test can make it land late, as a real one
+        /// may: TerminateProcess only starts a process's end, so Kill(true) can return while the child still holds its
+        /// files (N-audit-1106-290). A test with the real kill could not fail on the probe's old code, because Kill(true)
+        /// snapshots every process on the machine after the kill, which usually outlasts the child's teardown. Defaults
+        /// to the real kill, of the whole tree.</summary>
+        internal static Action<Process> KillChild = delegate(Process proc) { proc.Kill(true); };
 
         /// <summary>The one message that is genuinely about setup, so the five that are NOT stop borrowing
         /// it.</summary>

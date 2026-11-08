@@ -51,8 +51,16 @@ namespace DesktopAICompanion.RemembranceModule
                         OptionsPane pane = host.OptionsPanes[0];
 
                         // ---- N-remembrance-backlog-01: the saved CLI's details read tells the open pane when it lands ----
+                        // The Older recordings walk each Load starts tells the pane too, once, when its first line lands
+                        // (N-audit-1106-286): the counts below are this read's, so that walk is let finish and its own
+                        // notices are taken off before each count is read.
                         int notified = 0;
                         Action counter = delegate { Interlocked.Increment(ref notified); };
+                        Func<int> notifiedByRead = delegate
+                        {
+                            module.OlderWalkForSelfTest.Wait(TimeSpan.FromSeconds(10));
+                            return Volatile.Read(ref notified) - module.OlderNoticesForSelfTest;
+                        };
                         pane.InfoChanged += counter;
                         string before, after;
                         bool landed;
@@ -60,13 +68,13 @@ namespace DesktopAICompanion.RemembranceModule
                         try
                         {
                             before = pane.Load()["cliNameClaude"];
-                            landed = SpinWait.SpinUntil(delegate { ui.Drain(); return Volatile.Read(ref notified) >= 1; }, TimeSpan.FromSeconds(10));
+                            landed = SpinWait.SpinUntil(delegate { ui.Drain(); return notifiedByRead() >= 1; }, TimeSpan.FromSeconds(10));
                             Thread.Sleep(50);
-                            afterLanding = Volatile.Read(ref notified);
+                            afterLanding = notifiedByRead();
                             after = pane.Load()["cliNameClaude"];
                             Thread.Sleep(100);
                             ui.Drain();
-                            afterReload = Volatile.Read(ref notified);
+                            afterReload = notifiedByRead();
                         }
                         finally { pane.InfoChanged -= counter; }
                         check("remembrance cli-followups: the saved CLI's details read tells the open pane when it lands, and the row then names the CLI: " +

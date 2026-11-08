@@ -86,6 +86,9 @@ namespace DesktopAICompanion.RemembranceModule
                         check("remembrance shared sign-in: WITNESS the next Apply takes the refusal off the Status line",
                             reapplied && !pane.Load()["status"].Contains("✗ Not applied"));
 
+                        // The Older recordings walk the Loads above started tells the pane once, when its first line lands
+                        // (N-audit-1106-286); it is let finish first, so the count below is the sign-in's alone.
+                        module.OlderWalkForSelfTest.Wait(TimeSpan.FromSeconds(10));
                         int notified = 0;
                         Action counter = delegate { Interlocked.Increment(ref notified); };
                         pane.InfoChanged += counter;
