@@ -398,17 +398,22 @@ namespace DesktopAICompanion
             UpdateSpeechFollow();   // a bubble stays over the companion as it moves
         }
 
-        /// <summary>The window self-test's stand-in for the fullscreen scan (which needs the running app). Null in production.</summary>
-        internal Func<Rectangle, bool> TickBlockedForSelfTest;
+        /// <summary>The window self-test's stand-in for the fullscreen SCAN's answer, one entry per screen as
+        /// StartUp.BlockedMonitorsForStandDown returns it (the scan needs the running app). Null in production.</summary>
+        /// <remarks>It stands in for the scan's array and nothing else (N-audit-1106-303). It replaced the whole of
+        /// <see cref="TickMonitorBlocked"/> before, so the screens count, the length check and the mapping from the
+        /// window's rectangle to a monitor, which decide what a tick window does with the answer, ran under no
+        /// self-test.</remarks>
+        internal Func<bool[]> TickScanForSelfTest;
 
         /// <summary>Whether a fullscreen window owns the monitor under <paramref name="area"/>, from the app's shared scan
         /// (StartUp.BlockedMonitorsForStandDown, throttled once for the whole desktop). A failed scan reads as not blocked
         /// and is said once in the log, as <see cref="CheckFullScreen"/> says it. With no app running (a self-test) there
-        /// is no scan to ask, and nothing is blocked.</summary>
+        /// is no scan to ask, and nothing is blocked, unless the self-test supplies the scan's answer.</summary>
         private bool TickMonitorBlocked(Rectangle area)
         {
-            if (TickBlockedForSelfTest != null) return TickBlockedForSelfTest(area);
-            if (Program.Mainthread == null) return false;
+            Func<bool[]> scan = TickScanForSelfTest;
+            if (scan == null && Program.Mainthread == null) return false;
             Screen[] screens = Screen.AllScreens;
             if (screens.Length == 0)
             {
@@ -416,7 +421,7 @@ namespace DesktopAICompanion
                 return false;
             }
             bool[] blocked;
-            try { blocked = Program.Mainthread.BlockedMonitorsForStandDown(); }
+            try { blocked = scan != null ? scan() : Program.Mainthread.BlockedMonitorsForStandDown(); }
             catch (Exception ex)
             {
                 NoteFullscreenStandDown("the monitor scan threw " + ex.GetType().Name);

@@ -165,16 +165,26 @@ namespace DesktopAICompanion.Shimeji
                 // A fullscreen window on the companion's monitor hides its window while the companion keeps running, and
                 // the window is back at the first step after the monitor frees.
                 // (The dragged companion: Dragged's one pose always shows an image.)
+                // Only the scan's answer is stood in for, one entry per screen (N-audit-1106-303): the screens count, the
+                // length check and the mapping from the window to its monitor are the app's own. Every screen is blocked,
+                // not only the window's, because Dragged follows wherever the pointer is.
+                int screenCount = System.Windows.Forms.Screen.AllScreens.Length;
                 int timeBefore = breeder.Time;
                 bool shownBefore = breedForm.Visible;
-                breedForm.TickBlockedForSelfTest = area => true;
+                breedForm.TickScanForSelfTest = () => Filled(screenCount, true);
                 host.Step();
                 bool hidden = !breedForm.Visible && breedForm.IsStoodDownForFullscreen && breeder.Time == timeBefore + 1;
-                breedForm.TickBlockedForSelfTest = area => false;
+                breedForm.TickScanForSelfTest = () => Filled(screenCount, false);
                 host.Step();
                 check(shownBefore && hidden && breedForm.Visible && !breedForm.IsStoodDownForFullscreen,
                     "a fullscreen window on its monitor hides a tick window while the companion runs on, and it returns after");
-                breedForm.TickBlockedForSelfTest = null;
+                // A scan whose answer does not fit this desktop (one more result than there are screens, every one
+                // blocked) is a failed scan: read as not blocked, as the classic stand-down reads it, never mapped.
+                breedForm.TickScanForSelfTest = () => Filled(screenCount + 1, true);
+                host.Step();
+                check(breedForm.Visible && !breedForm.IsStoodDownForFullscreen,
+                    "a scan with a result count that is not the screen count stands no tick window down (" + screenCount + " screens)");
+                breedForm.TickScanForSelfTest = null;
 
                 // Play (a respawn, a relocation, the debug menu) changes nothing on a tick-driven window: its host places it.
                 Rectangle placed = breedForm.Bounds;
@@ -378,6 +388,35 @@ namespace DesktopAICompanion.Shimeji
                 said = TickWindowsTray.PutBack(host);
                 check(fake.Calls == 2 && said == "No window needed putting back.",
                     "put back: with nothing recorded the record is not asked");
+            }
+            // The real record (N-audit-1106-391): a handle goes back only while the process and thread that owned it when
+            // it was recorded still own it. This process's own window, created and never shown, stands in: recorded once
+            // under another thread (a handle value a closed window gave up and a new window was given), then under its
+            // real owner (WITNESS).
+            using (var probe = new System.Windows.Forms.Form
+            {
+                ShowInTaskbar = false, FormBorderStyle = System.Windows.Forms.FormBorderStyle.None,
+                StartPosition = System.Windows.Forms.FormStartPosition.Manual, Bounds = new Rectangle(-20000, -20000, 40, 40),
+            })
+            {
+                IntPtr h = probe.Handle;
+                int process;
+                uint thread = Win32InteractiveWindow.OwnerForSelfTest(h, out process);
+                var record = new Win32InteractiveWindow();
+                Point start = probe.Location;
+                var elsewhere = new Rectangle(start.X + 40, start.Y + 40, 40, 40);
+                record.RecordForSelfTest(h, elsewhere, process, unchecked(thread + 1));
+                System.Windows.Forms.Application.DoEvents();
+                int reused = record.PutWindowsBack();
+                Point afterReused = probe.Location;
+                record.RecordForSelfTest(h, elsewhere, process, thread);
+                System.Windows.Forms.Application.DoEvents();
+                int owned = record.PutWindowsBack();
+                Point afterOwned = probe.Location;
+                check(reused == 0 && afterReused == start,
+                    "put back: a recorded handle another thread now owns is left where it is (" + reused + ", " + afterReused + ")");
+                check(owned == 1 && afterOwned == elsewhere.Location,
+                    "put back: WITNESS a recorded window its recorder still owns goes back (" + owned + ", " + afterOwned + ")");
             }
             // The tray menu carries the item, hidden until a window was moved.
             var menus = new ContextMenus();
@@ -1038,6 +1077,14 @@ namespace DesktopAICompanion.Shimeji
         {
             foreach (TickMascot m in world.Mascots) if (m.Sid.Contains(".b")) return m;
             return null;
+        }
+
+        /// <summary>A fullscreen scan's answer of <paramref name="count"/> entries, each <paramref name="value"/>.</summary>
+        private static bool[] Filled(int count, bool value)
+        {
+            var answer = new bool[count];
+            for (int i = 0; i < count; i++) answer[i] = value;
+            return answer;
         }
 
         /// <summary>Whether a window's speech anchor sits over it: at its top, inside its width, on the side its companion

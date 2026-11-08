@@ -289,6 +289,21 @@ namespace DesktopAICompanion
                 TickFaultThrottle.Identity("Transform into Beta: no behaviour named 'Ghost' in Beta"),
                 "WITNESS a fault message with no trailing value was changed by its identity.");
 
+            // N-cxr-w1-07: a subject that holds parentheses keeps them; only the value at the end goes. Two behaviours
+            // named 'Walk (Slow)' and 'Walk (Fast)' are two faults, and the first one's repeats do not silence the second.
+            AssertEqual("the condition of 'Walk (Slow)' is not a boolean (...)",
+                TickFaultThrottle.Identity("the condition of 'Walk (Slow)' is not a boolean (0.5)"),
+                "A fault's identity cut a parenthesised subject short: "
+                + TickFaultThrottle.Identity("the condition of 'Walk (Slow)' is not a boolean (0.5)"));
+            var named = new TickFaultThrottle();
+            for (int i = 0; i < TickFaultThrottle.Repeats + 2; i++) named.Next("Alpha", "the condition of 'Walk (Slow)' is not a boolean (" + i + ")");
+            AssertEqual("the condition of 'Walk (Fast)' is not a boolean (0)",
+                named.Next("Alpha", "the condition of 'Walk (Fast)' is not a boolean (0)"),
+                "Two behaviours whose names hold parentheses shared one fault identity, and one silenced the other.");
+            // WITNESS: a value that is itself parenthesised (a point) still folds whole, so a changing point is one fault.
+            AssertEqual("Sit: anchor is not a number (...)", TickFaultThrottle.Identity("Sit: anchor is not a number ((1, 2))"),
+                "WITNESS a parenthesised value was not folded whole by the fault identity.");
+
             // One type past its distinct limit: it says so once and goes quiet, and another type's NEW fault still logs.
             var many = new TickFaultThrottle();
             for (int i = 0; i < TickFaultThrottle.DistinctLimit; i++) many.Next("Alpha", "fault " + i);

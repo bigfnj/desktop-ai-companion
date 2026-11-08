@@ -513,6 +513,11 @@ namespace DesktopAICompanion.Shimeji
         {
             public int X, Y;
             public bool Minimised;
+            // Who owned the handle when it was recorded (N-audit-1106-391). A handle value names a window only while
+            // that window lives; a recorded window that closed can have its value given to a new window, and putting
+            // back by the bare value would move (and restore from minimised) a window the session never touched.
+            public int Process;
+            public uint Thread;
         }
 
         /// <summary>The InteractiveWindows list, '/'-separated as the source's setting; the source's shipped default.</summary>
@@ -634,6 +639,8 @@ namespace DesktopAICompanion.Shimeji
                     if (!IsWindow(h)) continue;
                     int pid;
                     uint thread = GetWindowThreadProcessId(h, out pid);
+                    // The same handle on another process's or thread's window is not the window recorded: left alone.
+                    if (pid != p.Value.Process || thread != p.Value.Thread) continue;
                     if (IsZoomed(h) || IsHungAppWindow(h) || IsElevated(pid) || IsMovingOrSizing(h, thread)) continue;
                     if (p.Value.Minimised && DesktopWindows.IsIconic(h)) ShowWindowAsync(h, SW_SHOWNOACTIVATE);
                     SetWindowPos(h, IntPtr.Zero, p.Value.X, p.Value.Y, 0, 0, MoveFlags);
@@ -752,7 +759,22 @@ namespace DesktopAICompanion.Shimeji
                 }
                 return;
             }
-            _record[h] = new Saved { X = frame.X, Y = frame.Y, Minimised = minimised };
+            int pid;
+            uint thread = GetWindowThreadProcessId(h, out pid);
+            _record[h] = new Saved { X = frame.X, Y = frame.Y, Minimised = minimised, Process = pid, Thread = thread };
+        }
+
+        /// <summary>Self-test: record <paramref name="h"/> as if a companion had moved it from <paramref name="frame"/>,
+        /// owned by <paramref name="process"/> and <paramref name="thread"/> (another owner stands for a reused handle).</summary>
+        internal void RecordForSelfTest(IntPtr h, Rectangle frame, int process, uint thread)
+        {
+            _record[h] = new Saved { X = frame.X, Y = frame.Y, Process = process, Thread = thread };
+        }
+
+        /// <summary>Self-test: the process and thread that own <paramref name="h"/> now.</summary>
+        internal static uint OwnerForSelfTest(IntPtr h, out int process)
+        {
+            return GetWindowThreadProcessId(h, out process);
         }
 
         /// <summary>This process's top-level windows, which never decide a monitor in the fullscreen scan.</summary>

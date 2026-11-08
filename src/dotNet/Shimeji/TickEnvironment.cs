@@ -457,10 +457,21 @@ namespace DesktopAICompanion.Shimeji
         /// time and was logged every time. The first lines logged still carry the value. A message that does not end with
         /// one is its own identity; an exception's message naming a parameter, "(Parameter 'index')", folds the same way.
         /// </summary>
+        /// <remarks>
+        /// The value is cut at the LAST " (", never the first (N-cxr-w1-07). Every site that appends a value appends it
+        /// after the subject, and a wrapper ("Transform into X: ", "a birth failed: ") only prefixes, so the last " (" is
+        /// the value's and everything before it, the subject, is kept. Cut at the first, a behaviour or action whose own
+        /// name holds a parenthesis ('Walk (Slow)', 'Walk (Fast)') lost the rest of its name, both became one fault, and
+        /// the first one's repeats silenced the second for good. A string value that itself holds " (" is cut inside the
+        /// value instead, so its changing values stay distinct and spend the type's distinct limit: bounded, and the
+        /// safer side, since a merged identity hides a different fault. Rejected: a structured identity passed beside
+        /// the message, which would change ITickObserver.Fault for every observer (the parity trace's included) and
+        /// would have to ride inside the exceptions the Transform and birth wrappers report.
+        /// </remarks>
         internal static string Identity(string message)
         {
             if (!message.EndsWith(")", StringComparison.Ordinal)) return message;
-            int open = message.IndexOf(" (", StringComparison.Ordinal);
+            int open = message.LastIndexOf(" (", StringComparison.Ordinal);
             return open < 0 ? message : message.Substring(0, open) + " (...)";
         }
     }
