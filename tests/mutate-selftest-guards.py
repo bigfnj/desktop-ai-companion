@@ -23311,6 +23311,32 @@ CASES = (
      b"                    prepared.Add(new PreparedMember { Name = member, Error = member + \": \" + failure.Message });\n",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
      SHIMEJI, "pack-conversion/member-refusal-no-write", "a refused member's error names its image set twice before the diagnostic: Image set 'Bad': Bad: "),
+    # ---- burndown/w7-aibrain-1 ----
+    # AI Brain's seventh-wave item (aibrain 1.7.1), graded by --module-selftest=aibrain's "aibrain bd-w7:" checks
+    # (engine/AiEngineProbe.BurndownW7.cs). Named "bd-w7-aibrain-1: ..." so --only=bd-w7-aibrain-1: runs the lane.
+    # N-bd-w5-aibrain-1-01: the persona audition answered "Not reachable at <url>, start the provider" for a base URL that
+    # answers with a redirect, because PrepareAsync's false was all it read; the brain now passes on the reason its probe kept.
+    ("bd-w7-aibrain-1: Show me 5 examples says a base URL that redirects is not reachable again (N-bd-w5-aibrain-1-01)",
+     os.path.join(REPO, "modules", "AiBrain", "AiBrainModule.cs"),
+     '                            : ProbeRefusalLine(brain.LastProbeFailure, normalized, " — start the provider and try again.");\n'.encode("utf-8"),
+     '                            : "✗ Not reachable at " + normalized + " — start the provider and try again.";\n'.encode("utf-8"),
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "aibrain bd-w7: Show me 5 examples names a base URL that answers with a redirect as HTTP 301"),
+    ("bd-w7-aibrain-1: the brain forgets why its probe said not reachable (N-bd-w5-aibrain-1-01)",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "AiBrain.cs"),
+     b"                return probe == null ? null : probe.LastProbeFailure;\n",
+     b"                return probe == null ? null : (Exception)null;\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "aibrain bd-w7: Show me 5 examples names a base URL that answers with a redirect as HTTP 301"),
+    ("bd-w7-aibrain-1: the audition's not-reachable line drops what to do (N-bd-w5-aibrain-1-01)",
+     os.path.join(REPO, "modules", "AiBrain", "AiBrainModule.cs"),
+     '            return "✗ Not reachable at " + endpoint + notReachableAdvice;\n'.encode("utf-8"),
+     '            return "✗ Not reachable at " + endpoint;\n'.encode("utf-8"),
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "WITNESS aibrain bd-w7: Show me 5 examples whose probe gets no answer still says not reachable"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

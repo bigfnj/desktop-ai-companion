@@ -31,6 +31,23 @@ namespace DesktopAICompanion.Ai
         /// into the cloud+local composite (the Remembrance fallback hold, lane feature/aibrain-standdown).</summary>
         internal ICompanionBrainBackend BackendForDiagnostics { get { return _backend; } }
 
+        /// <summary>
+        /// Why this brain's last reachability probe (a PrepareAsync, or the probe before an ask) answered "not reachable",
+        /// as its backend kept the reason (<see cref="IAvailabilityProbeStatus"/>); null after a probe that answered up, and
+        /// for a backend that keeps no reason (OllamaClient, whose probe is a success probe). The persona audition reads it
+        /// once PrepareAsync has answered false, so a base URL that answers with a redirect is named as a redirect from its
+        /// host and not as a host that is not reachable, the line Test connection gives it (N-bd-w5-aibrain-1-01). The reason
+        /// and not the backend: the brain still hands its backend to nothing but the self-test.
+        /// </summary>
+        internal Exception LastProbeFailure
+        {
+            get
+            {
+                IAvailabilityProbeStatus probe = _backend as IAvailabilityProbeStatus;
+                return probe == null ? null : probe.LastProbeFailure;
+            }
+        }
+
         private readonly AiSettings _settings;
         private readonly string _textModel;
         private readonly string _visionModel;
