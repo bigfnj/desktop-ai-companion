@@ -17,6 +17,7 @@ import io
 import os
 import re
 import subprocess
+from mutation_journal import JournalError, RestoreJournal, journal_path, repaired_loaded_module
 from mutation_process import run_text
 import sys
 
@@ -73,6 +74,12 @@ TRAY_CARD_CS = os.path.join(REPO, "src", "Portable", "Wpf", "TrayQuestionCard.cs
 PROCESS_ICON_CS = os.path.join(REPO, "src", "dotNet", "ProcessIcon.cs")
 APP_SETTINGS_CS = os.path.join(REPO, "src", "Portable", "AppSettingsStore.cs")
 LOCALDATA_CS = os.path.join(REPO, "src", "Portable", "LocalData.cs")
+
+# The on-disk restore record (tests/mutation_journal.py, N-bd-w6-tests-harness-1-01), set in main(). The loop below wrote
+# each mutant with its original bytes only in this process's memory and put them back in a finally, which a hard kill
+# never runs, and no shard controller's git diff watches this harness. None when main()'s loop is driven by a unit test
+# that does not set it.
+JOURNAL = None
 
 
 def read(p):
@@ -5017,7 +5024,25 @@ def line_ending_variant(base, old, new):
         return crlf_old, crlf_new
     return old, new
 
+def repair_stranded_mutant():
+    """Put back a mutant a hard-killed run left (N-bd-w6-tests-harness-1-01). Returns None to go on, or the exit code to
+    stop with: 2 when the record cannot be acted on, or when the file it put back is one this process already imported,
+    which would run the rest as the mutant."""
+    try:
+        lines, repaired = JOURNAL.repair()
+    except JournalError as error:
+        print("REFUSED: " + str(error))
+        return 2
+    for line in lines:
+        print(line)
+    if repaired_loaded_module(repaired, sys.modules):
+        print("STOPPED: this run loaded that file as the mutant; run the harness again")
+        return 2
+    return None
+
+
 def main():
+    global JOURNAL
     parser = argparse.ArgumentParser()
     parser.add_argument("--only", default=None)
     args = parser.parse_args()
@@ -5028,6 +5053,12 @@ def main():
     if not cases:
         print("no case matched --only=%s" % args.only)
         return 2
+    # Before the baseline run reads the tree as clean: put back a mutant a hard-killed run left, the same first act as
+    # the sibling harnesses (N-bd-w6-tests-harness-1-01).
+    JOURNAL = RestoreJournal(journal_path(__file__))
+    stopped = repair_stranded_mutant()
+    if stopped is not None:
+        return stopped
 
     print("baseline: the hardening self-test must pass before anything is scored")
     code, out = run()
@@ -5065,11 +5096,17 @@ def main():
         if count != 1:
             print("  %-46s NO-OP (pattern matched %d times)" % (name, count))
             continue
+        # ON DISK before the mutant is (N-bd-w6-tests-harness-1-01): the next run's repair puts it back from here.
+        if JOURNAL is not None:
+            JOURNAL.record(path, base, mutant, name)
         write(path, mutant)
         try:
             code, out = run()
         finally:
             write(path, base)
+            # Only once the original bytes are back; clear() removes nothing this run did not record.
+            if JOURNAL is not None:
+                JOURNAL.clear()
 
         if code == 0:
             print("  %-46s SURVIVED -- the assertion is still vacuous" % name)

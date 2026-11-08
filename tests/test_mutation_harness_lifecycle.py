@@ -289,6 +289,167 @@ class DiagnosticsHarnessLifecycleTests(unittest.TestCase):
             self.assertEqual(code, 0)
 
 
+class AgentFlowHarnessLifecycleTests(unittest.TestCase):
+    """N-bd-w6-tests-harness-1-01: mutate-agentflow.py kept a mutated file's original text only in memory."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.harness = load("mutate-agentflow")
+
+    def score_patches(self, folder, target_paths, journal, write=None):
+        harness = self.harness
+        dll = Path(folder, "AgentFlow.dll")
+        dll.write_bytes(b"synthetic")
+        stamps = [1000000000]
+
+        def build(relaxed=False):
+            # Every build "rebuilds" the DLL: its timestamp advances, as the harness requires before it trusts a verdict.
+            stamps[0] += 10
+            os.utime(str(dll), (stamps[0], stamps[0]))
+            return True, ""
+
+        calls = []
+
+        def run_selftest():
+            calls.append(1)
+            if len(calls) == 1:
+                return "PASS: WITNESS synthetic\nRESULT=PASS\n", 0
+            return "PASS: WITNESS synthetic\nFAIL: label one\nRESULT=FAIL\n", 1
+
+        patches = [patch.object(harness, "EXE", __file__), patch.object(harness, "DLL", str(dll)),
+                   patch.object(harness, "TARGETS", tuple(target_paths)), patch.object(harness, "JOURNAL", journal),
+                   patch.object(harness, "RUN_TEMP", folder), patch.object(harness, "build", side_effect=build),
+                   patch.object(harness, "run_selftest", side_effect=run_selftest),
+                   patch.object(harness.time, "sleep")]
+        if write is not None:
+            patches.append(patch.object(harness, "write", side_effect=write))
+        return patches
+
+    def test_agentflow_a_hard_kill_mid_case_is_repaired_by_the_next_run(self):
+        harness = self.harness
+        with tempfile.TemporaryDirectory() as folder:
+            # A leading BOM, which read() keeps as U+FEFF: the record must hold the file's own bytes, BOM included.
+            original = "﻿guard one\n".encode("utf-8")
+            target = Path(folder, "Source.cs")
+            target.write_bytes(original)
+            journal = RestoreJournal(os.path.join(folder, "agentflow.restore-journal.json"))
+            case = ("synthetic kill", str(target), "guard one", "nothing", "label one")
+            real_write = harness.write
+
+            def write(path, text):
+                if text.encode("utf-8") == original:
+                    raise SimulatedKill()
+                real_write(path, text)
+
+            with contextlib.ExitStack() as stack:
+                for one in self.score_patches(folder, [str(target)], journal, write):
+                    stack.enter_context(one)
+                stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
+                with self.assertRaises(SimulatedKill):
+                    harness.score(types.SimpleNamespace(cases=[case], indices=[1]))
+            self.assertEqual(target.read_bytes(), "﻿nothing\n".encode("utf-8"), "the synthetic kill left the mutant in place")
+            # The next run's main(), up to score().
+            seen = []
+            plan = types.SimpleNamespace(summary=lambda: "synthetic", json=lambda: "{}", cases=[case], indices=[1])
+            with patch.object(harness, "journal_path", return_value=journal.path), \
+                 patch.object(harness, "JOURNAL", None), \
+                 patch.object(harness, "RUN_TEMP", None), \
+                 patch.object(harness, "MARKER", None), \
+                 patch.object(harness, "CHILD_ENV", None), \
+                 patch.object(harness, "plan_arguments", return_value=plan), \
+                 patch.object(harness, "score", side_effect=lambda p: seen.append(target.read_bytes()) or 0), \
+                 patch.object(harness.sys, "argv", ["mutate-agentflow.py", "--only=synthetic"]), \
+                 patch.dict(harness.os.environ, {"TEMP": folder}), \
+                 contextlib.redirect_stdout(io.StringIO()):
+                code = harness.main()
+            self.assertEqual(seen, [original],
+                             "agentflow harness: a hard kill mid-case leaves a record the next run repairs the mutant from")
+            self.assertEqual(code, 0)
+            self.assertFalse(os.path.exists(journal.path), "agentflow harness: the repaired record is removed")
+
+    def test_agentflow_a_clean_run_leaves_no_record(self):
+        harness = self.harness
+        with tempfile.TemporaryDirectory() as folder:
+            targets = [Path(folder, "One.cs"), Path(folder, "Two.cs")]
+            targets[0].write_text("guard one\n", encoding="utf-8")
+            targets[1].write_text("guard two\n", encoding="utf-8")
+            journal = RestoreJournal(os.path.join(folder, "agentflow.restore-journal.json"))
+            cases = [("synthetic one", str(targets[0]), "guard one", "nothing", "label one"),
+                     ("synthetic two", str(targets[1]), "guard two", "nothing", "label one")]
+            with contextlib.ExitStack() as stack:
+                for one in self.score_patches(folder, [str(t) for t in targets], journal):
+                    stack.enter_context(one)
+                output = io.StringIO()
+                stack.enter_context(contextlib.redirect_stdout(output))
+                code = harness.score(types.SimpleNamespace(cases=cases, indices=[1, 2]))
+            # Two cases: a record left by the first would refuse the second's record() before its mutant was written.
+            self.assertEqual(code, 0, "agentflow harness: a clean run clears each case's record once its original is back")
+            self.assertIn("2/2 fired.", output.getvalue())
+            self.assertFalse(os.path.exists(journal.path))
+            self.assertEqual([t.read_text(encoding="utf-8") for t in targets], ["guard one\n", "guard two\n"])
+
+
+class HardeningHarnessLifecycleTests(unittest.TestCase):
+    """N-bd-w6-tests-harness-1-01: mutate-hardening-guards.py kept a mutated file's original bytes only in memory, and no
+    shard controller's git diff watches it."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.harness = load("mutate-hardening-guards")
+
+    def test_hardening_a_hard_kill_mid_case_is_repaired_by_the_next_run(self):
+        harness = self.harness
+        with tempfile.TemporaryDirectory() as folder:
+            one, two = Path(folder, "one.ps1"), Path(folder, "two.ps1")
+            one.write_bytes(b"guard one\n")
+            two.write_bytes(b"guard two\n")
+            journal_file = os.path.join(folder, "hardening.restore-journal.json")
+            cases = [("synthetic one", str(one), b"guard one", b"nothing", "label one"),
+                     ("synthetic two", str(two), b"guard two", b"nothing", "label two")]
+            real_write = harness.write
+
+            def write(path, data):
+                if data == b"guard one\n":
+                    raise SimulatedKill()
+                real_write(path, data)
+
+            verdicts = iter([(0, "PASS: x\n"), (1, "label one failed.\n")])
+            with patch.object(harness, "journal_path", return_value=journal_file), \
+                 patch.object(harness, "JOURNAL", None), \
+                 patch.object(harness, "CASES", cases[:1]), \
+                 patch.object(harness, "run", side_effect=lambda: next(verdicts)), \
+                 patch.object(harness, "write", side_effect=write), \
+                 patch.object(harness.sys, "argv", ["mutate-hardening-guards.py", "--only=synthetic"]), \
+                 contextlib.redirect_stdout(io.StringIO()):
+                with self.assertRaises(SimulatedKill):
+                    harness.main()
+            self.assertEqual(one.read_bytes(), b"nothing\n", "the synthetic kill left the mutant in place")
+            # The next run, with two cases: its baseline must read the repaired tree, and a record the first case left
+            # would refuse the second.
+            seen = []
+
+            def run():
+                if not seen:
+                    seen.append(one.read_bytes())
+                    return 0, "PASS: x\n"
+                return 1, ("label one failed.\n" if one.read_bytes() != b"guard one\n" else "label two failed.\n")
+
+            output = io.StringIO()
+            with patch.object(harness, "journal_path", return_value=journal_file), \
+                 patch.object(harness, "JOURNAL", None), \
+                 patch.object(harness, "CASES", cases), \
+                 patch.object(harness, "run", side_effect=run), \
+                 patch.object(harness.sys, "argv", ["mutate-hardening-guards.py", "--only=synthetic"]), \
+                 contextlib.redirect_stdout(output):
+                code = harness.main()
+            self.assertEqual(seen, [b"guard one\n"],
+                             "hardening harness: a hard kill mid-case leaves a record the next run repairs the mutant from")
+            self.assertIn("REPAIRED", output.getvalue())
+            self.assertEqual(code, 0, "hardening harness: a clean run clears each case's record once its original is back")
+            self.assertFalse(os.path.exists(journal_file))
+            self.assertEqual((one.read_bytes(), two.read_bytes()), (b"guard one\n", b"guard two\n"))
+
+
 class AgentFlowFiringCountTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
