@@ -27,6 +27,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "source-pack-context", Run = (Action)SourcePackContext },
                 new { Name = "immutable-snapshot", Run = (Action)ImmutableSnapshot },
                 new { Name = "entrypoints-and-locators", Run = (Action)EntryPoints },
+                new { Name = "legacy-declared-encodings", Run = (Action)LegacyDeclaredEncodings },
             };
             foreach (var item in cases)
             {
@@ -481,6 +482,55 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 "bundled entrypoint source metadata missing");
             Require(bundled.Source.Actions.Root.Line > 0 && bundled.Source.Behaviors.Root.Line > 0,
                 "bundled line information absent");
+        }
+
+        // A configuration may declare a legacy code page in its XML declaration, which Java's parser reads. .NET supplies
+        // only the Unicode encodings, ASCII and Latin-1 by itself, so XmlReader refused such a document outright
+        // (N-audit-1106-159). Each one here carries an action name only its code page spells (the euro sign is 0x80 in
+        // windows-1252, a C1 control in Latin-1), written in that code page, and must parse to that name. WITNESS: a
+        // declaration naming an encoding nothing supplies is still refused, so the fallback reads only what it can name.
+        private static void LegacyDeclaredEncodings()
+        {
+            string tempRoot = Path.GetFullPath(Path.GetTempPath());
+            string directory = Path.Combine(tempRoot, "source-ir-encoding-" + Guid.NewGuid().ToString("N"));
+            string actionsPath = Path.Combine(directory, "actions.xml");
+            Directory.CreateDirectory(directory);
+            try
+            {
+                foreach (string[] row in new[] { new[] { "Shift_JIS", "テスト" }, new[] { "EUC-JP", "テスト" },
+                    new[] { "windows-1252", "Café €" } })
+                {
+                    Encoding legacy = CodePagesEncodingProvider.Instance.GetEncoding(row[0]);
+                    Require(legacy != null, "the code-page provider does not supply " + row[0]);
+                    File.WriteAllBytes(actionsPath, legacy.GetBytes(DeclaredActions(row[0], row[1])));
+                    ShimejiConfig config;
+                    try { config = ShimejiParser.ParseConfDirectory(directory); }
+                    catch (Exception refused)
+                    {
+                        throw new InvalidOperationException("a configuration declaring " + row[0] + " was refused: " + refused.Message);
+                    }
+                    string read = config.Actions.Count == 1 ? config.Actions[0].Name : "(" + config.Actions.Count + " actions)";
+                    Require(read == row[1], "a configuration declaring " + row[0] + " read its action name as '" + read + "'");
+                }
+                File.WriteAllBytes(actionsPath, Encoding.ASCII.GetBytes(DeclaredActions("x-no-such-encoding", "Plain")));
+                string unknown = null;
+                try { ShimejiParser.ParseConfDirectory(directory); }
+                catch (Exception refused) { unknown = refused.Message; }
+                Require(unknown != null, "WITNESS: a declaration naming an encoding nothing supplies was read anyway");
+            }
+            finally
+            {
+                // Only this one file was created; an unexpected extra file prevents directory removal.
+                if (File.Exists(actionsPath)) File.Delete(actionsPath);
+                Directory.Delete(directory, false);
+            }
+        }
+
+        private static string DeclaredActions(string encoding, string name)
+        {
+            return "<?xml version=\"1.0\" encoding=\"" + encoding + "\"?>\n<Mascot><ActionList><Action Name=\"" + name
+                + "\" Type=\"Stay\"><Animation><Pose Image=\"/a.png\" ImageAnchor=\"1,2\" Velocity=\"0,0\" Duration=\"5\"/>"
+                + "</Animation></Action></ActionList></Mascot>";
         }
 
         private const string ActionsXml = @"<Mascot xmlns=""urn:source-ir"" xmlns:ext=""urn:extension"">
