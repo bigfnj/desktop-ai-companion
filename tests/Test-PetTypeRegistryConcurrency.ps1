@@ -1,4 +1,6 @@
-#requires -Version 7
+#requires -Version 7.4
+# 7.4, not 7: Start-Process -Environment (each child's private TEMP and data root, below) first shipped in PowerShell
+# 7.4, so under 7.0 to 7.3 this probe failed at its first launch with a parameter error (N-audit-1106-371).
 <#
 .SYNOPSIS
 Runs actual registry self-tests concurrently with private file and registry fixtures.
