@@ -221,7 +221,10 @@ jobs:
         run: .\tests\Test-BacklogClosingCriteria.ps1
 
       - name: Check the shipped companions' border invariants
-        # Content invariants for the 56 shipped pets. A companion losing its taskbar-eligible
+        # Content invariants for the shipped companions: each border animation the script's own table lists
+        # (the states measured walking a pet off the bottom of the screen) must still be able to answer a
+        # taskbar border. Those listed animations, not every pet; the table is the authority, and the general
+        # check is the pet-XML validator's (BACKLOG item 387). A companion losing its taskbar-eligible
         # border edge landed green on every pull request until now; that defect class is what
         # BACKLOG item 407 was, measured at 335 occurrences in 16 hours.
         shell: pwsh
