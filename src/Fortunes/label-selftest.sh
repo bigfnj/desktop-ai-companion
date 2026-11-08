@@ -28,6 +28,15 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
+# ONE spelling for every fixture path (N-bd-w4-contracts-1-04). mktemp keeps TMPDIR's form, and under Git Bash a
+# drive-letter TMPDIR (D:/...) stays D:/..., while every labeling script resolves its own folder with cd and pwd,
+# which answers /d/.... The TERM stages compare the mv wrapper's destination, spelled by the script, with
+# LABEL_TEST_SIGNAL_TARGET, spelled from this path, so with a drive-letter TMPDIR no destination ever matched and
+# every TERM stage failed with "never renamed onto". The fixture is resolved the way the scripts resolve themselves.
+# A separate variable, so a failed resolution leaves $fixture naming the folder the EXIT trap removes.
+fixture_resolved="$(CDPATH= cd -- "$fixture" && pwd)"
+fixture="$fixture_resolved"
+
 fort="$fixture/project/src/Fortunes"
 packs="$fixture/project/packs"
 mkdir -p -- "$fort/label-chunks" "$packs" "$fixture/project/packaging"
@@ -611,6 +620,13 @@ expect_no_match "$fort" '*.label-restore.*'
 
 (cd / && bash "$fort/label-merge.sh") >/dev/null
 [ "$(awk 'END {print NR}' "$fort/labels-store.tsv")" -eq 3 ]
+# WHICH label each text received, not only how many rows came out (N-audit-1106-143). No two texts share a topic or a
+# genre here, so a merge that paired a chunk line with the wrong output line keeps the count, the shape and the
+# taxonomy and still fails. The store follows label-input.tsv's order, which merge itself enforces.
+printf 'Alpha fortune text.\ttech\tquip\nBeta fortune text.\tlife\tdark\nGamma fortune text.\tscience\tfact\n' \
+  > "$fixture/expected-merged-store.tsv"
+cmp -s "$fixture/expected-merged-store.tsv" "$fort/labels-store.tsv" ||
+  { printf 'merge: a text did not receive its own chunk label: %s\n' "$(tr '\t\n' ' |' < "$fort/labels-store.tsv")" >&2; exit 1; }
 
 # Default apply refuses before staging because schema conversion would invalidate dependent pins.
 expect_failure_matching "generate and review --emit-plan" \
@@ -658,15 +674,37 @@ awk -F'\t' 'NF != 6 {exit 1}' "$fort/fortunes.txt" "$packs/test-pack.txt"
   awk -F'\t' '{print $1 "\t" $4 "\t" $5 "\t" $6}' "$packs/test-pack.txt"
 } > "$fixture/after-invariants"
 cmp -s "$before_invariants" "$fixture/after-invariants"
+# And each row carries its OWN text's labels (N-audit-1106-143): the invariant check above holds only the columns
+# apply must not touch, so a pipeline that gave every text another text's valid labels passed it.
+if ! { grep -Fqx $'srcA\ttech\tquip\tgeneral\t0\tAlpha fortune text.' "$fort/fortunes.txt" &&
+       grep -Fqx $'srcA\tlife\tdark\tedgy\t1\tBeta fortune text.' "$fort/fortunes.txt" &&
+       grep -Fqx $'srcB\tscience\tfact\tgeneral\t0\tGamma fortune text.' "$packs/test-pack.txt"; }; then
+  printf 'apply: a corpus row does not carry its own text'"'"'s labels: %s\n' \
+    "$(cat "$fort/fortunes.txt" "$packs/test-pack.txt" | tr '\t\n' ' |')" >&2
+  exit 1
+fi
 
-# An incomplete store is fatal and leaves every promoted target byte-for-byte unchanged.
+# An incomplete store is fatal and leaves every promoted target byte-for-byte unchanged. The plan is FRESH for this
+# state (N-audit-1106-144): emitted after the apply above, so its target hashes are the files as they now are, with
+# only its store hash swapped for the incomplete store's (--emit-plan itself refuses an incomplete store). The case
+# reused the plan that apply had already made stale, so with label-apply's completeness check removed it still
+# failed, on the plan, and could not say which guard fired. The match is the completeness guard's own message.
+fresh_plan="$fixture/fresh-label-apply-plan.tsv"
+(cd / && bash "$fort/label-apply.sh" --emit-plan) > "$fresh_plan"
 head -n 2 "$fort/labels-store.tsv" > "$fixture/incomplete-store"
 mv -f -- "$fixture/incomplete-store" "$fort/labels-store.tsv"
+incomplete_store_hash="$(sha256_file "$fort/labels-store.tsv")"
+sed "s/^label_store_sha256\t[0-9a-f]*\$/label_store_sha256\t$incomplete_store_hash/" "$fresh_plan" \
+  > "$fixture/fresh-plan-next.tsv"
+mv -f -- "$fixture/fresh-plan-next.tsv" "$fresh_plan"
+grep -Fqx "label_store_sha256"$'\t'"$incomplete_store_hash" "$fresh_plan" ||
+  { echo 'incomplete store: the fresh plan does not carry the incomplete store hash' >&2; exit 1; }
 embedded_hash="$(sha256_file "$fort/fortunes.txt")"
 pack_hash="$(sha256_file "$packs/test-pack.txt")"
-expect_failure bash "$fort/label-apply.sh" --go \
-  --metadata-plan "$apply_plan" \
-  --acknowledge-metadata-finalization
+expect_failure_matching "label store key set does not exactly match label input" \
+  bash "$fort/label-apply.sh" --go \
+    --metadata-plan "$fresh_plan" \
+    --acknowledge-metadata-finalization
 [ "$(sha256_file "$fort/fortunes.txt")" = "$embedded_hash" ]
 [ "$(sha256_file "$packs/test-pack.txt")" = "$pack_hash" ]
 
@@ -683,6 +721,7 @@ expect_no_match "$fort" '*.label-restore.*'
 # Empty-store batching exercises the FILENAME-based fix; invalid ingest remains atomic.
 (cd / && bash "$fort/label-next.sh" 2) >/dev/null
 [ "$(awk 'END {print NR}' "$fort/.batchtexts")" -eq 2 ]
+cp -- "$fort/.batchtexts" "$fixture/ingest-batch-texts"
 printf 'not-a-topic quip\nlife dark\n' > "$fort/label-batch.txt"
 before_store="$(sha256_file "$fort/labels-store.tsv")"
 expect_failure bash "$fort/label-ingest.sh"
@@ -707,6 +746,18 @@ expect_no_match "$fort" '*.label-restore.*'
 
 (cd / && bash "$fort/label-ingest.sh") >/dev/null
 [ "$(awk 'END {print NR}' "$fort/labels-store.tsv")" -eq 2 ]
+# Line N of the batch labels line N of the batch texts (N-audit-1106-143). The two texts and their labels differ, so
+# an ingest that paired them the other way round keeps the count and the taxonomy and still fails here.
+ingest_first="$(sed -n '1p' "$fixture/ingest-batch-texts")"
+ingest_second="$(sed -n '2p' "$fixture/ingest-batch-texts")"
+[ -n "$ingest_first" ] && [ -n "$ingest_second" ] && [ "$ingest_first" != "$ingest_second" ] ||
+  { echo 'ingest: the batch did not hold two distinct texts to pair' >&2; exit 1; }
+if ! { grep -Fqx "$ingest_first"$'\ttech\tquip' "$fort/labels-store.tsv" &&
+       grep -Fqx "$ingest_second"$'\tlife\tdark' "$fort/labels-store.tsv"; }; then
+  printf 'ingest: a text did not receive the label on its own batch line: %s\n' \
+    "$(tr '\t\n' ' |' < "$fort/labels-store.tsv")" >&2
+  exit 1
+fi
 [ ! -s "$fort/label-batch.txt" ]
 [ ! -s "$fort/.batchtexts" ]
 
