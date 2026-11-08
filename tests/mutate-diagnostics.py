@@ -1286,6 +1286,21 @@ CASES = [
      "                    if (f != null && (f.Kind == SettingKind.Info || f.Kind == SettingKind.Header)) return true;\n"
      "                return true;\n",
      "wpf", "apply-refresh: Apply leaves a pane with neither an Info nor a Header row on the view it had"),
+    # N-audit-1106-252: the Modules pane's "the pane went away during the download" returns, and its Unloaded cancel.
+    ("bd-w9-host-2: an Install lands after its pane went away (N-audit-1106-252)", MODULESPANE,
+     "                byte[] bytes = await _seams.DownloadVerified(module, _netCts.Token);\n"
+     "                if (!IsUp) return;\n",
+     "                byte[] bytes = await _seams.DownloadVerified(module, _netCts.Token);\n",
+     "wpf", "pane-gone: an Install whose pane went away during the download moves nothing into modules/<id>"),
+    ("bd-w9-host-2: an Update stages after its pane went away (N-audit-1106-252)", MODULESPANE,
+     "            byte[] bytes = await _seams.DownloadVerified(module, token);\n"
+     "            if (!IsUp) return null;\n",
+     "            byte[] bytes = await _seams.DownloadVerified(module, token);\n",
+     "wpf", "pane-gone: an Update whose pane went away during the download stages and marks nothing"),
+    ("bd-w9-host-2: leaving the Modules pane no longer cancels its download (N-audit-1106-252)", MODULESPANE,
+     "            Unloaded += delegate { try { if (_netCts != null) { _netCts.Cancel(); _netCts.Dispose(); _netCts = null; } } catch { } };\n",
+     "            Unloaded += delegate { try { if (_netCts != null) { _netCts.Dispose(); _netCts = null; } } catch { } };\n",
+     "wpf", "pane-gone: leaving the pane (Unloaded) cancels the token its download holds"),
 ]
 
 

@@ -268,5 +268,93 @@ namespace DesktopAICompanion
             }
             return ok;
         }
+
+        /// <summary>
+        /// N-audit-1106-252: the Modules pane once it has gone away during a download. Every other ModulesPaneProbe case
+        /// sets CountsAsLoaded, so the pane's IsUp was always true and its "the pane went away" returns ran under no check,
+        /// and nothing raised its Unloaded. Here the probe clears CountsAsLoaded once the download has begun (a headless
+        /// pane is never Loaded, so IsUp is then false, as it is shipped for a pane that was left or a window that was
+        /// closed) and lets the download land: an Install moves nothing into modules/&lt;id&gt;, an Update stages and marks
+        /// nothing, and neither writes the status line of the pane it no longer has. A third pane gets Unloaded raised
+        /// mid-download, which must cancel the token the download holds.
+        /// </summary>
+        private static bool ModulesPaneGoneDuringTheDownload(StringBuilder sb)
+        {
+            bool ok = true;
+            string root = DesktopAICompanion.Plugins.SelfTestScratch.Create("pane-gone");
+            SynchronizationContext previousContext = SynchronizationContext.Current;
+            SynchronizationContext.SetSynchronizationContext(
+                new System.Windows.Threading.DispatcherSynchronizationContext(System.Windows.Threading.Dispatcher.CurrentDispatcher));
+            try
+            {
+                // ---- Install: the pane goes away before the download lands ----
+                var install = new ModulesPaneProbe(root, "install");
+                install.Available("gamma", "Gamma", "1.2.0");
+                install.Held["gamma"] = new TaskCompletionSource<byte[]>();
+                install.Build();
+                ModulesPaneProbe.Press(ModulesPaneProbe.Find(install.Buttons(), "Install"));
+                bool installBegan = PumpUntil(delegate { return install.Downloads.Count == 1; }, 20000);
+                string installStatus = install.Pane.StatusText;
+                install.Seams.CountsAsLoaded = false;
+                install.Held["gamma"].SetResult(ModulesPaneProbe.Payload(install.Catalog.Modules[0]));
+                bool installDone = PumpUntil(delegate { return !install.Pane.IsBusy; }, 20000);
+                ok &= Check(sb, "pane-gone: WITNESS the Install download began and the pane said so (" + installStatus + ")",
+                    installBegan && installStatus.StartsWith("Downloading Gamma", StringComparison.Ordinal));
+                ok &= Check(sb, "pane-gone: an Install whose pane went away during the download moves nothing into modules/<id> (" +
+                    install.Describe() + "; status " + install.Pane.StatusText + ")",
+                    installDone && !Directory.Exists(Path.Combine(install.ModulesRoot, "gamma")) &&
+                    !Directory.Exists(Path.Combine(install.StagingRoot, "gamma.staged")) && install.RestartQuestions() == 0 &&
+                    install.Pane.StatusText == installStatus);
+
+                // ---- Update: the same, through the staging an update takes ----
+                var update = new ModulesPaneProbe(root, "update");
+                update.Offer("zeta", "Zeta", "1.0.0", "1.1.0");
+                update.Held["zeta"] = new TaskCompletionSource<byte[]>();
+                update.Build();
+                ModulesPaneProbe.Press(ModulesPaneProbe.Find(update.Buttons(), "Update to v1.1.0"));
+                bool updateBegan = PumpUntil(delegate { return update.Downloads.Count == 1; }, 20000);
+                string updateStatus = update.Pane.StatusText;
+                update.Seams.CountsAsLoaded = false;
+                update.Held["zeta"].SetResult(ModulesPaneProbe.Payload(update.Catalog.Modules[0]));
+                bool updateDone = PumpUntil(delegate { return !update.Pane.IsBusy; }, 20000);
+                ok &= Check(sb, "pane-gone: WITNESS the Update download began (" + update.Describe() + ")", updateBegan);
+                ok &= Check(sb, "pane-gone: an Update whose pane went away during the download stages and marks nothing (" +
+                    update.Describe() + "; status " + update.Pane.StatusText + ")",
+                    updateDone && !Directory.Exists(Path.Combine(update.StagingRoot, "zeta.staged")) &&
+                    update.MarkedIds().Length == 0 && update.RestartQuestions() == 0 && update.Pane.StatusText == updateStatus);
+
+                // ---- Unloaded: leaving the pane cancels the download it started ----
+                var leaving = new ModulesPaneProbe(root, "leaving");
+                leaving.Available("eta", "Eta", "1.0.0");
+                leaving.Held["eta"] = new TaskCompletionSource<byte[]>();
+                leaving.Build();
+                ModulesPaneProbe.Press(ModulesPaneProbe.Find(leaving.Buttons(), "Install"));
+                bool leavingBegan = PumpUntil(delegate { return leaving.Tokens.Count == 1; }, 20000);
+                ok &= Check(sb, "pane-gone: WITNESS the download's token is live while the pane is up",
+                    leavingBegan && !leaving.Tokens[0].IsCancellationRequested);
+                leaving.Seams.CountsAsLoaded = false;
+                leaving.Pane.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.FrameworkElement.UnloadedEvent));
+                ok &= Check(sb, "pane-gone: leaving the pane (Unloaded) cancels the token its download holds",
+                    leavingBegan && leaving.Tokens[0].IsCancellationRequested);
+                leaving.Held["eta"].SetCanceled();
+                bool leavingDone = PumpUntil(delegate { return !leaving.Pane.IsBusy; }, 20000);
+                ok &= Check(sb, "pane-gone: ...and the cancelled Install leaves nothing behind (" + leaving.Describe() + ")",
+                    leavingDone && !Directory.Exists(Path.Combine(leaving.ModulesRoot, "eta")) &&
+                    !Directory.Exists(Path.Combine(leaving.StagingRoot, "eta.staged")));
+            }
+            catch (Exception ex)
+            {
+                ok = false;
+                sb.AppendLine("FAIL: the pane-gone probe threw " + ex.GetType().Name + ": " + ex.Message);
+            }
+            finally
+            {
+                SynchronizationContext.SetSynchronizationContext(previousContext);
+                string releaseDetail;
+                if (!DesktopAICompanion.Plugins.SelfTestScratch.TryRelease(root, out releaseDetail))
+                    sb.AppendLine("NOTE: pane-gone scratch left for the next sweep (" + releaseDetail + ")");
+            }
+            return ok;
+        }
     }
 }

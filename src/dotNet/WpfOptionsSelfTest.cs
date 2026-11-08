@@ -1735,6 +1735,7 @@ namespace DesktopAICompanion
                 ok &= WindowContainsAPaneThatFailsToBuild(sb);
                 ok &= ReloadAfterTheWindowClosedIsDeclined(sb);
                 ok &= RefreshAfterApplyFollowsInfoOrHeader(sb);
+                ok &= ModulesPaneGoneDuringTheDownload(sb);
             }
             catch (Exception ex) { ok = false; sb.AppendLine("EXC: " + ex.GetType().Name + ": " + ex.Message); }
 
@@ -3858,9 +3859,16 @@ namespace DesktopAICompanion
                         return Failures.TryGetValue(id, out failure) ? failure : null;
                     },
                 };
+                Seams = seams;
                 Pane = new DesktopAICompanion.Wpf.ModulesPaneControl(seams);
                 Pane.ShowCatalog(Catalog);
             }
+
+            /// <summary>The seams the pane was built over. A case clears CountsAsLoaded on it to stand for the pane having
+            /// gone away (a headless pane is never Loaded, so the pane's IsUp is then false), N-audit-1106-252.</summary>
+            internal DesktopAICompanion.Wpf.ModulesPaneSeams Seams;
+            /// <summary>The token each download was handed, in the order the downloads began.</summary>
+            internal readonly List<CancellationToken> Tokens = new List<CancellationToken>();
 
             /// <summary>The module ids allowed the shared Claude Code sign-in, and each Allow or Revoke the pane recorded.</summary>
             internal readonly HashSet<string> Granted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -3930,6 +3938,7 @@ namespace DesktopAICompanion
             private Task<byte[]> Serve(CatalogModule module, CancellationToken token)
             {
                 Downloads.Add(module.Id);
+                Tokens.Add(token);
                 DownloadStatus.Add(Pane != null ? Pane.StatusText : "");
                 if (Failing.Contains(module.Id))
                     return Task.FromException<byte[]>(new InvalidDataException(FailedCheck));
