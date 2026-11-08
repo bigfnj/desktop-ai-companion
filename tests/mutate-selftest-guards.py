@@ -21872,10 +21872,13 @@ CASES = (
      b'roundTrip = ShimejiEngine.RoundTrips(root, out roundTripError) ? "ok" : "FAIL";',
      SHIMEJI_CSPROJ, os.path.join(os.path.dirname(SHIMEJI_ENGINE_DLL), 'ShimejiConvert.dll'),
      SHIMEJI, 'cli-roundtrip', 'CLI_ROUNDTRIP_PARSE_LOSS'),
-    ('bd-codex-converter-1: revision emitter preflight reaches empty-output caller path; bd-codex-converter-1-final-revision:',
+    # Re-pointed by bd-w9-converter-1 (N-bd-codex-converter-1-01): the CLI fixture's 1025th tile (the blank one) is now
+    # refused by SpriteSheetBuilder.Build, which reserves it before the fit, so no product input reaches the emitter's
+    # preflight any more. Same intent at the caller: a refusal before any document exists keeps its reason.
+    ('bd-codex-converter-1: revision emitter preflight reaches empty-output caller path; bd-codex-converter-1-final-revision:; bd-w9-converter-1: re-pointed at the compositor refusal',
      os.path.join(REPO, 'tools', 'ShimejiConvert.Engine', 'Engine.cs'),
-     b'if (result != null && result.Root == null && !string.IsNullOrEmpty(result.Error))',
-     b'if (result != null && result.Root != null && !string.IsNullOrEmpty(result.Error))',
+     b'alpha, out sheet, out error))\n                return null;\n',
+     b'alpha, out sheet, out error))\n                { error = "composite failed"; return null; }\n',
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL, SHIMEJI, 'cli-roundtrip', 'CLI_PREFLIGHT_REFUSAL'),
     ('bd-codex-converter-1: revision floor admission is mistaken for actual emitted Group2 use',
      PET_EMITTER,
@@ -24054,6 +24057,54 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--hardening-selftest", "dp-hardening-selftest.txt",
      "the sprite pixel budget stays inside the frames' memory budget"),
+    # ---- burndown/w9-converter-1 ----
+    # Converter entries of burn-down wave 9. "bd-w9-converter-1:" for one --only.
+    # N-bd-codex-converter-1-01: the blank tile an image-less pose plays is reserved by SpriteSheetBuilder.Build before
+    # the grid and the scale are chosen. Grid: the grid is sized from the drawn frames alone, so the reserved tile of a
+    # full 16x16 fixture lands outside it. Dimension: nothing is reserved, the emitter's fallback appends a 17th row
+    # (4352 px) and refuses the skin. The fallback's own height and post-encode XML-budget refusals each fire on a
+    # caller's sheet; the pixel control is the identity that a square at the side cap is inside the pixel cap.
+    ("bd-w9-converter-1: the grid is sized without the reserved blank tile (N-bd-codex-converter-1-01)",
+     SPRITE_SHEET_BUILDER,
+     b"                int tiles = n + blankTiles;\n",
+     b"                int tiles = n;\n",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, "compositor", "blank tile grid: the reserved tile 256 is outside the 16x16 grid"),
+    ("bd-w9-converter-1: an image-less pose reserves no blank tile, so the emitter appends a row (N-bd-codex-converter-1-01)",
+     SPRITE_SHEET_BUILDER,
+     b"                if (string.IsNullOrEmpty(p.Image)) { blankTiles = 1; continue; }\n",
+     b"                if (string.IsNullOrEmpty(p.Image)) { continue; }\n",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, "classic-emitter",
+     "classic image-less reservation: 256 frames at the 4096 px sheet cap plus an image-less pose were refused"),
+    ("bd-w9-converter-1: the fallback lets an appended row past the height cap (N-bd-codex-converter-1-01)",
+     PET_EMITTER,
+     b"|| height > SpriteSheetBuilder.MaxSheetDimension ||",
+     b"|| height > SpriteSheetBuilder.MaxSheetDimension * 2 ||",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, "classic-emitter",
+     "classic image-less height: a full grid already 4096 rows tall did not refuse its appended row explicitly"),
+    ("bd-w9-converter-1: the fallback ships a re-encode past the XML budget (N-bd-codex-converter-1-01)",
+     PET_EMITTER,
+     b"            if (result.ProjectedXmlBytes > SpriteSheetBuilder.XmlBudgetBytes)\n",
+     b"            if (result.ProjectedXmlBytes > SpriteSheetBuilder.XmlBudgetBytes * 2)\n",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, "classic-emitter",
+     "classic image-less budget: a sheet whose re-encode crosses the XML budget did not refuse its appended tile explicitly"),
+    ("bd-w9-converter-1: the sheet side cap outgrows the pixel cap (N-bd-codex-converter-1-01)",
+     SPRITE_SHEET_BUILDER,
+     b"        public const int MaxSheetDimension = DesktopAICompanion.CompanionXmlValidator.MaximumImageDimension;\n",
+     b"        public const int MaxSheetDimension = DesktopAICompanion.CompanionXmlValidator.MaximumImageDimension + 1;\n",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, "compositor", "blank tile pixels: a sheet inside 4097 px on both sides can exceed"),
+    # N-audit-1106-380: PrepareMembers parses every member twice again, once for the RuntimeSchema census and once to
+    # build it, by never taking the census's parse.
+    ("bd-w9-converter-1: PrepareMembers parses each member's configuration twice again (N-audit-1106-380)",
+     os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
+     b"                    if (parsed.TryGetValue(memberPath, out source)) parsed.Remove(memberPath);\n",
+     b"                    if (parsed.TryGetValue(memberPath, out source) && source == null) parsed.Remove(memberPath);\n",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, "tick-emitter/prepare-parses-once", "prepare parses: two members took 4 configuration parses, not one each"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

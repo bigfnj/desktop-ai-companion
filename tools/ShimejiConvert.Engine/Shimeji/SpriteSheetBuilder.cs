@@ -22,6 +22,11 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
         public int ProjectedXmlBytes;    // base64 length + a fixed markup allowance
         public readonly Dictionary<string, int> FrameIndexByKey =
             new Dictionary<string, int>(StringComparer.Ordinal); // ShimejiPose.FrameKey -> row-major tile index
+
+        /// <summary>The <see cref="FrameIndexByKey"/> key of the blank tile an image-less pose plays, which
+        /// <see cref="SpriteSheetBuilder.Build"/> reserves when any pose it is given has no image. A real FrameKey
+        /// always has anchor separators, so this cannot collide with authored art.</summary>
+        public const string ImageLessFrameKey = "";
     }
 
     /// <summary>
@@ -66,7 +71,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
         public const int MaxTilesBeforeDedup = MaxTiles * 4;
         // 4096 x 4096 is exactly the validator's MaximumImagePixels (16 Mi), so a host that ever moves
         // MaximumImageDimension has to look at the pixel cap in the same change, or a square sheet at the new
-        // side would pass this clamp and fail the validator on pixels (R-073's one remaining note).
+        // side would pass this clamp and fail the validator on pixels (R-073's one remaining note). Build fits the two
+        // sides only, so the compositor self-test asserts that a square at this side is inside the pixel cap
+        // (N-bd-codex-converter-1-01); that assertion is the pixel control for every sheet this builder returns.
         public const int MaxSheetDimension = DesktopAICompanion.CompanionXmlValidator.MaximumImageDimension;
         // Bound as well (F458). The validator's budget was raised from 4 MiB so a frame-heavy skin fills the sheet
         // up to the cell cap instead of being squeezed under it; whatever the validator says, this says.
@@ -128,11 +135,21 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             error = null;
 
             // 1. distinct frames by (image, anchor), first-seen order.
+            //
+            //    An image-less pose draws nothing, but its slot still needs a frame index (a classic frame index
+            //    cannot be -1), so it RESERVES one blank tile here, before the tile cap, the grid and the scale
+            //    are chosen below (N-bd-codex-converter-1-01). The emitter used to append that tile to the
+            //    finished sheet: a grid this method had filled exactly grew a whole row after the fit, so a sheet
+            //    fitted to the 4096 px cap (16 rows of 256 px cells) was refused on the very size it had been
+            //    fitted to, and one fitted to the XML budget was re-encoded past it. Counted once however many
+            //    image-less poses there are: every one of them plays the same blank picture.
             var frames = new List<ShimejiPose>();
             var seen = new HashSet<string>(StringComparer.Ordinal);
+            int blankTiles = 0;
             foreach (ShimejiPose p in poses)
             {
-                if (p == null || string.IsNullOrEmpty(p.Image)) continue;
+                if (p == null) continue;
+                if (string.IsNullOrEmpty(p.Image)) { blankTiles = 1; continue; }
                 if (seen.Add(p.FrameKey)) frames.Add(p);
             }
             if (frames.Count == 0) { error = "the skin has no sprite poses to composite."; return false; }
@@ -253,12 +270,12 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     LastComposeBitmapCount = images.Count;
                 }
 
-                // NOW the tile cap, on what the sheet will actually carry.
-                if (frames.Count > MaxTiles)
+                // NOW the tile cap, on what the sheet will actually carry: the reserved blank tile included.
+                if (frames.Count + blankTiles > MaxTiles)
                 {
                     error = string.Format(
-                        "{0} distinct frames exceeds the {1}-tile limit (after collapsing byte-identical cells).",
-                        frames.Count, MaxTiles);
+                        "{0} distinct frames{1} exceeds the {2}-tile limit (after collapsing byte-identical cells).",
+                        frames.Count, blankTiles > 0 ? " plus the blank tile an image-less pose needs" : "", MaxTiles);
                     return false;
                 }
 
@@ -285,8 +302,12 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 int cellH = Math.Max(1, oy);
 
                 int n = frames.Count;
-                int tilesX = (int)Math.Ceiling(Math.Sqrt(n));
-                int tilesY = (int)Math.Ceiling((double)n / tilesX);
+                // The reserved blank tile is the one after the last drawn frame. Compose clears the whole sheet to
+                // the background (transparent, or the magenta key) and clips every frame to its own tile, so that
+                // tile stays background. The grid, the sheet clamp and the budget loop below all see it.
+                int tiles = n + blankTiles;
+                int tilesX = (int)Math.Ceiling(Math.Sqrt(tiles));
+                int tilesY = (int)Math.Ceiling((double)tiles / tilesX);
 
                 // initial scale: satisfy the 256 px cell cap and the 4096 px sheet cap.
                 double scale = Math.Min(1.0, Math.Min((double)MaxCell / cellW, (double)MaxCell / cellH));
@@ -330,6 +351,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                             if (built.FrameIndexByKey.TryGetValue(alias.Value, out owner))
                                 built.FrameIndexByKey[alias.Key] = owner;
                         }
+                        // The encoding just measured already holds the blank tile, so the emitter plays it as it is.
+                        if (blankTiles > 0) built.FrameIndexByKey[SpriteSheet.ImageLessFrameKey] = n;
                         built.ProjectedXmlBytes = projected;
                         sheet = built;
                         return true;

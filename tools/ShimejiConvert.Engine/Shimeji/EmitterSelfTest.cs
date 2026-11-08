@@ -2058,6 +2058,116 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
 
         private const string ClassicStand = "<Action Name='Stand' Type='Stay'><Animation><Pose Image='/s.png' ImageAnchor='4,8' Velocity='0,0' Duration='2'/></Animation></Action>";
 
+        /// <summary>
+        /// N-bd-codex-converter-1-01. The product path: 256 frames that fill a 16x16 grid at the 4096 px sheet cap,
+        /// plus an image-less pose, convert on the builder's own sheet and its reserved tile (the emitter used to
+        /// append a row to that sheet, 4352 rows, and refuse the skin). The fallback, for a caller's sheet that has no
+        /// reserved tile: the tile is appended on a copy (WITNESS), and each refusal an append can reach fires with
+        /// its own message: the tile count is the FullSheet check before this, the height and the post-encode XML
+        /// budget are here.
+        /// </summary>
+        private static void CheckImageLessReservation(List<string> failures, ShimejiConfig hiddenConfig)
+        {
+            const string capRefusal = "An image-less pose needs one blank sprite tile, but the sheet is already at the host's size or tile limit.";
+            var owned = new Dictionary<string, Bitmap>(StringComparer.Ordinal);
+            try
+            {
+                CompositorSelfTest.FullHeightPoses(owned, false);
+                var actions = new StringBuilder("<Action Name='Stand' Type='Stay'><Animation>");
+                for (int i = 0; i < 256; i++)
+                    actions.Append("<Pose Image='/full" + i + ".png' ImageAnchor='4," + SpriteSheetBuilder.MaxCell + "' Velocity='0,0' Duration='1'/>");
+                actions.Append("<Pose Velocity='0,0' Duration='1'/></Animation></Action>");
+                ShimejiConfig tallConfig = ShimejiParser.ParseConfXml("<Mascot><ActionList>" + actions + "</ActionList></Mascot>", null);
+                Func<string, Bitmap> load = name => new Bitmap(owned[name]);
+                SpriteSheet tallSheet; string tallError;
+                if (!SpriteSheetBuilder.Build(PetEmitter.PosesToComposite(tallConfig), load, true, out tallSheet, out tallError))
+                    failures.Add("classic image-less reservation: the full-height fixture did not composite: " + tallError);
+                else
+                {
+                    ConversionResult tall = PetEmitter.Emit(tallConfig, tallSheet, load, "FullHeight");
+                    XmlData.AnimationNode stand = FindAnimationNamed(tall, "Stand");
+                    int reserved;
+                    if (!tall.Accepted || stand == null
+                        || !tallSheet.FrameIndexByKey.TryGetValue(SpriteSheet.ImageLessFrameKey, out reserved)
+                        || Array.IndexOf(stand.Sequence.Frame, reserved) < 0 || tall.Root.Image.Png != tallSheet.Base64Png
+                        || tall.Root.Image.TilesY * tallSheet.CellHeight > SpriteSheetBuilder.MaxSheetDimension)
+                        failures.Add("classic image-less reservation: 256 frames at the " + SpriteSheetBuilder.MaxSheetDimension
+                            + " px sheet cap plus an image-less pose were refused or re-encoded instead of playing the builder's reserved tile ("
+                            + (tall.Error ?? "accepted") + ")");
+                }
+            }
+            finally
+            {
+                foreach (Bitmap b in owned.Values) b.Dispose();
+            }
+
+            string standKey = hiddenConfig.Actions[0].Animations[0].Poses[0].FrameKey;
+
+            // WITNESS: a caller's 1x1 sheet with no reserved tile gets one appended on a copy, so the refusals below
+            // are refusals of an append that otherwise works.
+            ShimejiConfig standOnly = ShimejiParser.ParseConfXml("<Mascot><ActionList>" + ClassicStand + "</ActionList></Mascot>", null);
+            Func<string, Bitmap> gray = name => Solid(8, 8, Color.Gray);
+            SpriteSheet callerSheet; string callerError;
+            if (!SpriteSheetBuilder.Build(PetEmitter.PosesToComposite(standOnly), gray, true, out callerSheet, out callerError))
+                failures.Add("WITNESS classic image-less fallback: the stand-only sheet did not composite: " + callerError);
+            else
+            {
+                ConversionResult appended = PetEmitter.Emit(hiddenConfig, callerSheet, gray, "CallerSheet");
+                XmlData.AnimationNode appendedHidden = FindAnimationNamed(appended, "Hidden");
+                if (!appended.Accepted || appendedHidden == null || appended.Root.Image.TilesX * appended.Root.Image.TilesY < 2
+                    || callerSheet.FrameIndexByKey.ContainsKey(SpriteSheet.ImageLessFrameKey) || callerSheet.TilesX * callerSheet.TilesY != 1)
+                    failures.Add("WITNESS classic image-less fallback: a caller's sheet without the reserved tile was not given one on a copy ("
+                        + (appended.Error ?? "accepted") + ")");
+            }
+
+            // The height. A full 1x16 grid of 256 px cells is 4096 rows; a new row would make it 4352.
+            var heightSheet = new SpriteSheet { TilesX = 1, TilesY = 16, CellWidth = 8, CellHeight = SpriteSheetBuilder.MaxCell, Scale = 1.0, IsAlpha = true };
+            using (Bitmap bitmap = Solid(8, 16 * SpriteSheetBuilder.MaxCell, Color.Red))
+            using (var output = new System.IO.MemoryStream())
+            { bitmap.Save(output, ImageFormat.Png); heightSheet.PngBytes = output.ToArray(); }
+            heightSheet.Base64Png = Convert.ToBase64String(heightSheet.PngBytes);
+            heightSheet.FrameIndexByKey.Add(standKey, 0);
+            for (int frame = 1; frame < 16; frame++) heightSheet.FrameIndexByKey.Add("synthetic-" + frame, frame);
+            ConversionResult tooTall = PetEmitter.Emit(hiddenConfig, heightSheet, gray, "FullHeightSheet");
+            if (tooTall.Accepted || tooTall.Root != null || tooTall.Error != capRefusal)
+                failures.Add("classic image-less height: a full grid already " + (16 * SpriteSheetBuilder.MaxCell)
+                    + " rows tall did not refuse its appended row explicitly (" + (tooTall.Error ?? "accepted") + ")");
+
+            // The post-encode XML budget. One noise tile and one free slot: the append adds no row and crosses no
+            // size cap, but the re-encoded sheet (about 9.8 MB of PNG, 13.1 MB of base64) is over the 12 MiB budget.
+            var noisySheet = new SpriteSheet { TilesX = 2, TilesY = 1, CellWidth = 2048, CellHeight = 1200, Scale = 1.0, IsAlpha = true };
+            using (var bitmap = new Bitmap(4096, 1200, PixelFormat.Format32bppArgb))
+            {
+                BitmapData data = bitmap.LockBits(new Rectangle(0, 0, 4096, 1200), ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
+                try
+                {
+                    var random = new Random(1106);
+                    var row = new byte[data.Stride];
+                    for (int y = 0; y < 1200; y++)
+                    {
+                        Array.Clear(row, 0, row.Length);
+                        var noise = new byte[2048 * 4];
+                        random.NextBytes(noise);
+                        Buffer.BlockCopy(noise, 0, row, 0, noise.Length);
+                        System.Runtime.InteropServices.Marshal.Copy(row, 0, data.Scan0 + y * data.Stride, row.Length);
+                    }
+                }
+                finally { bitmap.UnlockBits(data); }
+                using (var output = new System.IO.MemoryStream())
+                { bitmap.Save(output, ImageFormat.Png); noisySheet.PngBytes = output.ToArray(); }
+            }
+            noisySheet.Base64Png = Convert.ToBase64String(noisySheet.PngBytes);
+            noisySheet.FrameIndexByKey.Add(standKey, 0);
+            ConversionResult tooBig = PetEmitter.Emit(hiddenConfig, noisySheet, gray, "OverBudgetSheet");
+            if (noisySheet.Base64Png.Length + SpriteSheetBuilder.MarkupAllowanceBytes <= SpriteSheetBuilder.XmlBudgetBytes)
+                failures.Add("WITNESS classic image-less budget: the noise sheet encodes to " + noisySheet.Base64Png.Length
+                    + " base64 bytes, inside the budget, so the refusal below proves nothing");
+            else if (tooBig.Accepted || tooBig.Root != null
+                     || tooBig.Error != "Adding the image-less pose's blank tile would exceed the host's XML byte limit.")
+                failures.Add("classic image-less budget: a sheet whose re-encode crosses the XML budget did not refuse its appended tile explicitly ("
+                    + (tooBig.Error ?? "accepted") + ")");
+        }
+
         private static void CheckClassicBurndown(List<string> failures)
         {
             SpriteSheet sheet;
@@ -2160,20 +2270,22 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 if (kept)
                 {
                     // Inspect the deployed PNG, not the dictionary that selected its frame. A visible witness prevents
-                    // an entirely blank sheet from satisfying the image-less check. The caller's sheet stays unchanged.
+                    // an entirely blank sheet from satisfying the image-less check. The blank frame is the tile the
+                    // builder reserved, so the emitter played the builder's sheet as it was (N-bd-codex-converter-1-01).
                     using (var stream = new System.IO.MemoryStream(Convert.FromBase64String(blanks.Root.Image.Png)))
                     using (var bitmap = new Bitmap(stream))
                     {
                         int cellW = bitmap.Width / blanks.Root.Image.TilesX, cellH = bitmap.Height / blanks.Root.Image.TilesY;
-                        int blank = blink.Sequence.Frame[1], visible = blink.Sequence.Frame[0];
+                        int blank = blink.Sequence.Frame[1], visible = blink.Sequence.Frame[0], reserved;
                         Color pixel = bitmap.GetPixel((blank % blanks.Root.Image.TilesX) * cellW, (blank / blanks.Root.Image.TilesX) * cellH);
                         Color witness = bitmap.GetPixel((visible % blanks.Root.Image.TilesX) * cellW, (visible / blanks.Root.Image.TilesX) * cellH);
                         kept = (alpha ? pixel.A == 0 && witness.A == 255 : pixel.ToArgb() == Color.Magenta.ToArgb() && witness.ToArgb() != pixel.ToArgb())
-                            && !sheet.FrameIndexByKey.ContainsKey("");
+                            && sheet.FrameIndexByKey.TryGetValue(SpriteSheet.ImageLessFrameKey, out reserved) && reserved == blank;
                     }
                 }
-                // One visible tile fills the original 1x1 grid: unlike the larger fixture's padding, this
-                // needs a new row. Both the transparent and keyed product representations must keep it blank.
+                // One visible tile and the reserved blank: the builder lays the two out as one 2x1 grid (the emitter
+                // used to append a whole row to a full 1x1 one). Both the transparent and keyed product
+                // representations must keep it blank.
                 ConversionResult grown = EmitClassicFixture(hiddenOnly, null, alpha, out sheet);
                 XmlData.AnimationNode grownHidden = FindAnimationNamed(grown, "Hidden"), grownStand = FindAnimationNamed(grown, "Stand");
                 if (!grown.Accepted || grownHidden == null || grownStand == null || grown.Root.Image.TilesX * grown.Root.Image.TilesY < 2)
@@ -2208,6 +2320,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             ConversionResult full = PetEmitter.Emit(fullConfig, fullSheet, name => Solid(8, 8, Color.Red), "FullSheet");
             if (full.Accepted || full.Root != null || full.Error != "An image-less pose needs one blank sprite tile, but the sheet is already at the host's size or tile limit.")
                 failures.Add("classic image-less capacity: a full sheet did not refuse its extra blank tile explicitly");
+
+            CheckImageLessReservation(failures, fullConfig);
 
             string weighted = ClassicStand
                 + "<Action Name='Walk' Type='Move'><Animation><Pose Image='/a.png' ImageAnchor='4,8' Velocity='-2,0' Duration='1'/></Animation></Action>"

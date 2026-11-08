@@ -145,8 +145,13 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             CollapsedInto = new Dictionary<string, Emitted>(StringComparer.Ordinal);   // per-conversion, not per-process
             skinName = string.IsNullOrWhiteSpace(skinName) ? "Shimeji" : skinName.Trim();
             // Classic frame indexes cannot be -1. Keep an image-less pose as a real blank tile, rather than
-            // deleting its time/velocity slot (or its whole action). Work on a copy: the caller owns its sheet.
-            if (PosesToComposite(config).Any(p => p != null && string.IsNullOrEmpty(p.Image)))
+            // deleting its time/velocity slot (or its whole action). SpriteSheetBuilder.Build reserves that tile
+            // before it chooses the grid and the scale, so a sheet built from PosesToComposite already carries it
+            // and is played as it is: its encoding is the one Build measured against the XML budget
+            // (N-bd-codex-converter-1-01). Only a sheet the caller built some other way lacks it, and that one
+            // gets the tile appended on a copy (the caller owns its sheet), refused where the append crosses a cap.
+            if (PosesToComposite(config).Any(p => p != null && string.IsNullOrEmpty(p.Image))
+                && !sheet.FrameIndexByKey.ContainsKey(ImageLessFrameKey))
             {
                 string blankError;
                 sheet = WithImageLessFrame(sheet, out blankError);
@@ -1378,9 +1383,20 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             return frames;
         }
 
-        // A real FrameKey always has anchor separators, so this cannot collide with authored art.
-        private const string ImageLessFrameKey = "";
+        // A real FrameKey always has anchor separators, so this cannot collide with authored art. The builder
+        // owns the key now that it reserves the tile; one spelling, so the two can never disagree.
+        private const string ImageLessFrameKey = SpriteSheet.ImageLessFrameKey;
 
+        /// <summary>
+        /// The FALLBACK for a caller's sheet that has no reserved blank tile (Build reserves one for every sheet
+        /// built from <see cref="PosesToComposite"/>): append it on a copy, in the first free slot or a new row.
+        /// Every refusal below is reachable from a sheet that was itself inside the caps, and the emitter
+        /// self-test drives each one: the tile count (a full 1024-tile grid), the height (a full grid already
+        /// 4096 rows tall) and the post-encode XML budget (a sheet whose re-encode crosses it). The width and
+        /// pixel clauses cannot fire on their own: a new row leaves the width alone, and inside 4096 on both sides
+        /// the pixel cap is implied (the compositor self-test asserts that identity). They are kept so this
+        /// method states every cap the validator applies rather than only the ones an append can reach.
+        /// </summary>
         private static SpriteSheet WithImageLessFrame(SpriteSheet source, out string error)
         {
             error = null;

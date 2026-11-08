@@ -32,11 +32,13 @@ converter, never the skins.
 - ONE sprite **sheet**, base64 inside the XML, `tilesx`/`tilesy`; frames are tile indices.
 - `animation{id, name, start, end, sequence, border?, gravity?}` where `start`/`end` are a single
   `MovingNode{x, y, offsety, opacity, interval}` and x/y/interval are **expression strings**.
-- `next{value, probability, only}`; `only` is a closed set:
-  `none|taskbar|window|horizontal|horizontal+|vertical`.
+- `next{value, probability, only}`; `only` is a closed set (`borderType` in the XSD, parsed by `Xml.ParseOnlyFlag`):
+  `none|taskbar|window|horizontal|horizontal+|vertical|window-left|window-right|window-top|window-bottom`.
+  The four `window-*` values name the edge of a window the companion reached; plain `window` still matches all of them.
 - Expressions accept exactly 11 identifiers (`src/dotNet/SafeExpression.cs`): `screenW`, `screenH`,
   `areaW`, `areaH`, `imageW`, `imageH`, `imageX`, `imageY`, `random`, `randS`, `scale`.
-- Hard ceilings: **4 MiB total XML including base64**, 1024 tiles, 1024 animations, 256 transitions
+- Hard ceilings: **12 MiB total XML including base64** (`CompanionXmlValidator.MaximumXmlBytes`; it was 4 MiB when
+  these notes were first written), 1024 tiles, 1024 animations, 256 transitions
   per set, 16384 frames total. For scale: the shipped sheep are 1.11 MiB, KuroShimeji's 46 sprites are
   480 KiB on disk before compositing.
 
@@ -54,8 +56,8 @@ converter, never the skins.
 | upward `Pose.Velocity` (a jump) | a SOLVED arc: launch, `fall`, landing | **replaced, not mapped** -- see below |
 | `Pose.ImageAnchor` (x,y) | `offsety` (y only) | **lossy** -- no x offset exists |
 | `BorderType` Wall | `only=vertical` | **clean** |
-| `BorderType` Floor | `only=taskbar` | **clean** -- the floor raises bare `TASKBAR` (`src/dotNet/FormCompanion.cs:1258`), which `horizontal+` (`0x06`) never matches; the emitter writes `taskbar` |
-| `BorderType` Ceiling | `only=horizontal` | **clean** -- the TOP border only (`FormCompanion.cs:1327`); it does not collide with Floor (this row said it did until 2026-10-01: N-scripts-02) |
+| `BorderType` Floor | `only=taskbar` | **clean** -- the floor raises bare `TASKBAR` (`src/dotNet/FormCompanion.cs`, `NextStep`'s downward border check), which `horizontal+` (`0x06`) never matches; the emitter writes `taskbar` |
+| `BorderType` Ceiling | `only=horizontal` | **clean** -- the TOP border only (`NextStep`'s upward border check); it does not collide with Floor (this row said it did until 2026-10-01: N-scripts-02) |
 | `Condition="${...}"` | *nothing* | **impossible** -- the target has no per-animation conditions |
 | `Type=Embedded` + `Class=` | nearest built-in, or drop | **impossible in general** -- it names a Java class |
 | `BornBehavior` / Breed | `childs` | **partial** |
@@ -98,11 +100,11 @@ doc is the authority; this section only records what it means for a converter, p
 
 **Already documented -- do not "rediscover" these.**
 - **The four magic animation names** (`grimoire/03` §7): `fall`, `drag`, `kill`, `sync` are bound by the
-  loader on animation *name* (`src/dotNet/Xml.cs:250-253`) to `AnimationFall/Drag/Kill/Sync`. Nothing
+  loader on animation *name* (`src/dotNet/Xml.cs`, `LoadAnimations`) to `AnimationFall/Drag/Kill/Sync`. Nothing
   reaches them through a `<next>` edge.
 - **The `only` semantics** (`grimoire/03` §6), including that `horizontal` is the **top** screen border only
-  (`src/dotNet/Xml.cs:627` parses it to `HORIZONTAL`, `0x04`, which `FormCompanion.cs:1327` raises at the top of
-  the work area; the bottom raises bare `TASKBAR`, `FormCompanion.cs:1258`) and `horizontal+` is
+  (`Xml.ParseOnlyFlag` parses it to `HORIZONTAL`, `0x04`, which `FormCompanion.NextStep` raises at the top of
+  the work area; the bottom raises bare `TASKBAR` in the same method) and `horizontal+` is
   `HORIZONTAL|WINDOW` (`0x06`). This bullet said "top and bottom" until 2026-10-01 (N-scripts-02).
 - **The respawn rule** (`grimoire/03` §6): when no `<next>` is eligible the selector returns `-1` and the
   companion **respawns from a fresh `<spawn>`**. A dead-end animation is therefore legal and intentional, not a
@@ -145,7 +147,7 @@ The Group 1/2/3 taxonomy above is now implemented in `tools/ShimejiConvert.Engin
 external `gil/shimeji-ee` clone. On that reference config it reports **91 actions: 54 Group1 / 31 Group2 / 6
 Group3**, and **24 behaviour conditions: 5 map cleanly (`only=`) / 19 need new state**. (This line said
 53/32/6 until 2026-09-28. The split moved on 2026-08-28 when ClimbWall stopped being reported as needing
-selfX/selfY; `BundledConfSelfTest.cs:34` asserts the current numbers on every gate run and is the
+selfX/selfY; `BundledConfSelfTest.cs` asserts the action numbers on every gate run and is the
 authority.) The Group2 bucket is
 dominated by the dead IE-window subsystem; the genuinely worth-preserving Group2 items are cursor-following
 (ChaseMouse / look-at-mouse). **Half of that has since shipped and the other half is not planned**, so read the

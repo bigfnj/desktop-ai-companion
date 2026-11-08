@@ -378,6 +378,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 {
                     foreach (Bitmap b in tallOwned.Values) b.Dispose();
                 }
+
+                BlankTileReservation(failures);
             }
             finally
             {
@@ -392,6 +394,114 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             foreach (string f in failures) sb.AppendLine("  FAIL " + f);
             detail = sb.ToString();
             return false;
+        }
+
+        /// <summary>The 256 distinct frames of <see cref="BlankTileReservation"/>: 8 px wide and 256 px tall (the cell
+        /// cap, so the scale stays 1), one colour each so the content collapse keeps every one, anchored bottom-centre.
+        /// An image-less pose is appended when <paramref name="withImageLess"/> is set.</summary>
+        internal static List<ShimejiPose> FullHeightPoses(Dictionary<string, Bitmap> owned, bool withImageLess)
+        {
+            var poses = new List<ShimejiPose>();
+            for (int i = 0; i < 256; i++)
+            {
+                string name = "/full" + i + ".png";
+                if (!owned.ContainsKey(name))
+                    owned[name] = Solid(8, SpriteSheetBuilder.MaxCell, Color.FromArgb(255, 40, (i >> 8) & 0xFF, i & 0xFF));
+                poses.Add(new ShimejiPose { Image = name, AnchorX = 4, AnchorY = SpriteSheetBuilder.MaxCell, Duration = 1 });
+            }
+            if (withImageLess) poses.Add(new ShimejiPose { Duration = 1 });
+            return poses;
+        }
+
+        /// <summary>
+        /// N-bd-codex-converter-1-01: an image-less pose's blank tile is reserved BEFORE the grid and the scale are
+        /// chosen. 256 frames of 256 px cells fill a 16x16 grid exactly, 4096 rows tall: the emitter's old
+        /// after-the-fact row made that 4352 rows and refused the skin on the sheet size it had just been fitted to.
+        /// Built with the image-less pose, the blank tile must sit inside the grid on a tile no frame draws on and stay
+        /// background, and the sheet must stay inside the side cap, the pixel cap and (measured on the encoding that
+        /// holds the blank tile) the XML budget. The emitter self-test converts the same shape end to end.
+        /// </summary>
+        private static void BlankTileReservation(List<string> failures)
+        {
+            var owned = new Dictionary<string, Bitmap>(StringComparer.Ordinal);
+            try
+            {
+                Func<string, Bitmap> load = delegate(string n) { return new Bitmap(owned[n]); };
+                SpriteSheet plain; string plainErr;
+                if (!SpriteSheetBuilder.Build(FullHeightPoses(owned, false), load, true, out plain, out plainErr))
+                {
+                    failures.Add("WITNESS blank tile: the 256-frame full-height fixture would not build without its image-less pose: " + plainErr);
+                    return;
+                }
+                // The validator's own cap, not the builder's bound copy: the pixel control below mutates that copy.
+                if (plain.TilesX != 16 || plain.TilesY != 16 || plain.TilesY * plain.CellHeight != DesktopAICompanion.CompanionXmlValidator.MaximumImageDimension)
+                    failures.Add("WITNESS blank tile: without its image-less pose the fixture is " + plain.TilesX + "x" + plain.TilesY
+                        + " tiles " + (plain.TilesY * plain.CellHeight) + " rows tall, not the full 16x16 grid at the "
+                        + DesktopAICompanion.CompanionXmlValidator.MaximumImageDimension + " px cap an appended row would cross");
+                if (plain.FrameIndexByKey.ContainsKey(SpriteSheet.ImageLessFrameKey))
+                    failures.Add("blank tile: a sheet with no image-less pose reserved a blank tile anyway");
+
+                List<ShimejiPose> poses = FullHeightPoses(owned, true);
+                SpriteSheet sheet; string error;
+                if (!SpriteSheetBuilder.Build(poses, load, true, out sheet, out error))
+                {
+                    failures.Add("blank tile: the full-height fixture with an image-less pose was refused: " + error);
+                    return;
+                }
+                int blank;
+                var drawn = new HashSet<int>();
+                foreach (ShimejiPose p in poses)
+                {
+                    int tile;
+                    if (!string.IsNullOrEmpty(p.Image) && sheet.FrameIndexByKey.TryGetValue(p.FrameKey, out tile)) drawn.Add(tile);
+                }
+                if (!sheet.FrameIndexByKey.TryGetValue(SpriteSheet.ImageLessFrameKey, out blank))
+                {
+                    failures.Add("blank tile: Build reserved no tile for the image-less pose");
+                    return;
+                }
+                if (drawn.Count != 256)
+                    failures.Add("WITNESS blank tile: " + drawn.Count + " of the 256 drawn frames resolve to a tile");
+                if (blank < 0 || blank >= sheet.TilesX * sheet.TilesY || drawn.Contains(blank))
+                    failures.Add("blank tile grid: the reserved tile " + blank + " is outside the " + sheet.TilesX + "x" + sheet.TilesY
+                        + " grid or shared with a drawn frame, so the grid was sized without it");
+                long width = (long)sheet.TilesX * sheet.CellWidth, height = (long)sheet.TilesY * sheet.CellHeight;
+                if (width > SpriteSheetBuilder.MaxSheetDimension || height > SpriteSheetBuilder.MaxSheetDimension)
+                    failures.Add("blank tile dimension: the reserved sheet is " + width + "x" + height + ", past the "
+                        + SpriteSheetBuilder.MaxSheetDimension + " px cap");
+                // The pixel control. Build fits the two sides only, so every sheet it returns is inside the pixel cap
+                // exactly when a square at the side cap is; this fixture's own pixels are far below it.
+                if ((long)SpriteSheetBuilder.MaxSheetDimension * SpriteSheetBuilder.MaxSheetDimension > DesktopAICompanion.CompanionXmlValidator.MaximumImagePixels
+                    || width * height > DesktopAICompanion.CompanionXmlValidator.MaximumImagePixels)
+                    failures.Add("blank tile pixels: a sheet inside " + SpriteSheetBuilder.MaxSheetDimension + " px on both sides can exceed the "
+                        + DesktopAICompanion.CompanionXmlValidator.MaximumImagePixels + "-pixel cap, and Build fits the sides only");
+                if (sheet.Base64Png != Convert.ToBase64String(sheet.PngBytes)
+                    || sheet.ProjectedXmlBytes != sheet.Base64Png.Length + SpriteSheetBuilder.MarkupAllowanceBytes
+                    || sheet.ProjectedXmlBytes > SpriteSheetBuilder.XmlBudgetBytes)
+                    failures.Add("blank tile budget: the projected " + sheet.ProjectedXmlBytes + " bytes are not the encoding that holds the "
+                        + "blank tile plus the markup allowance, or are over the " + SpriteSheetBuilder.XmlBudgetBytes + "-byte budget");
+                using (var ms = new MemoryStream(sheet.PngBytes, false))
+                using (var decoded = new Bitmap(ms))
+                {
+                    if (decoded.Width != width || decoded.Height != height)
+                        failures.Add("blank tile budget: the encoded sheet is " + decoded.Width + "x" + decoded.Height + ", not the "
+                            + width + "x" + height + " grid the budget was measured for");
+                    else if (blank >= 0 && blank < sheet.TilesX * sheet.TilesY)
+                    {
+                        int painted = 0;
+                        int x0 = (blank % sheet.TilesX) * sheet.CellWidth, y0 = (blank / sheet.TilesX) * sheet.CellHeight;
+                        for (int y = y0; y < y0 + sheet.CellHeight; y++)
+                            for (int x = x0; x < x0 + sheet.CellWidth; x++)
+                                if (decoded.GetPixel(x, y).A != 0) painted++;
+                        if (painted > 0)
+                            failures.Add("blank tile: " + painted + " pixel(s) of the reserved tile " + blank + " are not transparent");
+                    }
+                }
+            }
+            finally
+            {
+                foreach (Bitmap b in owned.Values) b.Dispose();
+            }
         }
 
         /// <summary>N-audit-1106-161: FileLoader reads a pose image inside the skin's img folder only. A name that

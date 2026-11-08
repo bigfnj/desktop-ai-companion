@@ -248,7 +248,7 @@ the companion before it is loaded.
 | Attribute | Type | Meaning |
 |-----------|------|---------|
 | `probability` | integer | **Relative weight** among the eligible `<next>` entries in the same list (not a percentage; they need not sum to 100). |
-| `only` | enum | Situation filter. One of: `none`, `taskbar`, `window`, `horizontal`, `horizontal+`, `vertical`. |
+| `only` | enum | Situation filter. One of: `none`, `taskbar`, `window`, `horizontal`, `horizontal+`, `vertical`, `window-left`, `window-right`, `window-top`, `window-bottom`. |
 
 ### How selection works (see [02 §5.1](02-architecture.md#51-how-what-happens-next-is-chosen--setnextgeneralanimation))
 
@@ -263,8 +263,13 @@ When a list is evaluated, the engine is told the current *situation* (`where`). 
   bottom of the work area is offered its `taskbar` edges (bare `TASKBAR`, `FormCompanion.cs`), never
   its `horizontal` ones, so a `horizontal` edge on a floor walker is a ceiling edge and nothing else.
   (This line said "top (and bottom)" until 2026-09-30; the soak that believed it was corrected in F415,
-  and the converter's own notes still carry the old belief: N-scripts-02.)
+  and the converter's notes, `tools/ShimejiConvert/MAPPING.md`, were corrected by N-scripts-02.)
 - `only="horizontal+"` — horizontal **or** window (`0x06`).
+- `only="window-left"`, `"window-right"`, `"window-top"`, `"window-bottom"` — only at that edge of a window: its
+  left or right side, its top (a landing), or its underside (a rising companion's head reached it). The host raises
+  each alongside plain `WINDOW`, so `only="window"` still fires at every one of them, while a `window-*` value
+  carries no plain `WINDOW` bit and matches its own edge only (`Animations.cs`, the `TOnly` flags and the comment
+  after them).
 
 The three lists differ only in *when* they're consulted:
 
