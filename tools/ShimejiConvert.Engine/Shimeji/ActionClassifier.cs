@@ -185,8 +185,11 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
 
             if (string.Equals(a.BorderType, "Ceiling", StringComparison.Ordinal))
             {
-                // The TOP border only: FormCompanion.cs:1327 raises HORIZONTAL at the top of the work area and :1258
-                // raises bare TASKBAR at the bottom, so a ceiling edge can never fire at the floor. This reason text
+                // The TOP border only: FormCompanion.NextStep raises HORIZONTAL in its moving-up branch, where the pet
+                // would pass the top of the work area, and bare TASKBAR in its moving-down branch at the bottom, and the
+                // two flags share no bit (Animations.cs TOnly), so a ceiling edge can never fire at the floor. Cited by
+                // method and branch rather than by line: the line numbers this comment carried went stale as
+                // FormCompanion grew (N-audit-1106-381). This reason text
                 // said "horizontal also fires at the bottom, so top/bottom is ambiguous" until 2026-10-01 (N-scripts-02).
                 Set(a, FidelityGroup.Group1, "maps to only=horizontal (top border only; the floor raises taskbar, so there is no top/bottom ambiguity)");
                 return;
