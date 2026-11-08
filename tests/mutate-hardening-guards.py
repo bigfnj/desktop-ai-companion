@@ -17,7 +17,7 @@ import io
 import os
 import re
 import subprocess
-from mutation_process import run_text
+from mutation_process import run_text, utf8_stdio
 import sys
 
 # Derived from this file's own location, never hard-coded. The absolute path that used to sit here
@@ -1105,8 +1105,9 @@ CASES = (
     # synchronous-read scan narrowed back to files that declare a redirect, and one real file: WebLinks.cs
     # gains a synchronous read while declaring no redirect of its own, which the old admission test skipped.
     # The fragments are the labels' distinctive MIDDLE, well inside the first ~90 columns: PowerShell wraps
-    # the thrown message at the console width the harness inherited and the grader matches per line, so a
-    # fragment reaching past the wrap read WRONG for a case that had fired (measured 2026-09-30 on the
+    # the thrown message at the console width the harness inherited and the grader matched per line (until
+    # unwrapped_lines, N-bd-w8-studio-1-02), so a fragment reaching past the wrap read WRONG for a case that
+    # had fired (measured 2026-09-30 on the
     # synchronous-read witness, whose "... as exactly one offender" landed on the continuation line).
     (
         "the stdout-unpinned branch of the redirect judgement is deleted",
@@ -4815,8 +4816,9 @@ CASES = (
         os.path.join(REPO, "packaging", "Test-ModulePublishFreshness.ps1"),
         b'    $verdicts.Add("Module version(s) disagree across source, ',
         b'    throw ("Module version(s) disagree across source, ',
-        # The expected text stays inside the 95 columns Windows PowerShell wraps a thrown message at; a longer one
-        # is split across two output lines and every case scores WRONG (measured on this lane's first run).
+        # The expected text stays inside the 95 columns Windows PowerShell wrapped a thrown message at on this lane's
+        # first run, where a longer one was split across two output lines and scored WRONG. unwrapped_lines rejoins a
+        # word-wrapped message since N-bd-w8-studio-1-02, so the length no longer decides the verdict.
         "w8-studio-1: every freshness verdict is reported before one throw carrying them all",
     ),
     (
@@ -4955,9 +4957,36 @@ CASES = (
 DOC_COUNT_DRIFT = "source-invariant count matches this file"
 
 
+def unwrapped_lines(out):
+    """The output's lines, with Windows PowerShell's word wrap of a thrown message undone (N-bd-w8-studio-1-02).
+
+    powershell.exe renders an uncaught throw at the width of the console it inherited, and a message longer than that
+    is WORD-WRAPPED: the line breaks after a space, keeps that space at its end, and the rest goes on at column 0 of the
+    next line. Measured 2026-11-08 with synthetic labels in hidden consoles of 40, 53, 60, 77, 96 and 100 columns: every
+    break fell after a space, never at a hyphen, a slash or a backslash, and the lines joined back into the exact
+    message. The width is whatever console the harness happens to inherit (100 from one agent shell here; wave 8 saw 95
+    under its detached launch), so matching line by line read WRONG whatever the mutation did for a case whose expected text was
+    longer than one line, or straddled a break: a 96-character case in a 90-column console printed its own label across
+    two lines and scored "WRONG -- failed on something else".
+
+    So a line that ends in whitespace is joined to the one after it. Never a PASS line, on either side: Write-Host does
+    not wrap them, and a PASS line must not lend its text to a failure. Rejected: inferring the width from the longest
+    line, since a word wrap's lines are not of one length. Known limit: one word longer than a whole console line is cut
+    without a space and stays cut; a label's prose holds none.
+    """
+    lines = []
+    for line in out.splitlines():
+        if (lines and lines[-1][-1:].isspace()
+                and not lines[-1].strip().startswith("PASS:") and not line.strip().startswith("PASS:")):
+            lines[-1] += line
+        else:
+            lines.append(line)
+    return lines
+
+
 def saw_doc_count_drift(out):
     return any(DOC_COUNT_DRIFT in line and not line.strip().startswith("PASS:")
-               for line in out.splitlines())
+               for line in unwrapped_lines(out))
 
 
 
@@ -4985,6 +5014,9 @@ def line_ending_variant(base, old, new):
     return old, new
 
 def main():
+    # Before anything is printed: a redirected cp1252 stdout cannot encode a marker a printed line may quote
+    # (N-bd-w7-aibrain-1-03; mutation_process.utf8_stdio says why UTF-8).
+    utf8_stdio()
     parser = argparse.ArgumentParser()
     parser.add_argument("--only", default=None)
     args = parser.parse_args()
@@ -5013,7 +5045,7 @@ def main():
     # DOC DRIFT case's above all, would otherwise read FIRED whatever its mutation did, because the baseline already
     # printed that line. A hit counts only on a line the baseline did not print: the doc-count assertion names both
     # numbers, so a mutation that moved the documented count prints a line of its own.
-    baseline_failures = set(l.strip() for l in out.splitlines() if not l.strip().startswith("PASS:")) if degraded else set()
+    baseline_failures = set(l.strip() for l in unwrapped_lines(out) if not l.strip().startswith("PASS:")) if degraded else set()
 
     print("mutation run: %d case(s)%s\n" % (len(cases), "" if args.only is None else " matching --only=%s" % args.only))
     fired = 0
@@ -5050,8 +5082,8 @@ def main():
         # A non-zero exit means this mutation broke something -- unless the baseline was degraded,
         # in which case the doc-count failure is there whatever the mutation did. It broke the RIGHT
         # thing when the expected assertion text appears anywhere in the output on a line that is
-        # not a PASS.
-        bad = [l.strip() for l in out.splitlines()
+        # not a PASS. A line as the message was thrown, not as the console wrapped it (unwrapped_lines).
+        bad = [l.strip() for l in unwrapped_lines(out)
                if expect in l and not l.strip().startswith("PASS:") and l.strip() not in baseline_failures]
         if bad:
             fired += 1
@@ -5065,7 +5097,9 @@ def main():
             print("  %-46s SURVIVED -- only the baseline doc-count failure" % name)
         else:
             print("  %-46s WRONG -- failed on something else" % name)
-            other = [l.strip() for l in out.splitlines() if "failed" in l][:2]
+            # Not the PASS lines: labels carry the word "failed", and the run in a 90-column console that found
+            # N-bd-w8-studio-1-02 showed two of those here instead of the failure it was hiding.
+            other = [l.strip() for l in unwrapped_lines(out) if "failed" in l and not l.strip().startswith("PASS:")][:2]
             for line in other[:2]:
                 print("        %s" % line[:150])
 

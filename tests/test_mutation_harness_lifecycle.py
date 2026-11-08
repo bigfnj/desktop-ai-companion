@@ -1,4 +1,5 @@
-"""What a mutation harness leaves behind when a run is killed, how long a pseudo-flag may run, and how a firing is read.
+"""What a mutation harness leaves behind when a run is killed, how long a pseudo-flag may run, how a firing is read, and
+that it can print what it read.
 
 python -X utf8 -m unittest test_mutation_harness_lifecycle   (from tests/; run_mutation_capture_checks.py runs it too)
 
@@ -6,7 +7,8 @@ N-audit-1106-345 / N-audit-1106-350: a hard kill mid-case left the mutant in the
 the dead process's memory; the restore record (mutation_journal.py) is on disk before the mutant, and the next run puts
 it back. N-audit-1106-348: the pseudo-flags kept a flat timeout and were never timed. N-audit-1106-349: a timed-out
 runner script was killed and the host it started kept running. N-bd-w4-agentflow-1-03: every AgentFlow firing read
-"(+1 other failures)", the host's restatement of the module's verdict.
+"(+1 other failures)", the host's restatement of the module's verdict. N-bd-w7-aibrain-1-03: a FAIL detail quoting a
+check mark ended a run whose stdout was redirected in cp1252.
 
 Synthetic files under a temporary folder only: no product file is read or written and nothing is built. The process
 check starts one synthetic child of this interpreter and stops it by its process ID alone.
@@ -310,6 +312,90 @@ class AgentFlowFiringCountTests(unittest.TestCase):
         self.assertEqual(self.harness.other_failures(lines, [l for l in lines if "the label the case breaks" in l]),
                          ["[agentflow] FAIL: a second label"])
         self.assertIn("FAIL: the module's own self-test passed", lines)
+
+
+def cp1252_console():
+    """What python gives a redirected stdout or stderr with no -X utf8 and no PYTHONIOENCODING (python from Git Bash
+    with its output sent to a file): a cp1252 TextIOWrapper with strict errors, here over bytes the test can read."""
+    raw = io.BytesIO()
+    return raw, io.TextIOWrapper(raw, encoding="cp1252", errors="strict", newline="\n")
+
+
+class HarnessConsoleTests(unittest.TestCase):
+    """N-bd-w7-aibrain-1-03: a FAIL detail quoting a check mark raised UnicodeEncodeError out of the guards harness's
+    scoring loop under such a console, and the rest of the selected cases never ran. Every harness's main() now makes
+    its stdout and stderr UTF-8 before it prints anything (mutation_process.utf8_stdio)."""
+
+    CHECK = chr(0x2713)
+    CROSS = chr(0x2717)
+
+    def test_guards_a_fail_detail_with_a_check_mark_prints_under_cp1252(self):
+        harness = load("mutate-selftest-guards")
+        with tempfile.TemporaryDirectory() as folder:
+            target = Path(folder, "Source.cs")
+            target.write_bytes(b"clean guard\n")
+            case = ("synthetic check mark", str(target), b"clean guard", b"mutant guard", None, None,
+                    "--synthetic-selftest", "m.txt", "the pane answers")
+            plan = types.SimpleNamespace(cases=[case], indices=[1], summary=lambda: "synthetic", json=lambda: "{}")
+            # The real printing site: score() quotes the FAIL line that fired as its detail.
+            report = "FAIL: the pane answers %s ready, not %s\nRESULT=FAIL\n" % (self.CHECK, self.CROSS)
+            raw, console = cp1252_console()
+            error_raw, error_console = cp1252_console()
+            with patch.object(harness, "journal_path", return_value=os.path.join(folder, "guards.restore-journal.json")), \
+                 patch.object(harness, "JOURNAL", None), \
+                 patch.object(harness, "RUN_TEMP", None), \
+                 patch.object(harness, "CHILD_ENV", None), \
+                 patch.object(harness, "DOCUMENTS_REMEMBRANCE", None), \
+                 patch.object(harness, "documents_folder", return_value=None), \
+                 patch.object(harness, "plan_arguments", return_value=plan), \
+                 patch.object(harness, "documents_watch_selfcheck", return_value=[]), \
+                 patch.object(harness, "build_all", return_value=(True, "")), \
+                 patch.object(harness, "watched_selftest",
+                              side_effect=[("PASS: x\nRESULT=PASS\n", 0, None), (report, 1, None)]), \
+                 patch.object(harness.time, "sleep"), \
+                 patch.object(harness, "TEMP", folder), \
+                 patch.object(harness.sys, "argv", ["mutate-selftest-guards.py", "--only=synthetic"]), \
+                 contextlib.redirect_stdout(console), contextlib.redirect_stderr(error_console):
+                code = harness.main()
+            console.flush()
+            self.assertEqual(target.read_bytes(), b"clean guard\n")
+        printed = raw.getvalue()
+        self.assertIn(("FAIL: the pane answers " + self.CHECK + " ready, not " + self.CROSS).encode("utf-8"), printed,
+                      "guard harness: a FAIL detail quoting a check mark prints under a cp1252 console")
+        self.assertIn(b"1/1 fired.", printed)
+        self.assertEqual(code, 0)
+
+    def assert_utf8_after_main(self, harness, argv, **patches):
+        """Run `harness`.main() to its first cheap return under cp1252 consoles, then print a marker through each."""
+        raw, console = cp1252_console()
+        error_raw, error_console = cp1252_console()
+        with contextlib.ExitStack() as stack:
+            for name, value in patches.items():
+                stack.enter_context(patch.object(harness, name, value))
+            stack.enter_context(patch.object(harness.sys, "argv", argv))
+            stack.enter_context(contextlib.redirect_stdout(console))
+            stack.enter_context(contextlib.redirect_stderr(error_console))
+            harness.main()
+            print("FAIL: " + self.CHECK)
+            print(self.CROSS, file=sys.stderr)
+        console.flush()
+        error_console.flush()
+        self.assertIn(("FAIL: " + self.CHECK).encode("utf-8"), raw.getvalue(),
+                      "%s: main() makes stdout UTF-8 before it prints" % argv[0])
+        self.assertIn(self.CROSS.encode("utf-8"), error_raw.getvalue(), "%s: main() makes stderr UTF-8 too" % argv[0])
+
+    def test_hardening_main_writes_utf8_under_cp1252(self):
+        # A selection that matches nothing returns before the baseline runs anything.
+        self.assert_utf8_after_main(load("mutate-hardening-guards"),
+                                    ["mutate-hardening-guards.py", "--only=no case is named this"])
+
+    def test_diagnostics_main_writes_utf8_under_cp1252(self):
+        self.assert_utf8_after_main(load("mutate-diagnostics"), ["mutate-diagnostics.py", "--check-patterns"],
+                                    check_patterns=lambda: 0)
+
+    def test_agentflow_main_writes_utf8_under_cp1252(self):
+        self.assert_utf8_after_main(load("mutate-agentflow"), ["mutate-agentflow.py", "--check-patterns"],
+                                    check_patterns=lambda: 0)
 
 
 if __name__ == "__main__":
