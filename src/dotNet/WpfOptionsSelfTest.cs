@@ -1731,6 +1731,10 @@ namespace DesktopAICompanion
                 ok &= ModulesReinstallAsksTheLoader(sb);
                 ok &= ModulesRowSaysUninstallPending(sb);
                 ok &= ModulesRowOfARenamedFolder(sb);
+                // ---- burndown/w9-host-2 ----
+                ok &= WindowContainsAPaneThatFailsToBuild(sb);
+                ok &= ReloadAfterTheWindowClosedIsDeclined(sb);
+                ok &= RefreshAfterApplyFollowsInfoOrHeader(sb);
             }
             catch (Exception ex) { ok = false; sb.AppendLine("EXC: " + ex.GetType().Name + ": " + ex.Message); }
 

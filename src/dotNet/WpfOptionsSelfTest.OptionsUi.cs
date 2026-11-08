@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using DesktopAICompanion.Modules;
 
 namespace DesktopAICompanion
@@ -106,6 +108,163 @@ namespace DesktopAICompanion
             {
                 Program.MyData = previous;
                 try { Directory.Delete(scratch, true); } catch { }
+            }
+            return ok;
+        }
+
+        // ---- burndown/w9-host-2 ----
+
+        /// <summary>
+        /// N-audit-1106-253: the window contains a pane whose build throws. OptionsWindow.ShowPane catches what
+        /// BuildContent throws and shows "This pane failed to load: ..." in the content area, so one broken module pane
+        /// cannot take the settings window down with it. ThrowingOptionsSchema was only ever built through
+        /// SchemaShellPane.BuildContent directly; here it is the window's FIRST pane, built by the window's own
+        /// constructor, which is where a throw would have escaped. WITNESS: the nav still reaches the pane beside it.
+        /// </summary>
+        private static bool WindowContainsAPaneThatFailsToBuild(StringBuilder sb)
+        {
+            bool ok = true;
+            var failing = new OptionsPane
+            {
+                Title = "Fails to build",
+                Schema = new ThrowingOptionsSchema(),
+                Load = delegate { return new Dictionary<string, string>(StringComparer.Ordinal); },
+            };
+            DesktopAICompanion.Wpf.OptionsWindow window = null;
+            string threw = null;
+            try
+            {
+                window = new DesktopAICompanion.Wpf.OptionsWindow(new List<DesktopAICompanion.Wpf.ShellPane>
+                {
+                    new DesktopAICompanion.Wpf.SchemaShellPane(failing),
+                    new DesktopAICompanion.Wpf.SchemaShellPane(ElsewherePane()),
+                });
+            }
+            catch (Exception ex) { threw = ex.GetType().Name + ": " + ex.Message; }
+            try
+            {
+                var shown = window != null ? window.CurrentContent as System.Windows.Controls.TextBlock : null;
+                string text = shown != null ? (shown.Text ?? "") : (threw != null ? "the window threw " + threw : "no TextBlock in the content area");
+                ok &= Check(sb, "pane-contain: a pane whose build throws opens as a line saying it failed to load, and the window opens (" + text + ")",
+                    window != null && window.SelectedNavIndex == 0 &&
+                    text.StartsWith("This pane failed to load: ", StringComparison.Ordinal) &&
+                    text.EndsWith("Synthetic schema failure.", StringComparison.Ordinal));
+                ok &= Check(sb, "pane-contain: WITNESS the nav still reaches the pane beside the broken one",
+                    window != null && window.ShowPane("Elsewhere") && window.CurrentPaneTitle == "Elsewhere" &&
+                    !(window.CurrentContent is System.Windows.Controls.TextBlock));
+            }
+            finally { if (window != null) window.Close(); }
+            return ok;
+        }
+
+        /// <summary>
+        /// N-audit-1106-250: the CLOSED half of the reload guard (F375, RA-329). A ReloadPaneAfter action's continuation
+        /// runs after an await, and the window may have closed in between: OnClosed released the view, and the guard's
+        /// _closed term is what declines the rebuild then. Nothing else was built after the click, so the build
+        /// generation still matches and only that term stands between the continuation and a rebuild of the pane into
+        /// the closed window. The pane-switch and same-pane cases are section 14c's; this one closes the window.
+        /// </summary>
+        private static bool ReloadAfterTheWindowClosedIsDeclined(StringBuilder sb)
+        {
+            bool ok = true;
+            TaskCompletionSource<string> slow = null;
+            var pane = new OptionsPane
+            {
+                Title = "Slow on close",
+                Schema = new[] { new SettingField { Id = "note", Label = "Note", Kind = SettingKind.Text } },
+                Load = delegate { return new Dictionary<string, string>(StringComparer.Ordinal) { { "note", "" } }; },
+                Save = delegate { return true; },
+                Actions = new[]
+                {
+                    new PaneAction
+                    {
+                        Label = "Slow reset",
+                        ReloadPaneAfter = true,
+                        InvokeAsync = delegate { slow = new TaskCompletionSource<string>(); return slow.Task; },
+                    },
+                },
+            };
+            SynchronizationContext previousContext = SynchronizationContext.Current;
+            SynchronizationContext.SetSynchronizationContext(
+                new System.Windows.Threading.DispatcherSynchronizationContext(System.Windows.Threading.Dispatcher.CurrentDispatcher));
+            var window = new DesktopAICompanion.Wpf.OptionsWindow(new List<DesktopAICompanion.Wpf.ShellPane>
+            {
+                new DesktopAICompanion.Wpf.SchemaShellPane(pane),
+            });
+            try
+            {
+                var buttons = new List<System.Windows.Controls.Button>();
+                CollectAll(window.CurrentContent as System.Windows.DependencyObject, buttons);
+                System.Windows.Controls.Button reset = buttons.Find(delegate(System.Windows.Controls.Button b) { return (b.Content as string) == "Slow reset"; });
+                if (reset == null) return Check(sb, "reload-closed: the slow pane rendered its action button", false);
+                reset.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                object before = window.CurrentContent;
+                window.Close();
+                bool running = slow != null && !slow.Task.IsCompleted;
+                if (slow != null) slow.SetResult("reset done");
+                PumpDispatcher();
+                System.Windows.Controls.TextBlock status = StatusOf(reset);
+                ok &= Check(sb, "reload-closed: WITNESS the action was still running when the window closed, and finished after it (" +
+                    (status != null ? status.Text : "no status line") + ")",
+                    running && status != null && status.Text == "reset done");
+                ok &= Check(sb, "reload-closed: a ReloadPaneAfter action finishing after the window closed does not rebuild its pane into it",
+                    ReferenceEquals(window.CurrentContent, before));
+                ok &= Check(sb, "reload-closed: ...and leaves nothing stashed for the next open of that pane",
+                    !DesktopAICompanion.Wpf.PaneView.ActionRebuildIsStashed && !DesktopAICompanion.Wpf.PaneView.ViewStateIsStashed);
+            }
+            finally
+            {
+                SynchronizationContext.SetSynchronizationContext(previousContext);
+                window.Close();
+            }
+            return ok;
+        }
+
+        /// <summary>
+        /// N-audit-1106-251: the window's refresh after Apply rebuilds a pane holding an Info OR a Header row and leaves
+        /// every other pane on the view it had (SchemaShellPane.RefreshAfterApply). Every pane Apply was pressed on held
+        /// an Info row, so the Header clause could go, or the rule answer yes for every pane, with every check passing.
+        /// Driven through the window's own Apply; the module's Save counts witness that each Apply ran.
+        /// </summary>
+        private static bool RefreshAfterApplyFollowsInfoOrHeader(StringBuilder sb)
+        {
+            bool ok = true;
+            int headedSaves = 0, plainSaves = 0;
+            var headed = new OptionsPane
+            {
+                Title = "Headed",
+                Schema = new[]
+                {
+                    new SettingField { Id = "about", Label = "What this pane does", Kind = SettingKind.Header },
+                    new SettingField { Id = "note", Label = "Note", Kind = SettingKind.Text },
+                },
+                Load = delegate { return new Dictionary<string, string>(StringComparer.Ordinal) { { "about", "Read from the settings." }, { "note", "kept" } }; },
+                Save = delegate { headedSaves++; return true; },
+            };
+            var plain = new OptionsPane
+            {
+                Title = "Plain",
+                Schema = new[] { new SettingField { Id = "note", Label = "Note", Kind = SettingKind.Text } },
+                Load = delegate { return new Dictionary<string, string>(StringComparer.Ordinal) { { "note", "kept" } }; },
+                Save = delegate { plainSaves++; return true; },
+            };
+            var headedProbe = new LaidOutWindow(headed);
+            var plainProbe = new LaidOutWindow(plain);
+            try
+            {
+                object headedBefore = headedProbe.Window.CurrentContent;
+                headedProbe.Apply();
+                ok &= Check(sb, "apply-refresh: Apply rebuilds a pane that holds a Header row and no Info row (saves " + headedSaves + ")",
+                    headedSaves == 1 && !ReferenceEquals(headedBefore, headedProbe.Window.CurrentContent));
+                object plainBefore = plainProbe.Window.CurrentContent;
+                plainProbe.Apply();
+                ok &= Check(sb, "apply-refresh: Apply leaves a pane with neither an Info nor a Header row on the view it had (saves " + plainSaves + ")",
+                    plainSaves == 1 && ReferenceEquals(plainBefore, plainProbe.Window.CurrentContent));
+            }
+            finally
+            {
+                headedProbe.Window.Close();
+                plainProbe.Window.Close();
             }
             return ok;
         }

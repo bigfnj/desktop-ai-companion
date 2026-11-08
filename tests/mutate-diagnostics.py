@@ -1260,6 +1260,32 @@ CASES = [
      "                string grantId = string.IsNullOrWhiteSpace(info.Id) ? id : info.Id.Trim();\n",
      "                string grantId = id;\n",
      "wpf", "renamed-folder: its sign-in row reads the grant recorded under the module's own id"),
+    # ---- burndown/w9-host-2 ----
+    # Host entries of burn-down wave 9. "bd-w9-host-2:" for one --only. Each rebuilds the host and runs
+    # --wpf-options-selftest.
+    # N-audit-1106-253: the window lets a pane's build exception escape, so a broken pane takes the window down.
+    ("bd-w9-host-2: the window lets a pane's build exception escape (N-audit-1106-253)", OPTIONSWINDOW,
+     "            try { content = _current.BuildContent(); }\n"
+     "            catch (Exception ex) { content = new TextBlock { Text = \"This pane failed to load: \" + ex.Message, Margin = new Thickness(6), TextWrapping = TextWrapping.Wrap }; }\n",
+     "            content = _current.BuildContent();\n",
+     "wpf", "pane-contain: a pane whose build throws opens as a line saying it failed to load"),
+    # N-audit-1106-250: the _closed half of the reload guard stops declining. Kept READ (a field written and never read
+    # is a warning, and warnings are errors), through a term that is never true: gen starts at 1.
+    ("bd-w9-host-2: a reload continuation rebuilds its pane into a closed window (N-audit-1106-250)", OPTIONSWINDOW,
+     "                if (_closed || gen != _buildGeneration) return false;\n",
+     "                if ((_closed && gen == 0) || gen != _buildGeneration) return false;\n",
+     "wpf", "reload-closed: a ReloadPaneAfter action finishing after the window closed does not rebuild its pane into it"),
+    # N-audit-1106-251: the refresh after Apply forgets Header rows, or rebuilds every pane.
+    ("bd-w9-host-2: the refresh after Apply forgets Header rows (N-audit-1106-251)", OPTIONSWINDOW,
+     "                    if (f != null && (f.Kind == SettingKind.Info || f.Kind == SettingKind.Header)) return true;\n",
+     "                    if (f != null && f.Kind == SettingKind.Info) return true;\n",
+     "wpf", "apply-refresh: Apply rebuilds a pane that holds a Header row and no Info row"),
+    ("bd-w9-host-2: the refresh after Apply rebuilds every pane (N-audit-1106-251)", OPTIONSWINDOW,
+     "                    if (f != null && (f.Kind == SettingKind.Info || f.Kind == SettingKind.Header)) return true;\n"
+     "                return false;\n",
+     "                    if (f != null && (f.Kind == SettingKind.Info || f.Kind == SettingKind.Header)) return true;\n"
+     "                return true;\n",
+     "wpf", "apply-refresh: Apply leaves a pane with neither an Info nor a Header row on the view it had"),
 ]
 
 
