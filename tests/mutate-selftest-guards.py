@@ -24463,6 +24463,15 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--hardening-selftest", "dp-hardening-selftest.txt",
      "ride: a pet whose offset ramps moves with a dragged window by the window's delta alone"),
+    # N-audit-1106-240: the lock-timeout line, which only the race store takes, carries the value it was asked to save.
+    # Before the fix the race store had no logger, so "no log line carries a value" could not see it.
+    ("bd-w10-host-1: the store's lock-timeout line carries the value (N-audit-1106-240)",
+     os.path.join(REPO, "src", "dotNet", "Plugins", "HostCredentialStore.cs"),
+     b'                Log(moduleId, verb + " failed: lock-timeout");\n',
+     b'                Log(moduleId, verb + " failed: lock-timeout " + value);\n',
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "abi180: store: no log line carries a value"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
