@@ -16172,10 +16172,11 @@ CASES = (
     # back: the button inside the row's left-hand panel, straight before Uninstall, as host 1.8.0 shipped it.
     # Re-pointed by the same lane's uninstall-column change: Uninstall is now added straight after the name, before the
     # sign-in button exists, so the button is put back by inserting it at Uninstall's place.
-    ("signin-right: the sign-in button sits in the row's panel straight before Uninstall again",
+    # Re-pointed by burndown/w7-options-ui-1 (N-audit-1106-257): the grant is recorded under the module's own id now.
+    ("signin-right: the sign-in button sits in the row's panel straight before Uninstall again; bd-w7-options-ui-1: re-pointed at the grant id (N-audit-1106-257)",
      os.path.join(REPO, "src", "Portable", "Wpf", "ModulesPaneControl.cs"),
-     b'                    signIn.Click += delegate { SetSignInAllowed(id, signInName, !allowed); };\n',
-     b'                    signIn.Click += delegate { SetSignInAllowed(id, signInName, !allowed); };\n'
+     b'                    signIn.Click += delegate { SetSignInAllowed(grantId, signInName, !allowed); };\n',
+     b'                    signIn.Click += delegate { SetSignInAllowed(grantId, signInName, !allowed); };\n'
      b'                    sp.Children.Insert(sp.Children.IndexOf(uninstall), signIn);\n'
      b'                    signIn = null;\n',
      HOST_CSPROJ, EXE,
@@ -22566,10 +22567,11 @@ CASES = (
     # Options UI and LocalData. "bd-w4-options-ui-1:" for one --only.
     # N-cxr-conv-01: the companion DTO drops a schema-valid probability on child/next again, so a load and save
     # returns a different document; the converter's round trip of the public string API is the witness.
-    ('bd-w4-options-ui-1: child/next probability is not kept by the DTO (N-cxr-conv-01)',
+    # Re-pointed by burndown/w7-options-ui-1 (N-cxr-w34-01): the attribute is kept as its text now, same intent.
+    ('bd-w4-options-ui-1: child/next probability is not kept by the DTO (N-cxr-conv-01); bd-w7-options-ui-1: re-pointed at the text attribute (N-cxr-w34-01)',
      os.path.join(REPO, 'src', 'LocalData', 'AnimationXML.cs'),
-     b'[XmlAttribute("probability")] public int Probability;',
-     b'[XmlIgnore] public int Probability;',
+     b'[XmlAttribute("probability")] public string Probability;',
+     b'[XmlIgnore] public string Probability;',
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL, SHIMEJI, 'sound-resolve', 'ROUNDTRIP_CHILD_NEXT:'),
     # N-cxr-conv-01: the compatibility property every runtime reader uses stops reading the kept element.
     ('bd-w4-options-ui-1: ChildNode.Next no longer reads the kept next element (N-cxr-conv-01)',
@@ -23455,6 +23457,20 @@ CASES = (
      b'        public string Action;\n',
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
      SHIMEJI, "sound-resolve", "ROUNDTRIP_SEQUENCE_ACTIONS: the public document API lost a sequence's second action"),
+    # ---- burndown/w7-options-ui-1 ----
+    # Options UI and LocalData, burn-down wave 7. "bd-w7-options-ui-1:" for one --only.
+    # N-cxr-w34-01: child/next probability goes back into an Int32 (behind a text property, so the self-test still
+    # compiles and every in-range value behaves as before), and a schema-valid 2147483648 refuses the document again.
+    ('bd-w7-options-ui-1: child/next probability is held in an Int32 again (N-cxr-w34-01)',
+     os.path.join(REPO, 'src', 'LocalData', 'AnimationXML.cs'),
+     b'[XmlAttribute("probability")] public string Probability;',
+     b'[XmlAttribute("probability")] public int Int32Probability; [XmlIgnore] public bool Int32ProbabilitySpecified; '
+     b'[XmlIgnore] public string Probability { get { return Int32ProbabilitySpecified ? '
+     b'Int32Probability.ToString(System.Globalization.CultureInfo.InvariantCulture) : null; } set { '
+     b'Int32ProbabilitySpecified = value != null; Int32Probability = value != null ? '
+     b'int.Parse(value, System.Globalization.CultureInfo.InvariantCulture) : 0; } }',
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL, SHIMEJI, 'sound-resolve',
+     'ROUNDTRIP_CHILD_NEXT_BOUNDARY: a schema-valid child/next probability was refused'),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

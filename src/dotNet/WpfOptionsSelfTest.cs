@@ -1727,6 +1727,10 @@ namespace DesktopAICompanion
                 // ---- burndown/options-ui-1 ----
                 ok &= ApplyRebasesTheBaseline(sb);
                 ok &= PreferencesKeepsAnOffGridVolume(sb);
+                // ---- burndown/w7-options-ui-1 ----
+                ok &= ModulesReinstallAsksTheLoader(sb);
+                ok &= ModulesRowSaysUninstallPending(sb);
+                ok &= ModulesRowOfARenamedFolder(sb);
             }
             catch (Exception ex) { ok = false; sb.AppendLine("EXC: " + ex.GetType().Name + ": " + ex.Message); }
 
@@ -1863,6 +1867,169 @@ namespace DesktopAICompanion
                 string releaseDetail;
                 if (!DesktopAICompanion.Plugins.SelfTestScratch.TryRelease(root, out releaseDetail))
                     sb.AppendLine("NOTE: install-press scratch left for the next sweep (" + releaseDetail + ")");
+            }
+            return ok;
+        }
+
+        /// <summary>
+        /// N-audit-1106-259: a module that failed to load, whose catalog build needs a newer app than this one. The row's
+        /// Reinstall used to offer that build without asking the loader's question, so it was downloaded and staged and
+        /// then refused at the next start. Pressed here the way WPF would (ModulesPaneProbe.Press raises Click even on a
+        /// disabled button, so a held button that still carries its handler downloads and fails the check). WITNESS: the
+        /// same row with a build this host can run offers Reinstall enabled.
+        /// </summary>
+        private static bool ModulesReinstallAsksTheLoader(StringBuilder sb)
+        {
+            bool ok = true;
+            string root = DesktopAICompanion.Plugins.SelfTestScratch.Create("reinstall-newer");
+            SynchronizationContext previousContext = SynchronizationContext.Current;
+            SynchronizationContext.SetSynchronizationContext(
+                new System.Windows.Threading.DispatcherSynchronizationContext(System.Windows.Threading.Dispatcher.CurrentDispatcher));
+            try
+            {
+                var tooNew = new ModulesPaneProbe(root, "too-new");
+                tooNew.FailedToLoad("epsilon", "Epsilon", "3.0.0", "Could not load file or assembly.", "999.0.0");
+                tooNew.FailedToLoad("zeta", "Zeta", "1.0.1", "Could not load file or assembly.");
+                tooNew.Build();
+                List<System.Windows.Controls.Button> buttons = tooNew.Buttons();
+                System.Windows.Controls.Button held = ModulesPaneProbe.Find(buttons, "Reinstall v3.0.0");
+                System.Windows.Controls.Button runnable = ModulesPaneProbe.Find(buttons, "Reinstall v1.0.1");
+                ok &= Check(sb, "reinstall-newer: WITNESS a build this host can run offers Reinstall enabled (" + ModulesPaneProbe.Captions(buttons) + ")",
+                    runnable != null && runnable.IsEnabled);
+                if (held != null) ModulesPaneProbe.Press(held);
+                PumpUntil(delegate { return !tooNew.Pane.IsBusy; }, 20000);
+                ok &= Check(sb, "reinstall-newer: Reinstall of a build this host cannot run is held and downloads nothing (" +
+                    (held == null ? "no Reinstall v3.0.0: " + ModulesPaneProbe.Captions(buttons) : "enabled " + held.IsEnabled) + "; " + tooNew.Describe() + ")",
+                    held != null && !held.IsEnabled && tooNew.Downloads.Count == 0 && tooNew.MarkedIds().Length == 0 &&
+                    !Directory.Exists(Path.Combine(tooNew.StagingRoot, "epsilon.staged")));
+                var blocks = new List<System.Windows.Controls.TextBlock>();
+                CollectAll(tooNew.Pane, blocks);
+                int needsLines = 0;
+                foreach (System.Windows.Controls.TextBlock block in blocks)
+                    if ((block.Text ?? "").StartsWith("v3.0.0 needs a newer app: needs host 999.0.0 or newer", StringComparison.Ordinal)) needsLines++;
+                ok &= Check(sb, "reinstall-newer: the row names the build and the app it needs (" + needsLines + " such lines)", needsLines == 1);
+            }
+            catch (Exception ex)
+            {
+                ok = false;
+                sb.AppendLine("FAIL: the reinstall-newer probe threw " + ex.GetType().Name + ": " + ex.Message);
+            }
+            finally
+            {
+                SynchronizationContext.SetSynchronizationContext(previousContext);
+                string releaseDetail;
+                if (!DesktopAICompanion.Plugins.SelfTestScratch.TryRelease(root, out releaseDetail))
+                    sb.AppendLine("NOTE: reinstall-newer scratch left for the next sweep (" + releaseDetail + ")");
+            }
+            return ok;
+        }
+
+        internal const string PendingRemovalNote = "Set to be uninstalled at the next start.";
+
+        /// <summary>
+        /// N-audit-1106-258: a module whose uninstall waits for the next start (the restart was declined) says so on its
+        /// row, and a row that still offers Update or Reinstall says that pressing it cancels the uninstall, which is what
+        /// its MarkForUpdate does (F352). The row looked like any other before. WITNESS: an unmarked row says nothing.
+        /// </summary>
+        private static bool ModulesRowSaysUninstallPending(StringBuilder sb)
+        {
+            bool ok = true;
+            string root = DesktopAICompanion.Plugins.SelfTestScratch.Create("uninstall-pending");
+            try
+            {
+                var probe = new ModulesPaneProbe(root, "pending");
+                probe.Installed("plain", "Plain", "1.0.0");
+                probe.Offer("alpha", "Alpha", "1.0.0", "1.1.0");
+                probe.FailedToLoad("broken", "Broken", "2.0.0", "Could not load file or assembly.");
+                probe.Installed("kept", "Kept", "1.0.0");
+                foreach (string id in new[] { "plain", "alpha", "broken" })
+                    DesktopAICompanion.Plugins.PendingModuleRemovals.MarkForRemoval(id, probe.RemovalMarker);
+                probe.Build();
+                var blocks = new List<System.Windows.Controls.TextBlock>();
+                CollectAll(probe.Pane, blocks);
+                int said = 0;
+                foreach (System.Windows.Controls.TextBlock block in blocks)
+                    if ((block.Text ?? "").StartsWith(PendingRemovalNote, StringComparison.Ordinal)) said++;
+                ok &= Check(sb, "uninstall-pending: each row whose uninstall waits for the next start says so, and no other row does (" + said + " of 3)",
+                    said == 3);
+                ok &= Check(sb, "uninstall-pending: a row still offering Update or Reinstall says that pressing it cancels the uninstall, and one offering neither does not (" +
+                    ModulesPaneProbe.Captions(probe.Buttons()) + ")",
+                    probe.CountText(PendingRemovalNote + " Updating it cancels the uninstall.") == 1 &&
+                    probe.CountText(PendingRemovalNote + " Reinstalling it cancels the uninstall.") == 1 &&
+                    probe.CountText(PendingRemovalNote) == 1);
+            }
+            catch (Exception ex)
+            {
+                ok = false;
+                sb.AppendLine("FAIL: the uninstall-pending probe threw " + ex.GetType().Name + ": " + ex.Message);
+            }
+            finally
+            {
+                string releaseDetail;
+                if (!DesktopAICompanion.Plugins.SelfTestScratch.TryRelease(root, out releaseDetail))
+                    sb.AppendLine("NOTE: uninstall-pending scratch left for the next sweep (" + releaseDetail + ")");
+            }
+            return ok;
+        }
+
+        /// <summary>A loaded module whose declared id is not the name of the folder its assembly came from (this host's own
+        /// build folder): the shape N-audit-1106-257 is about. It declares the shared sign-in so its row grows that line.</summary>
+        private sealed class RenamedFolderModule : IModule
+        {
+            private readonly ModuleInfo _info = new ModuleInfo
+            {
+                Id = "renamed-module-id",
+                Name = "Renamed",
+                Version = "1.2.3",
+                Permissions = ModulePermissions.ClaudeCodeSignIn,
+            };
+            public ModuleInfo Info { get { return _info; } }
+            public void Init(IHost host) { }
+            public void Shutdown() { }
+        }
+
+        /// <summary>
+        /// N-audit-1106-257: a module that LOADED from a folder not named after its Info.Id. The row is the folder, and the
+        /// pane looked the live info up by Info.Id, so it read "installed — restart to activate" forever, with no version
+        /// and no sign-in row. Through the pane's own lookup (LoadedInfoIn) over a real assembly's location. WITNESS: the
+        /// folder and the id differ, so the case is not degenerate. The sign-in grant is read under the module's own id,
+        /// the one the store's gate checks, not the folder's.
+        /// </summary>
+        private static bool ModulesRowOfARenamedFolder(StringBuilder sb)
+        {
+            bool ok = true;
+            string root = DesktopAICompanion.Plugins.SelfTestScratch.Create("renamed-folder");
+            try
+            {
+                var renamed = new RenamedFolderModule();
+                string folder = DesktopAICompanion.Wpf.ModulesPaneControl.LoadedFolderOf(renamed);
+                ok &= Check(sb, "renamed-folder: WITNESS the module's folder is not named after its id (folder " + (folder ?? "(none)") + ")",
+                    !string.IsNullOrEmpty(folder) && !string.Equals(folder, renamed.Info.Id, StringComparison.OrdinalIgnoreCase));
+                var probe = new ModulesPaneProbe(root, "renamed");
+                if (!string.IsNullOrEmpty(folder)) Directory.CreateDirectory(Path.Combine(probe.ModulesRoot, folder));
+                probe.LoadedModules = new IModule[] { renamed };
+                probe.Granted.Add(renamed.Info.Id);
+                probe.Build();
+                ok &= Check(sb, "renamed-folder: a module loaded from a folder not named after its id shows its live version on its row (" +
+                    probe.CountText("v1.2.3") + " version lines, " + probe.CountText("installed — restart to activate") + " restart lines)",
+                    probe.CountText("v1.2.3") == 1 && probe.CountText("installed — restart to activate") == 0);
+                ok &= Check(sb, "renamed-folder: its sign-in row reads the grant recorded under the module's own id (" +
+                    ModulesPaneProbe.Captions(probe.Buttons()) + ")",
+                    probe.CountText("Allowed the shared Claude Code sign-in.") == 1 &&
+                    ModulesPaneProbe.Find(probe.Buttons(), DesktopAICompanion.Wpf.ModulesPaneControl.SignInRevokeCaption) != null);
+                ok &= Check(sb, "renamed-folder: the declared id, which names no folder, finds no module",
+                    DesktopAICompanion.Wpf.ModulesPaneControl.LoadedInfoIn(new IModule[] { renamed }, renamed.Info.Id) == null);
+            }
+            catch (Exception ex)
+            {
+                ok = false;
+                sb.AppendLine("FAIL: the renamed-folder probe threw " + ex.GetType().Name + ": " + ex.Message);
+            }
+            finally
+            {
+                string releaseDetail;
+                if (!DesktopAICompanion.Plugins.SelfTestScratch.TryRelease(root, out releaseDetail))
+                    sb.AppendLine("NOTE: renamed-folder scratch left for the next sweep (" + releaseDetail + ")");
             }
             return ok;
         }
@@ -3616,8 +3783,9 @@ namespace DesktopAICompanion
                 });
             }
 
-            /// <summary>A catalog module that is not installed, which the pane lists with an Install button.</summary>
-            internal void Available(string id, string name, string version)
+            /// <summary>A catalog module that is not installed, which the pane lists with an Install button.
+            /// <paramref name="minHostVersion"/> is the catalog entry's, empty for none.</summary>
+            internal void Available(string id, string name, string version, string minHostVersion = "")
             {
                 Catalog.Modules.Add(new CatalogModule
                 {
@@ -3628,9 +3796,13 @@ namespace DesktopAICompanion
                     Sha256 = new string('0', 64),
                     Bytes = 1,
                     Permissions = ModulePermissions.None,
-                    MinHostVersion = "",
+                    MinHostVersion = minHostVersion,
                 });
             }
+
+            /// <summary>When set, the LoadedInfo seam answers from these modules through the pane's own folder lookup
+            /// (ModulesPaneControl.LoadedInfoIn, N-audit-1106-257) instead of from <see cref="Loaded"/> by id.</summary>
+            internal IModule[] LoadedModules;
 
             internal void Build()
             {
@@ -3642,7 +3814,11 @@ namespace DesktopAICompanion
                     IsStaged = delegate (string id) { return DesktopAICompanion.Plugins.PendingModuleUpdates.IsStaged(id, Marker, StagingRoot); },
                     IsBeingRemoved = delegate (string id) { return DesktopAICompanion.Plugins.PendingModuleRemovals.IsMarked(id, RemovalMarker); },
                     UnmarkRemoval = delegate (string id) { DesktopAICompanion.Plugins.PendingModuleRemovals.Unmark(id, RemovalMarker); },
-                    LoadedInfo = delegate (string id) { ModuleInfo info; return Loaded.TryGetValue(id, out info) ? info : null; },
+                    LoadedInfo = delegate (string id)
+                    {
+                        if (LoadedModules != null) return DesktopAICompanion.Wpf.ModulesPaneControl.LoadedInfoIn(LoadedModules, id);
+                        ModuleInfo info; return Loaded.TryGetValue(id, out info) ? info : null;
+                    },
                     DownloadVerified = Serve,
                     AskYesNo = delegate (string text, string caption, System.Windows.MessageBoxImage icon)
                     {
@@ -3698,14 +3874,15 @@ namespace DesktopAICompanion
                 new Dictionary<string, DesktopAICompanion.Plugins.ModuleLoadFailure>(StringComparer.OrdinalIgnoreCase);
 
             /// <summary>A module on disk that failed to load for a reason a reinstall can fix (not NeedsNewerHost), with
-            /// the catalog's entry at <paramref name="offered"/> to reinstall from: the row offers "Reinstall v&lt;offered&gt;".</summary>
-            internal void FailedToLoad(string id, string name, string offered, string reason)
+            /// the catalog's entry at <paramref name="offered"/> to reinstall from: the row offers "Reinstall v&lt;offered&gt;",
+            /// held when the entry's <paramref name="minHostVersion"/> is one this host cannot satisfy (N-audit-1106-259).</summary>
+            internal void FailedToLoad(string id, string name, string offered, string reason, string minHostVersion = "")
             {
                 string folder = Path.Combine(ModulesRoot, id);
                 Directory.CreateDirectory(folder);
                 File.WriteAllText(Path.Combine(folder, name + ".dll"), id + " damaged");
                 Failures[id] = new DesktopAICompanion.Plugins.ModuleLoadFailure { Id = id, Reason = reason, NeedsNewerHost = false };
-                Available(id, name, offered);
+                Available(id, name, offered, minHostVersion);
             }
 
             /// <summary>An installed, loaded module with NO catalog entry: the shape of a module whose entry the
