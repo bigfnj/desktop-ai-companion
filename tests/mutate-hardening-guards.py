@@ -4756,6 +4756,32 @@ CASES = (
         b'return new TickFaultCause(requested, searched.Name, null, requested, null, null);',
         "bd-parity-host-2: a fault code is set only by TickFaultCause's private constructor",
     ),
+    # Codex review H2-02: a message classifier split across statements (the message copied to a local, a flag derived
+    # from it, a cause formed from the flag in a statement that names no message) passes the one-statement predicate;
+    # the real factories and the forwarding are kept, and the reviewed list of forming statements must fail.
+    (
+        "bd-parity-host-2: the startup wrapper types a foreign exception in a split statement (H2-02)",
+        os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+        b'                var own = e as TickCantBeAliveException;\n'
+        b'                ReportFault(m, (own != null ? "" : "internal fault: " + e.GetType().Name + ": ")\n'
+        b'                    + "the first behaviour could not be built: " + e.Message, own == null ? null : own.Cause, TickFaultVia.Startup);\n',
+        b'                var own = e as TickCantBeAliveException;\n'
+        b'                string diagnostic = e.Message;\n'
+        b'                bool lookedUp = diagnostic.StartsWith("Value cannot be null", StringComparison.Ordinal);\n'
+        b'                TickFaultCause typed = lookedUp ? TickFaultCause.OfMissingBehaviour(type, behaviour) : null;\n'
+        b'                ReportFault(m, (own != null ? "" : "internal fault: " + e.GetType().Name + ": ")\n'
+        b'                    + "the first behaviour could not be built: " + e.Message, own == null ? typed : own.Cause, TickFaultVia.Startup);\n',
+        "bd-parity-host-2: the statements that form a fault cause are exactly the reviewed list",
+    ),
+    (
+        "bd-parity-host-2: the arrive wrapper picks a cause by a flag taken from the message (H2-02)",
+        os.path.join(REPO, "src", "dotNet", "Shimeji", "TickSocialFamily.cs"),
+        b'                world.ReportFault(mascot, action.Name + ": a partner transition failed: " + e.Message, e.Cause, TickFaultVia.Arrive);\n',
+        b'                bool unnamed = e.Message.StartsWith("there is no target", StringComparison.Ordinal);\n'
+        b'                TickFaultCause picked = unnamed ? TickFaultCause.OfMissingScanTarget(action) : e.Cause;\n'
+        b'                world.ReportFault(mascot, action.Name + ": a partner transition failed: " + e.Message, picked, TickFaultVia.Arrive);\n',
+        "bd-parity-host-2: the statements that form a fault cause are exactly the reviewed list",
+    ),
 )
 
 

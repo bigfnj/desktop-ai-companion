@@ -6284,13 +6284,14 @@ Assert-True ($w6tcLowPins.Count -eq 0) (
 # CH16 of the trace/2 host matrix (tools/ShimejiParity/CONTRACT-v1.2-trace2-consolidated.md, Part D.3; CONTRACT.md
 # 10.3.4): a parity error code is formed where its cause arises, from stored provenance, and never read back from the
 # message. Asserted as the CONDITION over the comment-stripped engine sources (src\dotNet\Shimeji, its self-test files
-# excepted), in four parts: (1) a code is set only by TickFaultCause's private constructor, which only its own factories
+# excepted), in five parts: (1) a code is set only by TickFaultCause's private constructor, which only its own factories
 # call, each with one of the class's own code constants as the code; (2) no engine source spells a code anywhere else,
-# so no site can write one of its own choosing; (3) no statement that forms a cause also reads a message, so no factory
-# is fed, or picked by, message text; (4) the cause a site hands to TickWorld.ReportFault reaches
+# so no site can write one of its own choosing; (3) no single statement that forms a cause also reads a message (a
+# classifier split across statements is part (5)'s); (4) the cause a site hands to TickWorld.ReportFault reaches
 # ParityTraceWriter.ErrorObject unchanged, ErrorObject takes no message, and the code it writes is the cause's own or
-# unclassified. A presence check ("TickFaultCause.Of" appears) still passes a message classifier added beside the
-# factories, which is the D.3 mutation; these do not. The product log's throttle key (TickEnvironment Identity) reads
+# unclassified; (5), below, the statements that form a cause are pinned to a reviewed list. A presence check
+# ("TickFaultCause.Of" appears) still passes a message classifier added beside the factories, which is the D.3 mutation;
+# these do not. The product log's throttle key (TickEnvironment Identity) reads
 # message text for its own purpose and forms no cause, so it is outside every part.
 $ph2Files = @(Get-ChildItem -LiteralPath (Join-Path $repoRoot 'src\dotNet\Shimeji') -Filter '*.cs' -File |
     Where-Object { $_.Name -cnotmatch 'SelfTest' })
@@ -6344,6 +6345,58 @@ Assert-True ($ph2Report -cmatch '\{\s*Observer\.Fault\(mascot, message, cause, v
     $ph2ErrorObject -cmatch '\.Str\("code", cause == null \? TickFaultCause\.Unclassified : cause\.Code\)' -and
     $ph2ErrorObject -cnotmatch '[Mm]essage') (
     'bd-parity-host-2: the cause a site reports reaches the error object unchanged, and its code is read from that cause, never from the message')
+
+# Codex review H2-02 (2026-11-08): part (3) is a STATEMENT predicate. A classifier split across statements (the
+# message copied to a local, a flag derived from it, then a cause formed from that flag) passes it, because the
+# statement that forms the cause names no message. A source-text check cannot follow data between statements, so the
+# claim is narrowed to what is asserted and the rest becomes a review step that cannot be skipped: (5) the statements
+# that form a cause through a TickFaultCause factory (called, aliased or passed as a method group: the factory's name
+# anywhere outside its class) are exactly the reviewed list below, compared whole as a multiset. A new forming
+# statement, a changed one (a condition put around a factory call) or one placed in a wrapper's catch fails here, and
+# adding it to the list is that review: each listed statement forms its cause from the operands of the lookup or read
+# that failed in that statement, and none reads a value derived from a message. NOT shown here: a value carried into a
+# listed statement from elsewhere (a field, a return value) without that statement's text changing.
+$ph2Factories = @([regex]::Matches($ph2Cause, 'public static TickFaultCause (Of\w+)\(') | ForEach-Object { $_.Groups[1].Value })
+$ph2FactoryUse = '\b(?:' + ($ph2Factories -join '|') + ')\b'
+$ph2Sites = @()
+foreach ($ph2Name in $ph2Code.Keys) {
+    $ph2Outside = $ph2Code[$ph2Name]
+    if ($ph2Name -ceq 'TickRuntime.cs' -and $ph2Cause.Length -gt 0) { $ph2Outside = $ph2Outside.Replace($ph2Cause, '') }
+    foreach ($ph2Statement in $ph2Outside.Split(';')) {
+        $ph2Use = [regex]::Match($ph2Statement, $ph2FactoryUse)
+        if (-not $ph2Use.Success) { continue }
+        $ph2From = $ph2Statement.Substring(0, $ph2Use.Index).LastIndexOfAny([char[]] '{}') + 1
+        $ph2Sites += ($ph2Name + ': ' + ($ph2Statement.Substring($ph2From).Trim() -replace '\s+', ' '))
+    }
+}
+$ph2Pinned = @(@'
+TickMotionFamily.cs: if (variant == null) throw new TickCantBeAliveException("action '" + action.Name + "' has no variant whose condition holds", TickFaultCause.OfMissingVariant(action))
+TickRuntime.cs: World.ReportFault(Mascot, Name + ": " + name + " is not a number (" + v.ToDisplayString() + ")", TickFaultCause.OfParameter(this, name), null)
+TickRuntime.cs: World.ReportFault(Mascot, Name + ": " + name + " is not a number (" + v.ToDisplayString() + ")", TickFaultCause.OfParameter(this, name), null)
+TickRuntime.cs: World.ReportFault(Mascot, Name + ": " + what + " is not a boolean (" + v.ToDisplayString() + ")", parameter == null ? null : TickFaultCause.OfParameter(this, parameter), null)
+TickRuntime.cs: if (!child.Type.RootByName.TryGetValue(name ?? "", out def)) throw new TickCantBeAliveException("no behaviour named '" + name + "' in " + child.Type.Name, TickFaultCause.OfMissingBehaviour(child.Type, name))
+TickRuntime.cs: if (!type.Actions.TryGetValue(name ?? "", out def)) throw new TickCantBeAliveException("no action named '" + name + "' in " + type.Name, TickFaultCause.OfMissingAction(type, name))
+TickRuntime.cs: if (!type.RootByName.TryGetValue(name ?? "", out def)) throw new TickCantBeAliveException("no behaviour named '" + name + "' in " + type.Name, TickFaultCause.OfMissingBehaviour(type, name))
+TickRuntime.cs: if (!type.RootByName.TryGetValue(name ?? "", out def)) throw new TickCantBeAliveException("no behaviour named '" + name + "' in " + type.Name, TickFaultCause.OfMissingBehaviour(type, name))
+TickRuntime.cs: if (_action.EvalInt("BornCount", 1) < 1) throw new TickCantBeAliveException(_action.Name + ": BornCount must be positive", TickFaultCause.OfParameter(_action, "BornCount"))
+TickRuntime.cs: if (_action.EvalInt("BornInterval", 1) < 1) throw new TickCantBeAliveException(_action.Name + ": BornInterval must be positive", TickFaultCause.OfParameter(_action, "BornInterval"))
+TickRuntime.cs: if (interval == 0) throw new TickCantBeAliveException(_action.Name + ": BornInterval became 0", TickFaultCause.OfParameter(_action, "BornInterval"))
+TickRuntime.cs: if (v == null) throw new TickCantBeAliveException("action '" + Name + "' has no variant for turning=" + _turning, TickFaultCause.OfMissingVariant(this))
+TickRuntime.cs: if (variant == null) throw new TickCantBeAliveException("action '" + Name + "' has no variant whose condition holds", TickFaultCause.OfMissingVariant(this))
+TickSocialFamily.cs: if (characteristics == null) throw new TickCantBeAliveException("action '" + action.Name + "': Characteristics is null", TickFaultCause.OfParameter(action, "Characteristics"))
+TickSocialFamily.cs: if (target == null) throw new TickCantBeAliveException("action '" + action.Name + "' has no scan target", TickFaultCause.OfMissingScanTarget(action))
+TickSocialFamily.cs: if (target == null) throw new TickCantBeAliveException("there is no target to enter a behaviour", TickFaultCause.OfMissingScanTarget(action))
+TickSocialFamily.cs: if (value == null) throw new TickCantBeAliveException("action '" + action.Name + "': " + parameter + " is null", TickFaultCause.OfParameter(action, parameter))
+'@ -split "`n" | ForEach-Object { $_.TrimEnd("`r") } | Where-Object { $_.Length -gt 0 })
+$ph2Unlisted = New-Object System.Collections.Generic.List[string]
+$ph2Gone = New-Object System.Collections.Generic.List[string]
+foreach ($ph2Site in $ph2Pinned) { $ph2Gone.Add($ph2Site) }
+foreach ($ph2Site in $ph2Sites) { if (-not $ph2Gone.Remove($ph2Site)) { $ph2Unlisted.Add($ph2Site) } }
+Assert-True ($ph2Factories.Count -eq 5 -and $ph2Unlisted.Count -eq 0 -and $ph2Gone.Count -eq 0) (
+    "bd-parity-host-2: the statements that form a fault cause are exactly the reviewed list, so no cause is formed unreviewed " +
+    "($($ph2Sites.Count) forming statements through $($ph2Factories.Count) factories)" +
+    $(if ($ph2Unlisted.Count) { ' -- unlisted: ' + ($ph2Unlisted -join ' | ') } else { '' }) +
+    $(if ($ph2Gone.Count) { ' -- listed but gone: ' + ($ph2Gone -join ' | ') } else { '' }))
 
 # LAST, and deliberately:this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
