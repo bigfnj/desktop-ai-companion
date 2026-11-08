@@ -6990,6 +6990,20 @@ Assert-True ($w11Reg.Length -gt 0 -and $w11RegFinally -ge 0 -and $w11RegKeep -gt
     $w11RegSurvived -gt $w11RegDelete -and $w11RegRecursive -eq 1 -and $w11RegWrites.Count -eq 2 -and
     $w11RegWrites[0] -gt $w11RegKeep -and $w11RegWrites[0] -lt $w11RegKept -and $w11RegWrites[1] -gt $w11RegSurvived) (
     "w11-tests-scripts-1: the registry concurrency probe removes its evidence folder on a pass and keeps it on a failure, leaf and reparse points checked first (finally at $w11RegFinally, keep at $w11RegKeep, guard at $w11RegGuard, reparse at $w11RegLinks, delete at $w11RegDelete, survived at $w11RegSurvived, recursive deletes $w11RegRecursive, report writes $($w11RegWrites.Count))")
+# ---- burndown/w12-host-1 ----
+# AN UNINSTALL DROPS THE TYPE'S BIRTHS STILL QUEUED (N-bd-w11-options-ui-1-01). A birth requested at one tick step waits in
+# the world's pending list with no window until the next, so RemoveEveryPetOfType's window walk cannot find it, and at the
+# next step OpenBornTickPet opened a window for it from the type whose folder had just been deleted.
+# --shimeji-window-selftest drives StartUp.RemovePendingBirthsOfInstalledType through the real tick host and registry;
+# StartUp's live desktop is out of a self-test's reach, so the wiring is pinned here: the drop is RemoveEveryPetOfType's
+# first statement, unconditional, with the app's tick host, the uninstalled id and the map OpenBornTickPet looks a born
+# window's entry up in. WITNESS: OpenBornTickPet's lookup is in tickEntries by the type's name.
+$w12Every = Get-MethodBody $startUpCodeHost 'internal int RemoveEveryPetOfType(string id)' @("`n        private ", "`n        internal ", "`n        public ")
+$w12Born = Get-MethodBody $startUpCodeHost 'private FormCompanion OpenBornTickPet(Shimeji.TickHostType type)' @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($w12Every.Length -gt 0 -and $w12Born.Length -gt 0 -and $w12Born -cmatch 'tickEntries\.TryGetValue\(type\.Type\.Name, out entry\);') (
+    'w12-host-1: WITNESS RemoveEveryPetOfType and OpenBornTickPet were located, and OpenBornTickPet looks a born window''s entry up in tickEntries by type name')
+Assert-True ($w12Every -cmatch '^internal int RemoveEveryPetOfType\(string id\)\s*\{\s*RemovePendingBirthsOfInstalledType\(tickHost, tickEntries, id\);\s*int removed = 0;') (
+    'w12-host-1: an uninstall first drops the births of the type still queued in the app''s tick host, through the entries OpenBornTickPet reads')
 
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that

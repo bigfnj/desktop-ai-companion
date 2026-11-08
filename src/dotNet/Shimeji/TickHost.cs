@@ -315,6 +315,30 @@ namespace DesktopAICompanion.Shimeji
             }
         }
 
+        /// <summary>
+        /// Remove every birth still queued whose type <paramref name="ofType"/> takes, so it never activates: the app's
+        /// uninstall, whose type's folder is about to go (N-bd-w11-options-ui-1-01). A birth is a pending companion with no
+        /// window yet, as <see cref="PendingBirths"/> counts them; its type is the one it runs as, the type its window would
+        /// be opened for. Each is disposed, which takes it out of the world's pending list, and the next step's UpdateHolds
+        /// lets its type go, as for any pending companion removed before it activated. A pending companion that already has
+        /// its window (one the app spawned) is not a birth and is left alone: closing that window removes it (FormClosed),
+        /// while disposing it here would leave the window open with nothing left to close it. The count removed.
+        /// </summary>
+        public int RemovePendingBirths(Func<TickHostType, bool> ofType)
+        {
+            if (ofType == null) return 0;
+            var births = new List<TickMascot>();
+            foreach (TickMascot m in _world.Pending)
+            {
+                if (_forms.ContainsKey(m)) continue;
+                TickHostType t = HostTypeOf(m.Type);
+                if (t != null && ofType(t)) births.Add(m);
+            }
+            // Selected first and disposed after: Dispose removes each from the pending list being read.
+            foreach (TickMascot m in births) m.Dispose("type-removed");
+            return births.Count;
+        }
+
         /// <summary>One step and one render (also the self-test's way to advance the clock deterministically).</summary>
         public void Step()
         {

@@ -24718,17 +24718,19 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--shimeji-window-selftest", "dp-shimeji-window-selftest.txt",
      "uninstall: a type with only born companions up has every one of them taken"),
+    # Re-pointed by burndown/w12-host-1: the selection's rule moved, unchanged, into StartUp.IsOfInstalledType, which the
+    # windows and the births still queued now share (N-bd-w11-options-ui-1-01). Same intent, the predicate's bytes.
     ("bd-w11-options-ui-1: the uninstall selection matches the type id case-sensitively (N-bd-w10-host-1-01)",
      os.path.join(REPO, "src", "dotNet", "StartUp.cs"),
-     b'                    && string.Equals(entry.Id, typeId, StringComparison.OrdinalIgnoreCase))\n',
-     b'                    && string.Equals(entry.Id, typeId, StringComparison.Ordinal))\n',
+     b'                && string.Equals(entry.Id, typeId, StringComparison.OrdinalIgnoreCase);\n',
+     b'                && string.Equals(entry.Id, typeId, StringComparison.Ordinal);\n',
      HOST_CSPROJ, EXE,
      "--shimeji-window-selftest", "dp-shimeji-window-selftest.txt",
      "uninstall: the type id is matched whatever its case"),
     ("bd-w11-options-ui-1: the uninstall selection takes a preview that carries the type's id (N-bd-w10-host-1-01)",
      os.path.join(REPO, "src", "dotNet", "StartUp.cs"),
-     b'                if (pet != null && entries.TryGetValue(pet, out entry) && entry != null && !entry.IsTransient\n',
-     b'                if (pet != null && entries.TryGetValue(pet, out entry) && entry != null\n',
+     b'            return entry != null && !entry.IsTransient && !string.IsNullOrEmpty(typeId)\n',
+     b'            return entry != null && !string.IsNullOrEmpty(typeId)\n',
      HOST_CSPROJ, EXE,
      "--shimeji-window-selftest", "dp-shimeji-window-selftest.txt",
      "uninstall: every companion of the type goes, chosen and born, and no other type's"),
@@ -24800,6 +24802,33 @@ CASES = (
      b'    return list(zip(plan.indices, sorted(plan.cases, key=lambda case: (case[4] is None, case[4] or ""))))\n',
      None, None, MUTATION_UNITTESTS, None,
      "test_a_shards_cases_of_one_project_run_together"),
+    # ---- burndown/w12-host-1 ----
+    # The host entry of burn-down wave 12. "bd-w12-host-1:" for one --only.
+    # N-bd-w11-options-ui-1-01: an uninstall leaves the type's births still queued in the tick host, so one activates at
+    # the next step and gets a window from the deleted folder's type; or it disposes a pending companion the app spawned
+    # in its own window; or it drops every birth whatever its type. --shimeji-window-selftest drives
+    # StartUp.RemovePendingBirthsOfInstalledType through the real tick host, registry and pack binding.
+    ("bd-w12-host-1: an uninstall leaves the type's births still queued (N-bd-w11-options-ui-1-01)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickHost.cs"),
+     b'            foreach (TickMascot m in births) m.Dispose("type-removed");\n',
+     b'',
+     HOST_CSPROJ, EXE,
+     "--shimeji-window-selftest", "dp-shimeji-window-selftest.txt",
+     "uninstall: a dropped birth never activates or opens a window"),
+    ("bd-w12-host-1: an uninstall disposes a pending companion that has its own window (N-bd-w11-options-ui-1-01)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickHost.cs"),
+     b'                if (_forms.ContainsKey(m)) continue;\n',
+     b'',
+     HOST_CSPROJ, EXE,
+     "--shimeji-window-selftest", "dp-shimeji-window-selftest.txt",
+     "uninstall: a birth of the type still queued is dropped, and one the app spawned in its own window is left"),
+    ("bd-w12-host-1: an uninstall drops a queued birth of any type that has an entry (N-bd-w11-options-ui-1-01)",
+     os.path.join(REPO, "src", "dotNet", "StartUp.cs"),
+     b'                return entries.TryGetValue(type.Type.Name, out entry) && IsOfInstalledType(entry, typeId);\n',
+     b'                return entries.TryGetValue(type.Type.Name, out entry) || IsOfInstalledType(entry, typeId);\n',
+     HOST_CSPROJ, EXE,
+     "--shimeji-window-selftest", "dp-shimeji-window-selftest.txt",
+     "uninstall: WITNESS a birth queued for the next step is found, and removing another type leaves it pending"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
