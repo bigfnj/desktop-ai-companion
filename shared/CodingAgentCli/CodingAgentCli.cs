@@ -2491,12 +2491,11 @@ namespace DesktopAICompanion.CodingAgent
         // ---- reading what came back --------------------------------------------------------------------------------
 
         /// <summary>Fill the answer from the child's output: the text, the token count, and on a failure the class and a
-        /// bounded excerpt of what the CLI said.</summary>
-        internal static void Interpret(CodingAgentKind agent, CliProcessResult result, CliAnswer answer)
-        {
-            Interpret(agent, result, answer, null);
-        }
-
+        /// bounded excerpt of what the CLI said.
+        /// One overload, which takes the command line. A three-argument one that passed null for it had no caller, and any
+        /// caller it gained would have read every call with the setting refusals, the ignored settings and the MCP policy
+        /// refusal all switched off, with nothing to say so (BACKLOG N-audit-1106-299); tests/runtime-hardening-selftest.ps1
+        /// keeps it from coming back.</summary>
         /// <param name="arguments">The call's command line, which decides whether a Codex config-load error names a key the
         /// call itself set (CodexRefusedSetting); null for none known, and then such an error stays a plain failure.</param>
         internal static void Interpret(CodingAgentKind agent, CliProcessResult result, CliAnswer answer, IList<string> arguments)

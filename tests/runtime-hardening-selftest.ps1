@@ -6168,6 +6168,20 @@ $p2ReviewRemoveAt = $p2MapCaller.IndexOf('Remove-MapReaderScratch $callerScratch
 $p2ReviewSuccessOnly = 'if \(\$readerPassed\)\s*\{\s*try \{ Remove-MapReaderScratch \$callerScratch \$callerScratchParent \}'
 Assert-True ($p2ReviewCreateAt -ge 0 -and $p2ReviewCreateAt -lt $p2MapChildAt -and $p2MapCaller.Contains('-ScratchRoot $callerScratch 2>&1') -and $p2ReviewPassAt -gt $p2MapJudgeAt -and $p2ReviewRemoveAt -gt $p2ReviewPassAt -and $p2MapCaller -cmatch $p2ReviewSuccessOnly -and $p2MapCaller.Contains('else { Write-Host (''Map reader failure evidence retained: '' + $callerScratch) }') -and 'if ($true) { try { Remove-MapReaderScratch $callerScratch $callerScratchParent }' -cnotmatch $p2ReviewSuccessOnly) 'bd-codex-parity-2-review: Invoke-Checks.ps1 owns scratch and cleans only after the actual pass (WITNESS: unconditional cleanup differs)'
 
+# ---- burndown/w6-shared-1 ----
+# N-audit-1106-299: the CLI runner reads a call's output through ONE Interpret, which takes the call's command line. A
+# three-argument overload that passed null for it had no caller, and any caller it gained would have read every call with
+# the setting refusals, the ignored settings and the MCP policy refusal switched off, with nothing to say so. The
+# comment-stripped runner ($cliRunnerCode, above): the declarations counted, the one call handing over the call's own
+# command line as the WITNESS, and no call of it anywhere passing null in that place.
+$w6sInterpretDeclarations = @([regex]::Matches($cliRunnerCode, '(?m)^[ \t]*internal static void Interpret\(([^)]*)\)'))
+$w6sInterpretCalls = @([regex]::Matches($cliRunnerCode, '(?<![\w.])Interpret\(request\.Agent, result, answer, arguments\);'))
+Assert-True ($w6sInterpretDeclarations.Count -ge 1 -and $w6sInterpretCalls.Count -eq 1) (
+    "w6-shared-1: WITNESS the CLI runner declares Interpret and calls it once with the call's command line (declarations $($w6sInterpretDeclarations.Count), calls $($w6sInterpretCalls.Count))")
+Assert-True ($w6sInterpretDeclarations.Count -eq 1 -and $w6sInterpretDeclarations[0].Groups[1].Value -cmatch ',\s*IList<string> arguments\s*$' -and
+    $cliRunnerCode -cnotmatch '(?<![\w.])Interpret\([^;]*,\s*null\s*\)\s*;') (
+    "w6-shared-1: the CLI runner's one Interpret takes the command line, and nothing reads a call without it (declarations $($w6sInterpretDeclarations.Count))")
+
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever
