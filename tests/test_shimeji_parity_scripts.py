@@ -160,6 +160,14 @@ def mutate(generator_source, runner_source, only):
             ("bd-codex-parity: ignore missing Pillow", "runner",
              "if ($pillowExit -ne 0)", "if ($false)", "OFFLINE_GENERATOR_PILLOW"),
         ]
+    # ---- burndown/w9-tests-scripts-2 ----
+    if only in ("all", "offline-runner"):
+        cases += [
+            # N-bd-w5-contracts-1-01: -ParityOnly ran the mutation-tooling checks too, reading a $pwsh it never set.
+            ("bd-w9-tests-scripts-2: run the mutation-tooling checks under -ParityOnly", "runner",
+             "# fails on either half.\nif (-not $ParityOnly) {\n", "# fails on either half.\nif ($true) {\n",
+             "OFFLINE_RUNNER_WITNESS"),
+        ]
     fired = 0
     with tempfile.TemporaryDirectory(prefix="parity-script-mutations-") as temporary:
         for name, family, old, new, witness in cases:

@@ -24015,6 +24015,25 @@ CASES = (
      b'',
      None, None,
      MUTATION_UNITTESTS, None, 'test_hardening_a_hard_kill_mid_case_is_repaired_by_the_next_run'),
+
+    # ---- burndown/w9-tests-scripts-2 ----
+    # N-bd-w2-tests-scripts-1-02. The installer shutdown runner's main() no longer refuses an unlabelled variant, so a
+    # None label reaches the builds again and only the verdict's guard is left; main_refusal_case runs main itself.
+    ("bd-w9-tests-scripts-2: the installer runner's main plans an unlabelled variant (N-bd-w2-tests-scripts-1-02)",
+     INSTALLER_SHUTDOWN_RUNNER_PY,
+     b'    unlabelled = unlabelled_variants(selected)\n    if unlabelled:\n',
+     b'    unlabelled = unlabelled_variants(selected)\n    if False:\n',
+     None, None,
+     MUTATION_UNITTESTS, None, 'test_the_installer_runner_main_refuses_an_unlabelled_variant'),
+    # N-audit-1106-374. run_text decodes a child's stream lossily, past the ANSI fallback seam. The legacy PowerShell
+    # witness's run_text half now runs on every host, with the witness's code page pinned through that seam, so it no
+    # longer depends on this host's code page being cp1252 to see the em dash replaced.
+    ("bd-w9-tests-scripts-2: run_text decodes a legacy stream lossily past the fallback seam (N-audit-1106-374)",
+     os.path.join(REPO, "tests", "mutation_process.py"),
+     b'        return decode_output(raw).replace("\\r\\n", "\\n").replace("\\r", "\\n")\n',
+     b'        return raw.decode("utf-8", errors="replace").replace("\\r\\n", "\\n").replace("\\r", "\\n")\n',
+     None, None,
+     MUTATION_UNITTESTS, None, 'test_actual_legacy_powershell_fixed_synthetic_ansi_witness'),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

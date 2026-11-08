@@ -206,6 +206,11 @@ else {
 # call because a native stderr line is a terminating error under Stop while this script's output is redirected (RA-346).
 # A missing python or pwsh is a FAILURE that says so, never a skip. Test-IsolatedDotnetEnvironment.ps1 is not here:
 # build.yml's "Check test environment and artifact cleanup safety" step runs it.
+# Not under -ParityOnly, which runs the two parity checks alone (N-bd-w5-contracts-1-01). This block was added below the
+# parity checks, outside the -not $ParityOnly block above, so -ParityOnly ran it too and crashed under StrictMode on the
+# $pwsh that only that block assigns. tests\test_shimeji_parity_scripts.py's OFFLINE_RUNNER_WITNESS runs -ParityOnly and
+# fails on either half.
+if (-not $ParityOnly) {
 $repoTests = $PSScriptRoot
 $mutationPython = @(
     @('mutate-agentflow.py', '--check-patterns'),
@@ -257,6 +262,7 @@ foreach ($check in $mutationPwsh) {
     catch { $failures.Add("$label could not be started: " + $_.Exception.Message) }
     finally { $ErrorActionPreference = $savedPreference }
     if ($null -ne $checkExit -and $checkExit -ne 0) { $failures.Add("$label (exit $checkExit)") }
+}
 }
 
 if ($failures.Count -gt 0) {

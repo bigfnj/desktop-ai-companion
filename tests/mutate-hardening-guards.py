@@ -4373,8 +4373,10 @@ CASES = (
     (
         "bd-w3-tests-harness-1: the offline checks never fail on a shard controller check (N-release-180-02)",
         os.path.join(REPO, "tests", "Invoke-OfflineScriptChecks.ps1"),
-        b"    if ($null -ne $checkExit -and $checkExit -ne 0) { $failures.Add(\"$label (exit $checkExit)\") }\n}\n\nif ($failures.Count -gt 0) {",
-        b"}\n\nif ($failures.Count -gt 0) {",
+        # Re-pointed by burndown/w9-tests-scripts-2 (N-bd-w5-contracts-1-01): the mutation-tooling block now closes its own
+        # -not $ParityOnly block, so one more "}" stands before the throw. Same mutant: the pwsh loop's exit check goes.
+        b"    if ($null -ne $checkExit -and $checkExit -ne 0) { $failures.Add(\"$label (exit $checkExit)\") }\n}\n}\n\nif ($failures.Count -gt 0) {",
+        b"}\n}\n\nif ($failures.Count -gt 0) {",
         "w3-tests-harness-1: the offline script checks run every mutation-tooling check",
     ),
     # ---- burndown/w4-contracts-1 ----
@@ -4922,6 +4924,23 @@ CASES = (
         b"          .\\tests\\Test-AgentBroker.ps1\n"
         b"          dotnet build tools\\ShimejiConvert\\ShimejiConvert.csproj -c Release --nologo -v:minimal\n",
         "w8-packaging-ci-1: the converter build, verbs and suite floor live only",
+    ),
+    # ---- burndown/w9-tests-scripts-2 ----
+    # N-bd-w4-converter-1-03: a host self-test's mklink /J helper starts cmd.exe by its bare name again, so CreateProcess
+    # searches the current directory ahead of System32. "bd-w9-tests-scripts-2:" for one --only.
+    (
+        "bd-w9-tests-scripts-2: the Shimeji window self-test starts a bare cmd.exe (N-bd-w4-converter-1-03)",
+        os.path.join(REPO, "src", "dotNet", "Shimeji", "ShimejiWindowSelfTest.cs"),
+        b"                var psi = new System.Diagnostics.ProcessStartInfo(Path.Combine(Environment.SystemDirectory, \"cmd.exe\"),\n",
+        b"                var psi = new System.Diagnostics.ProcessStartInfo(\"cmd.exe\",\n",
+        "w9-tests-scripts-2: no C# source starts cmd.exe by its bare name",
+    ),
+    (
+        "bd-w9-tests-scripts-2: the options self-test's escape junction starts a bare cmd (N-bd-w4-converter-1-03)",
+        os.path.join(REPO, "src", "dotNet", "WpfOptionsSelfTest.cs"),
+        b"                    var mk = new System.Diagnostics.ProcessStartInfo(Path.Combine(Environment.SystemDirectory, \"cmd.exe\"),\n",
+        b"                    var mk = new System.Diagnostics.ProcessStartInfo(\"CMD\",\n",
+        "w9-tests-scripts-2: no C# source starts cmd.exe by its bare name",
     ),
     # ---- burndown/w8-host-1 ----
     # N-bd-w7-host-1-01: Blinking LED's engine asks the command line for a self-test flag again, so the no-real-input

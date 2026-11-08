@@ -77,6 +77,10 @@ class InstallerShutdownRunnerSelfTest(unittest.TestCase):
     def test_the_installer_restore_keeps_going_past_an_unreadable_earlier_source(self):
         self.assert_case("missing-earlier-source")
 
+    def test_the_installer_runner_main_refuses_an_unlabelled_variant(self):
+        # N-bd-w2-tests-scripts-1-02: main's own call to the refusal, not only the helper and the VARIANTS data.
+        self.assert_case("main-refuses-an-unlabelled-variant")
+
     def test_the_installer_runner_self_test_passes_whole(self):
         self.assertEqual(self.code, 0, "installer shutdown runner --self-test exit code:\n" + self.output)
 
