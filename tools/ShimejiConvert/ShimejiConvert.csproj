@@ -40,7 +40,13 @@
     <IntermediateOutputPath>obj\Release\</IntermediateOutputPath>
     <DefineConstants>TRACE</DefineConstants>
     <Optimize>true</Optimize>
-    <DebugType>pdbonly</DebugType>
+    <!-- Embedded symbols with the repository root mapped to /_/ and no Source Link record, for the reasons the
+         engine's project gives (N-bd-closure2-02): this dll is the other half of the converterSha256 witness, a
+         separate pdbonly PDB put the absolute build folder in its CodeView record, and the SDK's default Source Link
+         record names that folder and the commit. Debug keeps its full separate PDB. -->
+    <DebugType>embedded</DebugType>
+    <PathMap>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\..'))=/_/</PathMap>
+    <EnableSourceLink>false</EnableSourceLink>
   </PropertyGroup>
 
   <ItemGroup>

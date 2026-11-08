@@ -49,7 +49,28 @@
     <IntermediateOutputPath>obj\Release\</IntermediateOutputPath>
     <DefineConstants>TRACE</DefineConstants>
     <Optimize>true</Optimize>
-    <DebugType>pdbonly</DebugType>
+    <!-- Symbols INSIDE the dll, every source path mapped under /_/ (N-bd-closure2-02). The parity trace header's
+         converter witness (ParityRun.ConverterSha256) hashes this dll as the CLI's output folder holds it, and with
+         a separate pdbonly PDB and no PathMap its CodeView record named that PDB by the absolute obj\Release path,
+         so one commit built in two folders gave two witnesses. Embedded keeps that record to the bare file name, and
+         PathMap rewrites the source paths in the PDB's document table. The key is the REPOSITORY root, not this
+         project's directory as in src\DesktopAICompanion.Contracts: this project compiles src\ files by link, and a
+         project-directory key leaves those named by absolute path.
+         Not DebugType none, the host's choice: EngineSelfTest puts a throwing suite's first frame on its FAIL line
+         (RA-382) and the gate runs this Release build, so its frames must still resolve to lines. Not pdbonly with
+         the same PathMap either, although that maps the CodeView path too (measured: /_/tools/.../obj/Release/...):
+         embedded keeps the symbols inside the bytes the witness hashes, so a copied converter folder still resolves
+         its frames, and it is the shape src's symbol-carrying assemblies use. Debug keeps a full separate PDB with
+         real paths, for the debugger.
+         Source Link OFF as well. The SDK adds it by default, and its record inside the PDB maps the checkout folder,
+         by absolute path and outside PathMap's reach, to a raw URL carrying the commit; measured, that record alone
+         kept two checkouts of one commit apart, and with it two commits whose converter is byte-identical would
+         still differ. The witness hashes the converter's code, so neither belongs in it.
+         The CLI's selftest reads both dlls back (Program.CheckSymbolsNameNoBuildFolder) and fails on a rooted
+         CodeView path, an unmapped document, or a rooted path in the Source Link or compilation-options record. -->
+    <DebugType>embedded</DebugType>
+    <PathMap>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\..'))=/_/</PathMap>
+    <EnableSourceLink>false</EnableSourceLink>
   </PropertyGroup>
 
   <ItemGroup>

@@ -457,6 +457,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
         private static bool CliRoundTripSelfTest(out string detail)
         {
             var failures = new List<string>();
+            string symbols = "symbols not read";
             string directory = Path.Combine(Path.GetTempPath(), "dp-cli-roundtrip-" + Guid.NewGuid().ToString("N"));
             TextWriter previousOut = Console.Out, previousError = Console.Error;
             try
@@ -541,6 +542,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                     }
                 }
                 CheckCliPreflight(directory, failures);
+                symbols = CheckSymbolsNameNoBuildFolder(failures);
             }
             catch (Exception ex) { failures.Add("CLI_ROUNDTRIP_EXCEPTION: " + ex.GetType().Name + ": " + ex.Message); }
             finally
@@ -550,9 +552,98 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                 catch (Exception ex) { failures.Add("CLI_ROUNDTRIP_CLEANUP: " + ex.Message); }
             }
             detail = failures.Count == 0
-                ? "cli-roundtrip self-test: PASS faithful Verify input accepted; child/next probability kept; Verify hands its check the file's text"
+                ? "cli-roundtrip self-test: PASS faithful Verify input accepted; child/next probability kept; Verify hands its check the file's text; " + symbols
                 : string.Join(Environment.NewLine, failures.Select(f => "FAIL " + f));
             return failures.Count == 0;
+        }
+
+        /// <summary>
+        /// N-bd-closure2-02: the two dlls this repository compiles into the converter's folder name no build folder, so
+        /// ParityRun.ConverterSha256, which hashes them as the parity trace header's converter witness, gives one commit
+        /// one value in every checkout. Both projects build Release with DebugType embedded and the repository root
+        /// mapped to /_/; under the pdbonly they had, each CodeView record named its PDB by the absolute obj\Release
+        /// path. Read back the way a debugger would, one verdict per dll: the CodeView path is not drive- or
+        /// share-rooted, an embedded portable PDB with documents is present (the gate runs this build, and a throwing
+        /// suite's FAIL line needs its frame to resolve to a line, RA-382), every document sits under /_/, and the
+        /// Source Link and compilation-options records name no drive-rooted path (the SDK's default Source Link record
+        /// mapped the absolute checkout folder, which PathMap does not reach, until both projects turned it off).
+        /// WITNESS: the engine's table names a src\ file it compiles by link, the axis a map keyed on the project
+        /// directory alone would leave absolute. A Debug build keeps its full separate PDB on purpose and says so.
+        /// </summary>
+        private static string CheckSymbolsNameNoBuildFolder(List<string> failures)
+        {
+#if DEBUG
+            return "symbols NOT checked: a Debug build keeps its full separate PDB on purpose, and the Release build is the witness";
+#else
+            CheckAssemblySymbols(typeof(Program).Assembly, null, failures);
+            CheckAssemblySymbols(typeof(ShimejiEngine).Assembly, "/src/dotNet/SafeScript.cs", failures);
+            return "both converter dlls embed symbols that name no build folder";
+#endif
+        }
+
+        // The two module-level Portable PDB records that hold text, by their kind GUIDs from the Portable PDB format.
+        private static readonly Guid SourceLinkRecord = new Guid("CC110556-A091-4D38-9FEC-25AB9A351A6A");
+        private static readonly Guid CompilationOptionsRecord = new Guid("B5FEEC05-8CD0-4A83-96DA-466284BB4BD8");
+
+        private static void CheckAssemblySymbols(System.Reflection.Assembly assembly, string linkedWitness, List<string> failures)
+        {
+            string location = assembly.Location;
+            if (string.IsNullOrEmpty(location) || !File.Exists(location))
+            {
+                failures.Add("CLI_SYMBOLS_WITNESS: " + assembly.GetName().Name + " has no file to read its symbols from");
+                return;
+            }
+            string name = Path.GetFileName(location);
+            string codeView = null;
+            bool embedded = false;
+            var documents = new List<string>();
+            string rootedRecord = null;
+            using (FileStream file = File.OpenRead(location))
+            using (var pe = new System.Reflection.PortableExecutable.PEReader(file))
+            {
+                foreach (System.Reflection.PortableExecutable.DebugDirectoryEntry entry in pe.ReadDebugDirectory())
+                {
+                    if (entry.Type == System.Reflection.PortableExecutable.DebugDirectoryEntryType.CodeView)
+                        codeView = pe.ReadCodeViewDebugDirectoryData(entry).Path;
+                    else if (entry.Type == System.Reflection.PortableExecutable.DebugDirectoryEntryType.EmbeddedPortablePdb)
+                    {
+                        embedded = true;
+                        using (System.Reflection.Metadata.MetadataReaderProvider provider = pe.ReadEmbeddedPortablePdbDebugDirectoryData(entry))
+                        {
+                            System.Reflection.Metadata.MetadataReader pdb = provider.GetMetadataReader();
+                            foreach (System.Reflection.Metadata.DocumentHandle handle in pdb.Documents)
+                                documents.Add(pdb.GetString(pdb.GetDocument(handle).Name));
+                            // The module's TEXT records: Source Link (JSON, the SDK adds it by default and it maps the
+                            // checkout folder outside PathMap's reach) and the compilation options. The binary records
+                            // are not read as text, where a stray byte run could look like a drive.
+                            foreach (System.Reflection.Metadata.CustomDebugInformationHandle handle in pdb.CustomDebugInformation)
+                            {
+                                System.Reflection.Metadata.CustomDebugInformation record = pdb.GetCustomDebugInformation(handle);
+                                if (record.Parent.Kind != System.Reflection.Metadata.HandleKind.ModuleDefinition) continue;
+                                Guid kind = pdb.GetGuid(record.Kind);
+                                if (kind != SourceLinkRecord && kind != CompilationOptionsRecord) continue;
+                                string text = Encoding.UTF8.GetString(pdb.GetBlobBytes(record.Value));
+                                if (rootedRecord == null && System.Text.RegularExpressions.Regex.IsMatch(text, @"(?<![A-Za-z])[A-Za-z]:\\"))
+                                    rootedRecord = (kind == SourceLinkRecord ? "Source Link" : "compilation options") + " record: "
+                                        + (text.Length > 160 ? text.Substring(0, 160) : text);
+                            }
+                        }
+                    }
+                }
+            }
+            bool rootedCodeView = codeView != null
+                && ((codeView.Length >= 2 && char.IsLetter(codeView[0]) && codeView[1] == ':') || codeView.StartsWith(@"\\", StringComparison.Ordinal));
+            string unmapped = documents.FirstOrDefault(d => !d.StartsWith("/_/", StringComparison.Ordinal));
+            if (rootedCodeView)
+                failures.Add("CLI_SYMBOLS_BUILD_PATH: " + name + " names its PDB by an absolute build path: " + codeView);
+            else if (!embedded || documents.Count == 0)
+                failures.Add("CLI_SYMBOLS_NOT_EMBEDDED: " + name + " carries no embedded portable PDB with documents, the Release shape both converter projects set");
+            else if (unmapped != null)
+                failures.Add("CLI_SYMBOLS_DOCUMENT_PATH: " + name + " names a source document outside the mapped /_/ root: " + unmapped);
+            else if (rootedRecord != null)
+                failures.Add("CLI_SYMBOLS_RECORD_PATH: " + name + " names an absolute path in its " + rootedRecord);
+            else if (linkedWitness != null && !documents.Any(d => d.EndsWith(linkedWitness, StringComparison.Ordinal)))
+                failures.Add("CLI_SYMBOLS_WITNESS: " + name + " names no document ending " + linkedWitness + ", so the linked-source axis went unread");
         }
 
         private static void CheckCliPreflight(string parent, List<string> failures)

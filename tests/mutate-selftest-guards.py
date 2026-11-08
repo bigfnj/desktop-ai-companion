@@ -24800,6 +24800,41 @@ CASES = (
      b'    return list(zip(plan.indices, sorted(plan.cases, key=lambda case: (case[4] is None, case[4] or ""))))\n',
      None, None, MUTATION_UNITTESTS, None,
      "test_a_shards_cases_of_one_project_run_together"),
+    # ---- burndown/w12-converter-1 ----
+    # N-bd-closure2-02, graded through the converter's cli-roundtrip selftest, which reads both converter dlls' debug
+    # directories back: the engine or the CLI project goes back to the separate pdbonly PDB with no map (the old code,
+    # whose CodeView record names the absolute obj\Release path), or the engine's map is keyed on its own project
+    # directory, which leaves the src\ files it compiles by link named by their absolute path, or the engine keeps the SDK's
+    # default Source Link record, which maps the absolute checkout folder outside PathMap's reach. "bd-w12-converter-1:"
+    # for one --only.
+    ("bd-w12-converter-1: the engine builds Release with a separate unmapped PDB again (N-bd-closure2-02)",
+     os.path.join(REPO, "tools", "ShimejiConvert.Engine", "ShimejiConvert.Engine.csproj"),
+     b"    <DebugType>embedded</DebugType>\n"
+     b"    <PathMap>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\\..'))=/_/</PathMap>\n"
+     b"    <EnableSourceLink>false</EnableSourceLink>\n",
+     b"    <DebugType>pdbonly</DebugType>\n",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL, SHIMEJI, 'cli-roundtrip',
+     "CLI_SYMBOLS_BUILD_PATH: ShimejiConvert.Engine.dll"),
+    ("bd-w12-converter-1: the CLI builds Release with a separate unmapped PDB again (N-bd-closure2-02)",
+     SHIMEJI_CSPROJ,
+     b"    <DebugType>embedded</DebugType>\n"
+     b"    <PathMap>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\\..'))=/_/</PathMap>\n"
+     b"    <EnableSourceLink>false</EnableSourceLink>\n",
+     b"    <DebugType>pdbonly</DebugType>\n",
+     SHIMEJI_CSPROJ, os.path.join(os.path.dirname(SHIMEJI_ENGINE_DLL), 'ShimejiConvert.dll'), SHIMEJI, 'cli-roundtrip',
+     "CLI_SYMBOLS_BUILD_PATH: ShimejiConvert.dll"),
+    ("bd-w12-converter-1: the engine's PathMap is keyed on its project directory, not the repository root (N-bd-closure2-02)",
+     os.path.join(REPO, "tools", "ShimejiConvert.Engine", "ShimejiConvert.Engine.csproj"),
+     b"<PathMap>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\\..'))=/_/</PathMap>",
+     b"<PathMap>$(MSBuildProjectDirectory)=/_/tools/ShimejiConvert.Engine</PathMap>",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL, SHIMEJI, 'cli-roundtrip',
+     "CLI_SYMBOLS_DOCUMENT_PATH: ShimejiConvert.Engine.dll"),
+    ("bd-w12-converter-1: the engine keeps the SDK's default Source Link record, which maps the checkout folder (N-bd-closure2-02)",
+     os.path.join(REPO, "tools", "ShimejiConvert.Engine", "ShimejiConvert.Engine.csproj"),
+     b"    <EnableSourceLink>false</EnableSourceLink>\n",
+     b"",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL, SHIMEJI, 'cli-roundtrip',
+     "CLI_SYMBOLS_RECORD_PATH: ShimejiConvert.Engine.dll"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
