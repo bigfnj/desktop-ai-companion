@@ -222,8 +222,10 @@ jobs:
           #
           # A FLOOR, pinned to the registrations RunAll carries today, and the pin is the point: a
           # registration deleted from RunAll fails here and has to be a deliberate edit of this number,
-          # while adding one costs nothing. `-le 0` alone would only catch the sentinel going missing.
-          $shimejiSuiteFloor = 9
+          # and so does adding one. `-le 0` alone would only catch the sentinel going missing.
+          # 13 = RunAll's 12 registrations plus the CLI round-trip suite (N-bd-codex-converter-1-03); the
+          # hardening self-test holds this and tests\run-gate.ps1's floor equal to the registrations it counts.
+          $shimejiSuiteFloor = 13
           $shimejiSuiteCount = 0
           $shimejiSelfTestOutput = @(& $convert selftest | ForEach-Object { "$_" })
           $shimejiSelfTestExit = $LASTEXITCODE

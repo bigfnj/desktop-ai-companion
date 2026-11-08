@@ -4645,6 +4645,65 @@ CASES = (
         b"    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>\n",
         "w6-tests-core-1: the CoreTests warning-level scan read its project",
     ),
+    # ---- burndown/w6-tests-scripts-1 ----
+    # N-audit-1106-356: the worker branch loses its return, so a worker scan posts AND raises inline; the order check
+    # above it still passes, which is why the return is asserted on its own.
+    (
+        "bd-w6-tests-scripts-1: NoteFullscreenScan's worker branch falls through to the inline raise",
+        STARTUP,
+        b"                uiContext.Post(delegate { if (!disposed && Host != null) Host.RaiseFullscreenChanged(posted); }, null);\n"
+        b"                return;\n"
+        b"            }\n"
+        b"            Host.RaiseFullscreenChanged(any);",
+        b"                uiContext.Post(delegate { if (!disposed && Host != null) Host.RaiseFullscreenChanged(posted); }, null);\n"
+        b"            }\n"
+        b"            Host.RaiseFullscreenChanged(any);",
+        "returns after posting its raise",
+    ),
+    # N-audit-1106-357: the orphan sweep moves after the delegate's close, onto the calling (UI) thread.
+    (
+        "bd-w6-tests-scripts-1: the orphan sweep runs after the pool delegate has closed",
+        PETSTUDIO_WINDOW,
+        b"            Task.Run(delegate\n"
+        b"            {\n"
+        b"                try { SweepOrphanedExtractions(); }\n"
+        b"                finally { Interlocked.Exchange(ref _sweepInFlight, 0); }\n"
+        b"            });",
+        b"            Task.Run(delegate\n"
+        b"            {\n"
+        b"                try { }\n"
+        b"                finally { Interlocked.Exchange(ref _sweepInFlight, 0); }\n"
+        b"            });\n"
+        b"            SweepOrphanedExtractions();",
+        "deleted and swept on a pool thread",
+    ),
+    # N-audit-1106-358: the soak reads a settled series of zeros as health again.
+    (
+        "bd-w6-tests-scripts-1: the resource soak accepts a degenerate settled series",
+        os.path.join(REPO, "tests", "runtime-resource-soak.ps1"),
+        b"            if ([long]$settledSample.$settledField -lt 1) {",
+        b"            if ([long]$settledSample.$settledField -lt 0) {",
+        "refuses a settled sample below 1",
+    ),
+    # N-bd-codex-converter-1-03: the CLI round-trip suite is removed from the selftest, and the gate's floor is left behind.
+    (
+        "bd-w6-tests-scripts-1: the CLI round-trip suite is removed from the ShimejiConvert selftest",
+        PROGRAM_CS,
+        b"            string cliDetail;\n"
+        b"            bool cliOk = CliRoundTripSelfTest(out cliDetail);\n"
+        b"            ran++;\n"
+        b"            Console.WriteLine(cliDetail);\n"
+        b"            if (!cliOk) ok = false;\n",
+        b"",
+        "ShimejiConvert suite floors equal the suites run",
+    ),
+    (
+        "bd-w6-tests-scripts-1: the gate's ShimejiConvert suite floor drifts back below the registrations",
+        os.path.join(REPO, "tests", "run-gate.ps1"),
+        b"            $shimejiSuiteFloor = 13\n",
+        b"            $shimejiSuiteFloor = 9\n",
+        "ShimejiConvert suite floors equal the suites run",
+    ),
 )
 
 

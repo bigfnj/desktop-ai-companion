@@ -19,13 +19,28 @@ try {
     foreach ($variable in $variables) {
         if ([Environment]::GetEnvironmentVariable($variable, 'Process') -cne $requested[$variable]) { throw ('Compiler probe changed caller ' + $variable) }
     }
-    $refused = $false
-    try { & $builder -OutputDirectory (Join-Path $repo 'installer') | Out-Null }
-    catch {
-        if ($_.Exception.Message -cnotmatch '^Native output must be below this checkout build directory\.$') { throw }
-        $refused = $true
-    }
-    if (-not $refused) { throw 'Invalid native output path was not refused.' }
+    # A FAILURE AFTER THE IMPORT (N-audit-1106-364). This used to ask for an output under installer\, which the
+    # builder refuses on its first lines, before its try and before it touches the environment, so the restore
+    # assertion below could not fail. The output path is now an ordinary FILE below build\: it passes both path
+    # checks, so the builder runs vendor setup and imports the compiler values into this process, and then fails
+    # creating the output directory, inside the try whose finally must put the caller's values back. The message is
+    # asserted so a refusal from anywhere earlier cannot stand in for it.
+    $collision = Join-Path $repo ('build\compiler-environment-' + [Guid]::NewGuid().ToString('N'))
+    [void][IO.Directory]::CreateDirectory((Split-Path $collision -Parent))
+    [IO.File]::WriteAllText($collision, 'an ordinary file where the native output directory would go')
+    $failedLate = $false
+    try {
+        try { & $builder -OutputDirectory $collision | Out-Null }
+        catch {
+            # By the Win32 code (ERROR_ALREADY_EXISTS, 183) on the innermost exception, not by message text, which is
+            # localised.
+            $cause = $_.Exception
+            while ($null -ne $cause.InnerException) { $cause = $cause.InnerException }
+            if (-not ($cause -is [IO.IOException] -and ($cause.HResult -band 0xFFFF) -eq 183)) { throw }
+            $failedLate = $true
+        }
+    } finally { [IO.File]::Delete($collision) }
+    if (-not $failedLate) { throw 'The builder did not fail creating its output directory after the compiler import.' }
     foreach ($variable in $variables) {
         if ([Environment]::GetEnvironmentVariable($variable, 'Process') -cne $requested[$variable]) { throw ('Failed compiler build changed caller ' + $variable) }
     }

@@ -32,13 +32,25 @@
   nothing, match nothing, and go quiet for ever -- a check that silently stops checking, which is
   the failure mode this repo has recorded more than once. A missing target is an ERROR, not a pass.
 
+  BLOCKED ITEMS CARRY CRITERIA TOO. docs/BLOCKED.md holds the items waiting on an environment, an account
+  action or an owner decision, one per `## ` heading, and every one of them is open by definition (an item
+  leaves that file when its blocker goes). When an item moves there its CLOSES-WHEN moves with it, and this
+  read BACKLOG.md alone, so the one live criterion in the tree (N-toolchain-wix-01, moved in 6bb1002) went
+  unevaluated while BACKLOG.md carried none (N-audit-1106-360). Both files are read; a criterion under a
+  BLOCKED.md heading is judged exactly as one on an open backlog item, and a missing BLOCKED.md is an error
+  for the same reason a missing grep target is.
+
 .PARAMETER Path
   BACKLOG.md. Defaults to the one beside the repo root.
+
+.PARAMETER BlockedPath
+  docs/BLOCKED.md. Defaults to the one under the repo root.
 #>
 [CmdletBinding()]
 param(
     [string] $Path = '',
-    [string] $RepoRoot = ''
+    [string] $RepoRoot = '',
+    [string] $BlockedPath = ''
 )
 
 Set-StrictMode -Version Latest
@@ -50,8 +62,10 @@ $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 if ([string]::IsNullOrEmpty($RepoRoot)) { $RepoRoot = Split-Path -Parent $here }
 if ([string]::IsNullOrEmpty($Path)) { $Path = Join-Path $RepoRoot 'BACKLOG.md' }
+if ([string]::IsNullOrEmpty($BlockedPath)) { $BlockedPath = Join-Path $RepoRoot 'docs\BLOCKED.md' }
 
 if (-not (Test-Path -LiteralPath $Path)) { throw "No BACKLOG.md at $Path" }
+if (-not (Test-Path -LiteralPath $BlockedPath)) { throw "No BLOCKED.md at $BlockedPath, so the blocked items' criteria cannot be read." }
 
 # Glyph patterns are built from CODE POINTS, not from regex escapes. PowerShell 5.1's engine
 # rejects \u{...} outright ("Insufficient hexadecimal digits"), and the pin is U+1F4CC -- outside
@@ -235,6 +249,51 @@ for ($i = 0; $i -lt $lines.Count; $i++) {
     }
 }
 
+# THE BLOCKED ITEMS (N-audit-1106-360). Each `## ` heading is one item and every item is open, so the only state
+# is which heading a criterion sits under. The same line grammar and the same Test-Criterion as above: a line that
+# says CLOSES-WHEN and does not parse is BROKEN here too, never a line without a criterion.
+$blockedLines = Get-Content -LiteralPath $BlockedPath -Encoding UTF8
+$blockedItems = 0
+$blockedWithCriteria = 0
+$blockedTitle = ''
+$blockedLine = 0
+for ($j = 0; $j -lt $blockedLines.Count; $j++) {
+    $line = $blockedLines[$j]
+    if ($line -match '^##\s+(.*)$') {
+        $blockedItems++
+        $blockedTitle = $Matches[1].Trim()
+        if ($blockedTitle.Length -gt 90) { $blockedTitle = $blockedTitle.Substring(0, 90) + '...' }
+        $blockedLine = $j + 1
+        continue
+    }
+    if ($line -notmatch '^\s*CLOSES-WHEN:') { continue }
+    $where = 'docs/BLOCKED.md:' + ($j + 1)
+    if ($line -notmatch '^\s*CLOSES-WHEN:\s*(\S+)\s+(\S+)(?:\s+"([^"]*)")?\s*$') {
+        $broken.Add("$where : CLOSES-WHEN does not parse. Expected " +
+            '`CLOSES-WHEN: <verb> <path> "<needle>"` with the needle quoted and the path second.')
+        continue
+    }
+    $verb = $Matches[1]
+    $target = $Matches[2]
+    $needle = ''
+    if ($Matches.Count -ge 4) { $needle = $Matches[3] }
+    if ($blockedLine -eq 0) {
+        $broken.Add("$where : a CLOSES-WHEN above the first ``## `` heading belongs to no blocked item.")
+        continue
+    }
+    if ($needle -eq '' -and @('grep-present', 'grep-absent') -contains $verb) {
+        $broken.Add("$where : CLOSES-WHEN uses '$verb' with no quoted needle. " +
+            'The grep verbs need one; use file-exists or file-absent to ask only about the path.')
+        continue
+    }
+    $blockedWithCriteria++
+    if (Test-Criterion -Verb $verb -Target $target -Needle $needle -Where $where `
+                       -Root $RepoRoot -BrokenList $broken) {
+        $satisfied.Add("$where : blocked item `"$blockedTitle`" (heading at line $blockedLine) -- its own CLOSES-WHEN is now satisfied, so its blocker has gone: move it back to BACKLOG.md or close it.")
+    }
+}
+$blockedSummary = ("docs/BLOCKED.md: {0} blocked item(s), {1} carry a CLOSES-WHEN" -f $blockedItems, $blockedWithCriteria)
+
 # ZERO OPEN ITEMS IS NOT A PASS. It is either a finished backlog or a file this could not parse,
 # and the check cannot tell the two apart -- so it refuses to be the one that quietly says fine.
 # The same reasoning as the missing-target case above: a control that can run degraded has to say
@@ -256,11 +315,18 @@ if ($open -eq 0) {
     }
     Write-Host ("backlog closing criteria: 0 open item(s) -- the backlog is EMPTY, and the glyph " +
                 "pattern is working ($closedCount closed item(s) found).")
+    Write-Host $blockedSummary
     if ($broken.Count -gt 0) {
         Write-Host ''
         foreach ($b in $broken) { Write-Host "  BROKEN  $b" }
         throw ("$($broken.Count) malformed CLOSES-WHEN line(s). A criterion that does not parse is " +
                'ignored, so the item looks like it has none at all.')
+    }
+    # Only blocked items can be satisfied here, since no backlog item is open; they still fail the run.
+    if ($satisfied.Count -gt 0) {
+        Write-Host ''
+        foreach ($s in $satisfied) { Write-Host "  CLOSEABLE  $s" }
+        throw "$($satisfied.Count) blocked item(s) meet their own closing criterion. Move them back, close them, or correct the criterion."
     }
     Write-Host 'OK   nothing open, nothing malformed'
     exit 0
@@ -268,6 +334,7 @@ if ($open -eq 0) {
 
 $withoutCriteria = $open - $withCriteria
 Write-Host ("backlog closing criteria: {0} open item(s), {1} carry a CLOSES-WHEN, {2} do not (not checkable here)" -f $open, $withCriteria, $withoutCriteria)
+Write-Host $blockedSummary
 
 if ($broken.Count -gt 0) {
     Write-Host ''
@@ -278,7 +345,7 @@ if ($broken.Count -gt 0) {
 if ($satisfied.Count -gt 0) {
     Write-Host ''
     foreach ($s in $satisfied) { Write-Host "  CLOSEABLE  $s" }
-    throw "$($satisfied.Count) open backlog item(s) meet their own closing criterion. Close them, or correct the criterion if the fix is not really done."
+    throw "$($satisfied.Count) open backlog or blocked item(s) meet their own closing criterion. Close them, or correct the criterion if the fix is not really done."
 }
 
 Write-Host 'OK   no open item meets its own closing criterion'
