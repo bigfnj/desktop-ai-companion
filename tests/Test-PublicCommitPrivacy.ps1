@@ -180,6 +180,17 @@ function Invoke-IndexedGit([string[]]$Arguments, [string]$Repository = $repoRoot
     finally { $process.Dispose() }
 }
 
+# Paths without repeats, in ordinal order (N-bd-w11-tests-scripts-1-02). Sort-Object -Unique compares culture-aware even
+# with -CaseSensitive, so two names that differ only in Unicode normalization (a composed and a decomposed letter), two
+# files to git, were listed and counted as one; measured under Windows PowerShell 5.1 and PowerShell 7 alike. The ordinal
+# comparer also keeps N-audit-infra-01's rule: two names that differ only in case stay two. Ordinal order lists upper
+# case before lower case, where the culture order it replaces listed lower case first.
+function Select-UniquePrivacyPath([string[]]$Paths) {
+    $unique = [Collections.Generic.SortedSet[string]]::new([StringComparer]::Ordinal)
+    foreach ($path in $Paths) { [void]$unique.Add($path) }
+    return $unique
+}
+
 function Get-RangePrivacyFindings([string]$Range, [psobject]$Needles, [string]$Repository = $repoRoot) {
     if ($Range -notmatch '^[A-Za-z0-9_][A-Za-z0-9_./~^@{}-]*(\.\.\.?[A-Za-z0-9_][A-Za-z0-9_./~^@{}-]*)?$') {
         throw 'The range must be a plain revision range such as origin/master..HEAD.'
@@ -199,10 +210,12 @@ function Get-RangePrivacyFindings([string]$Range, [psobject]$Needles, [string]$R
     # line of the new path as added (again a superset: the index mode reads that whole file too).
     $names = Invoke-IndexedGit @('log', '--no-color', '--no-renames', '--diff-merges=first-parent', '--format=', '--name-only', '-z', '--end-of-options', $Range, '--') $Repository
     if ($names.ExitCode -ne 0) { throw 'Could not list the paths the range changes. No commit contents were scanned.' }
-    # -CaseSensitive (N-audit-infra-01): -Unique alone compares ignoring case, so two paths that differ only in case,
-    # two files to git and to any case-sensitive checkout, were listed and counted as one.
-    $protected = @($names.Output.Split([char]0, [StringSplitOptions]::RemoveEmptyEntries) | ForEach-Object { $_.Trim("`n") } |
-        Where-Object { $_.Length -gt 0 -and (Get-ProtectedPattern $_) } | Sort-Object -Unique -CaseSensitive |
+    # Ordinal (N-audit-infra-01, N-bd-w11-tests-scripts-1-02): Sort-Object -Unique alone compared ignoring case, and with
+    # -CaseSensitive still culture-aware, so two paths that differ only in case, or only in Unicode normalization, two
+    # files to git and to any case-sensitive checkout, were listed and counted as one.
+    $protectedPaths = @($names.Output.Split([char]0, [StringSplitOptions]::RemoveEmptyEntries) | ForEach-Object { $_.Trim("`n") } |
+        Where-Object { $_.Length -gt 0 -and (Get-ProtectedPattern $_) })
+    $protected = @(Select-UniquePrivacyPath $protectedPaths |
         ForEach-Object { [pscustomobject]@{ Path = $_; Pattern = (Get-ProtectedPattern $_) } })
     $findings = New-Object 'Collections.Generic.List[object]'
     if ($protected.Count -gt 0) { return [pscustomobject]@{ Protected = $protected; Findings = @(); Commits = 0 } }
@@ -300,10 +313,11 @@ function Get-IndexedPrivacyOffenders([psobject]$Needles, [string]$Repository = $
             foreach ($blob in $blobsByPath[$path]) { if ($matched.Contains($blob)) { $offenders.Add($path); break } }
         }
     }
-    # -CaseSensitive, as in the range mode (N-audit-infra-01): two indexed paths differing only in case are two offenders.
+    # Ordinal, as in the range mode (N-audit-infra-01, N-bd-w11-tests-scripts-1-02): two indexed paths differing only in
+    # case, or only in Unicode normalization, are two offenders.
     return [pscustomobject]@{
         Matched = ($offenders.Count -gt 0)
-        Offenders = @($offenders | Sort-Object -Unique -CaseSensitive)
+        Offenders = @(Select-UniquePrivacyPath $offenders)
     }
 }
 
@@ -371,6 +385,31 @@ function Get-IndexPrivacyFindings([psobject]$Needles, [string]$Repository = $rep
     }
     $grep = Get-IndexedPrivacyOffenders $Needles $Repository
     return [pscustomobject]@{ Protected = @(); Scanned = $true; Matched = $grep.Matched; Offenders = $grep.Offenders }
+}
+
+# The self-test's fixture root under Parent, with every folder this run had to create for it, deepest first
+# (N-bd-w11-tests-scripts-1-03). The root is new on every run; its build\privacy-selftest parent, and build itself, may
+# already be there. The record is taken before anything is created, so Remove-PrivacyFixtureRoot takes back exactly what
+# this run made and never a folder that was already there.
+function New-PrivacyFixtureRoot([string]$Parent) {
+    $root = Join-Path $Parent ([Guid]::NewGuid().ToString('N'))
+    $created = New-Object 'Collections.Generic.List[string]'
+    for ($dir = $root; $dir -and -not [IO.Directory]::Exists($dir); $dir = [IO.Path]::GetDirectoryName($dir)) { $created.Add($dir) }
+    [void][IO.Directory]::CreateDirectory($root)
+    return [pscustomobject]@{ Root = $root; Created = $created.ToArray(); Removed = $false }
+}
+
+# Removes the fixture root, then each folder above it that this run created, deepest first, once it is empty. The old
+# removal took the root alone and left the emptied build\privacy-selftest parent behind after every run. The delete is
+# not recursive, so a parent that another run's fixture is still inside refuses it and stays, with everything above it;
+# testing for emptiness first instead would race that run between the test and the delete.
+function Remove-PrivacyFixtureRoot([psobject]$Fixture) {
+    if ([IO.Directory]::Exists($Fixture.Root)) { Remove-Item -LiteralPath $Fixture.Root -Recurse -Force }
+    $Fixture.Removed = $true
+    foreach ($dir in $Fixture.Created) {
+        if (-not [IO.Directory]::Exists($dir)) { continue }
+        try { [IO.Directory]::Delete($dir, $false) } catch [IO.IOException], [UnauthorizedAccessException] { return }
+    }
 }
 
 if ($SelfTest) {
@@ -465,14 +504,42 @@ if ($SelfTest) {
         if ((Test-PrivacyText $case[0] $decomposedNeedles) -ne $case[1]) { throw ('Public privacy matcher self-test failed: ' + $case[2] + '.') }
         $count++
     }
-    # Range mode, then the default index mode, each on a synthetic repository this self-test creates and
-    # removes under build\.
-    $fixtureRoot = Join-Path $repoRoot ('build\privacy-selftest\' + [Guid]::NewGuid().ToString('N'))
+    # Range mode, then the default index mode, each on a synthetic repository this self-test creates under
+    # build\privacy-selftest\ and removes again, with every folder above it that the run created.
+    $fixture = New-PrivacyFixtureRoot (Join-Path $repoRoot 'build\privacy-selftest')
+    $fixtureRoot = $fixture.Root
     $synthetic = Join-Path $fixtureRoot 'range'
     $indexRepo = Join-Path $fixtureRoot 'index'
     [void][IO.Directory]::CreateDirectory($synthetic)
     [void][IO.Directory]::CreateDirectory($indexRepo)
     try {
+        # The fixture's own removal (N-bd-w11-tests-scripts-1-03), on synthetic folders inside this run's root: a parent
+        # that was already there stays, even empty; one this run created goes once it is empty, with build above it; and
+        # one that another run's fixture is still inside stays, with that fixture untouched.
+        $cleanup = Join-Path $fixtureRoot 'cleanup'
+        $kept = Join-Path $cleanup 'kept\build\privacy-selftest'
+        [void][IO.Directory]::CreateDirectory($kept)
+        Remove-PrivacyFixtureRoot (New-PrivacyFixtureRoot $kept)
+        if (-not [IO.Directory]::Exists($kept) -or @([IO.Directory]::GetFileSystemEntries($kept)).Count -ne 0) {
+            throw 'Public privacy fixture self-test failed: a parent folder the run did not create was removed, or its root was not.'
+        }
+        $count++
+        $fresh = Join-Path $cleanup 'fresh'
+        [void][IO.Directory]::CreateDirectory($fresh)
+        Remove-PrivacyFixtureRoot (New-PrivacyFixtureRoot (Join-Path $fresh 'build\privacy-selftest'))
+        if (@([IO.Directory]::GetFileSystemEntries($fresh)).Count -ne 0) {
+            throw 'Public privacy fixture self-test failed: an emptied parent folder the run created was left behind.'
+        }
+        $count++
+        $shared = Join-Path $cleanup 'shared\build\privacy-selftest'
+        $first = New-PrivacyFixtureRoot $shared
+        $second = New-PrivacyFixtureRoot $shared
+        Remove-PrivacyFixtureRoot $first
+        if ([IO.Directory]::Exists($first.Root) -or -not [IO.Directory]::Exists($second.Root)) {
+            throw 'Public privacy fixture self-test failed: removing a fixture took the fixture of another run still inside its parent.'
+        }
+        Remove-PrivacyFixtureRoot $second
+        $count++
         function Step([string[]]$Arguments, [string]$Repository = $synthetic) {
             $done = Invoke-IndexedGit $Arguments $Repository
             if ($done.ExitCode -ne 0) { throw ('Synthetic repository step failed: git ' + ($Arguments -join ' ')) }
@@ -562,6 +629,23 @@ if ($SelfTest) {
         if (@($variantRefused.Protected).Count -ne 2 -or $variantPaths -cne ((@('keys/Site.PEM', 'keys/site.pem') | Sort-Object -CaseSensitive) -join '|') -or
             $variantRefused.Commits -ne 0) {
             throw ('Public privacy range self-test failed: two protected paths differing only in case were not both refused: ' + $variantPaths)
+        }
+        $count++
+        # Two protected paths that differ only in Unicode normalization (N-bd-w11-tests-scripts-1-02), a composed and a
+        # decomposed letter, are two names to git and two refusals; Sort-Object -Unique -CaseSensitive called them one.
+        # Compared ordinally, since -ceq calls the two spellings equal too.
+        $composedKey = 'keys/caf' + [char]0x00E9 + '.pem'
+        $decomposedKey = 'keys/cafe' + [char]0x0301 + '.pem'
+        $beforeForms = Step @('rev-parse', 'HEAD')
+        foreach ($form in @($composedKey, $decomposedKey)) {
+            [void](Step @('update-index', '--add', '--cacheinfo', ('100644,' + $variantBlob + ',' + $form)))
+        }
+        [void](Step ($identity + @('commit', '-q', '-m', 'add two keys whose names differ only in normalization')))
+        $formRefused = Get-RangePrivacyFindings ($beforeForms + '..HEAD') $needles $synthetic
+        $formPaths = (@($formRefused.Protected | ForEach-Object { $_.Path })) -join '|'
+        if (@($formRefused.Protected).Count -ne 2 -or $formRefused.Commits -ne 0 -or
+            -not [string]::Equals($formPaths, ($decomposedKey + '|' + $composedKey), [StringComparison]::Ordinal)) {
+            throw 'Public privacy range self-test failed: two protected paths differing only in normalization were not both refused.'
         }
         $count++
         # Renames (Codex review 2026-11-02). With rename detection the names pass printed only a rename's new path, so a
@@ -687,25 +771,56 @@ if ($SelfTest) {
             throw ('Public privacy index self-test failed: two indexed paths differing only in case were not both reported: ' + $variantSeen)
         }
         $count++
+        # Two indexed paths that differ only in Unicode normalization (N-bd-w11-tests-scripts-1-02) are two offenders too,
+        # staged the same way. The expected listing is ordered here by Array.Sort with the ordinal comparer, not by the
+        # function under test, and compared ordinally.
+        $composedNote = 'docs/Caf' + [char]0x00E9 + '.txt'
+        $decomposedNote = 'docs/Cafe' + [char]0x0301 + '.txt'
+        foreach ($form in @($composedNote, $decomposedNote)) {
+            [void](Step @('update-index', '--add', '--cacheinfo', ('100644,' + $variantText + ',' + $form)) $indexRepo)
+        }
+        $formIndexed = [string[]](@($variantExpected.Split('|')) + @($composedNote, $decomposedNote))
+        [Array]::Sort($formIndexed, [StringComparer]::Ordinal)
+        $formExpected = $formIndexed -join '|'
+        $formScan = Get-IndexPrivacyFindings $needles $indexRepo
+        if (-not $formScan.Scanned -or @($formScan.Offenders).Count -ne $formIndexed.Count -or
+            -not [string]::Equals((@($formScan.Offenders) -join '|'), $formExpected, [StringComparison]::Ordinal)) {
+            throw 'Public privacy index self-test failed: two indexed paths differing only in normalization were not both reported.'
+        }
+        $count++
         # Both modes on the SAME content (Codex recheck 2026-11-02): once committed, the range mode must report exactly
         # the files the index mode reports, for both user names. log.showRoot is set so a global false cannot hide the
         # root commit's lines.
         [void](Step @('config', 'log.showRoot', 'true') $indexRepo)
         [void](Step ($identity + @('commit', '-q', '-m', 'commit the index fixture')) $indexRepo)
-        foreach ($pair in @(@($needles, $variantExpected), @($accentNeedles, 'src/AccentDecomposed.txt|src/AccentRoot.txt|src/AccentUpper.txt'))) {
-            $indexSeen = (@((Get-IndexPrivacyFindings $pair[0] $indexRepo).Offenders | Sort-Object -CaseSensitive)) -join '|'
-            $rangeSeen = (@((Get-RangePrivacyFindings 'HEAD' $pair[0] $indexRepo).Findings | ForEach-Object { $_.Path } |
-                Sort-Object -Unique -CaseSensitive)) -join '|'
-            if ($indexSeen -cne $pair[1] -or $rangeSeen -cne $pair[1]) {
+        # The listings are ordered by the ordinal comparer and compared ordinally, as the normalization pair above needs.
+        foreach ($pair in @(@($needles, $formExpected), @($accentNeedles, 'src/AccentDecomposed.txt|src/AccentRoot.txt|src/AccentUpper.txt'))) {
+            $indexSeen = (@((Get-IndexPrivacyFindings $pair[0] $indexRepo).Offenders)) -join '|'
+            $rangeSeen = (@(Select-UniquePrivacyPath @((Get-RangePrivacyFindings 'HEAD' $pair[0] $indexRepo).Findings |
+                ForEach-Object { $_.Path }))) -join '|'
+            if (-not [string]::Equals($indexSeen, $pair[1], [StringComparison]::Ordinal) -or
+                -not [string]::Equals($rangeSeen, $pair[1], [StringComparison]::Ordinal)) {
                 throw ('Public privacy self-test failed: both modes did not report the same files on the same content. Index: ' +
                     $indexSeen + '; range: ' + $rangeSeen)
             }
             $count++
         }
     } finally {
-        if ([IO.Directory]::Exists($fixtureRoot)) { Remove-Item -LiteralPath $fixtureRoot -Recurse -Force }
+        Remove-PrivacyFixtureRoot $fixture
+    }
+    # The real fixture went through that removal, and what this run created is gone (N-bd-w11-tests-scripts-1-03): the
+    # root, and each folder above it that the run made, unless another run's fixture is inside it now. Read after the
+    # finally, so it sees what the finally left. When the parent was already there, the run made only the root, and the
+    # line after the summary says that the parent's removal was checked on the synthetic folders alone.
+    if (-not $fixture.Removed) { throw 'Public privacy fixture self-test failed: the real fixture was not removed by Remove-PrivacyFixtureRoot.' }
+    $leftBehind = @($fixture.Created | Where-Object { [IO.Directory]::Exists($_) -and @([IO.Directory]::GetFileSystemEntries($_)).Count -eq 0 })
+    if ([IO.Directory]::Exists($fixture.Root) -or $leftBehind.Count -gt 0) {
+        throw 'Public privacy fixture self-test failed: the run left a folder it created behind.'
     }
     Write-Host "Public privacy self-test passed: $count cases (path policy, matchers, range mode with merges and the default index mode on synthetic repositories, removed again)."
+    if ($fixture.Created.Count -lt 2) {
+        Write-Host 'Its build\privacy-selftest folder was there before this run, so the run left it in place; removing a parent folder the run created was checked on synthetic folders only.'
+    }
     exit 0
 }
 
