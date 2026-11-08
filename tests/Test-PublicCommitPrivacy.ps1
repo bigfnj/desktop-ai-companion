@@ -96,21 +96,58 @@ function Get-PrivacyNeedles([string[]]$Identifiers, [string]$UserName) {
     # accented, CJK or combining-mark continuation end the name, so a different, longer name matched). A single
     # trailing dot is allowed before it, as Win32 drops one and a sentence ends with one, but a dot that continues a
     # name does not end it. The prefix is required, so the bare word never matches.
+    # Each value is kept as given AND composed (NFC), so a name stored one way still matches text written the other way
+    # (N-codex-1102-01): Test-PrivacyText reads the text as given and composed too.
     $fixed = New-Object 'Collections.Generic.List[string]'
-    foreach ($value in $Identifiers) { if (-not $fixed.Contains($value)) { $fixed.Add($value) } }
+    foreach ($value in $Identifiers) {
+        foreach ($form in @($value, (ConvertTo-ComposedPrivacyText $value))) { if (-not $fixed.Contains($form)) { $fixed.Add($form) } }
+    }
     $profileRoot = ''
     if (-not [string]::IsNullOrEmpty($UserName)) {
-        $profileRoot = '[\\/]Users[\\/]+' + [regex]::Escape($UserName) + '\.?(?![\p{L}\p{M}\p{N}\p{Pc}.$-])'
+        $names = @([regex]::Escape($UserName))
+        $composedName = ConvertTo-ComposedPrivacyText $UserName
+        if (-not [string]::Equals($composedName, $UserName, [StringComparison]::Ordinal)) { $names += [regex]::Escape($composedName) }
+        $profileRoot = '[\\/]Users[\\/]+(?:' + ($names -join '|') + ')\.?(?![\p{L}\p{M}\p{N}\p{Pc}.$-])'
     }
     return [pscustomobject]@{ Fixed = $fixed.ToArray(); Profile = $profileRoot }
 }
 
+# The composed (NFC) form, or the text unchanged when it holds a lone surrogate, which Normalize refuses.
+function ConvertTo-ComposedPrivacyText([string]$Text) {
+    try { return $Text.Normalize([Text.NormalizationForm]::FormC) } catch [ArgumentException] { return $Text }
+}
+
+# The categories that continue a name, the profile pattern's lookahead class: a letter, mark or number of any script, or
+# a connector such as _.
+$script:PrivacyNameCategories = [Collections.Generic.HashSet[Globalization.UnicodeCategory]]::new([Globalization.UnicodeCategory[]]@(
+    'UppercaseLetter', 'LowercaseLetter', 'TitlecaseLetter', 'ModifierLetter', 'OtherLetter',
+    'NonSpacingMark', 'SpacingCombiningMark', 'EnclosingMark',
+    'DecimalDigitNumber', 'LetterNumber', 'OtherNumber', 'ConnectorPunctuation'))
+
 function Test-PrivacyText([string]$Text, [psobject]$Needles) {
-    foreach ($needle in $Needles.Fixed) {
-        if ($Text.IndexOf($needle, [StringComparison]::OrdinalIgnoreCase) -ge 0) { return $true }
+    # The text as given, then composed (NFC) when that differs (N-codex-1102-01): a user name stored composed did not match
+    # the same name written decomposed, in either mode. Both forms, not the composed one alone, so nothing the old matcher
+    # found is lost: composing folds a combining mark into the letter before it, and an identifier followed by one (no
+    # boundary applies to identifiers) matched as given and would not once composed.
+    $forms = @($Text)
+    $composed = ConvertTo-ComposedPrivacyText $Text
+    # Ordinal: -cne compares culture-aware, which calls the two spellings EQUAL, so the composed form was never read.
+    if (-not [string]::Equals($composed, $Text, [StringComparison]::Ordinal)) { $forms += $composed }
+    foreach ($form in $forms) {
+        foreach ($needle in $Needles.Fixed) {
+            if ($form.IndexOf($needle, [StringComparison]::OrdinalIgnoreCase) -ge 0) { return $true }
+        }
+        if (-not $Needles.Profile) { continue }
+        foreach ($match in [regex]::Matches($form, $Needles.Profile, [Text.RegularExpressions.RegexOptions]'IgnoreCase, CultureInvariant')) {
+            # The lookahead's classes see one UTF-16 unit, so a letter outside the Basic Multilingual Plane (a surrogate
+            # pair) after the name ended it, and a longer name matched (N-codex-1102-01). The character after the match is
+            # classified whole here; a lone or reversed surrogate is no letter and still ends the name.
+            $end = $match.Index + $match.Length
+            if ($end -lt $form.Length -and [char]::IsHighSurrogate($form[$end]) -and
+                $script:PrivacyNameCategories.Contains([Globalization.CharUnicodeInfo]::GetUnicodeCategory($form, $end))) { continue }
+            return $true
+        }
     }
-    if ($Needles.Profile -and [regex]::IsMatch($Text, $Needles.Profile,
-            [Text.RegularExpressions.RegexOptions]'IgnoreCase, CultureInvariant')) { return $true }
     return $false
 }
 
@@ -388,7 +425,14 @@ if ($SelfTest) {
         @(('/c/Users/ExampleProfile' + [char]0x5F20 + '/cache'), $false, 'a longer name ending in a CJK letter'),
         @(('"C:\Users\ExampleProfile' + [char]0x0301 + '"'), $false, 'a longer name ending in a combining mark'),
         @(('C:\Users\ExampleProfile' + [char]0x0663), $false, 'a longer name ending in a non-ASCII digit'),
+        # Outside the Basic Multilingual Plane the next character is a surrogate pair (N-codex-1102-01): a letter there
+        # continues the name, which the lookahead alone let end it. WITNESS: a symbol there still ends it.
+        @(('C:\Users\ExampleProfile' + [char]::ConvertFromUtf32(0x10400)), $false, 'a longer name ending in a letter outside the Basic Multilingual Plane'),
+        @(('"/c/Users/ExampleProfile' + [char]::ConvertFromUtf32(0x1D7CE) + '"'), $false, 'a longer name ending in a digit outside the Basic Multilingual Plane'),
+        @(('C:\Users\ExampleProfile' + [char]::ConvertFromUtf32(0x1F600)), $true, 'a profile root before a symbol outside the Basic Multilingual Plane'),
         @('Built for CONTOSO by its team', $true, 'an explicit identifier, any case'),
+        # Composing must not lose what the text as given matched: the o and the mark compose into one letter.
+        @(('Built for Contoso' + [char]0x0301 + ' by its team'), $true, 'an explicit identifier followed by a combining mark'),
         @('nothing here identifies anyone', $false, 'unrelated text')
     )) {
         if ((Test-PrivacyText $case[0] $needles) -ne $case[1]) { throw ('Public privacy matcher self-test failed: ' + $case[2] + '.') }
@@ -401,9 +445,24 @@ if ($SelfTest) {
         @(('C:\Users\' + $accentName), $true, 'a non-ASCII profile root'),
         @(('C:\Users\L' + [char]0x00C9 + 'A'), $true, 'a non-ASCII profile root in another case'),
         @(('/c/Users/' + $accentName + 'x'), $false, 'a longer non-ASCII name ending in an ASCII letter'),
-        @(('C:\Users\' + $accentName + [char]0x00E9), $false, 'a longer non-ASCII name ending in an accented letter')
+        @(('C:\Users\' + $accentName + [char]0x00E9), $false, 'a longer non-ASCII name ending in an accented letter'),
+        # Composed and decomposed spellings are one name (N-codex-1102-01): neither matched the other.
+        @(('C:\Users\Le' + [char]0x0301 + 'a'), $true, 'a decomposed spelling of a composed profile name'),
+        @(('/c/Users/LE' + [char]0x0301 + 'A/cache'), $true, 'a decomposed spelling of a composed profile name in another case'),
+        @(('C:\Users\Le' + [char]0x0301 + 'ax'), $false, 'a longer decomposed name')
     )) {
         if ((Test-PrivacyText $case[0] $accentNeedles) -ne $case[1]) { throw ('Public privacy matcher self-test failed: ' + $case[2] + '.') }
+        $count++
+    }
+    $decomposedNeedles = Get-PrivacyNeedles @('Fabrik' + 'a' + [char]0x0301 + 'm') ('Le' + [char]0x0301 + 'a')
+    foreach ($case in @(
+        @(('C:\Users\' + $accentName), $true, 'a composed spelling of a decomposed profile name'),
+        @(('C:\Users\Le' + [char]0x0301 + 'a'), $true, 'a decomposed profile name as given'),
+        @(('/c/Users/' + $accentName + 'x'), $false, 'a longer composed spelling of a decomposed profile name'),
+        @(('Built for Fabrik' + [char]0x00E1 + 'm'), $true, 'a composed spelling of a decomposed identifier'),
+        @('Built for Fabrikam', $false, 'the identifier without its accent')
+    )) {
+        if ((Test-PrivacyText $case[0] $decomposedNeedles) -ne $case[1]) { throw ('Public privacy matcher self-test failed: ' + $case[2] + '.') }
         $count++
     }
     # Range mode, then the default index mode, each on a synthetic repository this self-test creates and
@@ -546,7 +605,8 @@ if ($SelfTest) {
         # nothing above vouches for it. This index holds the identifier in another case, a profile path, a profile
         # root at the end of a line and another quoted, a longer name, a dotted longer name and longer names in
         # other scripts as roots, a bare user name, quoted or not, clean text, a non-ASCII user name's root in both
-        # cases and two longer forms of it, and the identifier inside a path of each protected shape the grep
+        # cases and decomposed and two longer forms of it, a longer name ending in a letter outside the Basic
+        # Multilingual Plane and a root before a symbol there, and the identifier inside a path of each protected shape the grep
         # excludes, in mixed case (icase) and once as a directory (the /** form). The policy refuses those paths
         # before the grep runs, so the grep is also driven directly to prove its own exclusions. .git/credentials
         # has no case: git refuses to index any path with a .git component.
@@ -565,6 +625,9 @@ if ($SelfTest) {
             @('src/AccentUpper.txt', ('home="C:\Users\L' + [char]0x00C9 + 'A"'), 'clean'),
             @('src/AccentLonger.txt', ('home=/c/Users/' + $accentName + 'x'), 'clean'),
             @('src/AccentLongerAccented.txt', ('home=C:\Users\' + $accentName + [char]0x00E9), 'clean'),
+            @('src/AccentDecomposed.txt', ('home="C:\Users\Le' + [char]0x0301 + 'a"'), 'clean'),
+            @('src/LongerSupplementary.txt', ('home=C:\Users\ExampleProfile' + [char]::ConvertFromUtf32(0x10400)), 'clean'),
+            @('src/RootBeforeSymbol.txt', ('home=C:\Users\ExampleProfile' + [char]::ConvertFromUtf32(0x1F600)), 'found'),
             @('src/Role.txt', 'ExampleProfile can open the panel', 'clean'),
             @('src/Clean.txt', 'nothing here identifies anyone', 'clean'),
             @('config/LOCAL.ENV', 'owner=Contoso', 'protected'),
@@ -601,8 +664,8 @@ if ($SelfTest) {
         $count++
         # The non-ASCII user name in the index (Codex recheck 2026-11-02): git grep -i missed its upper-case root here.
         $accentGrep = Get-IndexedPrivacyOffenders $accentNeedles $indexRepo
-        if ((@($accentGrep.Offenders) -join '|') -cne 'src/AccentRoot.txt|src/AccentUpper.txt') {
-            throw ('Public privacy index self-test failed: the index mode did not report exactly the non-ASCII profile root in both cases, and neither longer name: ' +
+        if ((@($accentGrep.Offenders) -join '|') -cne 'src/AccentDecomposed.txt|src/AccentRoot.txt|src/AccentUpper.txt') {
+            throw ('Public privacy index self-test failed: the index mode did not report exactly the non-ASCII profile root in both cases and decomposed, and neither longer name: ' +
                 (@($accentGrep.Offenders) -join ', '))
         }
         $count++
@@ -629,7 +692,7 @@ if ($SelfTest) {
         # root commit's lines.
         [void](Step @('config', 'log.showRoot', 'true') $indexRepo)
         [void](Step ($identity + @('commit', '-q', '-m', 'commit the index fixture')) $indexRepo)
-        foreach ($pair in @(@($needles, $variantExpected), @($accentNeedles, 'src/AccentRoot.txt|src/AccentUpper.txt'))) {
+        foreach ($pair in @(@($needles, $variantExpected), @($accentNeedles, 'src/AccentDecomposed.txt|src/AccentRoot.txt|src/AccentUpper.txt'))) {
             $indexSeen = (@((Get-IndexPrivacyFindings $pair[0] $indexRepo).Offenders | Sort-Object -CaseSensitive)) -join '|'
             $rangeSeen = (@((Get-RangePrivacyFindings 'HEAD' $pair[0] $indexRepo).Findings | ForEach-Object { $_.Path } |
                 Sort-Object -Unique -CaseSensitive)) -join '|'
