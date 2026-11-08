@@ -356,5 +356,46 @@ namespace DesktopAICompanion
             }
             return ok;
         }
+
+        /// <summary>
+        /// N-audit-1106-247: the exit path's CloseOpenWindow closes the About window too. KillSheeps calls it so that no
+        /// modal outlives the exit request, and it closed only the settings window, so an Exit from the tray menu while
+        /// About was up left the process behind it. The tray's own OpenAbout is driven with the modal loop stood in for
+        /// (OptionsShell.ShowAboutForSelfTest): while the window is "up", the exit's close is asked for, and the window
+        /// must close and be forgotten. Nothing reaches the desktop: the window is never shown.
+        /// </summary>
+        private static bool ExitClosesTheAboutWindow(StringBuilder sb)
+        {
+            bool ok = true;
+            bool tracked = false, closed = false, handed = false;
+            try
+            {
+                DesktopAICompanion.Wpf.OptionsShell.ShowAboutForSelfTest = delegate (System.Windows.Window window)
+                {
+                    handed = true;
+                    tracked = DesktopAICompanion.Wpf.OptionsShell.IsAboutOpen;
+                    window.Closed += delegate { closed = true; };
+                    DesktopAICompanion.Wpf.OptionsShell.CloseOpenWindow();
+                    return null;
+                };
+                DesktopAICompanion.Wpf.OptionsShell.OpenAbout("Synthetic author", "Synthetic pet", "1.0", "Synthetic info");
+                ok &= Check(sb, "about: WITNESS the tray's About window is built and tracked while it is up (" +
+                    (handed ? "handed over" : "never shown") + ", tracked " + tracked + ")", handed && tracked);
+                ok &= Check(sb, "about: the exit's CloseOpenWindow closes the About window, so no modal outlives the exit (closed " +
+                    closed + ")", closed);
+                ok &= Check(sb, "about: a closed About window is forgotten (open " + DesktopAICompanion.Wpf.OptionsShell.IsAboutOpen + ")",
+                    !DesktopAICompanion.Wpf.OptionsShell.IsAboutOpen);
+            }
+            catch (Exception ex)
+            {
+                ok = false;
+                sb.AppendLine("FAIL: about: the exit probe threw " + ex.GetType().Name + ": " + ex.Message);
+            }
+            finally
+            {
+                DesktopAICompanion.Wpf.OptionsShell.ShowAboutForSelfTest = null;
+            }
+            return ok;
+        }
     }
 }

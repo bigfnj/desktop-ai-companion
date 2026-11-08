@@ -91,15 +91,29 @@ namespace DesktopAICompanion.Wpf
         /// that touches a Window.</summary>
         private static OptionsWindow _openWindow;
 
-        /// <summary>Close the open settings window, if any. Called from the exit path (F312): the window is
-        /// modal on the UI thread, and left open it outlived the exit request, so the process sat behind a
-        /// dialog with no tray icon to reach it by.</summary>
+        /// <summary>The About window currently on screen, or null; tracked as <see cref="_openWindow"/> is, so the exit
+        /// path can close it. UI thread only.</summary>
+        private static System.Windows.Window _openAbout;
+
+        /// <summary>Close the open settings window and the open About window, if any. Called from the exit path (F312):
+        /// each is modal on the UI thread, and left open it outlived the exit request, so the process sat behind a
+        /// dialog with no tray icon to reach it by. The About window was missed (N-audit-1106-247): KillSheeps says a
+        /// modal cannot outlive the exit request, and an Exit from the tray menu while About was up left it there.</summary>
         internal static void CloseOpenWindow()
         {
             OptionsWindow window = _openWindow;
-            if (window == null) return;
-            try { window.Close(); } catch { }
+            if (window != null) try { window.Close(); } catch { }
+            System.Windows.Window about = _openAbout;
+            if (about != null) try { about.Close(); } catch { }
         }
+
+        /// <summary>True while the About window is up. Read by --wpf-options-selftest.</summary>
+        internal static bool IsAboutOpen { get { return _openAbout != null; } }
+
+        /// <summary>--wpf-options-selftest's seam: when set, it is handed the About window in place of ShowDialog, so the
+        /// check can stand in for the modal loop (ask for the exit's close while the window is "up") without putting a
+        /// window on the desktop. Null in the app.</summary>
+        internal static Func<System.Windows.Window, bool?> ShowAboutForSelfTest;
 
         /// <summary>True while the settings window is up. Read by the About entry, which must not
         /// open a second modal over it.</summary>
@@ -113,7 +127,14 @@ namespace DesktopAICompanion.Wpf
             try
             {
                 var window = new AboutWindow(author, title, version, info);
-                window.ShowDialog();
+                _openAbout = window;
+                try
+                {
+                    Func<System.Windows.Window, bool?> show = ShowAboutForSelfTest;
+                    if (show != null) show(window);
+                    else window.ShowDialog();
+                }
+                finally { if (ReferenceEquals(_openAbout, window)) _openAbout = null; }
             }
             catch (Exception ex)
             {

@@ -1738,6 +1738,8 @@ namespace DesktopAICompanion
                 ok &= ReloadAfterTheWindowClosedIsDeclined(sb);
                 ok &= RefreshAfterApplyFollowsInfoOrHeader(sb);
                 ok &= ModulesPaneGoneDuringTheDownload(sb);
+                // ---- burndown/w10-host-1 ----
+                ok &= ExitClosesTheAboutWindow(sb);
             }
             catch (Exception ex) { ok = false; sb.AppendLine("EXC: " + ex.GetType().Name + ": " + ex.Message); }
 

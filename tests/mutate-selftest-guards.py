@@ -24497,6 +24497,15 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--trayquestions-selftest", "dp-trayquestions-selftest.txt",
      "queue: an answer's continuation runs asynchronously, never inside the host's click handler"),
+    # N-audit-1106-247: the exit path's CloseOpenWindow leaves the About window open again. --wpf-options-selftest drives
+    # the tray's OpenAbout with the modal loop stood in for.
+    ("bd-w10-host-1: the exit leaves the About window open (N-audit-1106-247)",
+     os.path.join(REPO, "src", "Portable", "Wpf", "OptionsShell.cs"),
+     b'            if (about != null) try { about.Close(); } catch { }\n',
+     b'            if (about == null) try { about.Close(); } catch { }\n',
+     HOST_CSPROJ, EXE,
+     "--wpf-options-selftest", "dp-wpf-options-selftest.txt",
+     "about: the exit's CloseOpenWindow closes the About window"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
