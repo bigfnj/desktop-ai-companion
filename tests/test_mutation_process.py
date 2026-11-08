@@ -121,9 +121,26 @@ class MutationProcessTests(unittest.TestCase):
         self.assertEqual(raw.stderr, b"")
         self.assertEqual(raw.stdout, b"FAIL: synthetic \x97 witness\r\n")
         self.assertEqual(decode_output(raw.stdout, lambda: "cp1252"), "FAIL: synthetic \u2014 witness\r\n")
-        if _windows_ansi_encoding() == "cp1252":
-            result = run_text(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command], timeout=30)
-            self.assertEqual(result.stdout, "FAIL: synthetic \u2014 witness\n")
+        # The run_text half runs on every host (N-audit-1106-374). It ran only where the ANSI code page was cp1252 and
+        # was skipped, without a word, everywhere else. First with the witness's own code page pinned through the seam
+        # the tests above use, so the exact em dash is checked through run_text whatever this host's code page is; then
+        # with the host's own fallback, whose expectation is that fallback's strict decoding of the same bytes, or, where
+        # it cannot decode them losslessly (a double-byte or UTF-8 code page), a UnicodeError instead of replaced text.
+        legacy = ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command]
+        with patch("mutation_process.decode_output", side_effect=lambda raw: decode_output(raw, lambda: "cp1252")):
+            pinned = run_text(legacy, timeout=30)
+        self.assertEqual(pinned.stdout, "FAIL: synthetic \u2014 witness\n")
+        self.assertEqual(pinned.returncode, 7)
+        try:
+            host_expected = decode_output(raw.stdout).replace("\r\n", "\n")
+        except UnicodeError:
+            host_expected = None
+        if host_expected is None:
+            with self.assertRaises(UnicodeError):
+                run_text(legacy, timeout=30)
+        else:
+            result = run_text(legacy, timeout=30)
+            self.assertEqual(result.stdout, host_expected)
             self.assertEqual(result.returncode, 7)
 
 

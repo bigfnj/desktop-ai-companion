@@ -23907,6 +23907,15 @@ CASES = (
      b'    unlabelled = unlabelled_variants(selected)\n    if False:\n',
      None, None,
      MUTATION_UNITTESTS, None, 'test_the_installer_runner_main_refuses_an_unlabelled_variant'),
+    # N-audit-1106-374. run_text decodes a child's stream lossily, past the ANSI fallback seam. The legacy PowerShell
+    # witness's run_text half now runs on every host, with the witness's code page pinned through that seam, so it no
+    # longer depends on this host's code page being cp1252 to see the em dash replaced.
+    ("bd-w9-tests-scripts-2: run_text decodes a legacy stream lossily past the fallback seam (N-audit-1106-374)",
+     os.path.join(REPO, "tests", "mutation_process.py"),
+     b'        return decode_output(raw).replace("\\r\\n", "\\n").replace("\\r", "\\n")\n',
+     b'        return raw.decode("utf-8", errors="replace").replace("\\r\\n", "\\n").replace("\\r", "\\n")\n',
+     None, None,
+     MUTATION_UNITTESTS, None, 'test_actual_legacy_powershell_fixed_synthetic_ansi_witness'),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
