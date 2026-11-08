@@ -6732,6 +6732,36 @@ Assert-True ($w9tsBare.Count -eq 0) (
     "w9-tests-scripts-2: no C# source starts cmd.exe by its bare name" +
     $(if ($w9tsBare.Count) { ' -- bare in: ' + ($w9tsBare -join ', ') } else { '' }))
 
+# ---- burndown/w10-tests-scripts-2 ----
+# THE ISOLATED MSI LIFECYCLE REPORTS AN OBSERVED InstalledApplicationTouched (N-audit-1106-397). It was the constant
+# $false. tests\Test-InstallerMsiCallerSafety.ps1 (the offline checks run it) drives the actual snapshot, comparison and
+# report expression over fakes; what it cannot see is WHERE the run takes its two snapshots, because the run installs
+# software and no check executes it. Pinned here as the ORDER over the comment-stripped script: exactly one assignment
+# of the before snapshot, ahead of the lifecycle's try (so ahead of its first MSI); exactly one comparison, after that
+# try's cleanup finally and ahead of the report, whose after side is a FRESH read; and the report's field is the
+# comparison's value. A before snapshot re-taken after the run, or the before snapshot compared with itself, both read as
+# untouched whatever happened. WITNESS: the try, its first MSI, the cleanup's warning and the report are found in order.
+$w10tsLife = Remove-PsLineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'tests\Test-IsolatedMsiLifecycle.ps1') -Raw)
+$w10tsTry = $w10tsLife.IndexOf("`ntry {`n    foreach (`$family in `$manifest.Families) {`n")
+$w10tsFirstMsi = $w10tsLife.IndexOf("Invoke-OwnedMsi -Name 'install-v1' ")
+$w10tsCleanup = $w10tsLife.IndexOf("Write-Warning 'Owned lifecycle cleanup also failed; preserving the primary failure.'")
+$w10tsReport = $w10tsLife.IndexOf("`n`$report = [ordered]@{`n")
+Assert-True ($w10tsTry -gt 0 -and $w10tsFirstMsi -gt $w10tsTry -and $w10tsCleanup -gt $w10tsFirstMsi -and $w10tsReport -gt $w10tsCleanup) (
+    'w10-tests-scripts-2: WITNESS the lifecycle try, its first MSI, its cleanup warning and its report were found in order')
+$w10tsBefore = @([regex]::Matches($w10tsLife, '\$installedBefore\s*='))
+$w10tsCompare = @([regex]::Matches($w10tsLife, 'Compare-InstalledApplicationSnapshots\b'))
+$w10tsCompareCall = @([regex]::Matches($w10tsLife, '(?m)^\$installedApplication = Compare-InstalledApplicationSnapshots \$installedBefore \(Get-InstalledApplicationSnapshot\)$'))
+Assert-True ($w10tsBefore.Count -eq 1 -and $w10tsBefore[0].Index -lt $w10tsTry -and
+    $w10tsLife.Substring($w10tsBefore[0].Index) -cmatch '^\$installedBefore = Get-InstalledApplicationSnapshot\n' -and
+    $w10tsCompare.Count -eq 2 -and $w10tsCompareCall.Count -eq 1 -and
+    $w10tsCompareCall[0].Index -gt $w10tsCleanup -and $w10tsCompareCall[0].Index -lt $w10tsReport) (
+    'w10-tests-scripts-2: the lifecycle snapshots the installed application once before its first MSI and compares it with a fresh snapshot after its cleanup')
+$w10tsReportBody = $w10tsLife.Substring($w10tsReport, [Math]::Max(0, $w10tsLife.IndexOf("`n}`n", $w10tsReport + 1) - $w10tsReport))
+Assert-True ($w10tsReportBody.Length -gt 0 -and $w10tsReportBody -cmatch 'InstalledApplicationTouched = \$installedApplication\.Touched\n' -and
+    @([regex]::Matches($w10tsReportBody, 'InstalledApplicationTouched')).Count -eq 1 -and
+    $w10tsReportBody -cmatch 'InstalledApplicationObservation = \$installedApplication\.Observation\n') (
+    'w10-tests-scripts-2: the lifecycle report''s InstalledApplicationTouched is the observed value with its observation, never a literal')
+
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever

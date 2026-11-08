@@ -151,6 +151,13 @@ existence checks only and listed under `CloudPlaceholderWalks`, while a link or
 any other tag stops the check, which is reported as unproven separately from
 the owned lifecycle results. A failed rollback's registry errors are summarised,
 sanitised, under `RollbackRegistryFailures` in `lifecycle-result.json`.
+`InstalledApplicationTouched` there is observed, not asserted: the production
+MSI registrations and the running companion processes (PID and creation time)
+are read before the first MSI and after the cleanup, and it is `null` when
+nothing was there to observe or a read failed. The fixture does not redirect
+`%LOCALAPPDATA%\Programs`, which the production authoring removes on an
+uninstall that finds it empty, so its existence before and after is reported
+beside it as `LocalProgramsFolder`.
 
 The first local qualification passed rollback, upgrade and reinstall with exact
 native shutdown receipts, foreign-process survival and preserved settings. Its

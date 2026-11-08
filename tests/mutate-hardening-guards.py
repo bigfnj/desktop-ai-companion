@@ -5085,6 +5085,33 @@ CASES = (
         b'                world.ReportFault(mascot, action.Name + ": a partner transition failed: " + e.Message, picked, TickFaultVia.Arrive);\n',
         "bd-parity-host-2: the statements that form a fault cause are exactly the reviewed list",
     ),
+    # ---- burndown/w10-tests-scripts-2 ----
+    # N-audit-1106-397: lifecycle-result.json's InstalledApplicationTouched goes back to a constant, or its two snapshots
+    # stop bracketing the run (the before one re-taken after it, or compared with itself), so the report reads untouched
+    # whatever the run did. The comparison's own logic is graded by tests\Test-InstallerMsiCallerSafety.ps1, which no
+    # harness runs. "bd-w10-tests-scripts-2:" for one --only.
+    (
+        "bd-w10-tests-scripts-2: the lifecycle report writes InstalledApplicationTouched as the constant $false again (N-audit-1106-397)",
+        os.path.join(REPO, "tests", "Test-IsolatedMsiLifecycle.ps1"),
+        b"    Operations = @($operations.ToArray()); InstalledApplicationTouched = $installedApplication.Touched\n",
+        b"    Operations = @($operations.ToArray()); InstalledApplicationTouched = $false\n",
+        "w10-tests-scripts-2: the lifecycle report's InstalledApplicationTouched is the observed value",
+    ),
+    (
+        "bd-w10-tests-scripts-2: the lifecycle compares its before snapshot with itself (N-audit-1106-397)",
+        os.path.join(REPO, "tests", "Test-IsolatedMsiLifecycle.ps1"),
+        b"$installedApplication = Compare-InstalledApplicationSnapshots $installedBefore (Get-InstalledApplicationSnapshot)\n",
+        b"$installedApplication = Compare-InstalledApplicationSnapshots $installedBefore $installedBefore\n",
+        "w10-tests-scripts-2: the lifecycle snapshots the installed application once before its first MSI",
+    ),
+    (
+        "bd-w10-tests-scripts-2: the lifecycle re-takes its before snapshot after the run (N-audit-1106-397)",
+        os.path.join(REPO, "tests", "Test-IsolatedMsiLifecycle.ps1"),
+        b"$installedApplication = Compare-InstalledApplicationSnapshots $installedBefore (Get-InstalledApplicationSnapshot)\n",
+        b"$installedBefore = Get-InstalledApplicationSnapshot\n"
+        b"$installedApplication = Compare-InstalledApplicationSnapshots $installedBefore (Get-InstalledApplicationSnapshot)\n",
+        "w10-tests-scripts-2: the lifecycle snapshots the installed application once before its first MSI",
+    ),
 )
 
 
