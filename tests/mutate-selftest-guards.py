@@ -22851,6 +22851,14 @@ CASES = (
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "every outcome has a log word and a Status-row brief of its own, only Failed's being 'failed': TokenStoreUnavailable"),
+    # N-audit-1106-302: Read counts a key no meeting app owns (this app's own) as Zoom's.
+    ("bd-w6-shared-1: this app's own in-use key counts as a meeting app's (N-audit-1106-302)",
+     os.path.join(REPO, "shared", "MeetingApps", "MeetingAppMicrophone.cs"),
+     b"                if (use == null) continue;\n",
+     b"                if (use == null) use = snap.Zoom;\n",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "this app's own recording never counts as a meeting app holding the microphone"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
