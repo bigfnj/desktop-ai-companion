@@ -419,9 +419,9 @@ namespace DesktopAICompanion.Shimeji
         }
 
         /// <summary>
-        /// ParityRun.Run on generated pets: the indexes it traces, its refusals (exit 2 and NO trace file, the map
-        /// checked before the trace is opened), the inactive left-button target (aborted, exit 2) beside a right press on
-        /// an absent companion (complete), and the trace-on/trace-off proof (CONTRACT v1.1 section 5).
+        /// ParityRun.Run on generated pets: the indexes it traces, its refusals (exit 2 and NO trace file, the map and the
+        /// pack checked before the trace is opened), the inactive left-button target (aborted, exit 2) beside a right press
+        /// on an absent companion (complete), and the trace-on/trace-off proof (CONTRACT v1.1 section 5).
         /// </summary>
         private static void CheckParityRunRefusals(Action<bool, string> check, string root, StringBuilder log)
         {
@@ -439,6 +439,8 @@ namespace DesktopAICompanion.Shimeji
             // The scenario's rng, directed unless a check sets a tape or a seed for its own runs and puts it back.
             const string directed = "{\"kind\":\"none\"}";
             string rng = directed;
+            // The scenario's pack, the generated one unless a refusal check names another for its run and puts it back.
+            string packName = "pack";
             // One pets folder and scenario per run, so no run reads another's leftovers.
             Func<string, string, string, bool, string[]> go = (map, input, xmlText, traceOff) =>
             {
@@ -449,7 +451,7 @@ namespace DesktopAICompanion.Shimeji
                 if (map != null) File.WriteAllText(Path.Combine(member, "parity-map.json"), map, new UTF8Encoding(false));
                 string scenario = Path.Combine(root, "S-host-" + run + ".json");
                 File.WriteAllText(scenario, "{\"schema\":\"shimeji-parity-scenario/1\",\"id\":\"S-host-" + run + "\",\"description\":\"generated\","
-                    + "\"pack\":\"pack\",\"screens\":[{\"x\":0,\"y\":0,\"w\":1280,\"h\":720}],\"workArea\":{\"x\":0,\"y\":0,\"w\":1280,\"h\":680},"
+                    + "\"pack\":\"" + packName + "\",\"screens\":[{\"x\":0,\"y\":0,\"w\":1280,\"h\":720}],\"workArea\":{\"x\":0,\"y\":0,\"w\":1280,\"h\":680},"
                     + "\"dpiScale\":1.0,\"ticks\":8,\"rng\":" + rng + ",\"settings\":{},"
                     + "\"mascots\":[{\"sid\":\"m1\",\"imageSet\":\"Par\",\"behavior\":\"Walk\",\"anchor\":[640,680],\"lookRight\":false}],"
                     + "\"activeWindow\":[{\"tick\":0,\"visible\":false}],\"input\":[{\"tick\":0,\"cursor\":[100,100]}" + input + "]}", new UTF8Encoding(false));
@@ -480,6 +482,41 @@ namespace DesktopAICompanion.Shimeji
             string[] mapless = go(null, "", xml, false);
             check(mapless[0] == "2" && mapless[1] == null && mapless[2].Contains("a converted pet with no parity-map.json"),
                 "parity run: a pet folder with animations.xml and no parity-map.json is refused, not skipped (" + mapless[2].Trim() + ")");
+
+            // N-bd-w6-coordinator-01: a pack its preflight refuses (pack-invalid, CONTRACT section 3) is refused as a map is,
+            // with exit 2, its line and no trace file, because it is hashed before the trace is opened. Hashed inside the
+            // header write, the refusal left an empty trace and escaped the command, so a run that throws is caught here and
+            // reported with the trace it left, rather than ending every check below it.
+            Func<string[]> goCaught = () =>
+            {
+                try { return go(goodMap, "", xml, false); }
+                catch (Exception e)
+                {
+                    string left = Path.Combine(root, "trace" + run + ".jsonl");
+                    return new[] { "threw", File.Exists(left) ? File.ReadAllText(left) : null, e.GetType().Name + ": " + e.Message, null };
+                }
+            };
+            string link = Path.Combine(pack, "link"), outside = Path.Combine(root, "outside");
+            Directory.CreateDirectory(outside);
+            if (!TryMakeDirectoryLink(link, outside))
+                log.AppendLine("NOTE: parity run: the linked-pack refusal is not exercised (no symlink or junction could be made here)");
+            else
+            {
+                string[] linked;
+                try { linked = goCaught(); }
+                finally { try { Directory.Delete(link); } catch { } }
+                check(linked[0] == "2" && linked[1] == null
+                      && linked[2].Contains("refused " + Path.GetFullPath(pack) + ": pack-invalid: the pack holds a link: link"),
+                    "parity run: a pack holding a link is refused before the trace is opened, with exit 2 and no trace file (exit "
+                    + linked[0] + ", trace " + (linked[1] == null ? "none" : "left with " + linked[1].Length + " chars") + ", " + linked[2].Trim() + ")");
+            }
+            packName = "no-such-pack";
+            string[] packless = goCaught();
+            packName = "pack";
+            check(packless[0] == "2" && packless[1] == null
+                  && packless[2].Contains("pack-invalid: the pack " + Path.GetFullPath(Path.Combine(root, "no-such-pack")) + " is not a folder"),
+                "parity run: a pack that is not a folder is refused before the trace is opened, with exit 2 and no trace file (exit "
+                + packless[0] + ", trace " + (packless[1] == null ? "none" : "left with " + packless[1].Length + " chars") + ", " + packless[2].Trim() + ")");
 
             // CONTRACT v1.1 section 1: a left-button edge for a companion not active at dispatch is scenario-invalid.
             string[] absent = go(goodMap, ",{\"tick\":2,\"sid\":\"m1.b1\",\"press\":\"left\"}", xml, false);
