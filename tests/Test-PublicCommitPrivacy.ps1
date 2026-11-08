@@ -387,6 +387,31 @@ function Get-IndexPrivacyFindings([psobject]$Needles, [string]$Repository = $rep
     return [pscustomobject]@{ Protected = @(); Scanned = $true; Matched = $grep.Matched; Offenders = $grep.Offenders }
 }
 
+# The self-test's fixture root under Parent, with every folder this run had to create for it, deepest first
+# (N-bd-w11-tests-scripts-1-03). The root is new on every run; its build\privacy-selftest parent, and build itself, may
+# already be there. The record is taken before anything is created, so Remove-PrivacyFixtureRoot takes back exactly what
+# this run made and never a folder that was already there.
+function New-PrivacyFixtureRoot([string]$Parent) {
+    $root = Join-Path $Parent ([Guid]::NewGuid().ToString('N'))
+    $created = New-Object 'Collections.Generic.List[string]'
+    for ($dir = $root; $dir -and -not [IO.Directory]::Exists($dir); $dir = [IO.Path]::GetDirectoryName($dir)) { $created.Add($dir) }
+    [void][IO.Directory]::CreateDirectory($root)
+    return [pscustomobject]@{ Root = $root; Created = $created.ToArray(); Removed = $false }
+}
+
+# Removes the fixture root, then each folder above it that this run created, deepest first, once it is empty. The old
+# removal took the root alone and left the emptied build\privacy-selftest parent behind after every run. The delete is
+# not recursive, so a parent that another run's fixture is still inside refuses it and stays, with everything above it;
+# testing for emptiness first instead would race that run between the test and the delete.
+function Remove-PrivacyFixtureRoot([psobject]$Fixture) {
+    if ([IO.Directory]::Exists($Fixture.Root)) { Remove-Item -LiteralPath $Fixture.Root -Recurse -Force }
+    $Fixture.Removed = $true
+    foreach ($dir in $Fixture.Created) {
+        if (-not [IO.Directory]::Exists($dir)) { continue }
+        try { [IO.Directory]::Delete($dir, $false) } catch [IO.IOException], [UnauthorizedAccessException] { return }
+    }
+}
+
 if ($SelfTest) {
     $count = 0
     foreach ($case in @(
@@ -479,14 +504,42 @@ if ($SelfTest) {
         if ((Test-PrivacyText $case[0] $decomposedNeedles) -ne $case[1]) { throw ('Public privacy matcher self-test failed: ' + $case[2] + '.') }
         $count++
     }
-    # Range mode, then the default index mode, each on a synthetic repository this self-test creates and
-    # removes under build\.
-    $fixtureRoot = Join-Path $repoRoot ('build\privacy-selftest\' + [Guid]::NewGuid().ToString('N'))
+    # Range mode, then the default index mode, each on a synthetic repository this self-test creates under
+    # build\privacy-selftest\ and removes again, with every folder above it that the run created.
+    $fixture = New-PrivacyFixtureRoot (Join-Path $repoRoot 'build\privacy-selftest')
+    $fixtureRoot = $fixture.Root
     $synthetic = Join-Path $fixtureRoot 'range'
     $indexRepo = Join-Path $fixtureRoot 'index'
     [void][IO.Directory]::CreateDirectory($synthetic)
     [void][IO.Directory]::CreateDirectory($indexRepo)
     try {
+        # The fixture's own removal (N-bd-w11-tests-scripts-1-03), on synthetic folders inside this run's root: a parent
+        # that was already there stays, even empty; one this run created goes once it is empty, with build above it; and
+        # one that another run's fixture is still inside stays, with that fixture untouched.
+        $cleanup = Join-Path $fixtureRoot 'cleanup'
+        $kept = Join-Path $cleanup 'kept\build\privacy-selftest'
+        [void][IO.Directory]::CreateDirectory($kept)
+        Remove-PrivacyFixtureRoot (New-PrivacyFixtureRoot $kept)
+        if (-not [IO.Directory]::Exists($kept) -or @([IO.Directory]::GetFileSystemEntries($kept)).Count -ne 0) {
+            throw 'Public privacy fixture self-test failed: a parent folder the run did not create was removed, or its root was not.'
+        }
+        $count++
+        $fresh = Join-Path $cleanup 'fresh'
+        [void][IO.Directory]::CreateDirectory($fresh)
+        Remove-PrivacyFixtureRoot (New-PrivacyFixtureRoot (Join-Path $fresh 'build\privacy-selftest'))
+        if (@([IO.Directory]::GetFileSystemEntries($fresh)).Count -ne 0) {
+            throw 'Public privacy fixture self-test failed: an emptied parent folder the run created was left behind.'
+        }
+        $count++
+        $shared = Join-Path $cleanup 'shared\build\privacy-selftest'
+        $first = New-PrivacyFixtureRoot $shared
+        $second = New-PrivacyFixtureRoot $shared
+        Remove-PrivacyFixtureRoot $first
+        if ([IO.Directory]::Exists($first.Root) -or -not [IO.Directory]::Exists($second.Root)) {
+            throw 'Public privacy fixture self-test failed: removing a fixture took the fixture of another run still inside its parent.'
+        }
+        Remove-PrivacyFixtureRoot $second
+        $count++
         function Step([string[]]$Arguments, [string]$Repository = $synthetic) {
             $done = Invoke-IndexedGit $Arguments $Repository
             if ($done.ExitCode -ne 0) { throw ('Synthetic repository step failed: git ' + ($Arguments -join ' ')) }
@@ -753,9 +806,21 @@ if ($SelfTest) {
             $count++
         }
     } finally {
-        if ([IO.Directory]::Exists($fixtureRoot)) { Remove-Item -LiteralPath $fixtureRoot -Recurse -Force }
+        Remove-PrivacyFixtureRoot $fixture
+    }
+    # The real fixture went through that removal, and what this run created is gone (N-bd-w11-tests-scripts-1-03): the
+    # root, and each folder above it that the run made, unless another run's fixture is inside it now. Read after the
+    # finally, so it sees what the finally left. When the parent was already there, the run made only the root, and the
+    # line after the summary says that the parent's removal was checked on the synthetic folders alone.
+    if (-not $fixture.Removed) { throw 'Public privacy fixture self-test failed: the real fixture was not removed by Remove-PrivacyFixtureRoot.' }
+    $leftBehind = @($fixture.Created | Where-Object { [IO.Directory]::Exists($_) -and @([IO.Directory]::GetFileSystemEntries($_)).Count -eq 0 })
+    if ([IO.Directory]::Exists($fixture.Root) -or $leftBehind.Count -gt 0) {
+        throw 'Public privacy fixture self-test failed: the run left a folder it created behind.'
     }
     Write-Host "Public privacy self-test passed: $count cases (path policy, matchers, range mode with merges and the default index mode on synthetic repositories, removed again)."
+    if ($fixture.Created.Count -lt 2) {
+        Write-Host 'Its build\privacy-selftest folder was there before this run, so the run left it in place; removing a parent folder the run created was checked on synthetic folders only.'
+    }
     exit 0
 }
 

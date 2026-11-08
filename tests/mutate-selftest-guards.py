@@ -24828,6 +24828,42 @@ CASES = (
      b"    $unique = [Collections.Generic.SortedSet[string]]::new([StringComparer]::OrdinalIgnoreCase)\n",
      None, None, PRIVACY, None,
      "two protected paths differing only in case were not both refused"),
+    # N-bd-w11-tests-scripts-1-03, graded through PRIVACY: the fixture removal takes the root alone again (in the helper,
+    # or at the real call site), counts a parent that was already there as its own, deletes a parent recursively, or the
+    # real call site skips the removal. A firing mutant that takes the root alone leaves an empty build\privacy-selftest\
+    # behind, and the one that skips the removal leaves its whole fixture root there too. Later runs keep both, as they
+    # keep any folder they did not create, and say so; every case here still fires then, since the synthetic folders and
+    # the real fixture's own root are new on every run.
+    ("bd-w12-tests-scripts-1: the fixture removal takes the root alone again (N-bd-w11-tests-scripts-1-03)",
+     PRIVACY_PS1,
+     b"    foreach ($dir in $Fixture.Created) {\n",
+     b"    foreach ($dir in @()) {\n",
+     None, None, PRIVACY, None,
+     "an emptied parent folder the run created was left behind"),
+    ("bd-w12-tests-scripts-1: the fixture record counts a parent that was already there (N-bd-w11-tests-scripts-1-03)",
+     PRIVACY_PS1,
+     b"    for ($dir = $root; $dir -and -not [IO.Directory]::Exists($dir); $dir = [IO.Path]::GetDirectoryName($dir)) { $created.Add($dir) }\n",
+     b"    $created.Add($root); $created.Add($Parent)\n",
+     None, None, PRIVACY, None,
+     "a parent folder the run did not create was removed"),
+    ("bd-w12-tests-scripts-1: the fixture removal deletes a parent recursively (N-bd-w11-tests-scripts-1-03)",
+     PRIVACY_PS1,
+     b"        try { [IO.Directory]::Delete($dir, $false) }",
+     b"        try { [IO.Directory]::Delete($dir, $true) }",
+     None, None, PRIVACY, None,
+     "removing a fixture took the fixture of another run still inside its parent"),
+    ("bd-w12-tests-scripts-1: the real fixture is removed by its root alone again (N-bd-w11-tests-scripts-1-03)",
+     PRIVACY_PS1,
+     b"        Remove-PrivacyFixtureRoot $fixture\n",
+     b"        if ([IO.Directory]::Exists($fixtureRoot)) { Remove-Item -LiteralPath $fixtureRoot -Recurse -Force }\n",
+     None, None, PRIVACY, None,
+     "the real fixture was not removed by Remove-PrivacyFixtureRoot"),
+    ("bd-w12-tests-scripts-1: the real fixture is only marked removed (N-bd-w11-tests-scripts-1-03)",
+     PRIVACY_PS1,
+     b"        Remove-PrivacyFixtureRoot $fixture\n",
+     b"        $fixture.Removed = $true\n",
+     None, None, PRIVACY, None,
+     "the run left a folder it created behind"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
