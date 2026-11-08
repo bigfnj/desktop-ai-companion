@@ -63,9 +63,12 @@ Also on `ModuleInfo`: the oldest host the module will load on. The loader refuse
 
 Bump it **only when the module actually calls an ABI member that host introduced** — not on every host
 release, or a module stops working on hosts that could have run it perfectly well. Current values are a
-history of exactly that. The 1.0.0 rebase flattened it: every module now asks for `1.0.0`, because a
-mandatory clean install means no host older than that exists to refuse them. The history restarts from
-here, so the next module to call a newly introduced member is the first to raise its floor again.
+history of exactly that. The 1.0.0 rebase flattened it: every module asked for `1.0.0` at the rebase,
+because a mandatory clean install means no host older than that exists to refuse them. The history
+restarted there, and nearly every shipped module has raised its floor since, each when it first called a
+member a newer host introduced. [`module-authoring.md`](module-authoring.md#minhostversion) lists each raise
+with the member that forced it; the `MinHostVersion =` line in each module's source is the authority over
+that list. (This said every module still asked for `1.0.0` until N-audit-1106-188.)
 
 **Sequencing:** publish a module only AFTER the host release its `MinHostVersion` names has shipped. The
 Modules pane asks the loader's question before it offers anything, so a user on an older host is not handed a
@@ -95,7 +98,8 @@ Merging to `master` IS the companion and module publish. The MSI and ZIP bundle 
 ## Companions have no version, and that is on purpose
 
 A companion catalog entry carries `id`, `name`, `author`, `url`, `sha256`, `bytes` — no version. Adding one would
-mean maintaining a number by hand for 53 companions, and it would be silently wrong the first time someone forgot.
+mean maintaining a number by hand for every companion in the catalog, and it would be silently wrong the first
+time someone forgot.
 
 **A companion's freshness is decided by its CONTENT HASH instead** (`CompanionProvenance`, host 1.9.7+). The catalog already
 records the SHA-256 of the exact bytes it serves, and the installer writes those bytes verbatim, so hashing the
@@ -116,6 +120,9 @@ no stamp cannot be told apart from an edited one and is **not** assumed safe, so
 > and rejected: it would assert the file is unmodified, which is exactly the thing the stamp exists to not
 > guess at.
 
-`<header><version>` inside a companion's XML is a CONVERTER format marker (1.0 flat weights → 1.1 damped → 1.2
-ceiling → 1.3 jump arc). It gates the migration verbs and is not an update signal; the host reads it only for
-display.
+`<header><version>` inside a companion's XML is a CONVERTER format marker: `0.1` (flat hub weights) up to the
+emitter's current `ConvertedFormatVersion`. The rungs, and the migration verb that moves a pet off each, are
+`FormatLadder` in [`PetEmitter.cs`](../tools/ShimejiConvert.Engine/Emit/PetEmitter.cs), with a comment on
+every version constant. Read them there rather than from a list here: until N-audit-1106-190 this sentence
+still gave the chain as numbered before 858df9f renumbered all of it (1.0 → 0.1 through 1.8 → 1.0). It gates
+the migration verbs and is not an update signal; the host reads it only for display.

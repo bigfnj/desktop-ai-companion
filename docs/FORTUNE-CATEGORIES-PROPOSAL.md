@@ -3,7 +3,7 @@
 > 🗄️ **ARCHIVED, applied at 1.0.0.** This was a proposal, it was accepted, and
 > `packs/collections.json` has carried the seven collections since. Nothing in the repo references this
 > file and nothing generates from it. Read
-> [`FORTUNE-SOURCE-TABLE.md`](FORTUNE-SOURCE-TABLE.md) instead, which is generated and current. Kept
+> [`FORTUNE-SOURCE-TABLE.md`](FORTUNE-SOURCE-TABLE.md) instead, which is kept current by hand. Kept
 > for the reasoning in "Why these seven", which is not recorded anywhere else.
 
 Applied to packs/collections.json. Generated from an explicit mapping that is checked to be a
@@ -12,7 +12,7 @@ fallback the way it did before.
 
 The `origin` column below is **as of the proposal**, before the corpus was cut to two sources. Only
 `fortunes` and `dadjokes` are built-in now; everything else reads `pack`. `docs/FORTUNE-SOURCE-TABLE.md`
-is the regenerated, current version.
+is the current version, kept by hand.
 
 ## Why these seven
 

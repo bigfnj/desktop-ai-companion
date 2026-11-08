@@ -37,9 +37,12 @@ To cut a release:
    rather than after the tag", directly contradicting the correction above it.** It was the old
    instruction, left behind when the ⚠ block was written on 2026-09-25, so this file told you to do
    the thing it had just finished explaining does not work. Removed 2026-09-27; the order above is the
-   one to follow. Re-verified before removing it: `New-ContentCatalog.ps1:260-271` resolves
-   `app.version` from reachable `v*` tags and THROWS when none is reachable, so running it before the
-   tag exists cannot advertise the new version.
+   one to follow. What made removing it safe still holds: the `$catalogTags` block of
+   `New-ContentCatalog.ps1` takes `app.version` from the highest of ALL local `v*` tags (`git tag --list`
+   does not ask whether a tag is reachable from HEAD), THROWS when there is none, and THROWS when that tag
+   is above `ProductVersion.props`, so running it before the tag exists cannot advertise the new version.
+   This cited a line range and said "reachable" tags until N-audit-1106-187; the range had drifted onto the
+   module `minHostVersion` block.
 
    The worry that paragraph existed to address — `master` left red between the bump and the tag — does
    not arise, and the ⚠ block above says why: the freshness gate compares `app.version` against the

@@ -1,11 +1,27 @@
 # Every fortune source and its collection
 
-Generated from `packs/collections.json` and `catalog.json`. **159 sources across 7 collections.**
+**159 sources across 7 collections.** Kept by hand from `packs/collections.json`, `catalog.json` and the
+built-in corpus. The commit that added this file called it generated, but no generator was ever committed, so
+every number below is as current as the last hand edit. The end of this header says where each one comes from.
 
 The built-in corpus is only `fortunes` (Classic Fortunes) and `dadjokes`, 3,225 lines together. Every
 other source is a downloadable pack, so `origin` reads `pack` for all but those two. `dadjokes` reads `both`
 because its pack holds the same 2,794 rows as the corpus, so it is counted once, not as corpus plus pack.
-Regenerate this file after any change to the collections or the corpus; do not hand-edit it.
+
+Update it in the same change as any edit to the collections, a pack or the corpus, re-deriving each number
+from its source:
+
+- Sections, their order and the line under each heading: `collections[]` in `packs/collections.json`, its
+  `name` and `desc`, in file order. A section's rows are that collection's `sources`, largest first, ties by
+  source id.
+- A pack's display name and fortunes: its `packs[]` entry in `catalog.json`, `name` and `count`. The count is
+  the pack file's line count, written by `packaging/New-ContentCatalog.ps1`.
+- The two built-in sources: the lines of `src/Fortunes/fortunes.txt` whose first tab-separated field is the
+  source id. `fortunes` has no catalog entry, so its display name is the one the Readme uses.
+- `origin`: `built-in` for a source only in the corpus, `pack` for one only in the catalog, `both` for one in
+  both, counted once.
+- A section's "N sources, ~M fortunes" line and its row in the summary table: its row count and the sum of
+  its fortunes. The total above: every source in `collections.json`, and the number of collections.
 
 | collection | sources | fortunes |
 |---|---:|---:|

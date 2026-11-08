@@ -202,9 +202,13 @@ changelog: AgentFlow `1.2.0`, Fortunes and Remembrance `1.4.0` (the settings pri
 Remembrance to `1.8.0` with `IHostCredentials` (and AI Brain's `SettingField.VisibleWhen`); Companion Studio to
 `1.10.0` with `ICompanionPackPreview.SpawnPackPreview` and `CompanionTypeInfo.PackId`/`PackMember`. This paragraph
 used to say that only AI Brain had moved, to `1.1.0`, long after it stopped being true, which is how a list in a document
-goes stale: read the modules, not this list, before you rely on it. Pre-rebase numbers (1.4.x from before the rebase, 1.9.x) can be
-**above** the current host and are refused, so a version copied out of an older doc or an older module is worse
-than leaving the field out entirely. See [`VERSIONING.md`](VERSIONING.md).
+goes stale: read the modules, not this list, before you rely on it. A number copied out of an older doc or an
+older module can be pre-rebase numbering (1.4.x, 1.9.x: the rebase folded every version up to 1.9.16 into 1.0.0),
+and the same number now names a different host. It is wrong in both directions. Too high, and the module loads on a
+newer host but is turned away by every host below that number that could have run it. Too low, and the gate lets
+it load on a host that lacks the member it calls, so it fails at that first call instead of being refused with a
+reason. Name the host that the member's comment in `PluginApi.cs` gives, or `1.0.0`. See
+[`VERSIONING.md`](VERSIONING.md).
 
 ### Asking the user (host 1.6.0)
 

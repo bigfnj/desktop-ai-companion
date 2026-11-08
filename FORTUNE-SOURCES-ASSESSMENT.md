@@ -22,7 +22,8 @@ endpoint is dead (5 rows); fortune-tv ships compiled `.dat` binaries that were i
 prefaces (flagged per row).
 
 The **Tier A/B/C** sections below preserve the original assessment of candidate additions. The
-section immediately below records the embedded corpus that actually ships now.
+section immediately below records the embedded corpus as it shipped before 1.0.0, not the one that ships
+now; its first paragraph says what replaced it.
 
 > **Rights status:** this harvest assessment is research and planning evidence, not legal clearance.
 > License labels below repeat source metadata or historical assumptions unless an exact content
@@ -30,14 +31,15 @@ section immediately below records the embedded corpus that actually ships now.
 > rights gates were **retired** with the enterprise release pipeline and have not been replaced, so
 > nothing now checks this mechanically; the open items are recorded in
 > [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) and must be reviewed by hand. No source is
-> approved for redistribution merely because it appears in Tier A or in the current corpus table.
+> approved for redistribution merely because it appears in Tier A or in the pre-1.0.0 corpus table.
 
 ---
 
 ## What we shipped before 1.0.0 — 26 sources, 10,311 entries
 
 **Historical.** The built-in corpus is now **2 sources and 3,225 lines** (Classic Fortunes plus Dad
-Jokes); the other 24 became downloadable packs. See
+Jokes). Classic Fortunes is the one source of the 26 below that stayed; the other 25 became downloadable
+packs, and Dad Jokes, which is not among them, joined the corpus at the same change. See
 [`docs/FORTUNE-SOURCE-TABLE.md`](docs/FORTUNE-SOURCE-TABLE.md) for the current picture. The table below
 is kept because it records the per-source harvest and classification evidence, which nothing else does.
 
@@ -75,9 +77,11 @@ stored tag; it never lowers the supplied severity.
 | ObscureSorrows | 9 | 2 | 0 |
 | **Total** | **10,311** | **60** | **23** |
 
-**Current takeaways:** the embedded mix is substantially more balanced than the old harvest
-snapshot. `quotable` is the largest source at 20.5%, followed by `cleanjokes` at 15.4% and
-`authors` at 9.7%; `showerthoughts` is now 7.8% rather than 38%.
+**Takeaways at the time (before 1.0.0):** the embedded mix was substantially more balanced than the
+old harvest snapshot. `quotable` was the largest source at 20.5%, followed by `cleanjokes` at 15.4% and
+`authors` at 9.7%; `showerthoughts` had fallen to 7.8% from 38%. None of these sources is in the
+built-in corpus now, which holds no `quotable` row at all; the first paragraph of this section says
+what it holds. (These read as current until N-audit-1106-191.)
 
 ---
 
