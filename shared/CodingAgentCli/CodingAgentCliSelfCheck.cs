@@ -422,6 +422,8 @@ namespace DesktopAICompanion.CodingAgent
             Guard(check, "a details read's landing", CheckDetailsReadLanded);
             // Lane feature/host-abi-180.
             Guard(check, "the shared Claude Code sign-in", SharedSignInSelfCheck.Check);
+            // Burn-down lane w6-shared-1.
+            Guard(check, "a stopped Codex screenshot call's folder", CheckStoppedScreenshotCallFolder);
         }
 
         private static void Guard(Action<string, bool> check, string group, Action<Action<string, bool>> run)
@@ -3430,6 +3432,59 @@ namespace DesktopAICompanion.CodingAgent
                       answeredLine + " | " + refusedLine,
                     answered.Ok && answeredLine.Contains(" ok exit=0 ms=") && refused.Outcome == CliOutcome.ChoiceRefused &&
                     refusedLine.Contains(" choice-refused not-started ms="));
+            }
+        }
+
+        /// <summary>
+        /// BACKLOG N-audit-1106-301: a Codex screenshot call's own folder, which holds the screenshot and the instructions
+        /// file, is deleted however the call ends. CheckInput holds that for a call that answered; this holds it for the two
+        /// that never come back with a result, one its bound stops and one its caller cancels, each while the fake holds the
+        /// call open. The screenshot is the user's screen, so a folder kept by every remark that timed out would leave it on
+        /// disk. The folder is the one the fake read the screenshot from WHILE the call ran (the WITNESS that there was one).
+        /// </summary>
+        private static void CheckStoppedScreenshotCallFolder(Action<string, bool> check)
+        {
+            using (var scratch = new FakeCliScratch())
+            {
+                var entered = new ManualResetEventSlim(false);
+                var fake = new FakeCliProcess();
+                fake.Respond = async delegate(FakeCliCall call, CancellationToken token)
+                {
+                    if (!call.IsModelCall) return await FakeCliProcess.Answering("OK")(call, token).ConfigureAwait(false);
+                    entered.Set();
+                    await Task.Delay(-1, token).ConfigureAwait(false);
+                    return FakeCliProcess.Result(0, "", "");
+                };
+                CodingAgentCli runner = scratch.NewRunner(fake, new List<string>());
+
+                CliRequest bounded = Remark(CodingAgentKind.Codex, "p", SyntheticPng);
+                bounded.Timeout = TimeSpan.FromMilliseconds(300);
+                CliAnswer timedOut = Wait(runner.AskAsync(bounded, CancellationToken.None));
+                FakeCliCall timedOutCall = fake.Calls.Find(delegate(FakeCliCall x) { return x.IsModelCall; });
+                string timedOutFolder = timedOutCall == null || timedOutCall.ImagePath == null ? null : Path.GetDirectoryName(timedOutCall.ImagePath);
+
+                fake.Clear();
+                entered.Reset();
+                CliAnswer cancelled;
+                bool inFlight;
+                using (var stop = new CancellationTokenSource())
+                {
+                    Task<CliAnswer> stopping = runner.AskAsync(Remark(CodingAgentKind.Codex, "p", SyntheticPng), stop.Token);
+                    inFlight = entered.Wait(TimeSpan.FromSeconds(10));
+                    stop.Cancel();
+                    cancelled = Wait(stopping);
+                }
+                FakeCliCall cancelledCall = fake.Calls.Find(delegate(FakeCliCall x) { return x.IsModelCall; });
+                string cancelledFolder = cancelledCall == null || cancelledCall.ImagePath == null ? null : Path.GetDirectoryName(cancelledCall.ImagePath);
+
+                check("WITNESS cli runner: both stopped Codex screenshot calls read the screenshot from their own call folder while they ran",
+                    timedOutCall != null && timedOutCall.ImageAtCall != null && timedOutFolder != null &&
+                    cancelledCall != null && cancelledCall.ImageAtCall != null && cancelledFolder != null && inFlight &&
+                    !string.Equals(timedOutFolder, cancelledFolder, StringComparison.OrdinalIgnoreCase));
+                check("cli runner: a Codex screenshot call its bound stopped leaves no call folder behind: " + CodingAgentCli.OutcomeWord(timedOut.Outcome),
+                    timedOut.Outcome == CliOutcome.TimedOut && timedOutFolder != null && !Directory.Exists(timedOutFolder));
+                check("cli runner: a Codex screenshot call its caller cancelled leaves no call folder behind: " + CodingAgentCli.OutcomeWord(cancelled.Outcome),
+                    cancelled.Outcome == CliOutcome.Cancelled && cancelledFolder != null && !Directory.Exists(cancelledFolder));
             }
         }
 

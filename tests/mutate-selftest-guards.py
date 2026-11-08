@@ -22820,6 +22820,22 @@ CASES = (
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "a timed-out answer carries its call's bound, so the exception built with none names that bound and not the default"),
+    # N-audit-1106-301: the backlog's own mutation, the call folder deleted only for a call that came back.
+    ("bd-w6-shared-1: a call that never came back keeps its folder (N-audit-1106-301)",
+     CLI_RUNNER,
+     b"                DeleteQuietly(callDirectory);\n",
+     b"                if (exited) DeleteQuietly(callDirectory);\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a Codex screenshot call its bound stopped leaves no call folder behind"),
+    # N-audit-1106-301: only a cancelled call keeps its folder, which the timed-out check alone would not see.
+    ("bd-w6-shared-1: a cancelled call keeps its folder (N-audit-1106-301)",
+     CLI_RUNNER,
+     b"                DeleteQuietly(callDirectory);\n",
+     b"                if (answer.Outcome != CliOutcome.Cancelled) DeleteQuietly(callDirectory);\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a Codex screenshot call its caller cancelled leaves no call folder behind"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
