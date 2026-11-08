@@ -24800,6 +24800,34 @@ CASES = (
      b'    return list(zip(plan.indices, sorted(plan.cases, key=lambda case: (case[4] is None, case[4] or ""))))\n',
      None, None, MUTATION_UNITTESTS, None,
      "test_a_shards_cases_of_one_project_run_together"),
+    # ---- burndown/w12-tests-scripts-1 ----
+    # N-bd-w11-tests-scripts-1-02, graded through PRIVACY: either listing de-duplicates with Sort-Object again, which
+    # compares culture-aware and merges a composed and a decomposed spelling of one path, or the ordinal helper both use
+    # compares culture-aware or ignoring case. "bd-w12-tests-scripts-1:" for one --only.
+    ("bd-w12-tests-scripts-1: the range listing merges paths with Sort-Object again (N-bd-w11-tests-scripts-1-02)",
+     PRIVACY_PS1,
+     b"    $protected = @(Select-UniquePrivacyPath $protectedPaths |\n",
+     b"    $protected = @($protectedPaths | Sort-Object -Unique -CaseSensitive |\n",
+     None, None, PRIVACY, None,
+     "two protected paths differing only in normalization were not both refused"),
+    ("bd-w12-tests-scripts-1: the index listing merges paths with Sort-Object again (N-bd-w11-tests-scripts-1-02)",
+     PRIVACY_PS1,
+     b"        Offenders = @(Select-UniquePrivacyPath $offenders)\n",
+     b"        Offenders = @($offenders | Sort-Object -Unique -CaseSensitive)\n",
+     None, None, PRIVACY, None,
+     "two indexed paths differing only in normalization were not both reported"),
+    ("bd-w12-tests-scripts-1: the path helper compares culture-aware (N-bd-w11-tests-scripts-1-02)",
+     PRIVACY_PS1,
+     b"    $unique = [Collections.Generic.SortedSet[string]]::new([StringComparer]::Ordinal)\n",
+     b"    $unique = [Collections.Generic.SortedSet[string]]::new([StringComparer]::InvariantCulture)\n",
+     None, None, PRIVACY, None,
+     "two protected paths differing only in normalization were not both refused"),
+    ("bd-w12-tests-scripts-1: the path helper ignores case (N-bd-w11-tests-scripts-1-02)",
+     PRIVACY_PS1,
+     b"    $unique = [Collections.Generic.SortedSet[string]]::new([StringComparer]::Ordinal)\n",
+     b"    $unique = [Collections.Generic.SortedSet[string]]::new([StringComparer]::OrdinalIgnoreCase)\n",
+     None, None, PRIVACY, None,
+     "two protected paths differing only in case were not both refused"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

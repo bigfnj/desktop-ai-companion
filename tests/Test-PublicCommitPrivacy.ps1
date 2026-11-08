@@ -180,6 +180,17 @@ function Invoke-IndexedGit([string[]]$Arguments, [string]$Repository = $repoRoot
     finally { $process.Dispose() }
 }
 
+# Paths without repeats, in ordinal order (N-bd-w11-tests-scripts-1-02). Sort-Object -Unique compares culture-aware even
+# with -CaseSensitive, so two names that differ only in Unicode normalization (a composed and a decomposed letter), two
+# files to git, were listed and counted as one; measured under Windows PowerShell 5.1 and PowerShell 7 alike. The ordinal
+# comparer also keeps N-audit-infra-01's rule: two names that differ only in case stay two. Ordinal order lists upper
+# case before lower case, where the culture order it replaces listed lower case first.
+function Select-UniquePrivacyPath([string[]]$Paths) {
+    $unique = [Collections.Generic.SortedSet[string]]::new([StringComparer]::Ordinal)
+    foreach ($path in $Paths) { [void]$unique.Add($path) }
+    return $unique
+}
+
 function Get-RangePrivacyFindings([string]$Range, [psobject]$Needles, [string]$Repository = $repoRoot) {
     if ($Range -notmatch '^[A-Za-z0-9_][A-Za-z0-9_./~^@{}-]*(\.\.\.?[A-Za-z0-9_][A-Za-z0-9_./~^@{}-]*)?$') {
         throw 'The range must be a plain revision range such as origin/master..HEAD.'
@@ -199,10 +210,12 @@ function Get-RangePrivacyFindings([string]$Range, [psobject]$Needles, [string]$R
     # line of the new path as added (again a superset: the index mode reads that whole file too).
     $names = Invoke-IndexedGit @('log', '--no-color', '--no-renames', '--diff-merges=first-parent', '--format=', '--name-only', '-z', '--end-of-options', $Range, '--') $Repository
     if ($names.ExitCode -ne 0) { throw 'Could not list the paths the range changes. No commit contents were scanned.' }
-    # -CaseSensitive (N-audit-infra-01): -Unique alone compares ignoring case, so two paths that differ only in case,
-    # two files to git and to any case-sensitive checkout, were listed and counted as one.
-    $protected = @($names.Output.Split([char]0, [StringSplitOptions]::RemoveEmptyEntries) | ForEach-Object { $_.Trim("`n") } |
-        Where-Object { $_.Length -gt 0 -and (Get-ProtectedPattern $_) } | Sort-Object -Unique -CaseSensitive |
+    # Ordinal (N-audit-infra-01, N-bd-w11-tests-scripts-1-02): Sort-Object -Unique alone compared ignoring case, and with
+    # -CaseSensitive still culture-aware, so two paths that differ only in case, or only in Unicode normalization, two
+    # files to git and to any case-sensitive checkout, were listed and counted as one.
+    $protectedPaths = @($names.Output.Split([char]0, [StringSplitOptions]::RemoveEmptyEntries) | ForEach-Object { $_.Trim("`n") } |
+        Where-Object { $_.Length -gt 0 -and (Get-ProtectedPattern $_) })
+    $protected = @(Select-UniquePrivacyPath $protectedPaths |
         ForEach-Object { [pscustomobject]@{ Path = $_; Pattern = (Get-ProtectedPattern $_) } })
     $findings = New-Object 'Collections.Generic.List[object]'
     if ($protected.Count -gt 0) { return [pscustomobject]@{ Protected = $protected; Findings = @(); Commits = 0 } }
@@ -300,10 +313,11 @@ function Get-IndexedPrivacyOffenders([psobject]$Needles, [string]$Repository = $
             foreach ($blob in $blobsByPath[$path]) { if ($matched.Contains($blob)) { $offenders.Add($path); break } }
         }
     }
-    # -CaseSensitive, as in the range mode (N-audit-infra-01): two indexed paths differing only in case are two offenders.
+    # Ordinal, as in the range mode (N-audit-infra-01, N-bd-w11-tests-scripts-1-02): two indexed paths differing only in
+    # case, or only in Unicode normalization, are two offenders.
     return [pscustomobject]@{
         Matched = ($offenders.Count -gt 0)
-        Offenders = @($offenders | Sort-Object -Unique -CaseSensitive)
+        Offenders = @(Select-UniquePrivacyPath $offenders)
     }
 }
 
@@ -564,6 +578,23 @@ if ($SelfTest) {
             throw ('Public privacy range self-test failed: two protected paths differing only in case were not both refused: ' + $variantPaths)
         }
         $count++
+        # Two protected paths that differ only in Unicode normalization (N-bd-w11-tests-scripts-1-02), a composed and a
+        # decomposed letter, are two names to git and two refusals; Sort-Object -Unique -CaseSensitive called them one.
+        # Compared ordinally, since -ceq calls the two spellings equal too.
+        $composedKey = 'keys/caf' + [char]0x00E9 + '.pem'
+        $decomposedKey = 'keys/cafe' + [char]0x0301 + '.pem'
+        $beforeForms = Step @('rev-parse', 'HEAD')
+        foreach ($form in @($composedKey, $decomposedKey)) {
+            [void](Step @('update-index', '--add', '--cacheinfo', ('100644,' + $variantBlob + ',' + $form)))
+        }
+        [void](Step ($identity + @('commit', '-q', '-m', 'add two keys whose names differ only in normalization')))
+        $formRefused = Get-RangePrivacyFindings ($beforeForms + '..HEAD') $needles $synthetic
+        $formPaths = (@($formRefused.Protected | ForEach-Object { $_.Path })) -join '|'
+        if (@($formRefused.Protected).Count -ne 2 -or $formRefused.Commits -ne 0 -or
+            -not [string]::Equals($formPaths, ($decomposedKey + '|' + $composedKey), [StringComparison]::Ordinal)) {
+            throw 'Public privacy range self-test failed: two protected paths differing only in normalization were not both refused.'
+        }
+        $count++
         # Renames (Codex review 2026-11-02). With rename detection the names pass printed only a rename's new path, so a
         # protected file renamed to an ordinary name reached the patch read. Detection is forced on in this repository,
         # and proven to happen, so a global diff.renames=false cannot make the case pass without testing anything.
@@ -687,16 +718,35 @@ if ($SelfTest) {
             throw ('Public privacy index self-test failed: two indexed paths differing only in case were not both reported: ' + $variantSeen)
         }
         $count++
+        # Two indexed paths that differ only in Unicode normalization (N-bd-w11-tests-scripts-1-02) are two offenders too,
+        # staged the same way. The expected listing is ordered here by Array.Sort with the ordinal comparer, not by the
+        # function under test, and compared ordinally.
+        $composedNote = 'docs/Caf' + [char]0x00E9 + '.txt'
+        $decomposedNote = 'docs/Cafe' + [char]0x0301 + '.txt'
+        foreach ($form in @($composedNote, $decomposedNote)) {
+            [void](Step @('update-index', '--add', '--cacheinfo', ('100644,' + $variantText + ',' + $form)) $indexRepo)
+        }
+        $formIndexed = [string[]](@($variantExpected.Split('|')) + @($composedNote, $decomposedNote))
+        [Array]::Sort($formIndexed, [StringComparer]::Ordinal)
+        $formExpected = $formIndexed -join '|'
+        $formScan = Get-IndexPrivacyFindings $needles $indexRepo
+        if (-not $formScan.Scanned -or @($formScan.Offenders).Count -ne $formIndexed.Count -or
+            -not [string]::Equals((@($formScan.Offenders) -join '|'), $formExpected, [StringComparison]::Ordinal)) {
+            throw 'Public privacy index self-test failed: two indexed paths differing only in normalization were not both reported.'
+        }
+        $count++
         # Both modes on the SAME content (Codex recheck 2026-11-02): once committed, the range mode must report exactly
         # the files the index mode reports, for both user names. log.showRoot is set so a global false cannot hide the
         # root commit's lines.
         [void](Step @('config', 'log.showRoot', 'true') $indexRepo)
         [void](Step ($identity + @('commit', '-q', '-m', 'commit the index fixture')) $indexRepo)
-        foreach ($pair in @(@($needles, $variantExpected), @($accentNeedles, 'src/AccentDecomposed.txt|src/AccentRoot.txt|src/AccentUpper.txt'))) {
-            $indexSeen = (@((Get-IndexPrivacyFindings $pair[0] $indexRepo).Offenders | Sort-Object -CaseSensitive)) -join '|'
-            $rangeSeen = (@((Get-RangePrivacyFindings 'HEAD' $pair[0] $indexRepo).Findings | ForEach-Object { $_.Path } |
-                Sort-Object -Unique -CaseSensitive)) -join '|'
-            if ($indexSeen -cne $pair[1] -or $rangeSeen -cne $pair[1]) {
+        # The listings are ordered by the ordinal comparer and compared ordinally, as the normalization pair above needs.
+        foreach ($pair in @(@($needles, $formExpected), @($accentNeedles, 'src/AccentDecomposed.txt|src/AccentRoot.txt|src/AccentUpper.txt'))) {
+            $indexSeen = (@((Get-IndexPrivacyFindings $pair[0] $indexRepo).Offenders)) -join '|'
+            $rangeSeen = (@(Select-UniquePrivacyPath @((Get-RangePrivacyFindings 'HEAD' $pair[0] $indexRepo).Findings |
+                ForEach-Object { $_.Path }))) -join '|'
+            if (-not [string]::Equals($indexSeen, $pair[1], [StringComparison]::Ordinal) -or
+                -not [string]::Equals($rangeSeen, $pair[1], [StringComparison]::Ordinal)) {
                 throw ('Public privacy self-test failed: both modes did not report the same files on the same content. Index: ' +
                     $indexSeen + '; range: ' + $rangeSeen)
             }
