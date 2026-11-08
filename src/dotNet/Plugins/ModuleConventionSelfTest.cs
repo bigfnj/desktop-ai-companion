@@ -112,20 +112,21 @@ namespace DesktopAICompanion.Plugins
                     // THE CONVENTION, ENFORCED BY THE HOST rather than by each module choosing to.
                     // The check has lived in ModuleKit since 2026-09-17 and exactly one module
                     // called it, so five others could break the convention freely. The tray is
-                    // shared by the host and six modules: an icon-less row reads as a rendering
+                    // shared by the host and nearly every module: an icon-less row reads as a rendering
                     // bug beside its neighbours, and two rows with one glyph look like duplicates.
                     //
                     // Uses the `out reason` overload, not CheckTrayIcons: that one takes
                     // ModuleKit's SelfTestProbe, and this file reports through a StringBuilder.
-                    // A bare false in a six-module menu does not say which row broke it.
+                    // A bare false in a menu that many modules share does not say which row broke it.
                     //
-                    // SCOPE, honestly: --module-selftest runs for all seven in-tree modules
-                    // (tests/Test-ModuleSelfTests.ps1 holds the covered set and the exact failures
-                    // the uncovered dev module is expected to report; RA-288 corrected this note,
-                    // which said four and named Invoke-SelfTests.ps1), so this covers those seven
-                    // plus every out-of-tree module. Submenu icons are NOT covered -- TrayConventions
-                    // walks only the top level, and AgentFlow sets IconPng on a child -- because
-                    // recursing is a ModuleKit change that would stale all seven published payloads.
+                    // SCOPE, honestly: --module-selftest runs for every in-tree module in the covered
+                    // set, $Covered in tests/Test-ModuleSelfTests.ps1, which also holds the exact
+                    // failures the uncovered dev module is expected to report. No count here: this note
+                    // said four (RA-288 corrected it, and that it named Invoke-SelfTests.ps1), then
+                    // seven, and was wrong both times as the set grew (N-audit-1106-386). So this covers
+                    // that set plus every out-of-tree module. Submenu icons are NOT covered --
+                    // TrayConventions walks only the top level, and AgentFlow sets IconPng on a child --
+                    // because recursing is a ModuleKit change that would stale every published payload.
                     string trayReason;
                     bool trayOk = DesktopAICompanion.ModuleKit.Testing.TrayConventions
                         .EveryTrayEntryHasAUniqueIcon(host.TrayItems, out trayReason);

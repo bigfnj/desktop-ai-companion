@@ -24034,6 +24034,26 @@ CASES = (
      b'        return raw.decode("utf-8", errors="replace").replace("\\r\\n", "\\n").replace("\\r", "\\n")\n',
      None, None,
      MUTATION_UNITTESTS, None, 'test_actual_legacy_powershell_fixed_synthetic_ansi_witness'),
+    # ---- burndown/w9-host-2 ----
+    # Host entries of burn-down wave 9. "bd-w9-host-2:" for one --only.
+    # N-audit-1106-249: the arbiter's refused line carries the question's text. The old privacy check read two rigs,
+    # neither with an arbiter refusal, so this survived it; it reads every rig of the queue section now.
+    ("bd-w9-host-2: the arbiter's refused line logs the question's text (N-audit-1106-249)",
+     os.path.join(REPO, "src", "dotNet", "TrayQuestions.cs"),
+     b'                + " reason=" + reason);\n',
+     b'                + " reason=" + reason + " text=" + (e != null ? e.Text : ""));\n',
+     HOST_CSPROJ, EXE,
+     "--trayquestions-selftest", "dp-trayquestions-selftest.txt",
+     "log: no line carries the question's text, title or any label"),
+    # N-audit-1106-255: the sprite pixel budget is raised past the frames' 64 MiB memory budget, which the removed
+    # runtime check could never see. --hardening-selftest holds the two constants together.
+    ("bd-w9-host-2: the sprite pixel budget outgrows the memory budget (N-audit-1106-255)",
+     XML_CS,
+     b'        private const long MaximumGeneratedPixels = SpriteFrameStore.MaximumOriginalPixels;\n',
+     b'        private const long MaximumGeneratedPixels = 2 * SpriteFrameStore.MaximumOriginalPixels;\n',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "the sprite pixel budget stays inside the frames' memory budget"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

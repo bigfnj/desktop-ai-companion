@@ -82,6 +82,11 @@ namespace DesktopAICompanion
         private bool disposed;
         private const int MaximumGeneratedFrames = SpriteFrameStore.MaximumFrames;
         private const long MaximumGeneratedPixels = SpriteFrameStore.MaximumOriginalPixels;
+        // The memory the generated frames may cost. --hardening-selftest holds MaximumGeneratedPixels to it
+        // (N-audit-1106-255); nothing at runtime reads it. ValidateSpriteBudget used to check it AFTER the pixel check,
+        // where it could never fire: 16 Mi pixels at 4 bytes are exactly 64 MiB. Raising the pixel cap past it would
+        // have made that dead check the binding limit at LOAD time, refusing a sheet the validator had admitted with a
+        // message about memory; the self-test makes the same raise fail the gate, where the budget is a decision.
         private const long MaximumGeneratedBytes = 64L * 1024L * 1024L;
         private const int GeneratedBytesPerPixel = 4;
 
@@ -708,11 +713,7 @@ namespace DesktopAICompanion
             if (generatedPixels > MaximumGeneratedPixels)
                 throw new InvalidDataException(
                     "Expanded sprite frames exceed the runtime pixel budget.");
-
-            long generatedBytes = checked(generatedPixels * GeneratedBytesPerPixel);
-            if (generatedBytes > MaximumGeneratedBytes)
-                throw new InvalidDataException(
-                    "Expanded sprite frames exceed the 64 MiB runtime memory budget.");
+            // No separate memory check: the pixel budget IS the 64 MiB memory budget (see MaximumGeneratedBytes).
         }
 
         /// <summary>

@@ -523,6 +523,15 @@ namespace DesktopAICompanion
                         () => validateBudget.Invoke(null, new object[] { 32, 32, 128, 128 }));
                     CheckRejects("oversized generated-frame count rejected", () => validateBudget.Invoke(null, new object[] { 41, 25, 1, 1 }));
                     CheckRejects("oversized generated-pixel budget rejected", () => validateBudget.Invoke(null, new object[] { 32, 32, 256, 256 }));
+                    // The pixel budget IS the memory budget (N-audit-1106-255): ValidateSpriteBudget's own 64 MiB check
+                    // sat after the pixel check and could never fire, so it went, and the two constants are held together
+                    // here instead. A pixel cap raised past the memory budget fails this line rather than a user's load.
+                    long budgetPixels = Convert.ToInt64(Require(xmlT.GetField("MaximumGeneratedPixels", NpStatic), "Xml.MaximumGeneratedPixels").GetRawConstantValue());
+                    long budgetBytes = Convert.ToInt64(Require(xmlT.GetField("MaximumGeneratedBytes", NpStatic), "Xml.MaximumGeneratedBytes").GetRawConstantValue());
+                    long bytesPerPixel = Convert.ToInt64(Require(xmlT.GetField("GeneratedBytesPerPixel", NpStatic), "Xml.GeneratedBytesPerPixel").GetRawConstantValue());
+                    Check("the sprite pixel budget stays inside the frames' memory budget (" + budgetPixels + " pixels at " + bytesPerPixel +
+                        " bytes against " + budgetBytes + " bytes)",
+                        budgetPixels > 0 && bytesPerPixel == 4 && budgetPixels * bytesPerPixel <= budgetBytes);
                 }
                 finally
                 {
