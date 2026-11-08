@@ -24449,6 +24449,20 @@ CASES = (
      HOST_CSPROJ, EXE,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
      'parity error: a behaviour whose action its member does not declare is action-missing'),
+    # ---- burndown/w10-host-1 ----
+    # Host entries of burn-down wave 10. "bd-w10-host-1:" for one --only.
+    # N-bd-w9-host-1-01: the window follow reads the pet's height back from the form again (Top moved by the window, then
+    # PositionY = Top - OffsetY), so a ramping offset drifts the pet into its window. --hardening-selftest rides a staged
+    # classic pet on a hidden window of its own.
+    ("bd-w10-host-1: the window follow reads the pet's height back from the form (N-bd-w9-host-1-01)",
+     os.path.join(REPO, "src", "dotNet", "FormCompanion.cs"),
+     b'                    PositionY += rctO.Top - currentWindowSize.Top;\n'
+     b'                    Top = AnimationRuntimeLimits.ClampFormCoordinate(PositionY + OffsetY);\n',
+     b'                    Top -= (currentWindowSize.Top - rctO.Top);\n'
+     b'                    PositionY = Top - OffsetY;\n',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "ride: a pet whose offset ramps moves with a dragged window by the window's delta alone"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

@@ -487,6 +487,39 @@ namespace DesktopAICompanion
             return timer1.Enabled || _tickFaults != faults || AnimationStep != step;
         }
 
+        /// <summary>Self-test (N-bd-w9-host-1-01): stand this classic pet on <paramref name="window"/>'s top at
+        /// (<paramref name="x"/>, <paramref name="y"/>) in animation <paramref name="animationId"/>, at its first step, the
+        /// state a landing leaves. The window's rect is read now, so a step follows only a move made after this.</summary>
+        internal void StandOnWindowForSelfTest(IntPtr window, int animationId, double x, double y)
+        {
+            CurrentAnimation = Animations.GetAnimation(animationId);
+            CurrentAnimation.UpdateValues(DisplayIndex);
+            AnimationStep = 0;
+            OffsetY = CurrentAnimation.Start.OffsetY;
+            PositionX = x;
+            PositionY = y;
+            Left = AnimationRuntimeLimits.ClampFormCoordinate(PositionX);
+            Top = AnimationRuntimeLimits.ClampFormCoordinate(PositionY + OffsetY);
+            hwndWindow = window;
+            NativeMethods.GetWindowRect(new HandleRef(this, window), out currentWindowSize);
+        }
+
+        /// <summary>Self-test: one classic step as the timer takes it, the timer left off afterwards. False when the step
+        /// faulted (the tick's catch respawns the pet, which would hide what the step did).</summary>
+        internal bool StepForSelfTest()
+        {
+            int faults = _tickFaults;
+            Timer1_Tick(timer1, EventArgs.Empty);
+            timer1.Enabled = false;
+            return _tickFaults == faults;
+        }
+
+        /// <summary>Self-test: where the classic engine holds this pet (its sprite origin before the offset) and the offset
+        /// it applies now.</summary>
+        internal double PositionXForSelfTest { get { return PositionX; } }
+        internal double PositionYForSelfTest { get { return PositionY; } }
+        internal double OffsetYForSelfTest { get { return OffsetY; } }
+
         /// <summary>Self-test: the frame this window shows now, as its transparency mode drew it (the alpha path's last
         /// per-pixel push, else the picture box's image).</summary>
         internal Image TickFrameForSelfTest
@@ -1756,8 +1789,8 @@ namespace DesktopAICompanion
                         // branch already handles "covered", so the two cases separate without it.
                         if (FollowWindow())
                         {
+                            // PositionY is FollowWindow's (moved by the window's delta); see the reasoning there.
                             PositionX = Left;
-                            PositionY = Top - OffsetY;
                             // The window may have been dragged to another monitor, carrying the
                             // pet with it. Without this the pet stands on the new screen while
                             // its physics keep resolving against the old one; see
@@ -2464,10 +2497,18 @@ namespace DesktopAICompanion
 
                 if (currentWindowSize.Top != rctO.Top || currentWindowSize.Left != rctO.Left || currentWindowSize.Right != rctO.Right)
                 {
+                    // The pet's height moves by the WINDOW'S vertical delta, and the form is drawn from it at this step's
+                    // offset (N-bd-w9-host-1-01). It used to be read back as PositionY = Top - OffsetY after Top was moved,
+                    // but Top still held the PREVIOUS step's OffsetY while this step's had already been interpolated, so on
+                    // an animation whose offset ramps (50 of the 3589 in the bundled classic companions) every moving step
+                    // shifted the pet by that step's offset change: measured on a staged 0 to -20 ramp dragged 80 px down
+                    // over eight steps, it ended 16 px sunk into its window (--hardening-selftest, "ride:"). With a held
+                    // offset the two agree, and that ride is unchanged. Left is still read back below (no offset, so no
+                    // drift); it truncates a sub-pixel X as it always has. Nothing moves until the new place is known: a
+                    // resize the X scaling refuses returns false with the pet where it was.
                     // same width as before
                     if (rctO.Right - rctO.Left == currentWindowSize.Right - currentWindowSize.Left)
                     {
-                        Top -= (currentWindowSize.Top - rctO.Top);
                         Left -= (currentWindowSize.Left - rctO.Left);
                     }
                     else // new width
@@ -2481,9 +2522,10 @@ namespace DesktopAICompanion
                                 rctO.Right,
                                 out scaledLeft))
                             return false;
-                        Top -= (currentWindowSize.Top - rctO.Top);
                         Left = scaledLeft;
                     }
+                    PositionY += rctO.Top - currentWindowSize.Top;
+                    Top = AnimationRuntimeLimits.ClampFormCoordinate(PositionY + OffsetY);
                     currentWindowSize = rctO;
                     return true;
                 }

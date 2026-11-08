@@ -1049,6 +1049,66 @@ namespace DesktopAICompanion
                 Check("hang: a zero-inset pet hangs flush",
                     FormCompanion.GripPositionY(500, 0) == 500.0);
 
+                // RIDING A DRAGGED WINDOW (N-bd-w9-host-1-01). A classic pet standing on a window moves with it by the
+                // window's own delta, and by nothing else: the follow read the pet's height back from the form, whose Top
+                // still held the previous step's OffsetY, so during an animation whose offset ramps each moving step
+                // shifted the pet by that step's offset change and the drag ended with it sunk into (or floating over)
+                // its window. Staged as a classic document's animations would be, on this process's own hidden window,
+                // moved by 5 across and 10 down at each of eight steps; the real step (Timer1_Tick, NextStep, the follow)
+                // does the rest. Measured for a ramping offset (0 to -20) and, as the WITNESS that nothing else moved, a
+                // constant one.
+                {
+                    var rideFrames = new System.Collections.Generic.List<Bitmap> { new Bitmap(32, 32) };
+                    var rideXml = new Xml(rideFrames, 32, 32);
+                    var rideAnimations = new Animations(rideXml);
+                    Func<string, int, int, int, TAnimation> sitting = delegate (string name, int id, int startOffset, int endOffset)
+                    {
+                        var sit = new TAnimation(name, id, rideXml);
+                        for (int f = 0; f < 11; f++) sit.Sequence.Frames.Add(0);
+                        sit.Start.Interval.Value = 200;
+                        sit.End.Interval.Value = 200;
+                        sit.Start.Opacity = 1.0;
+                        sit.End.Opacity = 1.0;
+                        sit.Start.UnscaledOffsetY = startOffset;
+                        sit.End.UnscaledOffsetY = endOffset;
+                        sit.Gravity = true;
+                        return sit;
+                    };
+                    rideAnimations.SheepAnimations[1] = sitting("sit-and-stretch", 1, 0, -20);
+                    rideAnimations.SheepAnimations[2] = sitting("sit", 2, -6, -6);
+                    Func<int, double, double, string> ride = delegate (int animationId, double atX, double atY)
+                    {
+                        using (var ridden = new Form { StartPosition = FormStartPosition.Manual, FormBorderStyle = FormBorderStyle.None,
+                                   ShowInTaskbar = false, Bounds = new Rectangle(300, 400, 600, 300) })
+                        using (var rider = new FormCompanion(rideAnimations, rideXml))
+                        {
+                            rider.StandOnWindowForSelfTest(ridden.Handle, animationId, atX, atY);
+                            bool stepped = rider.StepForSelfTest();     // step 0 stands still: a follow needs a step behind it
+                            double startX = rider.PositionXForSelfTest, startY = rider.PositionYForSelfTest;
+                            for (int s = 0; s < 8; s++)
+                            {
+                                ridden.Location = new Point(ridden.Left + 5, ridden.Top + 10);
+                                stepped &= rider.StepForSelfTest();
+                            }
+                            // One still step after the drag: where the pet is drawn against the window's top edge, at the
+                            // offset it has now (0 = standing on it; above 0 = sunk into it).
+                            stepped &= rider.StepForSelfTest();
+                            int sunk = rider.Top - (ridden.Top - 32 + (int)rider.OffsetYForSelfTest);
+                            return (stepped ? "" : "faulted ") +
+                                (rider.PositionXForSelfTest - startX).ToString(System.Globalization.CultureInfo.InvariantCulture) + "," +
+                                (rider.PositionYForSelfTest - startY).ToString(System.Globalization.CultureInfo.InvariantCulture) + " sunk " +
+                                sunk.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                        }
+                    };
+                    string ramped = ride(1, 400, 400 - 32), steady = ride(2, 400, 400 - 32);
+                    Check("ride: a pet whose offset ramps moves with a dragged window by the window's delta alone and still stands " +
+                          "on it (moved 40,80 sunk 0 expected; moved " + ramped + ")", ramped == "40,80 sunk 0");
+                    Check("ride: WITNESS a pet whose offset holds moves with the window by its delta and still stands on it " +
+                          "(moved 40,80 sunk 0 expected; moved " + steady + ")", steady == "40,80 sunk 0");
+                    // Not a check: what the follow does with a sub-pixel position, which the old read-back truncated away.
+                    sb.AppendLine("NOTE: ride: from a sub-pixel start (400.5, 367.5) a held offset moved " + ride(2, 400.5, 367.5));
+                }
+
                 // ---- VELOCITY SCALING ----
                 // Velocity is never scaled DOWN and is still scaled UP. The screen does not shrink with the
                 // pet, so multiplying velocity by a sub-1 size factor made a small companion lethargic rather
