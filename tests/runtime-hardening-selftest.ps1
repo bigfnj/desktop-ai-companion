@@ -6902,6 +6902,54 @@ Assert-True ($w10Remove -cmatch '^public bool RemoveOnePet\(string id\)\s*\{\s*r
     $w10Remove -cnotmatch 'if \(pet == null\) continue;' -and $w10OldWalk -cmatch 'if \(pet == null\) continue;') (
     'w10-host-1: Remove takes one of the companions the user chose, through RemoveOneChosenPet (WITNESS: the old walk matches)')
 
+# ---- burndown/w11-tests-scripts-1 ----
+# THE STAND-DOWN PROBE'S REPLICA READS WHAT THE APP'S WALK READS, IN ITS ORDER, AND DECIDES BY ITS RULES
+# (N-audit-1106-342, N-bd-w2-tests-scripts-1-03). tests\fullscreen-standdown-probe\Program.cs replicates
+# FullscreenScan.BlockedMonitors call for call, to count it and as the stand-down probe's INCONCLUSIVE oracle, and it
+# fell behind the click-through rule and the framed-maximised rule: it read neither GWL_EXSTYLE nor IsZoomed. The app's
+# arguments after the rect are read from its comment-stripped Offer call and each is mapped to the replica's counted
+# read, so an argument the app adds that the replica does not read fails here by name. ORDER in the replica's callback:
+# the rect, each read in the app's argument order, the pet check, the click-through skip, the size check, then the
+# blocked verdict conditioned on the window not being framed maximized. The copied constants equal the app's, and the
+# framed read short-circuits on IsZoomed before it reads GWL_STYLE, as DesktopWindows.IsFramedMaximised does.
+$w11Probe = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'tests\fullscreen-standdown-probe\Program.cs') -Raw)
+$w11ProbeStops = @("`n    private ", "`n    internal ", "`n    public ")
+$w11Core = Get-MethodBody $w11Probe 'private static bool[] BlockedMonitorsCore(ICollection<IntPtr> petHandles, Rectangle[] screens, IntPtr[] deciders)' $w11ProbeStops
+$w11Framed = Get-MethodBody $w11Probe 'private static bool CountedIsFramedMaximised(IntPtr h)' $w11ProbeStops
+$w11AppCode = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\FullscreenScan.cs') -Raw)
+$w11AppWindows = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\DesktopWindows.cs') -Raw)
+$w11AppScan = Get-MethodBody $w11AppCode 'public static bool[] BlockedMonitors(ICollection<IntPtr> petHandles)' @("`n        private ", "`n        internal ", "`n        public ")
+$w11AppOffer = [regex]::Match($w11AppScan, 'decider\.Offer\(hWnd, Rectangle\.FromLTRB\(r\.Left, r\.Top, r\.Right, r\.Bottom\)((?:, \w+\(hWnd\))*)\);')
+$w11AppArgs = @([regex]::Matches($w11AppOffer.Groups[1].Value, '(\w+)\(hWnd\)') | ForEach-Object { $_.Groups[1].Value })
+Assert-True ($w11Core.Length -gt 0 -and $w11Framed.Length -gt 0 -and $w11AppOffer.Success -and $w11AppArgs.Count -gt 0) (
+    "w11-tests-scripts-1: WITNESS the probe's replica, its framed read and the app's Offer call were all located ($($w11AppArgs.Count) argument(s) after the rect)")
+$w11ReadFor = @{ 'ExtendedStyle' = 'int extendedStyle = CountedExtendedStyle(hWnd);'; 'IsFramedMaximised' = 'bool framedMaximised = CountedIsFramedMaximised(hWnd);' }
+$w11At = $w11Core.IndexOf('if (!GetWindowRect(hWnd, out r)) return true;', [StringComparison]::Ordinal)
+$w11Unread = @()
+foreach ($w11Arg in $w11AppArgs) {
+    $w11Next = $(if ($w11ReadFor.ContainsKey($w11Arg)) { $w11Core.IndexOf($w11ReadFor[$w11Arg], [StringComparison]::Ordinal) } else { -1 })
+    if ($w11At -lt 0 -or $w11Next -le $w11At) { $w11Unread += $w11Arg } else { $w11At = $w11Next }
+}
+$w11PetAt = $w11Core.IndexOf('if (petHandles != null && petHandles.Contains(hWnd)) return true;', [StringComparison]::Ordinal)
+Assert-True ($w11Unread.Count -eq 0 -and $w11PetAt -gt $w11At) (
+    "w11-tests-scripts-1: the probe's replica reads each argument the app's walk offers after the rect, in the app's order, before its pet check" +
+    $(if ($w11Unread.Count) { ' -- not read, or out of order: ' + ($w11Unread -join ', ') } else { '' }))
+$w11SkipAt = $w11Core.IndexOf('if ((extendedStyle & ClickThroughStyle) == ClickThroughStyle) return true;', [StringComparison]::Ordinal)
+$w11SizeAt = $w11Core.IndexOf('if (bounds.Width <= 0 || bounds.Height <= 0) return true;', [StringComparison]::Ordinal)
+$w11BlockAt = $w11Core.IndexOf('if (!framedMaximised && IsFullscreenOnMonitor(bounds, mon)) blocked[i] = true;', [StringComparison]::Ordinal)
+$w11AppClick = [regex]::Match($w11AppCode,'internal const int ClickThroughStyle = ([^;]+);').Groups[1].Value
+$w11ProbeClick = [regex]::Match($w11Probe, 'private const int ClickThroughStyle = ([^;]+);').Groups[1].Value
+$w11AppFrame = [regex]::Matches($w11AppWindows, 'private const int (WS_CAPTION|WS_THICKFRAME) = (0x[0-9A-Fa-f]+);') | ForEach-Object { $_.Groups[1].Value + '=' + $_.Groups[2].Value }
+$w11ProbeFrame = [regex]::Matches($w11Probe, 'private const int (WS_CAPTION|WS_THICKFRAME) = (0x[0-9A-Fa-f]+);') | ForEach-Object { $_.Groups[1].Value + '=' + $_.Groups[2].Value }
+$w11ZoomAt = $w11Framed.IndexOf('if (!IsZoomed(h)) return false;', [StringComparison]::Ordinal)
+$w11StyleAt = $w11Framed.IndexOf('GetWindowLong(h, GWL_STYLE)', [StringComparison]::Ordinal)
+Assert-True ($w11SkipAt -gt $w11PetAt -and $w11SizeAt -gt $w11SkipAt -and $w11BlockAt -gt $w11SizeAt -and
+    $w11AppClick.Length -gt 0 -and $w11ProbeClick -ceq $w11AppClick -and
+    @($w11AppFrame).Count -eq 2 -and (@($w11ProbeFrame) -join ',') -ceq (@($w11AppFrame) -join ',') -and
+    $w11ZoomAt -ge 0 -and $w11StyleAt -gt $w11ZoomAt -and
+    $w11Framed -cmatch 'return \(style & WS_CAPTION\) == WS_CAPTION \|\| \(style & WS_THICKFRAME\) != 0;') (
+    "w11-tests-scripts-1: the probe's replica skips a click-through window and never calls a framed maximized window fullscreen, with the app's constants (pet at $w11PetAt, skip at $w11SkipAt, size at $w11SizeAt, verdict at $w11BlockAt, zoomed at $w11ZoomAt, style at $w11StyleAt)")
+
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever

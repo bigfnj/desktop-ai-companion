@@ -46,8 +46,20 @@ internal static class Program
     private static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
     [DllImport("dwmapi.dll")]
     private static extern int DwmGetWindowAttribute(IntPtr hWnd, int attribute, out int value, int size);
+    // As the host declares both (DesktopWindows.cs): the style words are 32-bit values on every platform.
+    [DllImport("user32.dll")]
+    private static extern int GetWindowLong(IntPtr hWnd, int index);
+    [DllImport("user32.dll")]
+    private static extern bool IsZoomed(IntPtr hWnd);
 
     private const int DWMWA_CLOAKED = 14;
+    private const int GWL_EXSTYLE = -20;
+    private const int GWL_STYLE = -16;
+    // FullscreenScan.MonitorDecider.ClickThroughStyle (WS_EX_LAYERED | WS_EX_TRANSPARENT, both bits) and the two frame
+    // bits DesktopWindows.IsFramedStyle reads, copied because this probe compiles none of the host's source.
+    private const int ClickThroughStyle = 0x00080000 | 0x00000020;
+    private const int WS_CAPTION = 0x00C00000;
+    private const int WS_THICKFRAME = 0x00040000;
 
     [StructLayout(LayoutKind.Sequential)]
     private struct RECT { public int Left, Top, Right, Bottom; }
@@ -59,16 +71,20 @@ internal static class Program
     private static int _cDwm;
     private static int _cGetClassName;
     private static int _cGetWindowRect;
+    private static int _cExStyle;
+    private static int _cIsZoomed;
+    private static int _cStyle;
 
     private static void ResetCounters()
     {
         _callbacks = 0; _cIsWindowVisible = 0; _cIsIconic = 0;
         _cDwm = 0; _cGetClassName = 0; _cGetWindowRect = 0;
+        _cExStyle = 0; _cIsZoomed = 0; _cStyle = 0;
     }
 
     private static int PInvokeTotal()
     {
-        return _cIsWindowVisible + _cIsIconic + _cDwm + _cGetClassName + _cGetWindowRect;
+        return _cIsWindowVisible + _cIsIconic + _cDwm + _cGetClassName + _cGetWindowRect + _cExStyle + _cIsZoomed + _cStyle;
     }
 
     private static Point Center(Rectangle r)
@@ -113,6 +129,23 @@ internal static class Program
         }
     }
 
+    // DesktopWindows.ExtendedStyle, counted.
+    private static int CountedExtendedStyle(IntPtr h)
+    {
+        _cExStyle++;
+        return GetWindowLong(h, GWL_EXSTYLE);
+    }
+
+    // DesktopWindows.IsFramedMaximised, counted, with its short circuit: GWL_STYLE is read only for a zoomed window.
+    private static bool CountedIsFramedMaximised(IntPtr h)
+    {
+        _cIsZoomed++;
+        if (!IsZoomed(h)) return false;
+        _cStyle++;
+        int style = GetWindowLong(h, GWL_STYLE);
+        return (style & WS_CAPTION) == WS_CAPTION || (style & WS_THICKFRAME) != 0;
+    }
+
     // The replica, for the stand-down probe: is the primary monitor ACTUALLY blocked right now?
     // The probe needs this because a normal window coming to the front over its fake fullscreen
     // window makes the desktop genuinely un-blocked, and the app is then CORRECT not to hide --
@@ -142,6 +175,13 @@ internal static class Program
     // per visible pet window and one callback on early exit (RA-345). Neither touches the published 679/781
     // figure, which walk-uncovered measured with an empty pet set and no early exit; a re-measurement with a
     // populated set now counts what production pays.
+    // It fell behind a second time (N-audit-1106-342, N-bd-w2-tests-scripts-1-03): the app's enumeration offers each
+    // window's extended style and whether it is a framed maximized window (FullscreenScan.cs, the decider.Offer line),
+    // and Offer skips a click-through window and decides a framed maximized one clear. The replica read neither, so it
+    // under-counted two or three calls per window that reached the rect, and its INCONCLUSIVE oracle could call a
+    // monitor blocked that the app it grades calls clear (a maximized browser on a monitor with no taskbar strip, or a
+    // click-through overlay at the centre). Both reads now follow the rect in the app's argument order, and both rules
+    // sit in the inlined Offer where the app has them; runtime-hardening-selftest.ps1 ties the two together.
     // `extraMonitors` models the realistic worst case: a monitor whose CENTRE nothing covers --
     // a second display showing bare desktop, or every window minimised. `remaining` then never
     // reaches 0, the early exit never fires, and the walk runs the whole filter chain over every
@@ -178,11 +218,15 @@ internal static class Program
                 _cGetWindowRect++;
                 RECT r;
                 if (!GetWindowRect(hWnd, out r)) return true;
+                Rectangle bounds = Rectangle.FromLTRB(r.Left, r.Top, r.Right, r.Bottom);
+                // Offer's third and fourth arguments, evaluated left to right as C# evaluates the app's call.
+                int extendedStyle = CountedExtendedStyle(hWnd);
+                bool framedMaximised = CountedIsFramedMaximised(hWnd);
 
                 // MonitorDecider.Offer, inlined: the pet check sits AFTER the p/invokes, as it does there
                 // since N-host-04 (Offer's own re-check of `remaining` is a no-op here and is omitted).
                 if (petHandles != null && petHandles.Contains(hWnd)) return true;
-                Rectangle bounds = Rectangle.FromLTRB(r.Left, r.Top, r.Right, r.Bottom);
+                if ((extendedStyle & ClickThroughStyle) == ClickThroughStyle) return true;
                 if (bounds.Width <= 0 || bounds.Height <= 0) return true;
 
                 for (int i = 0; i < screens.Length; i++)
@@ -193,7 +237,7 @@ internal static class Program
                     decided[i] = true;
                     remaining--;
                     if (deciders != null && i < deciders.Length) deciders[i] = hWnd;
-                    if (IsFullscreenOnMonitor(bounds, mon)) blocked[i] = true;
+                    if (!framedMaximised && IsFullscreenOnMonitor(bounds, mon)) blocked[i] = true;
                 }
                 return remaining > 0;
             }, IntPtr.Zero);
@@ -249,7 +293,8 @@ internal static class Program
             " callbacks=" + _callbacks.ToString(CultureInfo.InvariantCulture) +
             " pinvokes=" + PInvokeTotal().ToString(CultureInfo.InvariantCulture) +
             " (vis=" + _cIsWindowVisible + " icon=" + _cIsIconic + " dwm=" + _cDwm +
-            " cls=" + _cGetClassName + " rect=" + _cGetWindowRect + ")");
+            " cls=" + _cGetClassName + " rect=" + _cGetWindowRect + " exstyle=" + _cExStyle +
+            " zoomed=" + _cIsZoomed + " style=" + _cStyle + ")");
     }
 
     [STAThread]
