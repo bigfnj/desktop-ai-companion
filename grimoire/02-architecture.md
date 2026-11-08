@@ -81,9 +81,12 @@ executable. A `DesktopAICompanion.portable` marker forces portable behavior, and
   are intentional no-ops in `src/Portable/LocalData.cs`. Companion imports and option changes travel through
   explicit UI/command paths; `StartUp.LoadNewXMLFromString` stages a replacement, atomically persists
   its assets, and swaps it in only after every fallible activation step succeeds.
-- **Spawning a companion** (`StartUp.AddSheep`): `new FormCompanion(animations, xml)`, copy every decoded frame in
-  via `newSheep.AddImage(sprite)` for each `xml.sprites`, then `Show(spriteWidth, spriteHeight)`. A
-  subsequent timer tick calls `Play(...)` to place and animate it.
+- **Spawning a companion** (`StartUp.AddSheep` → `AddSheepCore`): `new FormCompanion(animations, xml)`, then
+  `Show(spriteWidth, spriteHeight)` and `Play()` in the same step to place and animate it. No frame is copied
+  into the window: every companion and every child draws from the one `SpriteFrameStore` its `Xml` owns
+  (`Xml.GetSpriteFrame`, §6.1). A tick-clock companion is spawned by `StartUp.SpawnTickPet` instead.
+  (This said each frame was copied in with `newSheep.AddImage(sprite)` and a later timer tick called `Play`
+  until N-bd-w5-docs-1-01; `AddImage` does not exist now.)
 - **Fleet ops.** `KillSheeps`, `KillSheep`, `TopMostSheeps`, `SyncSheeps` operate across the array.
 
 > The AI-Edition additions live in this same class (`SayAll`, `AskAboutScreen`, `EmoteAll`,
@@ -100,7 +103,8 @@ executable. A `DesktopAICompanion.portable` marker forces portable behavior, and
   the embedded-default fallback; `Xml` itself never silently substitutes a different companion.
 - **Decode + slice** (`Xml.ReadImages` → `Xml.BuildSprites`): the base64 `<png>` sprite sheet is decoded
   to a `Bitmap`, then cut into `TilesX × TilesY` equal cells. `spriteWidth/spriteHeight` are the cell
-  size; each cell becomes its own `Bitmap` in `Xml.sprites` (list order = row-major, top-left first).
+  size; each cell becomes its own `Bitmap` in the `SpriteFrameStore` the `Xml` owns (frame order =
+  row-major, top-left first), shared read-only by every window of that companion.
   The 48×48 icon (`<header><icon>`) is decoded into `Xml.bitmapIcon`. **HD scaling:** frames are
   resized by a fractional factor, the size slider's (`ScalePolicy.ClampFactorD`, `MinimumFactorD` to
   `MaximumFactorD`), which `ScalePolicy.FitFactorForFrameD` lowers until a cell's larger side fits the
@@ -202,7 +206,8 @@ position and its first animation (`TSpawn.Next`). If there are no spawns it fall
 ## 6. The companion window &amp; the animation loop — `FormCompanion.cs`
 
 Each visible companion (and each child) is one `FormCompanion` — a borderless, transparent, always-on-top WinForms
-form containing a single `pictureBox1` that fills it and an `imageList1` holding every frame.
+form containing a single `pictureBox1` that fills it. The window holds no frames of its own: it borrows each
+one from its `Xml`'s `SpriteFrameStore` when it draws it.
 
 ### 6.1 Rendering: a magenta-keyed layered tool window
 
@@ -214,16 +219,24 @@ form containing a single `pictureBox1` that fills it and an `imageList1` holding
   `WS_EX_TOOLWINDOW (0x80)` removes it from Alt-Tab, `WS_EX_TOPMOST (0x08)` keeps it above other windows,
   `WS_EX_LAYERED (0x80000)` speeds up painting. Children additionally get `WS_EX_NOACTIVATE (0x8000000)`
   so spawning one never steals focus. `FormCompanion.ShowWithoutActivation` returns `true` for the same reason.
-- `Show(w,h)` sizes the form/picture box and finds the taskbar thumbnail window
-  (`FindWindowEx("TaskListThumbnailWnd")`) used later for taskbar interaction. `AddImage(Image)` appends
-  a frame to the `ImageList`.
+- `Show(w,h)` sizes the form and its picture box to one cell and shows the window, still at opacity 0 from
+  the constructor's `SetPetOpacity(0.0)`. (This said it also found the taskbar thumbnail window with
+  `FindWindowEx("TaskListThumbnailWnd")` until N-bd-w5-docs-1-01; no such lookup exists now.)
+- A frame is fetched per step with `Xml.GetSpriteFrame(index, flipped)` and drawn by `RenderCurrentFrame`:
+  a colour-key companion assigns it to `pictureBox1.Image`, an alpha one pushes it per-pixel
+  (`PushLayeredFrame`). The `SpriteFrameStore` returns the shared original, or a mirrored copy it clones the
+  first time that frame is asked for flipped and then shares too, so the store holds at most two bitmaps
+  per source frame and a window never disposes one. (This said `AddImage(Image)` appended a frame to a
+  per-window `ImageList` until N-bd-w5-docs-1-01; neither exists now.)
 
 ### 6.2 The loop: `Play` → `Timer1_Tick` → `NextStep`
 
-- **`Play(first, forceSpawn)`** initialises a spawn: pick a `TSpawn`, set `Top/Left` from its
-  expressions (mirrored horizontally if `!IsMovingLeft`), reset `PositionX/PositionY` (float accumulators
-  the engine integrates into `Left/Top`), `SetNewAnimation(spawn.Next)`, make the form visible, enable
-  `timer1`. On multi-monitor, a random `DisplayIndex` is chosen.
+- **`Play(forceSpawn = -1)`** initialises a spawn: pick a `TSpawn` (the given index, or a weighted random
+  one), set `Top/Left` from its expressions (mirrored horizontally if `!IsMovingLeft`), reset
+  `PositionX/PositionY` (float accumulators the engine integrates into `Left/Top`),
+  `SetNewAnimation(spawn.Next)`, make the form visible unless a fullscreen window holds that monitor, enable
+  `timer1`. The monitor is the pinned one if the companion is pinned, else a pending relocation's, else a
+  random one when "spawn on any screen" is on. (The unused `first` parameter went in RA-233.)
 - **`SetNewAnimation(id)`**: if `id < 0` → `Play` (respawn). Otherwise load `CurrentAnimation`,
   `UpdateValues(DisplayIndex)`, spawn any children the id declares (see §7), and set `timer1.Interval`
   to the animation's start interval. If `id == AnimationKill`, no further animation is set.
@@ -244,8 +257,9 @@ form containing a single `pictureBox1` that fills it and an `imageList1` holding
   5. **Downward checks** (`y>0`): taskbar bottom → `SetNextBorderAnimation(..., TASKBAR)`; otherwise
      `FallDetect` to see if a window title bar is in the fall path → `... WINDOW`.
   6. **Upward check** (`y<0`): top of working area → `... HORIZONTAL`.
-  7. **Sequence over** (`AnimationStep >= TotalSteps`): if `Action=="flip"`, mirror every frame and
-     toggle `IsMovingLeft`; then `SetNextSequenceAnimation` (or respawn if the companion has wandered off
+  7. **Sequence over** (`AnimationStep >= TotalSteps`): if the action is `flip` (any letter case),
+     toggle `IsMovingLeft`, which makes later steps fetch the store's mirrored frames (no frame is changed
+     in place, since every root and child borrows the same originals); then `SetNextSequenceAnimation` (or respawn if the companion has wandered off
      screen). If the companion is a child with no next, it closes; the `kill` animation fades opacity to 0
      then `Close()`.
   8. **Gravity** (animation has `<gravity>` and companion not over a window with >3px of empty space beneath):
@@ -256,10 +270,12 @@ form containing a single `pictureBox1` that fills it and an `imageList1` holding
 
 ### 6.3 Physics via Win32 — the `NativeMethods` P/Invokes
 
-`FormCompanion.NativeMethods` (bottom of `FormCompanion.cs`) is the entire physics toolkit: `EnumWindows`,
-`GetWindowRect`, `IsWindowVisible`, `GetWindowText`, `GetTitleBarInfo`, `GetTopWindow`, `GetWindow`,
-`GetForegroundWindow`, `SetForegroundWindow`, `ShowWindow`, `FindWindowEx`, plus the `RECT` and
-`TITLEBARINFO` structs.
+`FormCompanion.NativeMethods` (bottom of `FormCompanion.cs`) holds the window P/Invokes the physics uses:
+`EnumWindows`, `GetWindowRect`, `IsWindowVisible`, `SetWindowPos`, `GetWindowText`, `GetTitleBarInfo`,
+`ShowWindow`, `SetForegroundWindow`, `GetWindow`, `GetTopWindow`, plus the `RECT` and `TITLEBARINFO`
+structs, and the `UpdateLayeredWindow` and DC calls the alpha push needs. The desktop-wide window and
+fullscreen scans live in `DesktopWindows` and `FullscreenScan`. (This listed `GetForegroundWindow` and
+`FindWindowEx` here until N-bd-w5-docs-1-01; neither is declared in `FormCompanion.cs` now.)
 
 - **`FallDetect(y)`** — `EnumWindows` collects visible, **titled** windows that have a **visible title
   bar** (`GetTitleBarInfo`, skipping the `0x8000` "invisible" state). For each, if the companion is directly
@@ -273,8 +289,12 @@ form containing a single `pictureBox1` that fills it and an `imageList1` holding
 - **`FollowWindow()`** — when the window the companion stands on is moved/resized, translate (and horizontally
   rescale) the companion so it rides along. `NextStep` runs this in a short 16 ms poll loop while the window is
   moving.
-- **`CheckFullScreen()`** — if the foreground window covers the whole monitor (a video/game),
-  `TopMost` is dropped so the companion hides behind it; restored when the full-screen window goes away.
+- **`CheckFullScreen()`** — reads the shared per-monitor answer (`StartUp.BlockedMonitorsForStandDown`,
+  which runs `FullscreenScan.BlockedMonitors` at most once per 300 ms for the whole desktop). When the
+  companion's monitor holds a fullscreen window it drops out of topmost at once; then an unpinned top-level
+  companion moves to a free monitor, and a pinned one, a child, or one with no free monitor hides. It comes back when the monitor
+  frees up. (This said it checked only the foreground window until N-bd-w5-docs-1-01; `FullscreenScan`
+  walks the z-order instead, so a game under a focused window still counts.)
 
 ### 6.4 Interaction — mouse &amp; drag
 
@@ -290,11 +310,14 @@ app was started with Shift held, the debug menu. `Form2_DragEnter`/`DragDrop` ac
   `AddSheep`/the tray menu; the changelog notes up to 16 companions can auto-start (`Changelog.txt` 1.0.6).
 - **Children:** any animation id listed in `<childs>` spawns one or more child `FormCompanion`s **when that
   animation plays** (`FormCompanion.SetNewAnimation` → `Animations.HasAnimationChild`/`GetAnimationChild` →
-  `child.PlayChild`). Children share the parent's `ImageList`, are positioned relative to the parent
-  (via `imageX`/`imageY`), are named `child1..child5`, **cannot be dragged**, and **auto-close when their
-  sequence ends** (children have no spawn). Nesting is capped at **5 levels**
-  (`FormCompanion.SetNewAnimation`, `int.Parse(Name.Substring(5)) < 5`). Children are how the sheep interacts
-  with a second sprite (a mate, flowers, a bath, etc.).
+  `child.PlayChild`). Children draw from the same `SpriteFrameStore` as their parent (they get the parent's
+  `Xml`), are positioned relative to the parent (via `imageX`/`imageY`), are named `child1..child5` by depth,
+  **cannot be dragged**, and **auto-close when their sequence ends** (children have no spawn). Nesting is
+  capped at **5 levels**: each child carries its depth from the constructor, and `SetNewAnimation` spawns
+  only while `childDepth < MaximumChildDepth` (5). A `ChildBudget` also caps live children at 32 per
+  top-level companion and 64 in the process. Children are how the sheep interacts with a second sprite (a
+  mate, flowers, a bath, etc.). (This said children shared the parent's `ImageList` and the depth was parsed
+  back out of the name with `int.Parse(Name.Substring(5)) < 5` until N-bd-w5-docs-1-01; neither exists now.)
 
 ## 8. Audio — NAudio
 
