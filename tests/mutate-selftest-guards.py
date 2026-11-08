@@ -17084,8 +17084,10 @@ CASES = (
      CORETESTS, None, 'Tick engine: parity startup adds the start companions without a step'),
     ('shimeji-host: the converter witness hashes the apphost too',
      os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
-     b'            string[] files = Directory.Exists(path) ? Directory.GetFiles(path, "*.dll") : new[] { path };\n',
-     b'            string[] files = Directory.Exists(path) ? Directory.GetFiles(path, "*") : new[] { path };\n',
+     # Re-pointed by burndown/w13-shimeji-host-1 follow-up 2, which moved the listing into ConverterFiles (shared by the
+     # hash and the trace-path claim): the same pattern widened to every file, as before.
+     b'            return Directory.Exists(path) ? Directory.GetFiles(path, "*.dll") : new[] { path };\n',
+     b'            return Directory.Exists(path) ? Directory.GetFiles(path, "*") : new[] { path };\n',
      HOST_CSPROJ, EXE,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
      'parity: the converter witness binds the managed assemblies and ignores the apphost'),
@@ -24995,20 +24997,23 @@ CASES = (
     ("bd-w13-shimeji-host-1: a refused run leaves an earlier file at its trace path (N-bd-w12-review-03)",
      os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
      # Re-pointed by the follow-up, which made the release ClaimTracePath's last step: Run stops claiming, as it stopped
-     # releasing before.
-     b'            if (!ClaimTracePath(scenarioFile, petsDir, tracePath, null, log)) return 2;\n',
-     b'',
+     # releasing before. Re-pointed again by follow-up 2, which split the claim from the release (TraceClaim): Run keeps
+     # its claim and stops releasing, the intent of the first version.
+     b'            if (claim == null || !claim.Release(log)) return 2;\n',
+     b'            if (claim == null) return 2;\n',
      HOST_CSPROJ, EXE,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
      'parity run: a refused run removes an earlier file at its trace path, so exit 2 leaves no trace of another run'),
-    ("bd-w13-shimeji-host-1: a command refused before the run leaves an earlier trace file (N-bd-w12-review-03)",
+    ("bd-w13-shimeji-host-1: a command refused after its gates leaves an earlier trace file (N-bd-w12-review-03)",
      os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
-     # Re-pointed by the follow-up, as the case above: the command stops claiming its trace path.
-     b'            if (!ParityRun.ClaimTracePath(scenario, args[at + 2], args[at + 3], args[at + 4], log)) return 2;\n',
+     # Re-pointed by the follow-up, as the case above: the command stops claiming its trace path. Re-pointed again by
+     # follow-up 2, which releases only after the command's gates: the command stops releasing, and its check (renamed
+     # "after its gates", with a leg for a refusal inside the run) must fail.
+     b'            if (!claim.Release(log)) return 2;\n',
      b'',
      HOST_CSPROJ, EXE,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
-     'parity run: a command refused before the run removes an earlier file at its trace path too'),
+     'parity run: a command refused after its gates removes an earlier file at its trace path too'),
     ("bd-w13-shimeji-host-1: an argument fault no longer covers UnauthorizedAccessException (N-bd-w12-review-02)",
      os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
      b'            return e is IOException || e is UnauthorizedAccessException || e is ArgumentException;\n',
@@ -25065,6 +25070,60 @@ CASES = (
      HOST_CSPROJ, EXE,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
      'parity run: a trace path inside the scenario\'s pack folder is refused by name before anything is released'),
+    # Follow-up 2 (wave 13 review of 417e9e4a): a link inside an input folder, and the release after the command's gates.
+    # The claim compares both spellings of the trace (as written, as resolved) with both spellings of each input, and
+    # resolves each pet folder and file the run reads on its own; each case takes one of those away, or releases ahead of
+    # a gate again, and the --shimeji-window-selftest check that fails on 417e9e4a must fail. A trace spelled through a
+    # junction pet folder is also caught by that pet folder's own resolution, so its check asserts the refusal names the
+    # pets folder (the spelled comparison): the first case therefore fails it and the converter check too, which needs the
+    # spelled trace alone. The resolution case answers the review's "no check covers ResolvedPath's link resolution".
+    # The per-*.dll resolution has no case: only a file link reaches it, and making one needs a right this box's
+    # unelevated account does not have (measured; the converter check covers the spelled half with junctions).
+    ("bd-w13-shimeji-host-1: the trace is compared only as resolved, not as written (review-03 follow-up 2)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'            foreach (string t in trace)\n',
+     b'            foreach (string t in new[] { trace[1] })\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity run: a trace path spelled through a pet folder that is a junction is refused by name as inside the pets folder'),
+    ("bd-w13-shimeji-host-1: the pet folders and files the run reads are not compared (review-03 follow-up 2)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'            foreach (KeyValuePair<string, bool> pet in PetsRead(petsDir))\n'
+     b'                if ((named = Overlap(trace, pet.Key, pet.Value, pet.Value ? "the pet folder " : "the pet file ")) != null) return named;\n',
+     b'',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity run: a trace path that is the file a junction pet folder leads to is refused by name as inside that pet folder'),
+    ("bd-w13-shimeji-host-1: a path is no longer resolved through its links (review-03 follow-up 2)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'            string resolved = FinalPathOrNull(existing) ?? existing;\n',
+     b'            string resolved = existing;\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity run: a trace path that is the file a junction pet folder leads to is refused by name as inside that pet folder'),
+    ("bd-w13-shimeji-host-1: an input is compared only as resolved, not as named (review-03 follow-up 2)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                foreach (string i in spellings)\n',
+     b'                foreach (string i in new[] { spellings[1] })\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity run: a trace path spelled inside a converter folder given through a junction is refused by name'),
+    ("bd-w13-shimeji-host-1: the command releases its trace path before the test-data-root gate (review-03 follow-up 2)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'            if (!isolated)\n',
+     b'            if (!claim.Release(log)) return 2;\n'
+     b'            if (!isolated)\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity run: a command the test-data-root gate refuses leaves an earlier file at its trace path untouched'),
+    ("bd-w13-shimeji-host-1: the command releases its trace path before the build-identity gate, as 417e9e4a did (review-03 follow-up 2)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'            if (claim == null) return 2;\n',
+     b'            if (claim == null) return 2;\n'
+     b'            if (!claim.Release(log)) return 2;\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity run: a command the build-identity gate refuses leaves an earlier file at its trace path untouched'),
     # ---- burndown/w12-tests-scripts-1 ----
     # N-bd-w11-tests-scripts-1-02, graded through PRIVACY: either listing de-duplicates with Sort-Object again, which
     # compares culture-aware and merges a composed and a decomposed spelling of one path, or the ordinal helper both use
