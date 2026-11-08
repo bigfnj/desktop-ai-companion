@@ -811,6 +811,11 @@ SCENARIOS += [
     scenario("S-select-weighted-01",
              "a weighted root list (A 1, B 3): the tape's 0.1, 0.6, 0.9, 0.2 pick A, B, B, A in turn (cause select)",
              "select-weighted", 20, [mascot("m1", "Alpha", "A", 640)], tape(0.1, 0.6, 0.9, 0.2, length=8)),
+    scenario("S-rng-tape-short-01",
+             "trace/2 tape-exhaustion closure: named startup A draws nothing; the two Duration=4 Stay behaviours "
+             "make four builtin:behavior-select draws at ticks 5, 9, 13 and 17. The three tape values 0.1, 0.6, 0.9 "
+             "pick A, B, B; draw 4 uses 0.5 and picks B. Both runs complete tick 20 with tapeExhausted true",
+             "select-weighted", 20, [mascot("m1", "Alpha", "A", 640)], tape(0.1, 0.6, 0.9, length=3)),
     scenario("S-select-next-add-01",
              "Lead's NextBehaviorList Add=true appends Tail (2) to the root list (Lead 1, Other 1, Solo 0, Tail 0): 0.9 picks "
              "Tail from the next list (cause next); Tail, Frequency 0 at the root and reachable only so, has no list and "
@@ -1308,13 +1313,52 @@ def main(out):
     print(f"wrote {len(PACKS)} pack(s) and {len(SCENARIOS)} scenario(s) to {out}")
 
 
+def _check_tape_exhaustion_fixture(out):
+    """Pin the generated recipe; fresh paired runs prove its actual draw cadence."""
+    import xml.etree.ElementTree as ET
+
+    def require(condition, name):
+        if not condition:
+            raise AssertionError(name)
+
+    path = out / "S-rng-tape-short-01.json"
+    require(path.is_file(), "TAPE_EXHAUSTION_SCENARIO_WITNESS")
+    document = json.loads(path.read_text(encoding="utf-8"))
+    require(document["pack"] == "packs/select-weighted" and document["ticks"] == 20
+            and document["mascots"] == [{"sid": "m1", "imageSet": "Alpha", "behavior": "A",
+                                         "anchor": [640, 680], "lookRight": False}], "TAPE_EXHAUSTION_START_WITNESS")
+    conf = out / document["pack"] / "img/Alpha/conf"
+    actions = {node.get("Name"): node for node in ET.parse(conf / "actions.xml").findall(".//{" + NS + "}Action")}
+    for index, name in enumerate(("A", "B"), 1):
+        node = actions[name]
+        require(node.attrib == {"Name": name, "Type": "Stay", "BorderType": "Floor", "Duration": "4"},
+                "TAPE_EXHAUSTION_DURATION_WITNESS")
+        animations = list(node)
+        require(len(animations) == 1 and animations[0].tag == "{" + NS + "}Animation" and not animations[0].attrib,
+                "TAPE_EXHAUSTION_LITERAL_ACTION_WITNESS")
+        poses = list(animations[0])
+        require(len(poses) == 1 and poses[0].tag == "{" + NS + "}Pose"
+                and poses[0].attrib == {"Image": "/shime" + str(index) + ".png", "ImageAnchor": "32,64",
+                                        "Velocity": "0,0", "Duration": "2"}, "TAPE_EXHAUSTION_LITERAL_ACTION_WITNESS")
+    roots = ET.parse(conf / "behaviors.xml").findall(".//{" + NS + "}Behavior")
+    weighted = {node.get("Name"): node for node in roots if node.get("Frequency") != "0"}
+    require({name: node.get("Frequency") for name, node in weighted.items()} == {"A": "1", "B": "3"},
+            "TAPE_EXHAUSTION_WEIGHTS_WITNESS")
+    require(all(node.get("Condition") is None and not list(node) for node in weighted.values()),
+            "TAPE_EXHAUSTION_LITERAL_SELECTION_WITNESS")
+    draws = list(range(5, document["ticks"] + 1, 4))
+    require(draws == [5, 9, 13, 17] and document["rng"]["kind"] == "tape"
+            and len(document["rng"]["values"]) == len(draws) - 1, "TAPE_EXHAUSTION_ONE_DRAW_SHORT_WITNESS")
+    require(document["rng"]["values"] == [0.1, 0.6, 0.9], "TAPE_EXHAUSTION_VALUES_WITNESS")
+
+
 def self_test():
-    # Ownership and recovery depend on paths and writer ordering, not the whole directed corpus. These two synthetic
-    # packs exercise sprites, configuration, raw text and sound writers while keeping the gate check small.
+    # Small synthetic packs cover ownership/recovery writers and the literal one-draw-short closure recipe.
     saved = dict(PACKS)
     try:
         PACKS.clear()
-        PACKS.update({"slice-stand-walk": pack_stand_walk, "lower-sound": pack_lower_sound})
+        PACKS.update({"slice-stand-walk": pack_stand_walk, "lower-sound": pack_lower_sound,
+                      "select-weighted": pack_select_weighted})
         return _self_test_output()
     finally:
         PACKS.clear()
@@ -1358,6 +1402,7 @@ def _self_test_output():
         clean, reused = Path(temporary) / "clean", Path(temporary) / "reused"
         with contextlib.redirect_stdout(io.StringIO()):
             main(clean)
+        _check_tape_exhaustion_fixture(clean)
         require(json.loads((clean / OUTPUT_MANIFEST).read_text(encoding="utf-8")).get("state") == "ready",
                 "PACK_GENERATOR_READY_MANIFEST: completed output is not marked ready")
         shutil.copytree(clean, reused)
