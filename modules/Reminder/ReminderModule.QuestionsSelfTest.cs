@@ -286,6 +286,80 @@ namespace DesktopAICompanion.ReminderModule
             CheckOneOffQuestion(check, clock, t0);
             CheckRecurringQuestion(check, clock, t0);
             CheckMeetingInProgress(check, clock, t0);
+            CheckLeadsAndJoinTray(check, clock, t0);
+        }
+
+        // ---- the lead line once per meeting a tick, never for an all-day event, and no all-day event in the tray's Join ----
+        // N-audit-1106-297, N-audit-1106-295, N-bd-w2-reminder-1-02. A companion is out, so the lead line is spoken (the F199
+        // hold is not what is under test); the events carry no join link except where the tray's Join is the subject.
+        private static void CheckLeadsAndJoinTray(Action<string, bool> check, TestClock clock, DateTimeOffset t0)
+        {
+            clock.Now = t0;
+            using (var rig = new QuestionRig(s => s.Set("leads", "15,5")))
+            {
+                rig.Host.RaiseCompanionSpawned(new FakeCompanion(1, "sheep"));
+                rig.Feed(new CalendarEvent { Id = "w1", Title = "Review", Start = t0.AddMinutes(3), End = t0.AddMinutes(33) });
+                rig.Tick();
+                int lines = rig.Host.BroadcastLines.Count, chimes = rig.Host.PlayedSounds.Count;
+                check("leads: a tick inside the 15- and the 5-minute window at once announces the meeting once, with one chime ("
+                      + lines.ToString(CultureInfo.InvariantCulture) + " lines, " + chimes.ToString(CultureInfo.InvariantCulture) + " chimes)",
+                    lines == 1 && chimes == 1);
+                rig.Tick();
+                check("leads: ...and spends both leads, so the next tick inside the windows says nothing more",
+                    rig.Module._fired.Contains("cal1|w1@15") && rig.Module._fired.Contains("cal1|w1@5")
+                    && rig.Host.BroadcastLines.Count == 1);
+                rig.Feed(new CalendarEvent { Id = "w2", Title = "Retro", Start = t0.AddMinutes(10), End = t0.AddMinutes(40) });
+                rig.Tick();
+                clock.Now = t0.AddMinutes(5);
+                rig.Tick();
+                check("WITNESS leads: a meeting whose two leads come due on separate ticks is announced at each",
+                    rig.Host.BroadcastLines.Count == 3 && rig.Host.PlayedSounds.Count == 3);
+            }
+
+            // An all-day event starts at midnight: with Skip all-day events at its default (off), three minutes before it.
+            var lateEvening = new DateTimeOffset(t0.Year, t0.Month, t0.Day, 23, 57, 0, t0.Offset);
+            DateTimeOffset midnight = lateEvening.AddMinutes(3);
+            clock.Now = lateEvening;
+            using (var rig = new QuestionRig(null))
+            {
+                rig.Host.RaiseCompanionSpawned(new FakeCompanion(1, "sheep"));
+                var offsite = new CalendarEvent { Id = "day3", Title = "Offsite", Start = midnight, End = midnight.AddDays(1), AllDay = true };
+                rig.Feed(offsite);
+                rig.Tick();
+                check("leads: an all-day event gets no lead reminder at 23:57 the night before, with Skip all-day events off ("
+                      + string.Join(" / ", rig.Host.BroadcastLines) + ")",
+                    rig.Host.BroadcastLines.Count == 0 && rig.Host.PlayedSounds.Count == 0
+                    && !rig.Module._fired.Contains("cal1|day3@5") && rig.Settings.Get("skipAllDay", "") == "");
+                rig.Feed(offsite, new CalendarEvent { Id = "late", Title = "Night launch", Start = midnight, End = midnight.AddMinutes(30) });
+                rig.Tick();
+                check("WITNESS leads: a timed event at the same midnight, beside it, is announced",
+                    rig.Host.BroadcastLines.Count == 1 && rig.Host.BroadcastLines[0].Contains("Night launch"));
+            }
+
+            // The tray's Join at 10:00, beside today's all-day event that carries a meeting link.
+            clock.Now = t0;
+            using (var rig = new QuestionRig(null))
+            {
+                var dayStart = new DateTimeOffset(t0.Year, t0.Month, t0.Day, 0, 0, 0, t0.Offset);
+                var linked = new CalendarEvent
+                {
+                    Id = "day4", Title = "Hackathon", Start = dayStart, End = dayStart.AddDays(1), AllDay = true,
+                    Description = "Join the meeting: " + TeamsLink,
+                };
+                string url, kind;
+                check("WITNESS join tray: the all-day event carries a link the detector finds",
+                    MeetingLinkDetector.TryFind(linked, out url, out kind));
+                rig.Feed(linked);
+                rig.Tick();
+                CalendarEvent alone = rig.Module.BestJoinable();
+                check("join tray: an all-day event with a meeting link, in the feed all day, is not offered as the meeting to join ("
+                      + (alone == null ? "none" : alone.Title) + ")", alone == null);
+                rig.Feed(linked, MeetingAt("m12", t0.AddMinutes(5)));
+                rig.Tick();
+                CalendarEvent offered = rig.Module.BestJoinable();
+                check("WITNESS join tray: a meeting starting in five minutes, beside it, is offered",
+                    offered != null && offered.Title == "Standup");
+            }
         }
 
         // ---- the meeting the user is in (N-audit-1106-042): the sources keep it until it ENDS, so meeting.current must

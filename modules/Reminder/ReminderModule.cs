@@ -75,7 +75,11 @@ namespace DesktopAICompanion.ReminderModule
                                 //        hour off (N-audit-1106-293). Burn-down wave 6 (lane w6-reminder-1): the
                                 //        refresh interval and the stall deadline are measured on a monotonic clock,
                                 //        so a system clock set back no longer stops every feed refreshing, or hides a
-                                //        hung one, for the size of the jump (N-audit-1106-291).
+                                //        hung one, for the size of the jump (N-audit-1106-291). Two leads of one
+                                //        meeting due in the same tick are one announcement, one chime and one
+                                //        reaction, both leads spent (N-audit-1106-297). An all-day event gets no lead
+                                //        reminder (it chimed at 23:55 the night before; N-audit-1106-295) and is not
+                                //        offered by the tray's Join (N-bd-w2-reminder-1-02).
                                 // 1.3.0: Calendar 5 becomes the Zoom slot (the owner, 2026-11-03): the meetings the user
                                 //        HOSTS in Zoom, read from Zoom's REST API after a browser sign-in to a Zoom
                                 //        app the user creates (OAuth with PKCE, a loopback redirect, no secret; the
@@ -414,20 +418,31 @@ namespace DesktopAICompanion.ReminderModule
                 {
                     bool chime = _settings.GetBool("chime", true);
                     Dictionary<string, SpeechStyle> styleBySlot = StyleBySlot();
-                    foreach (DueReminder due in ReminderScheduler.DueNowMulti(Schedulable(events), now, Leads(), _fired))
+                    // The events this tick has announced, so a meeting is said once however many of its leads are due.
+                    var announced = new HashSet<string>(StringComparer.Ordinal);
+                    foreach (DueReminder due in DueLeads(events, now))
                     {
                         // Another copy of this Zoom meeting was announced earlier in THIS tick (two calendars carrying
                         // the same invite, both due at once): the due list was computed before either was spent, and
                         // the mirror below has since marked this one (1.3.0). Without it the rule would depend on load
                         // order: two copies loaded together both announced, one loaded a tick later did not.
                         if (_fired.Contains(due.FiredId)) continue;
-                        if (chime && SlotChimeOn(due.Event.SourceId)) Chime.Play(_host, SlotChimePath(due.Event.SourceId));
-                        SpeechStyle style;
-                        styleBySlot.TryGetValue(due.Event.SourceId ?? "", out style);
-                        // Move BEFORE the bubble: the animation is there to pull the eye to the pet, which is
-                        // pointless once the thing you were meant to look at is already on screen.
-                        React();
-                        SpeakReminder(due.Event.SourceId, FormatReminder(due.Event, now, SlotLabel(due.Event.SourceId)), style);
+                        // Two leads of one meeting due in the same tick (a launch, a wake from sleep or the end of a
+                        // hold inside both the 15- and the 5-minute window) are one announcement: the line names the
+                        // start, not the lead, so the second was the same words with a second chime and reaction
+                        // (N-audit-1106-297). Every due lead is still spent and mirrored below, so the smaller one
+                        // does not come back on the next tick. The rule is the module's, not the scheduler's: the
+                        // scheduler's contract is one due item per (event, lead), and its self-check holds it to that.
+                        if (announced.Add(due.Event.Id))
+                        {
+                            if (chime && SlotChimeOn(due.Event.SourceId)) Chime.Play(_host, SlotChimePath(due.Event.SourceId));
+                            SpeechStyle style;
+                            styleBySlot.TryGetValue(due.Event.SourceId ?? "", out style);
+                            // Move BEFORE the bubble: the animation is there to pull the eye to the pet, which is
+                            // pointless once the thing you were meant to look at is already on screen.
+                            React();
+                            SpeakReminder(due.Event.SourceId, FormatReminder(due.Event, now, SlotLabel(due.Event.SourceId)), style);
+                        }
                         _fired.Add(due.FiredId);
                         changed = true;
                         // At once, so a second copy of the same Zoom meeting further down this due list is skipped above.
@@ -503,7 +518,7 @@ namespace DesktopAICompanion.ReminderModule
         /// is not news, and a line per tick is what F197 just removed from the feed error.</summary>
         private bool HasSomethingDue(IReadOnlyList<CalendarEvent> events, DateTimeOffset now)
         {
-            if (ReminderScheduler.DueNowMulti(Schedulable(events), now, Leads(), _fired).Count > 0) return true;
+            if (DueLeads(events, now).Count > 0) return true;
             // Only on the speech path: with the questions service a personal reminder is asked on the card whoever is
             // on screen, so it is not part of what this hold is holding (1.1.0).
             if (_questions == null)
@@ -1284,17 +1299,20 @@ namespace DesktopAICompanion.ReminderModule
         }
 
         // The best meeting to "Join" now: among events from ~10 min before their start until their end, the one
-        // nearest to now that actually has a join link.
+        // nearest to now that actually has a join link. Not an all-day event: since 1.3.1 the Outlook and Zoom feeds
+        // keep an event until it ENDS (N-audit-1106-042), so an all-day event with a link in its location or body was
+        // offered here all day whenever no timed meeting was near (N-bd-w2-reminder-1-02); the join question and
+        // meeting.current skip it the same way. The clock is the module's (ReminderClock), so the self-test can set it.
         private CalendarEvent BestJoinable()
         {
             CalendarSnapshot snap = _lastSnapshot;
             if (snap == null || snap.Events == null) return null;
-            DateTimeOffset now = DateTimeOffset.Now;
+            DateTimeOffset now = ReminderClock();
             CalendarEvent best = null;
             double bestDist = double.MaxValue;
             foreach (CalendarEvent e in snap.Events)
             {
-                if (e == null) continue;
+                if (e == null || e.AllDay) continue;
                 DateTimeOffset end = e.End ?? e.Start.AddMinutes(60);
                 if (now < e.Start.AddMinutes(-10) || now > end) continue;   // not ongoing/imminent
                 string url, kind;
@@ -1340,6 +1358,20 @@ namespace DesktopAICompanion.ReminderModule
             var kept = new List<CalendarEvent>(events.Count);
             foreach (CalendarEvent e in events) if (e != null && PassesFilter(e)) kept.Add(e);
             return kept;
+        }
+
+        // The lead reminders due now: the scheduler's (event, lead) pairs over the events that may announce, less every
+        // all-day event. An all-day event starts at midnight, so with "Skip all-day events" off (the default) each one
+        // chimed and said "Offsite starts in 5 minutes." at 23:55 the night before (N-audit-1106-295). Skipped here, as
+        // the join question and meeting.current already skip it, and left to the agenda and the next-event line, which
+        // the filter setting still governs. One method for the due loop and the hold log, so a hold is never logged
+        // for an all-day event the loop would not announce.
+        private IReadOnlyList<DueReminder> DueLeads(IReadOnlyList<CalendarEvent> events, DateTimeOffset now)
+        {
+            var timed = new List<CalendarEvent>();
+            foreach (CalendarEvent e in Schedulable(events))
+                if (!e.AllDay) timed.Add(e);
+            return ReminderScheduler.DueNowMulti(timed, now, Leads(), _fired);
         }
 
         // Whether an event is announced at all: a single gate used by scheduling, the agenda, and "next

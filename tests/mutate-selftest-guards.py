@@ -22827,6 +22827,30 @@ CASES = (
      REMINDER_CSPROJ, REMINDER_DLL,
      "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
      "clock: a clock set forward five hours neither reports a read one minute old as stalled nor starts another"),
+    # N-audit-1106-297: two leads of one meeting due in one tick are each announced again (the set keyed per lead).
+    ('bd-w6-reminder-1: a meeting with two leads due in one tick is announced twice again (N-audit-1106-297)',
+     REMINDER_MODULE,
+     b"                        if (announced.Add(due.Event.Id))\n",
+     b"                        if (announced.Add(due.FiredId))\n",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "leads: a tick inside the 15- and the 5-minute window at once announces the meeting once"),
+    # N-audit-1106-295: an all-day event gets a lead reminder at its midnight start again.
+    ('bd-w6-reminder-1: an all-day event gets a lead reminder the night before again (N-audit-1106-295)',
+     REMINDER_MODULE,
+     b"                if (!e.AllDay) timed.Add(e);\n",
+     b"                timed.Add(e);\n",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "leads: an all-day event gets no lead reminder at 23:57 the night before"),
+    # N-bd-w2-reminder-1-02: the tray's Join offers an all-day event's link again.
+    ('bd-w6-reminder-1: the tray Join offers an all-day event again (N-bd-w2-reminder-1-02)',
+     REMINDER_MODULE,
+     b"                if (e == null || e.AllDay) continue;\n",
+     b"                if (e == null) continue;\n",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "join tray: an all-day event with a meeting link, in the feed all day, is not offered as the meeting to join"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
