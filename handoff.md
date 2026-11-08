@@ -1,6 +1,10 @@
 ﻿# Desktop AI Companion — Session Handoff
 
-> Working notes for picking this up later. Last updated: **2026-09-25** (fourteenth session).
+> Working notes for picking this up later. Last full update: **2026-09-25** (fourteenth session); single
+> passages have been corrected since, each in its own commit (`git log -- handoff.md`). This is a session log,
+> not a status page: each START HERE is that session's snapshot. The current version is
+> `DesktopAICompanionVersion` in `ProductVersion.props`, and what installed apps are offered is `app.version`
+> in `catalog.json`.
 > Fork of Adrianotiger/desktopPet, though no longer a GitHub fork: the repo was recreated fresh for
 > 1.0.0. Clone it wherever you like -- nothing here depends on the checkout path, and this file is
 > public, so no machine paths go in it.
@@ -12,8 +16,9 @@
 ## START HERE (2026-09-25, fourteenth session) — backlog campaign, v1.2.5, and three dead test harnesses
 
 A full pass over `BACKLOG.md` (72 open at the start), four parallel read-only re-audits, and a
-release. **v1.2.5 is tagged and published**, and `catalog.json` `app.version` is 1.2.5, so installed
-apps are being offered it. Seven modules were published along the way and are already live.
+release. **v1.2.5 was tagged and published**, and `catalog.json` `app.version` was 1.2.5, so installed
+apps were offered it. Seven modules were published along the way. (Both were true on 2026-09-25; later
+releases have moved them, see the header.)
 
 ### The three things worth knowing before you touch anything
 
