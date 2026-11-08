@@ -1,9 +1,15 @@
-# Shimeji parity contract, version 1.1
+# Shimeji parity contract, version 1.2
 
 Signed 2026-11-07 by Codex (proposal author) and Claude (host review). Version 1.1 replaces version 1, which was frozen
 and signed: v1's text is `git show 2d9c6f5:tools/ShimejiParity/CONTRACT.md`. Every passage v1.1 adds or changes is
 marked **(v1.1)**; unmarked text is v1's. The proposal this came from, `CONTRACT-v1.1-proposal.md`, is kept beside it,
 marked superseded; the host review's eight edits are applied here.
+
+**(v1.2)** Version 1.2 adds section 10, the trace schema `shimeji-parity-trace/2`, signed 2026-11-07 by Codex
+(oracle and comparer) and Claude (host producer). Sections 1 to 9 are v1.1's, unchanged, apart from three pointers
+to section 10 marked **(v1.2)**. A trace/1 pair is still judged under v1.1 exactly as before. The signed text,
+`CONTRACT-v1.2-trace2-consolidated.md`, is kept beside this file unchanged, with its change table, host-code checks,
+control matrix and open items; the v1.2 signature record at the end of this file says how section 10 differs from it.
 
 Two runtimes run the same scenario and each writes a trace; the comparer decides whether they behaved the same.
 
@@ -78,7 +84,8 @@ Comparer result metadata in section 6 is not a trace or scenario field.
 
 - `none`: the scenario is directed. Any draw is a failure, reported as `rng-unexpected-draw`.
 - `tape`: `"values": [ ... ]`, doubles in [0, 1) consumed in order. Running past the end is a failure,
-  `rng-tape-exhausted`.
+  `rng-tape-exhausted`. **(v1.2)** In trace/2 a draw past the end yields `0.5` and the run goes on; the
+  footer's `tapeExhausted` records it (10.4, 10.5).
 - `splitmix64`: `"seed": "0x0123456789abcdef"`. Each draw:
   `z = (state += 0x9E3779B97F4A7C15)`, `z = (z ^ (z >>> 30)) * 0xBF58476D1CE4E5B9`,
   `z = (z ^ (z >>> 27)) * 0x94D049BB133111EB`, `z = z ^ (z >>> 31)`, `value = (z >>> 11) * 2^-53`.
@@ -244,6 +251,8 @@ run also carries unobservedDraws and unobservedEvents, the actual totals withhel
 tapeExhausted is an optional boolean, true when the tape was exhausted. These optional extensions retain trace/1;
 ordinary host footers need none of them. Unknown footer extension fields are ignored by cross-runtime comparison.
 eventSequenceSha256 is required for the oracle's observation proof, with the definition and scope in section 5.
+**(v1.2)** Trace/2 makes `tapeExhausted` a required footer boolean on both runtimes, adds a typed `error` object to
+every `error` event, and makes a trace-off artifact proof-only (section 10).
 
 ## 4. Update order, both runtimes
 
@@ -338,6 +347,9 @@ Then:
 - **Behaviour failures:** `missing-event`, `extra-event`, `event-mismatch`, `entity-mismatch`, `state-mismatch`,
   `rng-unexpected-draw`, `rng-tape-exhausted`, `rng-draw-count`, `time-share`. **Run failures:** `truncated`,
   `timeout`, `aborted`.
+- **(v1.2)** Trace/2 adds three unjudgeable classes, each with CLI exit 2: `trace-version-mismatch`,
+  `trace-off-not-comparable` and `error-unclassified`. Section 10 gives their rules and the trace/2 precedence
+  (10.7).
 - Every failure names the scenario, the first mismatching tick, the sid and the field. One tolerance never covers
   an unrelated field.
 
@@ -427,6 +439,308 @@ The map is what lets the host write `pose.image`, **(v1.1)** `pose.index`, `pose
 state `behavior` and `action` and every name-bearing event payload whose name conversion changed in the oracle's
 terms. A host trace written without one is unjudgeable (`missing-field`).
 
+## 10. Trace schema `shimeji-parity-trace/2` (v1.2)
+
+### 10.1 What changes
+
+Trace/2 is trace/1 (section 3, with the v1.1 rules) plus exactly these changes:
+
+1. the header declares `"schema": "shimeji-parity-trace/2"`;
+2. every `error` event carries a typed `error` object beside its `message` (10.3);
+3. `message` on an `error` event is validated but no longer compared (10.3.5);
+4. every footer carries a required boolean `tapeExhausted`, and drawing past a tape's end is no longer a run failure
+   on either side (10.5);
+5. a trace/2 trace-off artifact is proof-only: cross-runtime comparison refuses it (10.5.3);
+6. three unjudgeable classes are added, each with CLI exit 2: `trace-version-mismatch` (10.2),
+   `trace-off-not-comparable` (10.5.3) and `error-unclassified` (10.3.5);
+7. startup faults and an interrupted startup snapshot are judged by 10.6.
+
+Everything else in sections 1 to 9 applies to trace/2 unchanged. A trace/1 pair is judged under v1.1 exactly as
+before, including the exact comparison of error-event messages; it is never re-judged under v1.2 without fresh
+traces. Both runtimes regenerate their traces to obtain a trace/2 verdict.
+
+### 10.2 Version declaration, mixed pairs and dispatch
+
+- The header's `schema` is the only version declaration. No other header field changes.
+- A comparer recognises `shimeji-parity-trace/1` and `shimeji-parity-trace/2`. Any other value, or a first line
+  that is not a header, stays `missing-field`.
+- Once both headers have been read and both schemas recognised, a pair whose schemas differ is `unjudgeable`
+  with class `trace-version-mismatch`. This is decided before any other check of either trace (build witness,
+  body validation, binding, run status), because the two versions are validated by different rules and a mixed
+  pair can never be compared. The CLI exit is 2.
+- Each trace is then validated by the rules of its own declared version.
+- The new header/schema preflight dispatches recognized trace/1 pairs to their v1.1 validation and comparison rules.
+  Trace/2 additions do not reorder the old pair's message, input or failure semantics. Recognized mixed versions are
+  refused before version-specific body grading.
+
+### 10.3 The `error` event
+
+#### 10.3.1 Shape and wire types
+
+`{ "type": "event", "tick": t, "sid": s, "kind": "error", "message": "...", "error": { "code": "...",
+"lookup": { ... } | null, "via": [ ... ] } }`
+
+- `tick`, `sid` and `kind` keep their section 3 meaning. The sid is the companion the runtime reports the fault
+  on: for a failed birth, the PARENT; for a fault a tentative child raises before it fails, its provisional sid
+  (section 3, v1.1 birth lineage).
+- `message` is written in the runtime's own words.
+- `error` is required, an object with exactly the properties `code`, `lookup` and `via`.
+
+Each error object has exactly one occurrence of each property code, lookup and via, with no other properties. code is
+a string in the closed table. Each typed lookup has exactly one occurrence of each property in that code's operand set
+and no other properties. Wrong types, unknown codes/labels, duplicate properties and wrong property sets are
+missing-field.
+
+imageSet is a non-empty string. behavior and action are string or JSON null; empty, whitespace and null remain
+distinct. Capture those names before null-to-empty normalization or any name rewriting. refKey is a non-empty valid
+source refKey in section 3's format. parameter is a non-empty string with the meaning below. via is an array of strings
+from the closed wrapper vocabulary, in outermost-first order; an empty array is valid. A producer adds only wrapper
+context actually carried by this fault, never context reconstructed from a later state.
+
+message is a required non-empty string but is not used as a classifier or compared as error meaning in trace/2.
+
+#### 10.3.2 Codes (closed set)
+
+| code | what failed | `lookup` (exactly these properties) |
+|---|---|---|
+| `behavior-missing` | a behaviour requested by name is not a root behaviour of the member searched | `imageSet`, `behavior` |
+| `action-missing` | a behaviour or reference names an action the member does not declare | `imageSet`, `action` |
+| `variant-missing` | an action has no animation variant it can play: none whose condition holds, none for its turn state, or fewer than its class requires | `refKey` |
+| `parameter-invalid` | a parameter or guard attribute read by an action is null where a value is required, not of the required type, or outside the range the action accepts | `refKey`, `parameter` |
+| `scan-target-missing` | an action needs its scan target and has none | `refKey` |
+| `unclassified` | anything the runtime does not type with one of the codes above | none: `lookup` is `null` |
+
+A code outside this table, a `lookup` whose property set is not the code's, a non-null `lookup` for
+`unclassified`, or a `null` one for any other code, is `missing-field` (the trace is unjudgeable), as an unknown
+event kind is today. Adding a code is a contract change. Reserving a code does not assert that both current seams can
+attribute every fault in that class.
+
+#### 10.3.3 Lookup operands and attribution
+
+- `imageSet` is the image-set name of the member that was SEARCHED, which is not always the reporting
+  companion's: for a birth, the child's member after the BornMascot fallback of section 3; for a Transform, the
+  member transformed into; for an arrival's TargetBehavior, the target's member.
+- `behavior` and `action` are the requested name exactly as the runtime looked it up, after evaluation and
+  before anything else: not trimmed, not translated through `sourceNames` (a name that was not found has no node
+  to translate). A blank name is written as the empty string or as the whitespace it holds; a name that evaluated
+  to null is JSON `null`. `""`, `" "` and `null` are three different operands.
+- `refKey` is the refKey (section 3) that the failing action's `actionStack` entry has, or would have had when
+  the failure is in its construction: the reference's key when the action was reached through an
+  `ActionReference`, else its declaration's.
+- For a known built-in parameter, parameter is its canonical source schema key. A custom parameter retains its exact
+  source name. A synthetic lowering parameter is never exposed as if it were an authored source parameter: type it
+  only when explicit source attribution identifies the actual source parameter and refKey; otherwise use
+  unclassified.
+
+A producer emits a typed code only when the cause and every required operand are available from stored provenance at
+the actual failed operation. It must not evaluate a parameter, guard, condition or script again to obtain them. An
+initialized action can use its stored identity; a constructor failure requires explicit builder/reference context
+carried into that construction.
+
+If the optional fault-attribution channel cannot supply those operands, emit unclassified with lookup null. That
+absence alone is not a provenance abort. A missing or invalid binding already REQUIRED by section 9 remains a
+provenance fault; it must not be hidden as unclassified.
+
+#### 10.3.4 Classification and `via`
+
+- A runtime classifies a fault where its typed cause arises (the failed lookup or read), not by reading message
+  text. Neither runtime and no comparer ever derives a code from a message.
+- Each producer records its actual faults and classifies a known cause independently of the peer. Classification
+  neither creates a fault event the runtime did not produce nor erases or downgrades an event to align traces. An
+  absent peer event remains a mismatch or a specifically established declared policy divergence; it is not a reason
+  to write unclassified.
+- `via` lists the wrapper sites that caught the failure and chose its consequence, OUTERMOST FIRST, the order
+  section 3 already uses for `actionStack`. The companion's own step is the implicit root and is never listed, so a
+  fault caught by the step itself has `via: []`. A fault reported where it arises, with nothing catching it, also
+  has `via: []`.
+- Do not enforce a guessed causal stack when the fault was already caught/reported by an inner site.
+- The wrapper vocabulary is closed:
+
+| entry | the wrapper |
+|---|---|
+| `startup` | creating a start companion (section 4, startup step 2) |
+| `press` | a left-button press dispatched to a companion |
+| `release` | a left-button release dispatched to a companion |
+| `birth` | entering a born child's first behaviour |
+| `transform` | entering the Transform's behaviour in the new member |
+| `arrive` | a scan or complex action's arrival transitions (the seeker's own Behavior, then the target's TargetBehavior) |
+| `interact` | Interact's closing Behavior |
+
+- Each wrapper's consequence, for a fault it catches:
+  - `startup`: startup identifies a fault during creation/initialization of a scenario starter. The existing
+    per-runtime outcome is retained. The host can dispose the starter before joining the manager; the current oracle
+    runner can instead terminate with an aborted/error footer. Error typing does not normalize these outcomes or
+    manufacture a startup snapshot.
+  - `press`: the companion is disposed.
+  - `release`: the companion is disposed.
+  - `birth`: the attempt is refused with `birth-refused` reason `error`, after this event.
+  - `transform`: The fault is reported without disposing the companion. The new image set and all writes already
+    performed remain; there is no rollback. The previous behavior survives only when failure occurred before the new
+    behavior was assigned.
+  - `arrive`: the transitions not yet run are skipped; the seeker carries on. Earlier successful transitions and
+    state writes remain. Only transitions not yet performed are skipped; no rollback is implied.
+  - `interact`: the companion carries on.
+- A wrapper that catches and does not rethrow ends the list. Today no wrapper rethrows, so `via` holds at most one
+  entry; the list form is kept so a nested wrapper can be added without a schema change.
+
+#### 10.3.5 Comparison
+
+- In a directed trace/2 comparison an `error` event matches on `tick`, `sid`, `kind` and the whole `error`
+  object (`code`, every `lookup` operand, and `via` in order), by JSON equality. `message` is not compared.
+
+In a directed comparison, an unclassified code makes only the cause code and lookup operands inconclusive, and only
+between paired error events with equal tick, sid, kind and via. Event presence, order, timing, sid and wrapper context
+remain exact. A missing/extra error or a different tick, sid, kind or via keeps its ordinary failure class, even when
+an error is unclassified.
+
+After encountering such an aligned unknown cause, continue checking all other events and states. Any independently
+established failure retains its class and verdict. If those checks find no failure, but an aligned error cause
+remains unclassified, return unjudgeable with class error-unclassified and CLI exit 2. Do not return exact or
+within-tolerance.
+
+This uncertainty rule applies to directed semantic success. Free-running comparison keeps section 6's separate
+time-share claim and its existing failure/pass path, with typed-error shape validation still required. It never
+becomes a directed exact claim.
+
+### 10.4 Random numbers (edits section 2)
+
+- A draw in a `none` scenario, and a draw past the end of a `tape`, both yield exactly `0.5`, and the run goes
+  on. Its `rng-draw` event records that value at its occurrence.
+- In trace/2 a recorded draw past the tape's end whose value is not `0.5` is `rng-invalid` (unjudgeable), as a
+  draw within the tape that does not hold the tape's value is today.
+
+### 10.5 Tape exhaustion (edits sections 3, 5 and 6)
+
+#### 10.5.1 The signal
+
+- Drawing past the tape's end is BEHAVIOUR (section 6) and never a run failure: a runtime that exhausts its tape
+  keeps stepping to tick N, and exhaustion does not set its footer status, which is normally `complete`.
+- Every trace/2 footer carries `tapeExhausted`, a required boolean.
+
+A producer footer reports whether its actual draw count exceeded the declared tape length. For none and splitmix64 the
+flag is false. Within-tape values must match the tape; observed past-tape values must be exactly 0.5. The flag and
+draw records must agree.
+
+A harness timeout footer describes only the complete recorded prefix. Its exhaustion flag is derived from that
+prefix's recorded draws; it makes no claim about unwritten work. It does not repair a malformed or partial JSON record
+or overwrite an existing footer.
+
+- The draw records are the event-level evidence: the first `rng-draw` whose occurrence exceeds the tape's length
+  is the first exhausted draw. No new event kind is added, so event sequences and the section 5 digest gain
+  nothing to disagree on.
+
+Exhaustion alone does not set a run-failure status. If a genuine run failure coexists with proven exhaustion, the
+run-failure class still wins; exhaustion may be a secondary finding only when the available evidence proves it.
+
+#### 10.5.2 Consistency (validity, before anything is compared)
+
+- In a traced run of a `tape` scenario, `tapeExhausted` must equal whether the trace records more draws than the tape
+  holds; in a traced `none` or `splitmix64` run it must be false.
+- Any disagreement is `malformed`.
+- The v1.1 oracle-only optional `tapeExhausted` extension is subsumed: in trace/2 the field is required of both
+  runtimes.
+
+#### 10.5.3 Trace-off artifacts and the observation proof
+
+- In trace/2, a footer that carries `unobservedDraws` or `unobservedEvents` identifies a trace-off artifact. No
+  header field is added.
+
+Trace-off artifacts are inputs to the dedicated observation-proof validator, not ordinary cross-runtime parity
+inputs. Their unobservedDraws/unobservedEvents counters describe withheld observations. The public comparer always
+validates against recorded rng-draw events and must not switch modes because unobservedDraws is present. Require the
+trace-off counters on an off footer and refuse such proof-only artifacts as unjudgeable:trace-off-not-comparable when
+submitted to cross-runtime comparison.
+
+A trace-off timeout has suppressed draw lines and generally has no final durable unobserved tally. Do not infer
+tapeExhausted=false from those absent lines or construct a successful observation proof. Without a durable tally,
+retain the incomplete artifact and report an unverified/run-failure proof result. An ordinary traced timeout can still
+receive the prefix footer above.
+
+The observation proof compares the actual trace-on draw count with the trace-off unobservedDraws, both exhaustion
+flags, final states and event digest. It requires successful completion; timeout/aborted/error runs cannot satisfy it.
+
+### 10.6 Startup faults (edits section 6)
+
+Startup runtime faults do not make an otherwise valid scenario scenario-invalid. A failed run with no startup state
+remains subject to the existing aborted/error rule. A complete trace claiming a startup snapshot must meet its
+validity and starter-binding rules. When a snapshot was interrupted, only an otherwise valid active proper prefix of
+the expected starters, in order, with no later record proving completion is inconclusive. An already observed wrong
+sid/order/pending flag remains provable evidence of mismatch.
+
+### 10.7 Precedence (trace/2 pairs)
+
+The comparer decides in this order and reports the first class that applies:
+
+1. header readability and recognised schema (`missing-field`), then mixed versions (`trace-version-mismatch`); a
+   recognised trace/1 pair leaves this list here for its v1.1 rules (10.2); then a trace/2 trace-off artifact on
+   either side (`trace-off-not-comparable`, 10.5.3);
+2. each trace's own validity under its version: `missing-field` (including the error object of 10.3.1 and
+   10.3.2), `build-witness-missing`, `malformed` (including 10.5.2), `rng-invalid` (including 10.4 and 10.5.1),
+   `runtime-mismatch`;
+3. input and binding, unchanged from v1.1: `scenario-invalid`, `pack-invalid`, `scenario-hash-mismatch`,
+   `pack-hash-mismatch`, `artifact-hash-mismatch`, `tick-count-mismatch`, `source-pin-mismatch`,
+   `scenario-start-mismatch` (with 10.6);
+4. run failures, unchanged from v1.1 and NOT waived for exhaustion: `truncated`, `timeout`, `aborted` (a footer
+   status `error` is graded `aborted`). If a genuine run failure coexists with proven exhaustion, the run-failure
+   class still wins; exhaustion may be a secondary finding only when the available evidence proves it;
+5. RNG behaviour, as today: `rng-unexpected-draw` (kind `none`), `rng-tape-exhausted` (kind `tape`, either side
+   drew past the end), then `rng-draw-count`;
+6. `pending` with class `script-site-unmapped` (section 9);
+7. events in order, then states (10.3.5); in a directed comparison an aligned unknown cause does not end the walk,
+   and the first independently established failure gives the class;
+8. directed comparisons only: `unjudgeable` with class `error-unclassified`, CLI exit 2, when nothing above applied
+   and an aligned error cause remains unclassified (10.3.5);
+9. `exact` or `within-tolerance:<name>[,<name>...]`, or, for a free-running scenario, the time-share verdict of
+   section 6.
+
+Steps 2 to 4 group the v1.1 classes and do not reorder them: those checks keep the relative order the v1.1 comparer
+already gives them, and each trace/2 check named in step 2 joins the v1.1 check of the same class. In that order a
+scenario or pack refused before either trace is read (`scenario-invalid` from the scenario alone, `pack-invalid`) is
+decided before step 1, `source-pin-mismatch` is one of the oracle trace's own validity checks, and a `scenario-invalid`
+judged from the traces (an inactive button target, section 1) follows `scenario-start-mismatch`.
+
+### 10.8 Producer obligations
+
+Both producers:
+
+- write `shimeji-parity-trace/2` in the header and `tapeExhausted` in every footer, trace-off included;
+- classify by 10.3.3 and 10.3.4, and write `unclassified` wherever no typed cause with its operands is available;
+- continue past a tape's end on `0.5` (10.4, 10.5.1);
+- Instrumentation must preserve existing exception type/catch behavior and state-write order, except the explicitly
+  agreed RNG continuation rule.
+
+Host (`src/dotNet/Shimeji`):
+
+- types each failure where it is thrown or reported, adds the wrapper entry at each of the seven catch sites of
+  10.3.4, and writes `unclassified` for every exception it has not typed, including its catch-all for exceptions
+  that are not its own fault class;
+- keeps every message byte-identical to today's, so the product log and its fault throttle are unaffected;
+- continues past a tape's end on `0.5` without setting its footer status for it, and still logs
+  `rng-tape-exhausted` as an informational line;
+- types a code only from stored provenance (10.3.3); a binding that section 9 already requires stays a provenance
+  fault when it is missing or invalid, and ends the run in error;
+- runs its section 5 observation proof by 10.5.3.
+
+Oracle (Codex): writes trace/2; classifies through hooks that carry stored action identity (an initialized action's
+own identity, and explicit builder/reference context for a constructor fault), and writes `unclassified` where that
+context is absent; labels the same seven wrapper sites where its runtime catches a fault; keeps its current startup
+outcome (10.3.4, 10.6); writes `tapeExhausted` in every footer and keeps `unobservedDraws` and `unobservedEvents` on
+trace-off footers.
+
+Comparer (Codex): 10.2, the shape rules of 10.3.1 and 10.3.2 (duplicate properties included), 10.3.5, 10.4, 10.5,
+10.6 and 10.7, the trace-off refusal, and unchanged trace/1 and free-running dispatch, with self-test cases that each
+fail with exactly their own class.
+
+### 10.9 Closure
+
+- N-parity-1107-01 and -02 close when fresh paired trace/2 runs of S-breed-blankbehavior-01 and
+  S-transform-blankbehavior-01 compare `exact`, each with an `error` event of code `behavior-missing`, `imageSet`
+  the member searched (10.3.3), `behavior` `""` and `via` `["birth"]` and `["transform"]` respectively.
+- N-parity-1107-04 closes when a fresh paired trace/2 run of a scenario whose tape is one draw short grades
+  `fail` with class `rng-tape-exhausted`, with both footers `complete` and `tapeExhausted` true.
+- Historical v1 and v1.1 verdicts keep their input snapshot and are not re-graded.
+- Do not add an unvalidated broad policy exemption while N-parity-1107-03 remains open.
+
 ## v1.1 integration record
 
 Both halves landed together. The converter writes map/2 (`TickPackEmitter`) and its readers require it; the host
@@ -444,3 +758,25 @@ fresh host traces are required for the new snapshot; historical comparisons keep
 Error-message text remains an exact `error` payload under v1.1. The two historical blank-behaviour mismatches (one
 birth, one Transform) differ only in that text and stay open until a separately reviewed rule or policy resolves them;
 v1.1 does not exempt them.
+
+## v1.2 signature record
+
+Section 10 is Part A of `CONTRACT-v1.2-trace2-consolidated.md` (SHA-256
+`a20d47183355f9c651e86a0f1b167f2875ff44e58817369f6cf01bfc017c323a`), signed at that hash by Codex on 2026-11-08 05:46:53 UTC
+and by Claude, with one editorial deletion Codex authorised at signature: the last sentence of 10.3.5, which
+referred to a "step-8 pending rule" that an earlier draft had and the signed text does not. Section 10 as
+pasted here, from its heading to its last line, has SHA-256 `c2a5fd6a73feea4d1b5eb03bc35b1c9d57340ecec5072f89b791fa4343032bb6`.
+
+Confirmed at signature (Part E of the signed text): Interact's "the companion carries on" promises neither rollback
+nor the old behaviour; an otherwise valid interrupted startup prefix leaves starter binding silent, so `timeout` or
+`truncated` decides, and a partial `aborted` or `error` trace gets no prefix exemption; an in-range draw in a
+`none` scenario still fails `rng-unexpected-draw` while the producer returns `0.5`; a press or release exception
+that is not the host's own fault class keeps the existing `error` footer and writes no `error` event.
+
+Agreed with the signature, no contract change: the host build witness's `commit` is provenance, not a binding (the
+three hashes bind the artefacts), and the host writes the full source revision from dedicated build metadata read
+only by the parity run, never the product version.
+
+This is a contract approval, not an implementation verdict. Both producers and the comparer still have to land,
+and the three closure fixtures of 10.9 are fresh, joint, paired runs; a v1.2 integration record follows when both
+halves have landed.
