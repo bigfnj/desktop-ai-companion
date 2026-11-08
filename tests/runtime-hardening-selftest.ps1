@@ -5986,6 +5986,28 @@ Assert-True ($w4LowPins.Count -eq 0) (
     "w4-contracts-1: no src project pins WarningLevel below the net10 default of 10" +
     $(if ($w4LowPins.Count) { ' -- ' + ($w4LowPins -join ', ') } else { '' }))
 
+# ---- burndown/w5-contracts-1 ----
+# THE OFFLINE SCRIPT CHECKS RUN build-corpus.sh --check IN THE GIT BASH GIT NAMES (N-audit-1106-137). Nothing ran the
+# corpus check while its header said "in CI", so src\Fortunes\fortunes.txt could drift from packs\dadjokes.txt unnoticed.
+# tests\Invoke-OfflineScriptChecks.ps1 (run-gate.ps1 and build.yml both call it) now runs it. ORDER: the Git Bash comes from
+# git --exec-path, the call uses it, the exit code is read straight after the call, and a nonzero one is added as a
+# failure before the final throw. A bare "bash" can resolve to System32's WSL launcher, so no line may call or look up
+# one (WITNESS: the pattern matches a bare call).
+$w5Offline = Remove-PsLineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'tests\Invoke-OfflineScriptChecks.ps1') -Raw)
+$w5ExecPath = $w5Offline.IndexOf('$gitExecPath = [string](@(& $git.Source --exec-path 2>$null) | Select-Object -First 1)', [StringComparison]::Ordinal)
+$w5BashJoin = $w5Offline.IndexOf("`$bashCandidate = Join-Path `$gitRoot 'bin\bash.exe'", [StringComparison]::Ordinal)
+$w5Call = $w5Offline.IndexOf('& $gitBash $corpusScript --check 2>&1', [StringComparison]::Ordinal)
+$w5ExitRead = [regex]::Match($w5Offline, '(?m)^\s*\$corpusExit = \$LASTEXITCODE\r?$')
+$w5ExitAdd = $w5Offline.IndexOf('if ($null -ne $corpusExit -and $corpusExit -ne 0) {', [StringComparison]::Ordinal)
+$w5Throw = $w5Offline.IndexOf('if ($failures.Count -gt 0) {', [StringComparison]::Ordinal)
+$w5BareBash = "(?m)(&\s*['""]?bash(\.exe)?['""]?\s|Get-Command\s+(-Name\s+)?['""]?bash\b)"
+Assert-True ($w5Offline.Length -gt 0 -and $w5ExecPath -ge 0 -and $w5BashJoin -gt $w5ExecPath -and $w5Call -gt $w5BashJoin -and
+    $w5ExitRead.Success -and $w5ExitRead.Index -gt $w5Call -and $w5ExitAdd -gt $w5ExitRead.Index -and $w5Throw -gt $w5ExitAdd) (
+    "w5-contracts-1: the offline script checks run build-corpus.sh --check in git's own Git Bash and fail on its exit code before the throw" +
+    " (exec-path at $w5ExecPath, bash at $w5BashJoin, call at $w5Call, exit read at $($w5ExitRead.Index), exit check at $w5ExitAdd, throw at $w5Throw)")
+Assert-True ($w5Offline -cnotmatch $w5BareBash -and '        & bash $corpusScript --check' -cmatch $w5BareBash) (
+    "w5-contracts-1: the offline script checks never call or look up a bare bash (WITNESS: a bare call matches)")
+
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever

@@ -4394,6 +4394,38 @@ CASES = (
         b"            return ProbeFfmpeg(\"ffmpeg\") ? \"ffmpeg\" : null;\n",
         "w4-converter-1: the converter's PATH ffmpeg candidate is FfmpegOnPath's full path",
     ),
+    # ---- burndown/w5-contracts-1 ----
+    # The offline script checks lose the corpus check's exit code, its failure, or its located Git Bash (N-audit-1106-137).
+    # "bd-w5-contracts-1:" for one --only.
+    (
+        "bd-w5-contracts-1: the offline checks read no exit code from build-corpus.sh --check (N-audit-1106-137)",
+        os.path.join(REPO, "tests", "Invoke-OfflineScriptChecks.ps1"),
+        b"        $corpusExit = $LASTEXITCODE\n",
+        b"        $corpusExit = 0\n",
+        "w5-contracts-1: the offline script checks run build-corpus.sh --check in git's own Git Bash",
+    ),
+    (
+        "bd-w5-contracts-1: the offline checks never fail on build-corpus.sh --check (N-audit-1106-137)",
+        os.path.join(REPO, "tests", "Invoke-OfflineScriptChecks.ps1"),
+        b"    if ($null -ne $corpusExit -and $corpusExit -ne 0) {\n",
+        b"    if ($false) {\n",
+        "w5-contracts-1: the offline script checks run build-corpus.sh --check in git's own Git Bash",
+    ),
+    (
+        "bd-w5-contracts-1: the offline checks run build-corpus.sh in a bare bash (N-audit-1106-137)",
+        os.path.join(REPO, "tests", "Invoke-OfflineScriptChecks.ps1"),
+        b"        & $gitBash $corpusScript --check 2>&1 | ForEach-Object { Write-Host \"$_\" }\n",
+        b"        & bash $corpusScript --check 2>&1 | ForEach-Object { Write-Host \"$_\" }\n",
+        "w5-contracts-1: the offline script checks run build-corpus.sh --check in git's own Git Bash",
+    ),
+    (
+        "bd-w5-contracts-1: the offline checks fall back to a bare bash when git's is missing (N-audit-1106-137)",
+        os.path.join(REPO, "tests", "Invoke-OfflineScriptChecks.ps1"),
+        b"            if (Test-Path -LiteralPath $bashCandidate -PathType Leaf) { $gitBash = $bashCandidate }\n",
+        b"            if (Test-Path -LiteralPath $bashCandidate -PathType Leaf) { $gitBash = $bashCandidate }"
+        b" else { $gitBash = (Get-Command -Name 'bash').Source }\n",
+        "w5-contracts-1: the offline script checks never call or look up a bare bash",
+    ),
 )
 
 
