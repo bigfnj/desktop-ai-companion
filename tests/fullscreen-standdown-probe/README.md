@@ -49,7 +49,9 @@ off-desktop monitor whose centre nothing covers, so the early exit never fires).
 reads the app's walk now makes after each window's rect, its extended style and whether it is a maximized
 framed window: one `GetWindowLong` and one `IsZoomed` per window that reaches the rect, plus a second
 `GetWindowLong` when it is zoomed. The replica counts both reads (`exstyle=`, `zoomed=`, `style=` in its
-output); the figure has not been re-measured since:
+output). Re-measured with them on 2026-11-08: 670 callbacks / 796 calls, of which 15 windows reached the rect
+and one was zoomed, the same on all three passes. The count follows how many windows the desktop holds, so it
+describes that day's desktop, not a constant:
 
 ```powershell
 dotnet run --project tests\fullscreen-standdown-probe\walkcount.csproj -c Release -- walk-uncovered

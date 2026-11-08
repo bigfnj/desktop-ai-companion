@@ -1102,10 +1102,13 @@ namespace DesktopAICompanion
         //
         // The z-order walk is the expensive half and it used to be run PER COMPANION: the 300ms throttle
         // lived in FormCompanion, so at MAX_SHEEPS the desktop was walked 16 times per cycle for one
-        // answer that does not depend on which companion asked. Counted on this box (679 top-level
-        // windows): 37 user32/dwmapi calls per walk when the early exit fires, and 781 when it cannot --
-        // which is any monitor showing bare desktop, a common state, not a corner case. 53 walks/s
-        // became 3.3.
+        // answer that does not depend on which companion asked. What one walk costs depends on the
+        // desktop. Counted on this box on 2026-11-08 with tests/fullscreen-standdown-probe (its walk and
+        // walk-uncovered modes, a read-only replica of FullscreenScan.BlockedMonitors that counts each
+        // user32/dwmapi call): 150 calls when the early exit fired after 99 of 678 top-level windows, and
+        // 796 over all 670 when it cannot -- which is any monitor showing bare desktop, a common state,
+        // not a corner case. (The 37 and 781 given here first were counted before the walk read each
+        // window's extended style and maximized frame.) 53 walks/s became 3.3.
         //
         // WHAT IS CACHED IS THE WHOLE PER-MONITOR ARRAY, not the collapsed "any monitor" bool. That
         // distinction is the reason this is safe: the companion stand-down must stay per-monitor -- a
@@ -1767,10 +1770,18 @@ namespace DesktopAICompanion
         /// companions out, and RemoveOnePet passes them over, so every companion of the type born this session kept running
         /// from a folder that no longer existed until the app exited. Selected first and removed after, as RemovePackPreview
         /// does, because KillSheep compacts the array the walk would read. KillSheep persists the reduced mix; a born
-        /// companion was never in it, so its removal writes nothing (SetPetMix skips an unchanged mix). The count removed.
+        /// companion was never in it, so its removal writes nothing (SetPetMix skips an unchanged mix). The count removed
+        /// is of windows; a birth dropped before it had one is not counted.
+        ///
+        /// A birth of the type still queued for the tick host's next step goes first (N-bd-w11-options-ui-1-01). It has no
+        /// window yet, so the walk below cannot find it, and its pending hold kept the type's registry entry alive: at the
+        /// next step it activated and OpenBornTickPet opened a window for it from the type whose folder had just been
+        /// deleted. Dropping it at the source was preferred to refusing its window in OpenBornTickPet, which would have needed
+        /// a record of uninstalled ids that a reinstall under the same id must then clear.
         /// </summary>
         internal int RemoveEveryPetOfType(string id)
         {
+            RemovePendingBirthsOfInstalledType(tickHost, tickEntries, id);
             int removed = 0;
             foreach (FormCompanion pet in PetsOfInstalledType(sheeps, iSheeps, petEntries, id))
                 if (RemovePetInstance(pet)) removed++;
@@ -1794,11 +1805,40 @@ namespace DesktopAICompanion
             {
                 FormCompanion pet = pets[i];
                 CompanionTypeRegistry.Entry entry;
-                if (pet != null && entries.TryGetValue(pet, out entry) && entry != null && !entry.IsTransient
-                    && string.Equals(entry.Id, typeId, StringComparison.OrdinalIgnoreCase))
+                if (pet != null && entries.TryGetValue(pet, out entry) && IsOfInstalledType(entry, typeId))
                     taken.Add(pet);
             }
             return taken;
+        }
+
+        /// <summary>
+        /// Whether a registry entry is the installed type <paramref name="typeId"/>'s: never a preview's (transient) and never
+        /// none (the default type's pets hold none); case-insensitive, as RemoveOneChosenPet matches. The ONE statement of
+        /// what an uninstall takes, for the windows (PetsOfInstalledType) and the births still queued
+        /// (RemovePendingBirthsOfInstalledType) alike, so the two cannot disagree about which companions are the type's.
+        /// </summary>
+        internal static bool IsOfInstalledType(CompanionTypeRegistry.Entry entry, string typeId)
+        {
+            return entry != null && !entry.IsTransient && !string.IsNullOrEmpty(typeId)
+                && string.Equals(entry.Id, typeId, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Drop every birth of the installed type <paramref name="typeId"/> still queued in <paramref name="host"/>
+        /// (N-bd-w11-options-ui-1-01): RemoveEveryPetOfType's first step. A birth's type is looked up in
+        /// <paramref name="entries"/> by its type name, exactly as OpenBornTickPet looks up the entry its window would hold,
+        /// so a birth is dropped exactly when the window it would get is one the uninstall takes. Null host (no tick
+        /// companion yet this session) drops nothing. Static, for --shimeji-window-selftest. The count dropped.
+        /// </summary>
+        internal static int RemovePendingBirthsOfInstalledType(Shimeji.TickHost host,
+            IDictionary<string, CompanionTypeRegistry.Entry> entries, string typeId)
+        {
+            if (host == null || entries == null || string.IsNullOrEmpty(typeId)) return 0;
+            return host.RemovePendingBirths(delegate (Shimeji.TickHostType type)
+            {
+                CompanionTypeRegistry.Entry entry;
+                return entries.TryGetValue(type.Type.Name, out entry) && IsOfInstalledType(entry, typeId);
+            });
         }
 
         /// <summary>

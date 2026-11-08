@@ -196,6 +196,122 @@ namespace DesktopAICompanion.Shimeji
             CheckSinglePreviewRemoval(check);
             // ---- burndown/w11-options-ui-1 ----
             CheckUninstallSelection(check);
+            // ---- burndown/w12-host-1 ----
+            CheckUninstallPendingBirth(check, log, scratch);
+        }
+
+        /// <summary>
+        /// An uninstall drops the type's births still queued (N-bd-w11-options-ui-1-01): a birth requested at one step waits
+        /// in the world's pending list with no window until the next, so the uninstall's window walk cannot find it, and its
+        /// pending hold kept the type's registry entry alive, so at the next step it activated and a window was opened for it
+        /// from the type whose folder had just been deleted. Through the real tick host, the real registry and the app's pack
+        /// binding, in the uninstall's order (StartUp.RemoveEveryPetOfType): StartUp.RemovePendingBirthsOfInstalledType first,
+        /// then the type's windows close. Alpha (installed, kept) breeds a Ball; Ball's type is the one uninstalled, and a
+        /// second Ball the app spawned is pending in its own window at the same moment.
+        /// </summary>
+        private static void CheckUninstallPendingBirth(Action<bool, string> check, StringBuilder log, string scratch)
+        {
+            var registry = new CompanionTypeRegistry();
+            var lines = new List<string>();
+            var docs = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                { "sp-alpha", Serialize(AlphaDoc(), Color.Red, Color.DarkRed) },
+                { "sp-ball", Serialize(BallDoc(), Color.Blue) },
+            };
+            var sizes = new LocalData(new AppSettingsStore(Path.Combine(scratch, "uninstall-birth-sizes.json"), null));
+            ActiveCompanionSource.PackReader read = delegate (string id, out string xml, out string error)
+            {
+                error = docs.ContainsKey(id) ? null : "not a member of the synthetic pack";
+                return docs.TryGetValue(id, out xml);
+            };
+            Func<string, CompanionTypeRegistry.Entry> stageType = id => StartUp.StageExtraType(registry, id, read, sizes, line => lines.Add(line));
+            CompanionPackIndex index = CompanionPackIndex.Build(new[]
+            {
+                IndexEntry("sp-alpha", "Alpha", "main", false), IndexEntry("sp-ball", "Ball", "helper", true),
+            });
+            var tickEntries = new Dictionary<string, CompanionTypeRegistry.Entry>(StringComparer.Ordinal);
+
+            TickHost host = null;
+            var forms = new List<FormCompanion>();
+            CompanionTypeRegistry.Entry alphaEntry = null;
+            int windowsOpened = 0;
+            try
+            {
+                host = new TickHost(t =>
+                    {
+                        // As StartUp.OpenBornTickPet: a birth's window, counted.
+                        windowsOpened++;
+                        var form = new FormCompanion(t.Animations, t.Sprites);
+                        form.OpenHiddenForTick(t.Type.CellWidth, t.Type.CellHeight);
+                        forms.Add(form);
+                        return form;
+                    },
+                    form => form.Close(),
+                    message => lines.Add(message)) { RenderOpacity = 0.0 };
+                host.Environment.SearchesWindows = false;
+                TickPackBinding binding = StartUp.BindTickPacks(host, registry, stageType, () => index, id => false, tickEntries,
+                    line => lines.Add(line));
+
+                // The user's Alpha, recorded as StartUp.SpawnTickPet records a spawned type, entering Throw (which breeds a Ball).
+                alphaEntry = stageType("sp-alpha");
+                TickType alpha = TickStaging.Of(alphaEntry.Xml);
+                host.AddType(binding.Describe(alphaEntry, alpha));
+                registry.Increment(alphaEntry);
+                tickEntries[alpha.Name] = alphaEntry;
+                Rectangle work = System.Windows.Forms.Screen.PrimaryScreen.WorkingArea;
+                var window = new FormCompanion(alphaEntry.Animations, alphaEntry.Xml);
+                window.OpenHiddenForTick(64, 64);
+                forms.Add(window);
+                TickMascot m = host.Spawn(alpha.Name, new TickPoint(work.Left + work.Width / 2, work.Bottom), false, "Throw", window);
+
+                TickMascot child = null;
+                for (int i = 0; i < 6 && child == null; i++)
+                {
+                    host.Step();
+                    foreach (TickMascot p in host.World.Pending) if (p != m) child = p;
+                }
+                CompanionTypeRegistry.Entry ballEntry;
+                registry.TryGet("sp-ball", out ballEntry);
+                if (child == null || ballEntry == null)
+                {
+                    check(false, "uninstall: WITNESS a birth queued for the next step is found (child " + (child != null) + ", entry " + (ballEntry != null) + ")");
+                    return;
+                }
+
+                // A second Ball the app spawned in its own window, pending until the next step as the birth is.
+                var ballWindow = new FormCompanion(ballEntry.Animations, ballEntry.Xml);
+                ballWindow.OpenHiddenForTick(child.Type.CellWidth, child.Type.CellHeight);
+                forms.Add(ballWindow);
+                TickMascot spawnedBall = host.Spawn(child.Type.Name, new TickPoint(work.Left + work.Width / 3, work.Bottom), false, "Morph", ballWindow);
+
+                // WITNESS: another type's uninstall leaves the birth queued.
+                int other = StartUp.RemovePendingBirthsOfInstalledType(host, tickEntries, "sp-alpha");
+                check(other == 0 && child.InManager && spawnedBall != null && spawnedBall.InManager,
+                    "uninstall: WITNESS a birth queued for the next step is found, and removing another type leaves it pending (dropped " + other + ")");
+
+                // Ball is uninstalled: its births still queued go first, then its windows close (the id in another case).
+                int dropped = StartUp.RemovePendingBirthsOfInstalledType(host, tickEntries, "SP-Ball");
+                check(dropped == 1 && !child.InManager && spawnedBall != null && spawnedBall.InManager,
+                    "uninstall: a birth of the type still queued is dropped, and one the app spawned in its own window is left to that window (dropped " + dropped + ")");
+                ballWindow.Kill();
+                int windowsBefore = windowsOpened;
+                host.Step();
+                check(!child.InManager && host.FormOf(child) == null && windowsOpened == windowsBefore && ballEntry.RefCount == 0 && ballEntry.Xml == null,
+                    "uninstall: a dropped birth never activates or opens a window, and the type's registry entry goes with its last window (windows "
+                    + (windowsOpened - windowsBefore) + ", refs " + ballEntry.RefCount + ")");
+            }
+            catch (Exception e)
+            {
+                check(false, "uninstall: the pending birth checks ran without an exception: " + e);
+            }
+            finally
+            {
+                if (host != null) host.Dispose();
+                foreach (FormCompanion f in forms) { try { if (!f.IsDisposed) f.Close(); } catch { } }
+                if (alphaEntry != null) registry.Decrement(alphaEntry);
+                registry.DisposeAll();
+                foreach (string l in lines) log.AppendLine("LOG: " + l);
+            }
         }
 
         /// <summary>

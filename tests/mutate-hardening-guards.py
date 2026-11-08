@@ -5363,6 +5363,24 @@ CASES = (
         b"    if ($true) {\n",
         "w11-tests-scripts-1: the registry concurrency probe removes its evidence folder",
     ),
+    # ---- burndown/w12-host-1 ----
+    # The host entry of burn-down wave 12. "bd-w12-host-1:" for one --only.
+    # N-bd-w11-options-ui-1-01: RemoveEveryPetOfType stops dropping the type's births still queued in the tick host, or
+    # drops them through a map OpenBornTickPet never reads, so a birth still activates with a window from the deleted folder.
+    (
+        "bd-w12-host-1: an uninstall leaves the type's births still queued (N-bd-w11-options-ui-1-01)",
+        os.path.join(REPO, "src", "dotNet", "StartUp.cs"),
+        b"            RemovePendingBirthsOfInstalledType(tickHost, tickEntries, id);\n",
+        b"",
+        "w12-host-1: an uninstall first drops the births of the type still queued",
+    ),
+    (
+        "bd-w12-host-1: an uninstall drops births through an empty map (N-bd-w11-options-ui-1-01)",
+        os.path.join(REPO, "src", "dotNet", "StartUp.cs"),
+        b"            RemovePendingBirthsOfInstalledType(tickHost, tickEntries, id);\n",
+        b"            RemovePendingBirthsOfInstalledType(tickHost, new Dictionary<string, CompanionTypeRegistry.Entry>(), id);\n",
+        "w12-host-1: an uninstall first drops the births of the type still queued",
+    ),
 )
 
 
