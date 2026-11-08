@@ -18,6 +18,7 @@ import time
 HERE = Path(__file__).resolve().parent
 PACKAGE = "com/group_finity/mascot"
 JAVA_FILES = ("V1ScenarioRunner.java", "draft/DraftParityHooks.java", "draft/DraftTraceWriter.java", "Trace2ProtocolProbe.java")
+PROCESS_RECORDS = []
 
 
 STUBS = {
@@ -29,7 +30,11 @@ STUBS = {
         private java.util.Map<String,config.Configuration> configurations = new java.util.LinkedHashMap<String,config.Configuration>();
         public java.util.Properties getProperties() { return properties; }
         public config.Configuration getConfiguration(String name) { return configurations.get(name); }
-        private boolean loadConfiguration(String name) { return false; }
+        private boolean loadConfiguration(String name) {
+            if (!"StartupSynthetic".equals(name)) return false;
+            configurations.put(name, new config.Configuration());
+            return true;
+        }
         public boolean getMascotBooleanSetting(String name, Mascot mascot) { return false; }
     }""",
     "Manager": """public final class Manager {
@@ -78,7 +83,13 @@ STUBS = {
     "action/ComplexAction": "public class ComplexAction extends ActionBase { }",
     "animation/Pose": "public class Pose { }",
     "behavior/Behavior": "public class Behavior { }",
-    "config/Configuration": "public class Configuration { public behavior.Behavior buildBehavior(String name, Mascot mascot) { return null; } }",
+    "config/Configuration": """public class Configuration {
+        private java.util.Map<String,Object> actionBuilders = new java.util.LinkedHashMap<String,Object>();
+        private java.util.Map<String,Object> behaviorBuilders = new java.util.LinkedHashMap<String,Object>();
+        public behavior.Behavior buildBehavior(String name, Mascot mascot) {
+            throw new IllegalStateException("PROBE_STARTER_BUILD_BEHAVIOR");
+        }
+    }""",
     "config/Entry": "public class Entry { }",
     "environment/Area": """public class Area {
         public void set(java.awt.Rectangle value) { } public void set(java.util.Map<String,java.awt.Rectangle> value) { }
@@ -103,8 +114,24 @@ def require(condition, witness):
 
 
 def command(argv, folder):
-    return subprocess.run([str(value) for value in argv], cwd=folder, text=True, encoding="utf-8", errors="replace",
-                          capture_output=True, timeout=60, env=os.environ.copy())
+    values = [str(value) for value in argv]
+    started = time.time_ns()
+    with subprocess.Popen(values, cwd=folder, text=True, encoding="utf-8", errors="replace",
+                          stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=os.environ.copy()) as process:
+        try:
+            stdout, stderr = process.communicate(timeout=60)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.communicate()
+            raise
+        result = subprocess.CompletedProcess(values, process.returncode, stdout, stderr)
+        result.execution = {"argv": values, "pid": process.pid, "exit_code": process.returncode,
+                            "exited": process.poll() is not None, "started_ns": started,
+                            "finished_ns": time.time_ns(),
+                            "stdout_sha256": hashlib.sha256(stdout.encode("utf-8")).hexdigest(),
+                            "stderr_sha256": hashlib.sha256(stderr.encode("utf-8")).hexdigest()}
+    PROCESS_RECORDS.append(result.execution)
+    return result
 
 
 def compile_case(root, args, mutation=None):
@@ -137,13 +164,18 @@ def compile_case(root, args, mutation=None):
     result = command([args.jdk_root / "bin/javac.exe", "-encoding", "UTF-8", "-source", "1.8", "-target", "1.8",
                       "-d", classes] + sorted(source.rglob("*.java")), root)
     require(result.returncode == 0, "JAVA_COMPILE_FAILED\n" + result.stdout + result.stderr)
-    loaded = [classes / PACKAGE / ("parity/" + name + ".class") for name in
-              ("V1ScenarioRunner", "DraftParityHooks", "DraftTraceWriter", "Trace2ProtocolProbe")]
+    loaded = sorted(classes.rglob("*.class"))
+    expected = {classes / PACKAGE / ("parity/" + name + ".class") for name in
+                ("V1ScenarioRunner", "DraftParityHooks", "DraftParityHooks$Fault", "DraftTraceWriter", "Trace2ProtocolProbe")}
+    require(expected.issubset(set(loaded)), "JAVA_CLASS_SET_WITNESS")
     require(all(path.is_file() and path.stat().st_mtime_ns >= started - 2_000_000_000 for path in loaded), "JAVA_REBUILD_WITNESS")
     (classes / "language.properties").write_text("probe=value\n", encoding="utf-8")
     return classes, {"fresh_classes": {str(path.relative_to(root)): {"sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
                       "mtime_ns": path.stat().st_mtime_ns} for path in loaded}, "compile_started_ns": started,
-                     "source_sha256": {name: hashlib.sha256((source / Path(name).name).read_bytes()).hexdigest() for name in JAVA_FILES}}
+                     "compile_process": result.execution,
+                     "source_sha256": {name: hashlib.sha256((source / Path(name).name).read_bytes()).hexdigest() for name in JAVA_FILES},
+                     "compiled_source_sha256": {str(path.relative_to(source)): hashlib.sha256(path.read_bytes()).hexdigest()
+                                                for path in sorted(source.rglob("*.java"))}}
 
 
 def run_trace(root, classes, args, name, schema=2, rng=None, ticks=2, properties=(), off=False, startup=False):
@@ -153,7 +185,7 @@ def run_trace(root, classes, args, name, schema=2, rng=None, ticks=2, properties
                 "screens": [{"x": 0, "y": 0, "w": 100, "h": 100}], "workArea": {"x": 0, "y": 0, "w": 100, "h": 100},
                 "dpiScale": 1, "settings": {}, "mascots": []}
     if startup:
-        scenario["mascots"] = [{"sid": "m1", "imageSet": "UnavailableSynthetic", "behavior": "Stand", "anchor": [0, 0], "lookRight": False}]
+        scenario["mascots"] = [{"sid": "m1", "imageSet": "StartupSynthetic", "behavior": "Stand", "anchor": [0, 0], "lookRight": False}]
     (case / "header.json").write_text(json.dumps({"type": "header", "schema": "shimeji-parity-trace/" + str(schema)}), encoding="utf-8")
     (case / "scenario.json").write_text(json.dumps(scenario), encoding="utf-8")
     result = command([args.jdk_root / "bin/java.exe", "-Djava.awt.headless=true", "-Dshimeji.parity.enabled=true",
@@ -224,13 +256,17 @@ def check_case(root, classes, args, only=None):
 
     def v1():
         result, lines = run_trace(root, classes, args, "v1", schema=1, properties=("-Dprobe.error=old diagnostic", "-Dprobe.typed=true"))
-        require(result.returncode == 0 and all("error" not in row for row in lines if row.get("kind") == "error"), "JAVA_T1_EVENT_FREEZE")
+        errors = [row for row in lines if row.get("kind") == "error"]
+        require(result.returncode == 0 and len(errors) == 2
+                and all(row.get("message") == "old diagnostic" and "error" not in row for row in errors), "JAVA_T1_EVENT_FREEZE")
         require("tapeExhausted" not in lines[-1], "JAVA_T1_FALSE_FLAG_FREEZE")
     run("v1", v1)
 
     def startup():
         result, lines = run_trace(root, classes, args, "startup", startup=True)
-        require(result.returncode == 1 and lines[-1]["status"] == "aborted" and lines[-1]["states"] == 0
+        require("PROBE_STARTER_BUILD_BEHAVIOR" in result.stderr and "V1_CONFIGURATION_REFUSED" not in result.stderr,
+                "JAVA_T2_STARTUP_PATH")
+        require(result.returncode == 1 and lines[-1]["status"] == "error" and lines[-1]["states"] == 0
                 and not any(row.get("type") == "state" for row in lines), "JAVA_T2_STARTUP_NO_SNAPSHOT")
         require(lines[-1].get("tapeExhausted") is False, "JAVA_T2_FAILED_FLAG")
     run("startup", startup)
@@ -250,6 +286,16 @@ MUTATIONS = (
     ("draft/DraftParityHooks.java", 'this.via = new ArrayList<String>(via)', 'this.via = via', "payload", "JAVA_T2_IMMUTABLE_VIA"),
     ("draft/DraftParityHooks.java", 'result.put("lookup", lookup == null ? null : new LinkedHashMap<String, Object>(lookup))', 'result.put("lookup", lookup)', "payload", "JAVA_T2_IMMUTABLE_LOOKUP"),
     ("draft/DraftParityHooks.java", 'result.put("via", new ArrayList<String>(via))', 'result.put("via", via)', "payload", "JAVA_T2_IMMUTABLE_WRITER_VIA"),
+    ("V1ScenarioRunner.java", 'runner.flush();\n                Map<String, Object> footer',
+     'runner.flush();\n                if ("error".equals(status)) { Map<String,Object> fabricated = new LinkedHashMap<String,Object>(); '
+     'fabricated.put("type", "state"); fabricated.put("tick", 0); fabricated.put("sid", "m1"); '
+     'writer.writeRecord(fabricated); runner.states++; }\n                Map<String, Object> footer',
+     "startup", "JAVA_T2_STARTUP_NO_SNAPSHOT"),
+    ("V1ScenarioRunner.java", 'if (trace2) record.put("error", DraftParityHooks.faultRecord(subject));\n            emit(record);',
+     'if (trace2) record.put("error", DraftParityHooks.faultRecord(subject));\n            if (trace2) emit(record);',
+     "v1", "JAVA_T1_EVENT_FREEZE"),
+    ("V1ScenarioRunner.java", 'record.put("message", detail == null ? null : detail.toString());',
+     'record.put("message", "changed diagnostic");', "v1", "JAVA_T1_EVENT_FREEZE"),
 )
 
 
@@ -260,31 +306,47 @@ def main():
     parser.add_argument("--result", type=Path)
     args = parser.parse_args()
     hashes = {name: hashlib.sha256((HERE / name).read_bytes()).hexdigest() for name in JAVA_FILES}
+    harness_sha256 = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
     rows = []
     with tempfile.TemporaryDirectory(prefix="oracle-trace2-java-", dir=os.environ.get("TEMP")) as folder:
         root = Path(folder)
+        version = command([args.jdk_root / "bin/java.exe", "-version"], root)
+        require(version.returncode == 0 and 'version "1.8.' in version.stderr, "JAVA8_RUNTIME_WITNESS")
         baseline = root / "baseline"
         baseline.mkdir()
+        start = len(PROCESS_RECORDS)
         classes, witness = compile_case(baseline, args)
         checks = check_case(baseline, classes, args)
-        rows.append({"case": "control", "status": "PASS", "checks": checks, "rebuild": witness})
+        baseline_classes = {name: data["sha256"] for name, data in witness["fresh_classes"].items()}
+        rows.append({"case": "control", "status": "PASS", "checks": checks, "rebuild": witness,
+                     "processes": PROCESS_RECORDS[start:]})
         print("TRACE2_JAVA_CONTROL_PASS: " + ", ".join(checks), flush=True)
         if args.mutate:
             for index, mutation in enumerate(MUTATIONS):
                 case = root / ("mutant-" + str(index))
                 case.mkdir()
+                start = len(PROCESS_RECORDS)
                 classes, witness = compile_case(case, args, mutation)
+                mutant_classes = {name: data["sha256"] for name, data in witness["fresh_classes"].items()}
+                changed_classes = sorted(name for name in baseline_classes.keys() | mutant_classes.keys()
+                                         if baseline_classes.get(name) != mutant_classes.get(name))
+                require(changed_classes, "JAVA_MUTATION_BINARY_UNCHANGED " + mutation[4])
                 try:
                     check_case(case, classes, args, mutation[3])
                 except AssertionError as failure:
                     require(str(failure) == mutation[4], "JAVA_MUTATION_WRONG_WITNESS " + str(failure))
                 else:
                     raise AssertionError("JAVA_MUTATION_SURVIVED " + mutation[4])
-                rows.append({"case": mutation[4], "status": "FIRED", "rebuild": witness})
+                rows.append({"case": mutation[4], "status": "FIRED", "mutation_index": index,
+                             "changed_classes": changed_classes, "rebuild": witness,
+                             "processes": PROCESS_RECORDS[start:]})
                 print("FIRED: " + mutation[4] + " (fresh compiled class witnessed)", flush=True)
     require(all(hashlib.sha256((HERE / name).read_bytes()).hexdigest() == digest for name, digest in hashes.items()), "JAVA_SOURCE_RESTORE_WITNESS")
+    require(hashlib.sha256(Path(__file__).read_bytes()).hexdigest() == harness_sha256, "JAVA_HARNESS_RESTORE_WITNESS")
     result = {"status": "pass", "scope": "synthetic protocol API stubs; not a pinned-runtime parity run or typed-site attribution proof",
-              "rows": rows, "tracked_source_unchanged": True, "scratch_removed": not root.exists()}
+              "rows": rows, "harness_sha256": harness_sha256, "source_sha256": hashes,
+              "java_version": {"stdout": version.stdout, "stderr": version.stderr, "process": version.execution},
+              "tracked_source_unchanged": True, "scratch_removed": not root.exists(), "scratch_path": str(root)}
     if args.result:
         args.result.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     print(json.dumps({"status": "pass", "controls": len(checks), "mutations": len(rows) - 1,
