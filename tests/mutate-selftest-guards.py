@@ -23386,6 +23386,47 @@ CASES = (
      HOST_CSPROJ, EXE,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
      'parity trace-on/off proof: a timed-out untraced run cannot satisfy it, though its counters agree'),
+    # N-bd-parity-host-1-03: build.commit is the stamped source revision, read only by the parity run. The first two
+    # are the controls Codex asked for: the informational-version fallback put back, as a fallback and as the whole read.
+    ("bd-parity-host-2: a build with no revision falls back to its informational version (N-bd-parity-host-1-03)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                if (a.Key == SourceRevisionKey) value = a.Value;\n',
+     b'                if (a.Key == SourceRevisionKey) value = a.Value;\n'
+     b'            if (value == null && stamped.GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false) is System.Reflection.AssemblyInformationalVersionAttribute[] v && v.Length > 0) { refusal = null; return v[0].InformationalVersion; }\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity run: a build with no source revision metadata is refused, never given its informational version'),
+    ("bd-parity-host-2: build.commit is the informational version again (N-bd-parity-host-1-03)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                if (a.Key == SourceRevisionKey) value = a.Value;\n',
+     b'                if (a.Key == SourceRevisionKey) value = a.Value;\n'
+     b'            value = ((System.Reflection.AssemblyInformationalVersionAttribute)Attribute.GetCustomAttribute(stamped, typeof(System.Reflection.AssemblyInformationalVersionAttribute))).InformationalVersion;\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     "parity run: build.commit is this build's stamped 40-hex source revision, not its product version"),
+    ("bd-parity-host-2: absent revision metadata is accepted as a placeholder (N-bd-parity-host-1-03)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                refusal = "this build carries no source revision (no " + SourceRevisionKey + " metadata: it was built without git or outside a checkout)";\n'
+     b'                return null;\n',
+     b'                refusal = null;\n'
+     b'                return "unknown";\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity run: a build with no source revision metadata is refused, never given its informational version'),
+    ("bd-parity-host-2: git's all-zero id passes as a revision (N-bd-parity-host-1-03)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b"            if (value == null || value.Length != 40 || value == new string('0', 40)) return false;\n",
+     b"            if (value == null || value.Length != 40) return false;\n",
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity run: a placeholder, a version, the all-zero id, upper case, 39 or 41 characters are no source revision'),
+    ("bd-parity-host-2: the project file stamps no revision (N-bd-parity-host-1-03)",
+     os.path.join(REPO, "src", "DesktopAICompanion_Portable.csproj"),
+     b'Include="System.Reflection.AssemblyMetadataAttribute" Condition="\'$(_DesktopAICompanionSourceRevision)\' != \'\'">',
+     b'Include="System.Reflection.AssemblyMetadataAttribute" Condition="\'$(_DesktopAICompanionSourceRevision)\' == \'never\'">',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     "parity run: build.commit is this build's stamped 40-hex source revision, not its product version"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

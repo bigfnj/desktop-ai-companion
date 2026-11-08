@@ -26,11 +26,71 @@ namespace DesktopAICompanion.Shimeji
                 CheckParityPoseBinding(check);
                 CheckParityPoseTrace(check);
                 CheckParityRunRefusals(check, Path.Combine(scratch, "parity-v2"), log);
+                CheckParityBuildRevision(check, Path.Combine(scratch, "parity-revision"));
             }
             catch (Exception e)
             {
                 check(false, "parity map/2: the host checks ran without an exception: " + e);
             }
+        }
+
+        /// <summary>
+        /// N-bd-parity-host-1-03: build.commit is the full source revision the project file stamped into its own metadata
+        /// value, never the informational (product) version and never a placeholder, and the command refuses a build
+        /// without one before it reads anything or opens a trace. This build's own stamp is required: the window self-test
+        /// runs from a git checkout (the gate, CI, the mutation harness), and a build with none could not run the parity
+        /// tooling at all.
+        /// </summary>
+        private static void CheckParityBuildRevision(Action<bool, string> check, string root)
+        {
+            Directory.CreateDirectory(root);
+            string refusal;
+            System.Reflection.Assembly own = typeof(ParityRun).Assembly;
+            string revision = ParityRunCommand.SourceRevision(own, out refusal);
+            string informational = InformationalVersionOf(own);
+            check(revision != null && ParityRunCommand.IsFullRevision(revision) && revision != informational,
+                "parity run: build.commit is this build's stamped 40-hex source revision, not its product version ("
+                + (revision ?? refusal) + "; product " + informational + ")");
+
+            // The runtime's own assembly has an informational version a fallback could take, and no stamp.
+            System.Reflection.Assembly unstamped = typeof(object).Assembly;
+            string fallback = InformationalVersionOf(unstamped);
+            string none = ParityRunCommand.SourceRevision(unstamped, out refusal);
+            check(!string.IsNullOrEmpty(fallback), "parity run: WITNESS the unstamped stand-in has an informational version a fallback could take (" + fallback + ")");
+            check(none == null && refusal != null && refusal.StartsWith("this build carries no source revision", StringComparison.Ordinal),
+                "parity run: a build with no source revision metadata is refused, never given its informational version ("
+                + (none == null ? refusal : "took " + none) + ")");
+
+            var accepted = new List<string>();
+            foreach (string value in new[] { "", "unknown", "selftest", "1.11.0", new string('0', 40), "ABCDEF0123456789ABCDEF0123456789ABCDEF01",
+                "abcdef0123456789abcdef0123456789abcdef0", "abcdef0123456789abcdef0123456789abcdef012", " bcdef0123456789abcdef0123456789abcdef01" })
+                if (ParityRunCommand.IsFullRevision(value)) accepted.Add("'" + value + "'");
+            check(accepted.Count == 0 && ParityRunCommand.IsFullRevision("abcdef0123456789abcdef0123456789abcdef01"),
+                "parity run: a placeholder, a version, the all-zero id, upper case, 39 or 41 characters are no source revision;"
+                + " 40 lowercase hex is (" + string.Join(", ", accepted) + ")");
+
+            // The command itself: exit 2, its line, and no trace, before the scenario (which does not exist) is read.
+            string trace = Path.Combine(root, "refused.jsonl");
+            var log = new StringWriter();
+            int exit;
+            try
+            {
+                exit = ParityRunCommand.Execute(new[] { ParityRunCommand.Flag, Path.Combine(root, "absent.json"), root, trace, root }, 0, log, unstamped);
+            }
+            catch (Exception e)
+            {
+                exit = -1;
+                log.Write("threw " + e.GetType().Name + ": " + e.Message);
+            }
+            check(exit == 2 && !File.Exists(trace) && log.ToString().StartsWith(ParityRunCommand.Flag + " refused: this build carries no source revision", StringComparison.Ordinal),
+                "parity run: the command refuses a build with no source revision with exit 2, its log line and no trace (exit " + exit + ", "
+                + log.ToString().Trim() + ")");
+        }
+
+        private static string InformationalVersionOf(System.Reflection.Assembly assembly)
+        {
+            var info = (System.Reflection.AssemblyInformationalVersionAttribute)Attribute.GetCustomAttribute(assembly, typeof(System.Reflection.AssemblyInformationalVersionAttribute));
+            return info == null ? null : info.InformationalVersion;
         }
 
         private static string ParPoseRef(string set, int action, int animation, int pose)

@@ -998,26 +998,41 @@ namespace DesktopAICompanion.Shimeji
     {
         public const string Flag = "--shimeji-parity-run";
 
+        /// <summary>The assembly metadata key the project file stamps the full source revision under (its
+        /// StampDesktopAICompanionSourceRevision target). Only this command reads it.</summary>
+        internal const string SourceRevisionKey = "DesktopAICompanionSourceRevision";
+
         /// <summary><c>--shimeji-parity-run &lt;scenario.json&gt; &lt;pets dir&gt; &lt;trace out&gt; &lt;converter exe&gt;</c>.
         /// Exit 0 = a complete trace, 1 = the run ended in error (the trace says why), 2 = refused.</summary>
         public static int Execute(string[] args, int at, TextWriter log)
+        {
+            return Execute(args, at, log, typeof(ParityRun).Assembly);
+        }
+
+        /// <param name="stamped">The assembly whose stamped source revision is build.commit: this build's own, except in
+        /// ShimejiWindowSelfTest, which hands it one with no stamp to see the run refused.</param>
+        internal static int Execute(string[] args, int at, TextWriter log, System.Reflection.Assembly stamped)
         {
             if (args.Length < at + 5)
             {
                 log.WriteLine("usage: " + Flag + " <scenario.json> <pets dir> <trace out> <converter exe>");
                 return 2;
             }
+            // The build's identity first, before the data-root gate and before anything is read or a trace opened. A
+            // missing or malformed revision is refused rather than written as a placeholder, which the comparer's non-empty
+            // check would pass while it names nothing (contract review item 13), and it is never replaced by the product
+            // version (N-bd-parity-host-1-03).
+            string refusal;
+            string commit = SourceRevision(stamped, out refusal);
+            if (commit == null)
+            {
+                log.WriteLine(Flag + " refused: " + refusal + ". A parity trace names the source revision its build came from;"
+                    + " rebuild from a git checkout.");
+                return 2;
+            }
             if (!AppPaths.IsDataRootOverridden)
             {
                 log.WriteLine(Flag + " runs only under an overridden test data root (" + AppPaths.DataRootOverrideEnvironmentVariable + ").");
-                return 2;
-            }
-            // The build's identity: a missing one is refused rather than written as a placeholder, which the comparer's
-            // non-empty check would pass while it binds nothing (contract review item 13).
-            string commit = typeof(ParityRun).Assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false) is System.Reflection.AssemblyInformationalVersionAttribute[] v && v.Length > 0 ? v[0].InformationalVersion : null;
-            if (string.IsNullOrWhiteSpace(commit))
-            {
-                log.WriteLine(Flag + " refused: this build carries no informational version to write as build.commit.");
                 return 2;
             }
             var build = new Dictionary<string, string>(StringComparer.Ordinal)
@@ -1028,6 +1043,40 @@ namespace DesktopAICompanion.Shimeji
                 { "converterSha256", ParityRun.ConverterSha256(args[at + 4]) },
             };
             return ParityRun.Run(args[at + 1], args[at + 2], args[at + 3], build, log);
+        }
+
+        /// <summary>
+        /// build.commit: the full source revision the build stamped into its OWN metadata value, or null with the reason in
+        /// <paramref name="refusal"/>. Never the informational version, which is the product version (DesktopAICompanionVersion;
+        /// two builds of one version share it), and never a placeholder.
+        /// </summary>
+        internal static string SourceRevision(System.Reflection.Assembly stamped, out string refusal)
+        {
+            string value = null;
+            foreach (System.Reflection.AssemblyMetadataAttribute a in stamped.GetCustomAttributes(typeof(System.Reflection.AssemblyMetadataAttribute), false))
+                if (a.Key == SourceRevisionKey) value = a.Value;
+            if (value == null)
+            {
+                refusal = "this build carries no source revision (no " + SourceRevisionKey + " metadata: it was built without git or outside a checkout)";
+                return null;
+            }
+            if (!IsFullRevision(value))
+            {
+                refusal = "this build's source revision '" + value + "' is not a full commit id (40 lowercase hex characters, not all zero)";
+                return null;
+            }
+            refusal = null;
+            return value;
+        }
+
+        /// <summary>A full git commit id as rev-parse prints it: 40 lowercase hex characters, and not git's all-zero null
+        /// id, which names no commit.</summary>
+        internal static bool IsFullRevision(string value)
+        {
+            if (value == null || value.Length != 40 || value == new string('0', 40)) return false;
+            foreach (char c in value)
+                if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return false;
+            return true;
         }
     }
 
