@@ -54,6 +54,26 @@ namespace DesktopAICompanion.Wpf
             return string.Join(", ", names);
         }
 
+        /// <summary>The tooltip's sentence about the enforced half. Written by hand, because each enforced flag gets its own
+        /// wording (ClaudeCodeSignIn holds only while the user allows it), and held to <see cref="EnforcedPermissions"/> in
+        /// BOTH directions by --module-host-selftest (N-bd-w9-docs-1-01): every enforced flag is named here, and no flag
+        /// outside the set is. Until then a flag added to the set left the declarative list and was named nowhere, while
+        /// the declarative-list check still passed, because it compares that list with the enum and never read this text.
+        /// Generating the sentence from the set was the alternative, and was refused: a new enforced flag would have been
+        /// described as enforced "on its own verbs" whatever it actually is, where the check makes someone write its words.
+        /// </summary>
+        internal const string EnforcedPermissionsSentence =
+            "The app enforces Audio, Network, Voice and Companions on its own verbs, and ClaudeCodeSignIn on the shared " +
+            "Claude Code sign-in only while you allow it (Allow sign-in, on its row once installed)";
+
+        /// <summary>The available row's permissions tooltip: the enforced sentence, then the declarative flags. Built here
+        /// rather than at the row so the self-test reads the text the row shows.</summary>
+        internal static string AvailablePermissionsToolTip()
+        {
+            return "What the module declares it does. " + EnforcedPermissionsSentence + "; the other flags (" +
+                DeclarativePermissionNames() + ") are statements the module makes, not restrictions the app applies.";
+        }
+
         /// <summary>Installs and updates in flight. Read by the shell through <see cref="IBusyPane"/>, so a
         /// redirect by title is refused while one runs instead of cancelling it with the pane (RA-328). An
         /// Update all run counts from the press to its last prompt.</summary>
@@ -1381,9 +1401,8 @@ namespace DesktopAICompanion.Wpf
             // ModuleDeclares before it acts; every other flag is the module's statement of what it does, and
             // DeclarativePermissionNames derives those from the enum. This comment names neither list on
             // purpose: a hand copy of the enforced flags here went stale when ClaudeCodeSignIn joined the set.
-            // The tooltip's enforced sentence is still written by hand, because each enforced flag gets its own
-            // wording (ClaudeCodeSignIn holds only while the user allows it), so a flag added to
-            // EnforcedPermissions needs words there as well.
+            // The tooltip's enforced sentence is EnforcedPermissionsSentence, still written by hand and checked
+            // against EnforcedPermissions both ways, so a flag added to the set fails the self-test until it has words.
             string permsText = module.Permissions == ModulePermissions.None
                 ? "no special permissions"
                 : "wants: " + PermissionsText(module.Permissions);
@@ -1393,10 +1412,7 @@ namespace DesktopAICompanion.Wpf
                 FontSize = 10,
                 FontStyle = FontStyles.Italic,
                 Foreground = Brushes.Gray,
-                ToolTip = "What the module declares it does. The app enforces Audio, Network, Voice and Companions on its own " +
-                          "verbs, and ClaudeCodeSignIn on the shared Claude Code sign-in only while you allow it (Allow sign-in, " +
-                          "on its row once installed); the other flags (" + DeclarativePermissionNames() + ") are statements " +
-                          "the module makes, not restrictions the app applies.",
+                ToolTip = AvailablePermissionsToolTip(),
             });
             sp.Children.Add(nameStack);
 

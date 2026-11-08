@@ -132,6 +132,8 @@ namespace DesktopAICompanion.Plugins
                 ok &= SignInStartQuestion(sb);
                 // ---- burndown/w9-host-1 ----
                 ok &= ModuleSettingsDamage(sb);
+                // ---- burndown/w10-options-ui-1 ----
+                ok &= EnforcedFlagSentence(sb);
             }
             catch (Exception ex) { ok = false; sb.AppendLine("EXC: " + ex.GetType().Name + ": " + ex.Message); }
             finally
@@ -2223,6 +2225,47 @@ namespace DesktopAICompanion.Plugins
             ok &= Check(sb, "WITNESS modules pane: no enforced flag is named as a statement (" + string.Join(",", both) + ")",
                 both.Count == 0 && !named.Contains("Network") && !named.Contains("ClaudeCodeSignIn"));
             return ok;
+        }
+
+        // The tooltip's enforced sentence is held to EnforcedPermissions in both directions (N-bd-w9-docs-1-01). DeclarativeFlagList
+        // compares the declarative list with the enum and never reads this sentence, so a flag added to the enforced set left
+        // that list, passed that check, and was named nowhere in the tooltip. The other direction matters as much: a flag taken
+        // out of the set while the sentence still names it tells the user the app enforces something it no longer checks.
+        // A flag counts as named when its exact name stands as a whole word, case-sensitive, so "Audio" is not found inside
+        // "SystemAudio" nor "Microphone" inside "MicrophoneUsage"; the WITNESS proves the match finds a real name and refuses
+        // the embedded one, so an empty "outside" list cannot come from a match that sees nothing.
+        private static bool EnforcedFlagSentence(StringBuilder sb)
+        {
+            string sentence = DesktopAICompanion.Wpf.ModulesPaneControl.EnforcedPermissionsSentence;
+            ModulePermissions enforcedSet = DesktopAICompanion.Wpf.ModulesPaneControl.EnforcedPermissions;
+            var unnamed = new List<string>();
+            var outside = new List<string>();
+            int enforcedCount = 0;
+            foreach (ModulePermissions flag in Enum.GetValues(typeof(ModulePermissions)))
+            {
+                long bits = Convert.ToInt64(flag);
+                if (bits == 0 || (bits & (bits - 1)) != 0) continue;
+                bool enforced = (enforcedSet & flag) != 0;
+                bool named = NamesWholeWord(sentence, flag.ToString());
+                if (enforced) enforcedCount++;
+                if (enforced && !named) unnamed.Add(flag.ToString());
+                if (!enforced && named) outside.Add(flag.ToString());
+            }
+            bool ok = true;
+            ok &= Check(sb, "modules pane: the tooltip's enforced sentence names every enforced flag (" + string.Join(",", unnamed) + " unnamed)",
+                enforcedCount > 0 && unnamed.Count == 0);
+            ok &= Check(sb, "modules pane: the tooltip's enforced sentence names no flag outside the set (" + string.Join(",", outside) + ")",
+                outside.Count == 0);
+            string tip = DesktopAICompanion.Wpf.ModulesPaneControl.AvailablePermissionsToolTip();
+            ok &= Check(sb, "WITNESS modules pane: the row's tooltip carries the enforced sentence and the declarative list, and the match finds Audio but not inside SystemAudio",
+                tip.Contains(sentence) && tip.Contains("(" + DesktopAICompanion.Wpf.ModulesPaneControl.DeclarativePermissionNames() + ")") &&
+                NamesWholeWord(sentence, "Audio") && NamesWholeWord(sentence, "ClaudeCodeSignIn") && !NamesWholeWord("SystemAudio", "Audio"));
+            return ok;
+        }
+
+        private static bool NamesWholeWord(string text, string name)
+        {
+            return System.Text.RegularExpressions.Regex.IsMatch(text, @"\b" + System.Text.RegularExpressions.Regex.Escape(name) + @"\b");
         }
 
         /// <summary>

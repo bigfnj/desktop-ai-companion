@@ -24449,6 +24449,32 @@ CASES = (
      HOST_CSPROJ, EXE,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
      'parity error: a behaviour whose action its member does not declare is action-missing'),
+    # ---- burndown/w10-options-ui-1 ----
+    # N-bd-w9-docs-1-01: the Modules pane tooltip's hand-written enforced sentence and EnforcedPermissions drift apart.
+    # Each rebuilds the host and runs --module-host-selftest. LaunchProcess is the flag added because the declarative-list
+    # check pins Microphone, SystemAudio and InputSynthesis by name, so adding any of those would fail that check as well.
+    # "bd-w10-options-ui-1:" for one --only.
+    ("bd-w10-options-ui-1: a flag joins the enforced set and the sentence never names it (N-bd-w9-docs-1-01)",
+     os.path.join(REPO, "src", "Portable", "Wpf", "ModulesPaneControl.cs"),
+     b"            ModulePermissions.Voice | ModulePermissions.Companions | ModulePermissions.ClaudeCodeSignIn;",
+     b"            ModulePermissions.Voice | ModulePermissions.Companions | ModulePermissions.ClaudeCodeSignIn | ModulePermissions.LaunchProcess;",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "modules pane: the tooltip's enforced sentence names every enforced flag"),
+    ("bd-w10-options-ui-1: Audio leaves the enforced set while the sentence still says the app enforces it (N-bd-w9-docs-1-01)",
+     os.path.join(REPO, "src", "Portable", "Wpf", "ModulesPaneControl.cs"),
+     b"        internal const ModulePermissions EnforcedPermissions = ModulePermissions.Audio | ModulePermissions.Network |\n",
+     b"        internal const ModulePermissions EnforcedPermissions = ModulePermissions.Network |\n",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "modules pane: the tooltip's enforced sentence names no flag outside the set"),
+    ("bd-w10-options-ui-1: the row's tooltip drops the enforced sentence (N-bd-w9-docs-1-01)",
+     os.path.join(REPO, "src", "Portable", "Wpf", "ModulesPaneControl.cs"),
+     b'            return "What the module declares it does. " + EnforcedPermissionsSentence + "; the other flags (" +\n',
+     b'            return "What the module declares it does; the other flags (" +\n',
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "WITNESS modules pane: the row's tooltip carries the enforced sentence"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
