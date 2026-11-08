@@ -302,6 +302,9 @@ tests/*.mp4
 tests/*.mp3
 tests/*.zip
 tests/*-transcription.md
+# A mutation harness's restore record (tests/mutation_journal.py): run state holding a source file's original bytes
+# while its mutant is in place, and evidence of a hard-killed run until the next run of that harness repairs it.
+tests/*.restore-journal.json
 
 # Assistant/session working material. These are written OUTSIDE the repo by design, but a stray one
 # created in the tree would otherwise be one `git add -A` away from a public release. FORTUNE-SOURCES-

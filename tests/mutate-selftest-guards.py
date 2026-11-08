@@ -46,6 +46,7 @@ import stat
 import struct
 import subprocess
 from mutation_process import run_bytes, run_text, read_utf8_marker
+from mutation_journal import JournalError, RestoreJournal, journal_path, repaired_loaded_module
 import sys
 import time
 import uuid
@@ -270,6 +271,9 @@ TEMP = os.environ.get("TEMP", ".")
 # now sweeps THIS directory rather than the real %TEMP%, so nothing else would collect it.
 RUN_TEMP = None
 CHILD_ENV = None
+# The on-disk restore record (tests/mutation_journal.py, N-audit-1106-350), set in main() like RUN_TEMP. None when score()
+# is driven by a unit test, so a test never touches the record of a real run going on in the same tree.
+JOURNAL = None
 
 # (name, source file, find, replace, csproj to build, artifact that must advance,
 #  flag, marker, fragment of the assertion that must fail)
@@ -22798,6 +22802,51 @@ CASES = (
          SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
          SHIMEJI, "tick-emitter/nashorn-binding-paths",
          "M2-binding-paths: an unproven scalar was accepted: engine: incoming-self-read"),
+    # ---- burndown/w6-tests-harness-1 ----
+    # Mutation harness tooling. "bd-w6-tests-harness-1:" for one --only.
+    # N-audit-1106-350: the guard harness writes its mutant with no restore record on disk again, so a hard kill
+    # mid-case strands it in the tree and the next run measures against it.
+    ('bd-w6-tests-harness-1: the guard harness writes a mutant with no restore record (N-audit-1106-350)',
+     os.path.join(REPO, "tests", "mutate-selftest-guards.py"),
+     b'            if JOURNAL is not None:\n                JOURNAL.record(path, base, mutant, name)\n',
+     b'',
+     None, None,
+     MUTATION_UNITTESTS, None, 'test_guards_a_hard_kill_mid_case_is_repaired_by_the_next_run'),
+    ('bd-w6-tests-harness-1: the guard harness scores before repairing a stranded mutant (N-audit-1106-350)',
+     os.path.join(REPO, "tests", "mutate-selftest-guards.py"),
+     b'    stopped = repair_stranded_mutant()\n    if stopped is not None:\n        return stopped\n',
+     b'',
+     None, None,
+     MUTATION_UNITTESTS, None, 'test_guards_main_repairs_before_it_scores'),
+    # N-audit-1106-345: the same for the diagnostics harness, which the shard controller never runs.
+    ('bd-w6-tests-harness-1: the diagnostics harness writes a mutant with no restore record (N-audit-1106-345)',
+     MUTATE_DIAGNOSTICS_PY,
+     b'            if JOURNAL is not None:\n                JOURNAL.record(os.path.join(ROOT, rel), src, mutant, name)\n',
+     b'',
+     None, None,
+     MUTATION_UNITTESTS, None, 'test_diagnostics_a_hard_kill_mid_case_is_repaired_by_the_next_run'),
+    # N-audit-1106-348: a pseudo-flag keeps its flat bound however fast its unmutated run was.
+    ('bd-w6-tests-harness-1: a pseudo-flag ignores the mutant ceiling (N-audit-1106-348)',
+     os.path.join(REPO, "tests", "mutate-selftest-guards.py"),
+     b'        bound = min(limit, cap)\n',
+     b'        bound = cap\n',
+     None, None,
+     MUTATION_UNITTESTS, None, 'test_a_pseudo_flag_takes_the_mutant_ceiling'),
+    # N-audit-1106-349: a timed-out runner script is killed and the host exe it started keeps running.
+    ('bd-w6-tests-harness-1: a timed-out runner leaves its host running (N-audit-1106-349)',
+     os.path.join(REPO, "tests", "mutate-selftest-guards.py"),
+     b'    stopped = processes_matching(is_run_host, stop=True)\n',
+     b'    stopped = []\n',
+     None, None,
+     MUTATION_UNITTESTS, None, 'test_a_timed_out_runner_stops_the_host_it_left_running'),
+    # N-bd-w4-agentflow-1-03: the AgentFlow harness counts the host's restatement of the module verdict as a second
+    # failure again, so every firing reads "(+1 other failures)".
+    ('bd-w6-tests-harness-1: the AgentFlow count includes the host restatement again (N-bd-w4-agentflow-1-03)',
+     os.path.join(REPO, "tests", "mutate-agentflow.py"),
+     b'    return [line for line in lines if line not in hit and line != MODULE_VERDICT_RESTATEMENT]\n',
+     b'    return [line for line in lines if line not in hit]\n',
+     None, None,
+     MUTATION_UNITTESTS, None, 'test_the_hosts_restatement_is_not_another_failure'),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
@@ -23231,6 +23280,8 @@ def build_all():
 # verdict names the bound and the baseline it came from, so a spinning mutant scores BROKEN by name. Proved
 # with the floor at 5 s and the factor at 0.01: the mutant exe was killed at 5 s and the case read
 # BROKEN (--module-selftest=aibrain did not exit in 5s (killed; its unmutated run took 11s)).
+# Until N-audit-1106-348 that held for the exe flags only: the pseudo-flags (PSEUDO_FLAGS) kept a flat 1800 s, 600 s
+# or 300 s and were never timed. They now take the same ceiling, with that flat figure as a cap.
 MUTANT_CEILING_FLOOR_SECONDS = 300
 MUTANT_CEILING_FACTOR = 4
 BACKSTOP_SECONDS = 1800
@@ -23254,20 +23305,21 @@ def selftest(flag, marker):
     otherwise be read as this run's verdict (the STALEMARKER hole Test-ModuleSelfTests.ps1 closed on
     2026-09-28). A run that exits without writing one is a non-result too, never a pass.
     """
-    if flag == CORETESTS:
-        return coretests()
-    if flag == SHIMEJI:
-        return shimeji_selftest(marker)
-    if flag == SECURITY:
-        return security()
-    if flag == TEMPLATE:
-        return template_selftest()
-    if flag == MODULE_SELFTESTS:
-        return module_selftests_runner()
-    if flag == MUTATION_UNITTESTS:
-        return mutation_unittests()
-    if flag == WINDOWSOAK_JUDGE:
-        return windowsoak_judge()
+    limit = mutant_ceiling(flag)
+    pseudo = PSEUDO_FLAGS.get(flag)
+    if pseudo is not None:
+        # The pseudo-flags take the same ceiling as an exe flag (N-audit-1106-348): they were dispatched before it was
+        # computed, each with its own flat timeout, and their first run was never timed, so a spinning mutant on one of
+        # them ran 30 minutes. Each keeps its old flat bound as a cap, so none is allowed longer than before.
+        run, cap = pseudo
+        bound = min(limit, cap)
+        started = time.monotonic()
+        try:
+            result = run(marker, bound)
+        except subprocess.TimeoutExpired:
+            return None, timed_out(flag, bound)
+        BASELINE_SECONDS.setdefault(flag, time.monotonic() - started)
+        return result
     path = os.path.join(RUN_TEMP, marker)
     try:
         os.remove(path)
@@ -23275,17 +23327,13 @@ def selftest(flag, marker):
         pass
     if os.path.isfile(path):
         return None, "stale marker could not be removed: " + path
-    limit = mutant_ceiling(flag)
     started = time.monotonic()
     try:
         # Only the UTF-8 marker below is graded. A Windows child may write its console stream in
         # the active ANSI code page, so decoding this unused capture with Python -X utf8 can fail.
         proc = run_bytes([EXE, flag], capture_output=True, timeout=limit, env=CHILD_ENV)
     except subprocess.TimeoutExpired:
-        # run_bytes has killed and boundedly reaped the child. Say so, with the figure the bound
-        # came from, so the BROKEN line explains itself.
-        return None, "%s did not exit in %ds (killed; its unmutated run took %ds)" % (
-            flag, limit, int(BASELINE_SECONDS.get(flag, -1)))
+        return None, timed_out(flag, limit)
     BASELINE_SECONDS.setdefault(flag, time.monotonic() - started)
     if not os.path.isfile(path):
         return None, "no marker written (exit %d)" % proc.returncode
@@ -23295,7 +23343,7 @@ def selftest(flag, marker):
         return None, "the marker could not be read: %s" % error
 
 
-def coretests():
+def coretests(timeout):
     """CoreTests reshaped into the marker vocabulary the ladder below already grades.
 
     It has no marker file: PASS: lines go to stdout, and a failure is one 'FAIL: N regression
@@ -23313,10 +23361,7 @@ def coretests():
     # mutation SURVIVED against the empty arm.
     env = dict(CHILD_ENV)
     env.pop("DESKTOP_AI_COMPANION_DATA_ROOT", None)
-    try:
-        proc = run_text([CORETESTS_EXE], capture_output=True, timeout=1800, env=env)
-    except subprocess.TimeoutExpired:
-        return None, "CoreTests did not exit in 1800s"
+    proc = run_text([CORETESTS_EXE], capture_output=True, timeout=timeout, env=env)
     lines = (proc.stdout or "").splitlines()
     in_failures = False
     for line in (proc.stderr or "").splitlines():
@@ -23332,7 +23377,7 @@ def coretests():
     return "\n".join(lines) + "\n", proc.returncode
 
 
-def shimeji_selftest(group=None):
+def shimeji_selftest(group, timeout):
     """The converter's `selftest` verb (the gate's last step) in the marker vocabulary the ladder grades.
 
     EngineSelfTest.RunAll prints every sub-test's detail, a failing sub-test's failures as indented
@@ -23344,18 +23389,14 @@ def shimeji_selftest(group=None):
     """
     if not os.path.isfile(SHIMEJI_EXE):
         return None, "ShimejiConvert exe is missing: " + SHIMEJI_EXE
-    try:
-        command = [SHIMEJI_EXE, "selftest"] + ([group] if group is not None else [])
-        proc = run_text(command, capture_output=True, timeout=1800,
-                              env=CHILD_ENV)
-    except subprocess.TimeoutExpired:
-        return None, "ShimejiConvert selftest did not exit in 1800s"
+    command = [SHIMEJI_EXE, "selftest"] + ([group] if group is not None else [])
+    proc = run_text(command, capture_output=True, timeout=timeout, env=CHILD_ENV)
     report = (proc.stdout or "") + (proc.stderr or "")
     report += "\nRESULT=PASS\n" if proc.returncode == 0 else "\nRESULT=FAIL\n"
     return report, proc.returncode
 
 
-def template_selftest():
+def template_selftest(timeout):
     """packaging\\Test-ModuleTemplate.ps1 in the marker vocabulary the ladder grades.
 
     The script scaffolds the module template into modules\\TemplateCheck, builds it, loads it through the
@@ -23376,17 +23417,14 @@ def template_selftest():
         if default.lower() not in [p.lower() for p in kept]:
             kept.append(default)
     env["PSModulePath"] = os.pathsep.join(kept)
-    try:
-        proc = run_text(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", TEMPLATE_PS1],
-                              capture_output=True, timeout=1800, env=env, cwd=REPO)
-    except subprocess.TimeoutExpired:
-        return None, "Test-ModuleTemplate.ps1 did not exit in 1800s"
+    proc = run_text(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", TEMPLATE_PS1],
+                    capture_output=True, timeout=timeout, env=env, cwd=REPO)
     report = (proc.stdout or "") + (proc.stderr or "")
     report += "\nRESULT=PASS\n" if proc.returncode == 0 else "\nRESULT=FAIL\n"
     return report, proc.returncode
 
 
-def module_selftests_runner():
+def module_selftests_runner(timeout):
     """tests\\Test-ModuleSelfTests.ps1 in the marker vocabulary the ladder grades (MODULE_SELFTESTS).
 
     The runner prints one "  PROBLEM: <text>" line per problem before it throws (each module's verdict, and with
@@ -23406,12 +23444,9 @@ def module_selftests_runner():
         if default.lower() not in [p.lower() for p in kept]:
             kept.append(default)
     env["PSModulePath"] = os.pathsep.join(kept)
-    try:
-        proc = run_text(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",
-                               "Set-StrictMode -Version Latest; & '%s'" % MODULE_SELFTESTS_PS1],
-                              capture_output=True, timeout=1800, env=env, cwd=REPO)
-    except subprocess.TimeoutExpired:
-        return None, "Test-ModuleSelfTests.ps1 did not exit in 1800s"
+    proc = run_text(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",
+                     "Set-StrictMode -Version Latest; & '%s'" % MODULE_SELFTESTS_PS1],
+                    capture_output=True, timeout=timeout, env=env, cwd=REPO)
     lines = []
     for line in ((proc.stdout or "") + (proc.stderr or "")).splitlines():
         stripped = line.strip()
@@ -23420,19 +23455,17 @@ def module_selftests_runner():
     return "\n".join(lines) + "\n", proc.returncode
 
 
-def mutation_unittests():
+def mutation_unittests(timeout):
     """tests\\run_mutation_capture_checks.py in the marker vocabulary the ladder grades (MUTATION_UNITTESTS).
 
     The same interpreter as this harness, -X utf8 as the gate runs it, with CHILD_ENV; the runner makes its own scratch
     folder under tests\\ and leaves it only when something was left in it. unittest's FAIL:/ERROR: summary lines become
     FAIL: lines (an ERROR is a test that raised where it should have asserted, and it is a failure of that test all the
-    same); everything else is prefixed "| " (see MUTATION_UNITTESTS). Bounded at 600 s; an unmutated run takes ~20 s.
+    same); everything else is prefixed "| " (see MUTATION_UNITTESTS). Capped at 600 s (PSEUDO_FLAGS); an unmutated run
+    takes ~20 s.
     """
-    try:
-        proc = run_text([sys.executable, "-X", "utf8", MUTATION_UNITTESTS_PY],
-                        capture_output=True, timeout=600, env=CHILD_ENV, cwd=REPO)
-    except subprocess.TimeoutExpired:
-        return None, "run_mutation_capture_checks.py did not exit in 600s"
+    proc = run_text([sys.executable, "-X", "utf8", MUTATION_UNITTESTS_PY],
+                    capture_output=True, timeout=timeout, env=CHILD_ENV, cwd=REPO)
     lines = []
     for line in ((proc.stdout or "") + (proc.stderr or "")).splitlines():
         if line.startswith("FAIL: ") or line.startswith("ERROR: "):
@@ -23443,25 +23476,22 @@ def mutation_unittests():
     return "\n".join(lines) + "\n", proc.returncode
 
 
-def windowsoak_judge():
+def windowsoak_judge(timeout):
     """The module-window soak's `--judge-selftest` (WINDOWSOAK_JUDGE), lane feature/test-infra.
 
     The exe already speaks the ladder's vocabulary: one PASS:/FAIL: line per check and its own column-0 RESULT= line,
     with exit 0 or 1, so stdout and stderr are taken as they are and no RESULT= line is added here (a second one could
     disagree with the exe's). An exe that dies before printing leaves no RESULT=PASS and a non-zero exit, which the
-    ladder reads as BROKEN, never as a firing. Opens no window and loads no module; bounded at 300 s like a hang detector,
-    since an unmutated run takes well under a second.
+    ladder reads as BROKEN, never as a firing. Opens no window and loads no module; capped at 300 s like a hang detector
+    (PSEUDO_FLAGS), since an unmutated run takes well under a second.
     """
     if not os.path.isfile(WINDOWSOAK_EXE):
         return None, "the window soak exe is missing: " + WINDOWSOAK_EXE
-    try:
-        proc = run_text([WINDOWSOAK_EXE, "--judge-selftest"], capture_output=True, timeout=300, env=CHILD_ENV)
-    except subprocess.TimeoutExpired:
-        return None, "the window soak's --judge-selftest did not exit in 300s"
+    proc = run_text([WINDOWSOAK_EXE, "--judge-selftest"], capture_output=True, timeout=timeout, env=CHILD_ENV)
     return (proc.stdout or "") + (proc.stderr or ""), proc.returncode
 
 
-def security():
+def security(timeout):
     """--security-selftest reshaped into the marker vocabulary the ladder grades.
 
     SecuritySelfTest.Check writes '[PASS] x' / '[FAIL] x' per assertion and a 'Security self-test: PASS'
@@ -23470,11 +23500,7 @@ def security():
     non-zero exit, which the ladder reads as BROKEN (no verdict): the truth about such a run, and never a
     firing.
     """
-    try:
-        proc = run_text([EXE, "--security-selftest"], capture_output=True, timeout=1800,
-                              env=CHILD_ENV)
-    except subprocess.TimeoutExpired:
-        return None, "--security-selftest did not exit in 1800s"
+    proc = run_text([EXE, "--security-selftest"], capture_output=True, timeout=timeout, env=CHILD_ENV)
     lines = []
     for line in (proc.stdout or "").splitlines():
         stripped = line.strip()
@@ -23486,6 +23512,111 @@ def security():
             lines.append(line)
     lines.append("RESULT=PASS" if proc.returncode == 0 else "RESULT=FAIL")
     return "\n".join(lines) + "\n", proc.returncode
+
+
+# flag -> (run(marker, timeout), cap). The pseudo-flags run a test exe, the converter CLI or a PowerShell runner instead of
+# the host with a flag; selftest() bounds each by mutant_ceiling(flag) like an exe flag, never above the flat bound it
+# had before (N-audit-1106-348). A SHIMEJI case's marker slot is its focused group.
+PSEUDO_FLAGS = {
+    CORETESTS: (lambda marker, timeout: coretests(timeout), BACKSTOP_SECONDS),
+    SHIMEJI: (shimeji_selftest, BACKSTOP_SECONDS),
+    SECURITY: (lambda marker, timeout: security(timeout), BACKSTOP_SECONDS),
+    TEMPLATE: (lambda marker, timeout: template_selftest(timeout), BACKSTOP_SECONDS),
+    MODULE_SELFTESTS: (lambda marker, timeout: module_selftests_runner(timeout), BACKSTOP_SECONDS),
+    MUTATION_UNITTESTS: (lambda marker, timeout: mutation_unittests(timeout), 600),
+    WINDOWSOAK_JUDGE: (lambda marker, timeout: windowsoak_judge(timeout), 300),
+}
+
+
+# N-audit-1106-349. run_bytes kills only the direct child it retained ("Only the retained direct child is eligible for
+# termination", mutation_process.py). For TEMPLATE and MODULE-SELFTESTS that child is powershell.exe, and the host exe it
+# started (a spinning mutant included) outlived the timeout, holding module DLLs locked for the cases after it. So a run
+# killed at its bound is followed by a sweep of what THIS run started: a process whose image is this tree's host exe, or
+# any image under this run's private TEMP (Test-ModuleTemplate.ps1 copies the host there as its loader). Matched by the
+# full path, never by the image name: the owner's installed companion has the same name. Run for every flag, since an
+# exe flag's host can start a second instance too; when nothing is left the sweep finds nothing.
+_PROCESS_TERMINATE = 0x0001
+_PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+_SYNCHRONIZE = 0x00100000
+
+
+def _process_api():
+    import ctypes
+    from ctypes import wintypes
+    k = ctypes.WinDLL("kernel32", use_last_error=True)
+    k.K32EnumProcesses.argtypes = [ctypes.POINTER(wintypes.DWORD), wintypes.DWORD, ctypes.POINTER(wintypes.DWORD)]
+    k.K32EnumProcesses.restype = wintypes.BOOL
+    k.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    k.OpenProcess.restype = wintypes.HANDLE
+    k.QueryFullProcessImageNameW.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR,
+                                             ctypes.POINTER(wintypes.DWORD)]
+    k.QueryFullProcessImageNameW.restype = wintypes.BOOL
+    k.TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
+    k.TerminateProcess.restype = wintypes.BOOL
+    k.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    k.WaitForSingleObject.restype = wintypes.DWORD
+    k.CloseHandle.argtypes = [wintypes.HANDLE]
+    k.CloseHandle.restype = wintypes.BOOL
+    return ctypes, wintypes, k
+
+
+def processes_matching(match, stop=False):
+    """[(pid, image)] of every other process for which match(pid, full image path) is true. With stop=True each one is
+    terminated and waited for (five seconds at most), and ' (still running)' is added to an image that did not stop. One
+    handle per process does both the query and the terminate, so a recycled process ID cannot be killed in its place."""
+    ctypes, wintypes, k = _process_api()
+    count = 4096
+    while True:
+        pids = (wintypes.DWORD * count)()
+        used = wintypes.DWORD()
+        if not k.K32EnumProcesses(pids, ctypes.sizeof(pids), ctypes.byref(used)):
+            raise OSError(ctypes.get_last_error(), "EnumProcesses failed")
+        if used.value < ctypes.sizeof(pids):
+            break
+        count *= 2
+    access = _PROCESS_QUERY_LIMITED_INFORMATION | ((_PROCESS_TERMINATE | _SYNCHRONIZE) if stop else 0)
+    found = []
+    for pid in pids[:used.value // ctypes.sizeof(wintypes.DWORD)]:
+        if pid in (0, os.getpid()):
+            continue
+        handle = k.OpenProcess(access, False, pid)
+        if not handle:
+            continue
+        try:
+            size = wintypes.DWORD(32768)
+            buffer = ctypes.create_unicode_buffer(size.value)
+            if not k.QueryFullProcessImageNameW(handle, 0, buffer, ctypes.byref(size)):
+                continue
+            image = buffer.value
+            if not match(pid, image):
+                continue
+            if stop:
+                k.TerminateProcess(handle, 1)
+                if k.WaitForSingleObject(handle, 5000) != 0:
+                    image += " (still running)"
+            found.append((pid, image))
+        finally:
+            k.CloseHandle(handle)
+    return found
+
+
+def is_run_host(pid, image):
+    """This tree's host exe, or any image under this run's private TEMP."""
+    image = os.path.normcase(os.path.abspath(image))
+    if image == os.path.normcase(os.path.abspath(EXE)):
+        return True
+    return RUN_TEMP is not None and image.startswith(os.path.normcase(os.path.abspath(RUN_TEMP)) + os.sep)
+
+
+def timed_out(flag, bound):
+    """The BROKEN reason for a run killed at its bound: the bound, the unmutated run it came from, and what the run left
+    behind that the sweep stopped (N-audit-1106-349)."""
+    why = "%s did not exit in %ds (killed; its unmutated run took %ds)" % (
+        flag, bound, int(BASELINE_SECONDS.get(flag, -1)))
+    stopped = processes_matching(is_run_host, stop=True)
+    if stopped:
+        why += "; also stopped what it left running: " + ", ".join("pid %d %s" % entry for entry in stopped)
+    return why
 
 
 def line_ending_variant(base, old, new):
@@ -23681,11 +23812,17 @@ def score(plan):
             code = None
             verdict = None
             leak = None
+            mutant = base.replace(old_v, new_v)
+            # ON DISK before the mutant is (N-audit-1106-350): the finally below is the only restore, and a hard kill runs
+            # no finally, so the original bytes must not live in this process alone. main() repairs from the record at
+            # the start of the next run. Outside the try: a record that cannot be written leaves no mutant to restore.
+            if JOURNAL is not None:
+                JOURNAL.record(path, base, mutant, name)
             # The mutant is written INSIDE the try, and the pause after it too (lane feature/modules-fixes, from a review
             # on 2026-10-29): both sat before it, so a Ctrl+C during the 1.1 s pause skipped the restore, and the outer
             # finally then rebuilt the clean tree from the mutated source.
             try:
-                write(path, base.replace(old_v, new_v))
+                write(path, mutant)
                 time.sleep(1.1)
                 if csproj is None:
                     report, code, leak = watched_selftest(flag, marker)
@@ -23703,6 +23840,9 @@ def score(plan):
                         report, code, leak = watched_selftest(flag, marker)
             finally:
                 write(path, base)
+                # Only once the original bytes are back: a restore that raises keeps the record for the next run.
+                if JOURNAL is not None:
+                    JOURNAL.clear()
 
             if leak:
                 leaked = name
@@ -23782,8 +23922,25 @@ def score(plan):
     return 0 if fired == len(cases) - not_run and rebuilt and leaked is None and stopped is None else 1
 
 
+def repair_stranded_mutant():
+    """Before anything is read as clean source: put back a mutant a hard-killed run left (N-audit-1106-350). Returns
+    None to go on, or the exit code to stop with: 2 when the record cannot be acted on, or when the file it put back is
+    one this process already imported (a case that mutates this harness), which would run the rest as the mutant."""
+    try:
+        lines, repaired = JOURNAL.repair()
+    except JournalError as error:
+        print("REFUSED: " + str(error))
+        return 2
+    for line in lines:
+        print(line)
+    if repaired_loaded_module(repaired, sys.modules):
+        print("STOPPED: this run loaded that file as the mutant; run the harness again")
+        return 2
+    return None
+
+
 def main():
-    global RUN_TEMP, CHILD_ENV, DOCUMENTS_REMEMBRANCE
+    global RUN_TEMP, CHILD_ENV, DOCUMENTS_REMEMBRANCE, JOURNAL
     documents = documents_folder()
     DOCUMENTS_REMEMBRANCE = os.path.join(documents, "Remembrance") if documents else None
     parser = argparse.ArgumentParser()
@@ -23794,6 +23951,10 @@ def main():
         print(plan.json())
         return 0
     print("CASEPLAN " + plan.summary())
+    JOURNAL = RestoreJournal(journal_path(__file__))
+    stopped = repair_stranded_mutant()
+    if stopped is not None:
+        return stopped
 
     # Short on purpose: the fortunes VectorCache replace-fallback probe fails once TEMP itself reaches
     # ~107 characters (its temp path hits MAX_PATH in a MoveFileEx P/Invoke), and a runner must not
