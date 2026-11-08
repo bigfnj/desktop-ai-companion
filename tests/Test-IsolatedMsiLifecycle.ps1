@@ -373,13 +373,16 @@ foreach ($family in $manifest.Families) {
         Assert-FixtureDefaults -Msi $msi -Family $family
     }
 }
-if ($ObserveMaintenanceLog) {
-    if ([IO.File]::Exists((Fixture-Path 'lifecycle-result.json'))) { throw 'Observation requires a never-applied fixture; prior lifecycle evidence is preserved.' }
-    foreach ($family in $manifest.Families) {
-        foreach ($name in @('install-v1','rollback-v2','upgrade','reinstall','repair','uninstall','legacy-refusal','legacy-cleanup','cleanup-v1','cleanup-v2')) {
-            foreach ($suffix in @('.log','.log.caller-command.txt','.log.caller.out.txt','.log.caller.err.txt')) {
-                if ([IO.File]::Exists((Fixture-Path ($family.Name + '\' + $name + $suffix)))) { throw 'Observation refuses to overwrite a prior lifecycle log or caller sidecar.' }
-            }
+# EVERY -Apply needs a never-applied fixture (N-audit-1106-369), not only an observation run. A second -Apply on an
+# applied fixture got past this when it was under `if ($ObserveMaintenanceLog)`: it installed v1 and overwrote that
+# fixture's logs before it failed at the foreign-image copy, which already existed, and its report then read the
+# PREVIOUS run's rollback-v2 log and attributed those registry failures to itself. Refused here, before any MSI runs;
+# a fresh fixture comes from a BuildOnly run (this script without -Apply).
+if ([IO.File]::Exists((Fixture-Path 'lifecycle-result.json'))) { throw 'Apply requires a never-applied fixture; prior lifecycle evidence is preserved.' }
+foreach ($family in $manifest.Families) {
+    foreach ($name in @('install-v1','rollback-v2','upgrade','reinstall','repair','uninstall','legacy-refusal','legacy-cleanup','cleanup-v1','cleanup-v2')) {
+        foreach ($suffix in @('.log','.log.caller-command.txt','.log.caller.out.txt','.log.caller.err.txt')) {
+            if ([IO.File]::Exists((Fixture-Path ($family.Name + '\' + $name + $suffix)))) { throw 'Apply refuses to overwrite a prior lifecycle log or caller sidecar.' }
         }
     }
 }

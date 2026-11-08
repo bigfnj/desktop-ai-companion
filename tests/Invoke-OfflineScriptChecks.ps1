@@ -212,11 +212,19 @@ else {
 # fails on either half.
 if (-not $ParityOnly) {
 $repoTests = $PSScriptRoot
+# tests\test_shimeji_parity_scripts.py's offline-runner leg shares the Python loop (N-bd-w9-tests-scripts-2-01): it runs
+# THIS runner's -ParityOnly path in Windows PowerShell against synthetic comparer and generator children and requires
+# the right verdict for each wrong outcome, the OFFLINE_RUNNER_WITNESS among them. Nothing ran it, so when the block
+# below once ran under -ParityOnly too, that witness broke and nothing reported it. Here, outside -ParityOnly, because
+# the leg itself runs -ParityOnly: inside that block it would start itself again. --only=offline-runner because its
+# generator leg repeats the generator self-test above. It needs powershell.exe and Pillow in python, as the parity
+# checks above do. Measured 2026-11-08 in a fresh process: 23.4 s (ten powershell.exe children).
 $mutationPython = @(
     @('mutate-agentflow.py', '--check-patterns'),
     @('mutate-diagnostics.py', '--check-patterns'),
     @('run_installer_shutdown_mutations.py', '--self-test'),
-    @('run_codex_tolerant_note_mutations.py', '--self-test'))
+    @('run_codex_tolerant_note_mutations.py', '--self-test'),
+    @('test_shimeji_parity_scripts.py', '--only=offline-runner'))
 # The isolated MSI API logging probe's two in-memory suites share the PowerShell 7 loop (N-audit-1106-367,
 # N-audit-1106-368): both are #requires 7 (the facade test compiles its fake with Add-Type), so they cannot run in this
 # process, and nothing else called them, so their checks of tools\agentbroker\Test-IsolatedMsiApiLogging.ps1 and

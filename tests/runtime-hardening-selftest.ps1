@@ -6777,6 +6777,73 @@ Assert-True ($w10tsMarks.Count -ge 1 -and $w10tsLastAnchor -gt 0) (
 Assert-True ($w10tsMarks.Count -eq 1 -and $w10tsMarks[0] -gt $w10tsLastAnchor) (
     "w10-tests-scripts-2: the doc-count block's comment appears once, below every lane block" +
     $(if ($w10tsMarks.Count -ne 1 -or $w10tsMarks[0] -le $w10tsLastAnchor) { " -- comment at line(s) $(($w10tsMarks | ForEach-Object { $_ + 1 }) -join ', '), last anchor at line $($w10tsLastAnchor + 1)" } else { '' }))
+# ---- burndown/w10-tests-scripts-1 ----
+# THE GATE RUNS THE REGISTRY SELF-TEST IN TWO CONCURRENT PROCESSES (N-audit-1106-371). tests\Test-PetTypeRegistryConcurrency.ps1
+# was called by no gate, CI step, harness or document. ORDER in comment-stripped tests\run-gate.ps1: the self-test runner,
+# then the probe against the built $exe at -Parallelism 2 -Rounds 1, then its exit code read, then a failure added on a
+# nonzero exit, then the verdict; a missing pwsh adds a failure of its own. WITNESS: the self-test runner's call was found.
+$w10Gate = Remove-PsLineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'tests\run-gate.ps1') -Raw)
+$w10SelfTests = $w10Gate.IndexOf('-ExecutablePath $exe -OutputRoot $outputRoot', [StringComparison]::Ordinal)
+$w10Probe = [regex]::Match($w10Gate, '& \$registryPwsh\.Source -NoProfile -ExecutionPolicy Bypass -File \(Join-Path \$repoRoot ''tests\\Test-PetTypeRegistryConcurrency\.ps1''\) `\r?\n\s*-Executable \$exe -Parallelism 2 -Rounds 1 2>&1')
+$w10ProbeAt = $(if ($w10Probe.Success) { $w10Probe.Index } else { -1 })
+$w10ExitRead = $w10Gate.IndexOf('$registryExit = $LASTEXITCODE', [StringComparison]::Ordinal)
+$w10ExitAdd = $w10Gate.IndexOf('if ($null -ne $registryExit -and $registryExit -ne 0) { $failures.Add("Test-PetTypeRegistryConcurrency.ps1 (exit $registryExit)") }', [StringComparison]::Ordinal)
+$w10Verdict = $w10Gate.LastIndexOf('Write-Host "GATE FAILED:"', [StringComparison]::Ordinal)
+Assert-True ($w10Gate.Length -gt 0 -and $w10SelfTests -ge 0) 'w10-tests-scripts-1: WITNESS run-gate.ps1 was read and its self-test runner call found'
+Assert-True ($w10ProbeAt -gt $w10SelfTests -and $w10ExitRead -gt $w10ProbeAt -and $w10ExitAdd -gt $w10ExitRead -and $w10Verdict -gt $w10ExitAdd -and
+    $w10Gate.Contains('Test-PetTypeRegistryConcurrency.ps1: it needs PowerShell 7.4, and pwsh is not on PATH, so it did not run')) (
+    "w10-tests-scripts-1: the gate runs the registry self-test in two concurrent processes after the self-tests and fails on its exit code (self-tests at $w10SelfTests, probe at $w10ProbeAt, exit read at $w10ExitRead, exit check at $w10ExitAdd, verdict at $w10Verdict)")
+# THE OFFLINE CHECKS RUN THE PARITY SCRIPT TEST'S OFFLINE-RUNNER LEG (N-bd-w9-tests-scripts-2-01). Nothing ran
+# tests\test_shimeji_parity_scripts.py, so its OFFLINE_RUNNER_WITNESS broke unseen. Asserted inside the Python list's
+# literal, comment-stripped, so an entry left in a comment or another list does not count; that list's loop fails on a
+# nonzero exit (pinned by w3-tests-harness-1 above), and the list sits in the block -ParityOnly skips, because the leg
+# runs -ParityOnly itself. WITNESS: the slice holds the agentflow --check-patterns entry.
+$w10Offline = Remove-PsLineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'tests\Invoke-OfflineScriptChecks.ps1') -Raw)
+$w10PythonList = [regex]::Match($w10Offline, '(?s)\$mutationPython = @\((.*?\))\)\r?\n').Groups[1].Value
+$w10ListAt = $w10Offline.IndexOf('$mutationPython = @(', [StringComparison]::Ordinal)
+Assert-True ($w10PythonList.Length -gt 0 -and $w10PythonList.Contains("@('mutate-agentflow.py', '--check-patterns')")) 'w10-tests-scripts-1: WITNESS the offline checks'' Python list was sliced'
+Assert-True ($w10PythonList.Contains("@('test_shimeji_parity_scripts.py', '--only=offline-runner')") -and
+    $w10ListAt -gt $w10Offline.LastIndexOf('if (-not $ParityOnly) {', [StringComparison]::Ordinal)) (
+    'w10-tests-scripts-1: the offline checks run the parity script test''s offline-runner leg outside -ParityOnly, judged by exit code')
+# THE WORKER-CLEANUP AND INSTALLER-SHUTDOWN TESTS REMOVE THEIR SCRATCH TREES ON A PASS (N-audit-1106-363, N-audit-1106-366).
+# Each run left artifacts\worker-cleanup-tests-<guid> (a Git repository and its worktree) or build\scoped-shutdown-tests\<guid>
+# (six copies of the synthetic exe) behind. ORDER, comment-stripped: past the point a failing run stops (the worker test's
+# last check; the shutdown test's failure throw, itself after its child-cleanup finally), then the leaf check, then the
+# reparse-point refusal, then the recursive delete of $scratch, the only recursive delete in the file. A failing run says
+# where its kept folder is.
+$w10Worker = Remove-PsLineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'tests\Test-CompletedWorkerBinaryCleanup.ps1') -Raw)
+$w10WorkerLastCheck = $w10Worker.LastIndexOf('Check ([IO.File]::Exists($path)) ''partial failure still preserves evidence''', [StringComparison]::Ordinal)
+$w10WorkerGuard = $w10Worker.IndexOf('(Split-Path -Leaf $scratch) -cnotmatch ''^worker-cleanup-tests-[0-9a-f]{32}$''', [StringComparison]::Ordinal)
+$w10WorkerLinks = $w10Worker.IndexOf('elseif (@(Get-ChildItem -LiteralPath $scratch -Recurse -Force -Attributes ReparsePoint).Count -gt 0) {', [StringComparison]::Ordinal)
+$w10WorkerDelete = $w10Worker.IndexOf('[IO.Directory]::Delete($scratch, $true)', [StringComparison]::Ordinal)
+$w10WorkerRecursive = @([regex]::Matches($w10Worker, '\[IO\.Directory\]::Delete\([^()]*,\s*\$true\)')).Count
+Assert-True ($w10Worker.Length -gt 0 -and $w10WorkerLastCheck -ge 0 -and $w10WorkerGuard -gt $w10WorkerLastCheck -and
+    $w10WorkerLinks -gt $w10WorkerGuard -and $w10WorkerDelete -gt $w10WorkerLinks -and $w10WorkerRecursive -eq 1 -and
+    $w10Worker.Contains('its scratch folder is kept for inspection: $keptScratch')) (
+    "w10-tests-scripts-1: the worker-cleanup test removes its own scratch tree after its last check, leaf and reparse points checked first (last check at $w10WorkerLastCheck, guard at $w10WorkerGuard, reparse at $w10WorkerLinks, delete at $w10WorkerDelete, recursive deletes $w10WorkerRecursive)")
+$w10Shutdown = Remove-PsLineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'tests\Test-InstallerShutdown.ps1') -Raw)
+$w10ShutdownFinally = $w10Shutdown.IndexOf('$cleanupFailures = New-Object', [StringComparison]::Ordinal)
+$w10ShutdownThrow = $w10Shutdown.IndexOf('throw $primaryFailure', [StringComparison]::Ordinal)
+$w10ShutdownGuard = $w10Shutdown.IndexOf('(Split-Path -Leaf $scratch) -cnotmatch ''^[0-9a-f]{32}$''', [StringComparison]::Ordinal)
+$w10ShutdownLinks = $w10Shutdown.IndexOf('elseif (@(Get-ChildItem -LiteralPath $scratch -Recurse -Force -Attributes ReparsePoint).Count -gt 0) {', [StringComparison]::Ordinal)
+$w10ShutdownDelete = $w10Shutdown.IndexOf('[IO.Directory]::Delete($scratch, $true)', [StringComparison]::Ordinal)
+$w10ShutdownRecursive = @([regex]::Matches($w10Shutdown, '\[IO\.Directory\]::Delete\([^()]*,\s*\$true\)')).Count
+Assert-True ($w10Shutdown.Length -gt 0 -and $w10ShutdownFinally -ge 0 -and $w10ShutdownThrow -gt $w10ShutdownFinally -and
+    $w10ShutdownGuard -gt $w10ShutdownThrow -and $w10ShutdownLinks -gt $w10ShutdownGuard -and $w10ShutdownDelete -gt $w10ShutdownLinks -and
+    $w10ShutdownRecursive -eq 1 -and $w10Shutdown.Contains('their scratch folder is kept for inspection: $scratch')) (
+    "w10-tests-scripts-1: the installer shutdown test removes its own scratch tree after its failure throw, leaf and reparse points checked first (finally at $w10ShutdownFinally, throw at $w10ShutdownThrow, guard at $w10ShutdownGuard, reparse at $w10ShutdownLinks, delete at $w10ShutdownDelete, recursive deletes $w10ShutdownRecursive)")
+# EVERY MSI LIFECYCLE -Apply REFUSES AN APPLIED FIXTURE BEFORE ANY MSI RUNS (N-audit-1106-369). Both refusals (a prior
+# lifecycle-result.json, a prior lifecycle log or sidecar) were inside `if ($ObserveMaintenanceLog)`, so a plain second
+# -Apply installed v1 and overwrote the logs first. Asserted as the CONDITION: each refusal's `if` tests only the file's
+# existence, with no switch beside it, and the result-file refusal is a top-level statement; ORDER: both come before the
+# first Invoke-OwnedMsi call.
+$w10Life = Remove-PsLineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'tests\Test-IsolatedMsiLifecycle.ps1') -Raw)
+$w10LifeResult = [regex]::Match($w10Life, '(?m)^if \(\[IO\.File\]::Exists\(\(Fixture-Path ''lifecycle-result\.json''\)\)\) \{ throw ''Apply requires a never-applied fixture')
+$w10LifeLogs = [regex]::Match($w10Life, '(?m)^\s+if \(\[IO\.File\]::Exists\(\(Fixture-Path \(\$family\.Name \+ ''\\'' \+ \$name \+ \$suffix\)\)\)\) \{ throw ''Apply refuses to overwrite')
+$w10LifeFirstMsi = $w10Life.IndexOf("Invoke-OwnedMsi -Name 'install-v1'", [StringComparison]::Ordinal)
+Assert-True ($w10Life.Length -gt 0 -and $w10LifeFirstMsi -ge 0 -and $w10LifeResult.Success -and $w10LifeLogs.Success -and
+    $w10LifeResult.Index -lt $w10LifeFirstMsi -and $w10LifeLogs.Index -lt $w10LifeFirstMsi) (
+    "w10-tests-scripts-1: every MSI lifecycle -Apply refuses an applied fixture before its first MSI (result refusal $($w10LifeResult.Success), log refusal $($w10LifeLogs.Success), first MSI at $w10LifeFirstMsi)")
 
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that

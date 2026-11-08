@@ -5129,6 +5129,77 @@ CASES = (
         b"# ---- lane feature/below-the-count ----\nWrite-Host 'PASS: runtime hardening source invariants.'\n",
         "w10-tests-scripts-2: the doc-count block's comment appears once, below every lane block",
     ),
+    # ---- burndown/w10-tests-scripts-1 ----
+    # "bd-w10-tests-scripts-1:" for one --only. The gate stops running the registry concurrency probe or stops judging its
+    # exit code (N-audit-1106-371); the offline checks drop the parity script test's offline-runner leg
+    # (N-bd-w9-tests-scripts-2-01); the worker-cleanup and installer-shutdown tests keep their scratch trees on a pass, or
+    # delete them without the leaf check (N-audit-1106-363, N-audit-1106-366).
+    (
+        "bd-w10-tests-scripts-1: the gate stops running the registry concurrency probe (N-audit-1106-371)",
+        os.path.join(REPO, "tests", "run-gate.ps1"),
+        b"            & $registryPwsh.Source -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repoRoot 'tests\\Test-PetTypeRegistryConcurrency.ps1') `\n"
+        b"                -Executable $exe -Parallelism 2 -Rounds 1 2>&1 | ForEach-Object { Write-Host \"$_\" }\n",
+        b"            $null = 0\n",
+        "w10-tests-scripts-1: the gate runs the registry self-test in two concurrent processes",
+    ),
+    (
+        "bd-w10-tests-scripts-1: the gate ignores the registry concurrency probe's exit code (N-audit-1106-371)",
+        os.path.join(REPO, "tests", "run-gate.ps1"),
+        b"        if ($null -ne $registryExit -and $registryExit -ne 0) {",
+        b"        if ($false) {",
+        "w10-tests-scripts-1: the gate runs the registry self-test in two concurrent processes",
+    ),
+    (
+        "bd-w10-tests-scripts-1: the offline checks drop the parity script test's runner leg (N-bd-w9-tests-scripts-2-01)",
+        os.path.join(REPO, "tests", "Invoke-OfflineScriptChecks.ps1"),
+        b"    @('run_codex_tolerant_note_mutations.py', '--self-test'),\n    @('test_shimeji_parity_scripts.py', '--only=offline-runner'))\n",
+        b"    @('run_codex_tolerant_note_mutations.py', '--self-test'))\n",
+        "w10-tests-scripts-1: the offline checks run the parity script test's offline-runner leg",
+    ),
+    (
+        "bd-w10-tests-scripts-1: the worker-cleanup test keeps its scratch tree on a pass (N-audit-1106-363)",
+        os.path.join(REPO, "tests", "Test-CompletedWorkerBinaryCleanup.ps1"),
+        b"        [IO.Directory]::Delete($scratch, $true)\n        $scratchRemoved",
+        b"        $scratchRemoved",
+        "w10-tests-scripts-1: the worker-cleanup test removes its own scratch tree",
+    ),
+    (
+        "bd-w10-tests-scripts-1: the worker-cleanup test deletes its scratch tree without the leaf check (N-audit-1106-363)",
+        os.path.join(REPO, "tests", "Test-CompletedWorkerBinaryCleanup.ps1"),
+        b"(Split-Path -Leaf $scratch) -cnotmatch '^worker-cleanup-tests-[0-9a-f]{32}$') {",
+        b"$false) {",
+        "w10-tests-scripts-1: the worker-cleanup test removes its own scratch tree",
+    ),
+    (
+        "bd-w10-tests-scripts-1: the installer shutdown test keeps its scratch tree on a pass (N-audit-1106-366)",
+        os.path.join(REPO, "tests", "Test-InstallerShutdown.ps1"),
+        b"        [IO.Directory]::Delete($scratch, $true)\n        $report.ScratchRemoved",
+        b"        $report.ScratchRemoved",
+        "w10-tests-scripts-1: the installer shutdown test removes its own scratch tree",
+    ),
+    (
+        "bd-w10-tests-scripts-1: the installer shutdown test deletes its scratch tree without the leaf check (N-audit-1106-366)",
+        os.path.join(REPO, "tests", "Test-InstallerShutdown.ps1"),
+        b"(Split-Path -Leaf $scratch) -cnotmatch '^[0-9a-f]{32}$') {",
+        b"$false) {",
+        "w10-tests-scripts-1: the installer shutdown test removes its own scratch tree",
+    ),
+    # N-audit-1106-369: either applied-fixture refusal goes back under the observation switch, so a plain second -Apply
+    # installs v1 and overwrites the logs before it fails.
+    (
+        "bd-w10-tests-scripts-1: the MSI lifecycle checks for a prior result only when observing (N-audit-1106-369)",
+        os.path.join(REPO, "tests", "Test-IsolatedMsiLifecycle.ps1"),
+        b"if ([IO.File]::Exists((Fixture-Path 'lifecycle-result.json'))) { throw 'Apply requires",
+        b"if ($ObserveMaintenanceLog -and [IO.File]::Exists((Fixture-Path 'lifecycle-result.json'))) { throw 'Apply requires",
+        "w10-tests-scripts-1: every MSI lifecycle -Apply refuses an applied fixture before its first MSI",
+    ),
+    (
+        "bd-w10-tests-scripts-1: the MSI lifecycle checks for prior logs only when observing (N-audit-1106-369)",
+        os.path.join(REPO, "tests", "Test-IsolatedMsiLifecycle.ps1"),
+        b"            if ([IO.File]::Exists((Fixture-Path ($family.Name + '\\' + $name + $suffix)))) { throw 'Apply refuses",
+        b"            if ($ObserveMaintenanceLog -and [IO.File]::Exists((Fixture-Path ($family.Name + '\\' + $name + $suffix)))) { throw 'Apply refuses",
+        "w10-tests-scripts-1: every MSI lifecycle -Apply refuses an applied fixture before its first MSI",
+    ),
 )
 
 

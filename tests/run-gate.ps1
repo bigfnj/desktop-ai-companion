@@ -200,6 +200,34 @@ try {
         $failures.Add('Invoke-SelfTests.ps1 reported no self-test count, so the runner did not run')
     }
 
+    # The pet-type registry self-test run CONCURRENTLY (N-audit-1106-371). The flag above runs it once, alone, so it cannot
+    # see two processes sharing one registry scratch namespace, which is what sharded mutation runs do: each child must
+    # report its own namespace and leave nothing under HKCU behind. tests\Test-PetTypeRegistryConcurrency.ps1 checks that
+    # against the exe built above and nothing called it. -Parallelism 2 -Rounds 1 because two processes are enough to
+    # share a namespace; measured 2026-11-08 at that size, each run in a fresh pwsh process: 1.5 s on the first run after a
+    # build, 1.0 s on the next two. It is #requires -Version 7.4 (Start-Process -Environment), so it runs in a pwsh child
+    # judged by its EXIT CODE, with Continue for the call because a native stderr line is a terminating error under Stop
+    # while the gate's output is redirected (RA-346). A missing pwsh is a FAILURE that says so, never a skip; a pwsh older
+    # than 7.4 is refused by the script's own #requires, which is a nonzero exit here.
+    Write-Host '=== pet-type registry self-test, two concurrent processes (Test-PetTypeRegistryConcurrency.ps1, in PowerShell 7)' -ForegroundColor Cyan
+    $registryPwsh = @(Get-Command -Name 'pwsh' -CommandType Application -ErrorAction SilentlyContinue) | Select-Object -First 1
+    if ($null -eq $registryPwsh) {
+        $failures.Add('Test-PetTypeRegistryConcurrency.ps1: it needs PowerShell 7.4, and pwsh is not on PATH, so it did not run')
+    }
+    else {
+        $registryExit = $null
+        $savedPreference = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        try {
+            & $registryPwsh.Source -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repoRoot 'tests\Test-PetTypeRegistryConcurrency.ps1') `
+                -Executable $exe -Parallelism 2 -Rounds 1 2>&1 | ForEach-Object { Write-Host "$_" }
+            $registryExit = $LASTEXITCODE
+        }
+        catch { $failures.Add('Test-PetTypeRegistryConcurrency.ps1 could not be started: ' + $_.Exception.Message) }
+        finally { $ErrorActionPreference = $savedPreference }
+        if ($null -ne $registryExit -and $registryExit -ne 0) { $failures.Add("Test-PetTypeRegistryConcurrency.ps1 (exit $registryExit)") }
+    }
+
     # try/catch, NOT $LASTEXITCODE, for these three. Corrected 2026-09-17 after an audit.
     # All three are .ps1 files that signal failure by `throw` (Assert-True in
     # runtime-hardening-selftest.ps1, plain throws in the two packaging checks), and
@@ -390,7 +418,7 @@ try {
     # the doc-count invariants now catch -- and a gate that miscounts its own coverage is the
     # least convincing place to have it.
     Write-Host ("GATE PASSED (build 0 warnings, core tests, AgentBroker harnesses, harness compiles, $selfTestCount self-tests " +
-        'with no skips, module self-tests' +
+        'with no skips, the registry self-test in two concurrent processes, module self-tests' +
         $(if ($notRunByRequest.Count -gt 0) { " with $($notRunByRequest.Count) module(s)' real-input checks not run by request (listed above)" } else { '' }) +
         ', invariants, payloads, mutation-infrastructure unit tests, template, shimeji verify + ' +
         "selftest with $shimejiSuiteCount suites).") -ForegroundColor Green
