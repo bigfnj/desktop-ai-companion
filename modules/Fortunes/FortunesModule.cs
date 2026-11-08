@@ -153,6 +153,10 @@ namespace DesktopAICompanion.FortunesModule
                                  //        them, one per emoji, flag or accented letter, instead of in UTF-16 code
                                  //        units: an entry of 141 emoji loads instead of being left out as over 280,
                                  //        and one of four emoji is left out as under 8 (N-bd-w5-fortunes-1-01).
+                                 //        A tagged row's source and a plain pack's file-name stem are held to
+                                 //        their 1 to 128 characters the same way, so a source of 65 emoji loads
+                                 //        instead of being refused under a message that says 128 characters
+                                 //        (N-bd-w7-fortunes-1-02).
                                  // 1.2.1: a pack import whose replace fails and whose backup cannot be put back is
                                  //        counted as a rollback failure, and the batch says its rollback could not be
                                  //        fully verified instead of "all earlier changes were rolled back"

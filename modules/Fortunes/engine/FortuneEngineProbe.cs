@@ -300,6 +300,29 @@ namespace DesktopAICompanion.FortunesModule
                     ValidatePack(rowA + "\nprobe\tlife\tquip\tgeneral\t0\t" + Repeated(wideEmoji, 141), out rows, out why) &&
                     rows == 2);
 
+                // ---- a source's 1..128 characters as a reader counts them (N-bd-w7-fortunes-1-02) ----
+                // The tagged row's error says "source must be 1..128 trimmed non-control characters", and the rule
+                // counted UTF-16 code units. 65 emoji are 65 characters and 130 code units.
+                const string sourceRowTail = "\tlife\tquip\tgeneral\t0\tA fortune filed under a source of emoji.";
+                ok &= Check(sb, "a tagged row whose source column is 65 emoji, 130 UTF-16 code units, is admitted, since its error says 128 characters (N-bd-w7-fortunes-1-02)",
+                    ValidatePack(rowA + "\n" + Repeated(wideEmoji, 65) + sourceRowTail, out rows, out why) &&
+                    rows == 2);
+                ok &= Check(sb, "a tagged row whose source column is 129 characters is refused under its 1..128 characters error, as 129 emoji and as 129 letters (N-bd-w7-fortunes-1-02)",
+                    !ValidatePack(rowA + "\n" + Repeated(wideEmoji, 129) + sourceRowTail, out rows, out why) &&
+                    why.IndexOf("source must be 1..128", StringComparison.Ordinal) >= 0 &&
+                    !ValidatePack(rowA + "\n" + new string('s', 129) + sourceRowTail, out rows, out why) &&
+                    why.IndexOf("source must be 1..128", StringComparison.Ordinal) >= 0);
+                ok &= Check(sb, "WITNESS a tagged row whose source column is 128 letters is admitted (N-bd-w7-fortunes-1-02)",
+                    ValidatePack(rowA + "\n" + new string('s', 128) + sourceRowTail, out rows, out why) &&
+                    rows == 2);
+                // The same rule names a plain pack by its file-name stem: a pack file called 65 emoji (134 code units
+                // with ".txt", inside NTFS's 255) loads through the validator the folder loader and the importer share.
+                ok &= Check(sb, "a plain pack whose file-name stem is 65 emoji is admitted, not refused as a bad name (N-bd-w7-fortunes-1-02)",
+                    FortuneProvider.TryValidateCustomPackBytes(
+                        new UTF8Encoding(false).GetBytes("A plain fortune in a pack named in emoji.\n"),
+                        Repeated(wideEmoji, 65), FortunePackLoadPolicy.MaximumEntries, out rows, out why) &&
+                    rows == 1);
+
                 // ---- one bad file in the folder (F129) ----
                 string folder = Path.Combine(Path.GetTempPath(),
                     "DesktopAICompanion-fortune-folder-" + Guid.NewGuid().ToString("N"));

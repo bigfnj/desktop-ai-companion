@@ -23423,6 +23423,32 @@ CASES = (
      FORTUNES_CSPROJ, FORTUNES_DLL,
      "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
      "an entry of seven emoji, 14 UTF-16 code units, is seven characters and is left out as under 8"),
+    # ---- burndown/w8-fortunes-1 ----
+    # Fortunes, burn-down wave 8. "bd-w8-fortunes-1:" for one --only.
+    # N-bd-w7-fortunes-1-02: a source's 1..128, which its error calls characters, counts user-perceived characters, not
+    # UTF-16 code units, for a tagged row's source column and a plain pack's file-name stem alike.
+    ("bd-w8-fortunes-1: a source's 1..128 counts UTF-16 code units again (N-bd-w7-fortunes-1-02)",
+     os.path.join(REPO, "modules", "Fortunes", "engine", "FortuneProvider.cs"),
+     b"                   (source.Length <= MaximumSourceCharacters ||\n"
+     b"                    CountCharactersUpTo(source, MaximumSourceCharacters + 1) <= MaximumSourceCharacters) &&\n",
+     b"                   source.Length <= MaximumSourceCharacters &&\n",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "a tagged row whose source column is 65 emoji, 130 UTF-16 code units, is admitted"),
+    ("bd-w8-fortunes-1: the source ceiling's walk stops at 128, so it never sees a 129th character (N-bd-w7-fortunes-1-02)",
+     os.path.join(REPO, "modules", "Fortunes", "engine", "FortuneProvider.cs"),
+     b"                    CountCharactersUpTo(source, MaximumSourceCharacters + 1) <= MaximumSourceCharacters) &&\n",
+     b"                    CountCharactersUpTo(source, MaximumSourceCharacters) <= MaximumSourceCharacters) &&\n",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "a tagged row whose source column is 129 characters is refused under its 1..128 characters error"),
+    ("bd-w8-fortunes-1: the source ceiling is one character short (N-bd-w7-fortunes-1-02)",
+     os.path.join(REPO, "modules", "Fortunes", "engine", "FortuneProvider.cs"),
+     b"        private const int MaximumSourceCharacters = 128;\n",
+     b"        private const int MaximumSourceCharacters = 127;\n",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "WITNESS a tagged row whose source column is 128 letters is admitted"),
     # ---- burndown/w7-contracts-1 ----
     # Shared contracts, burn-down wave 7. "bd-w7-contracts-1:" for one --only.
     # N-audit-1106-148: the named-clip refusal tells the author to leave <probability> out again, which the schema refuses.
