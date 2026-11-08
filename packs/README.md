@@ -51,8 +51,9 @@ or "personal use" are notes, not redistribution grants:
   hate files removed). There is no single `nsfw` pack.
 
 Presence in this repository is not a redistribution grant. Enable a pack at your discretion and do
-not assume any pack is rights-cleared. Rights holders can use the process in
-[`SUPPORT.md`](../SUPPORT.md).
+not assume any pack is rights-cleared. There is no dedicated rights-holder or removal process. A
+rights holder who wants a pack changed or removed can reach the maintainer through the GitHub issue
+tracker named in [`SUPPORT.md`](../SUPPORT.md).
 
 No warranty of accuracy or attribution. See `FORTUNE-SOURCES-ASSESSMENT.md` in the repo root for the
 full source inventory.

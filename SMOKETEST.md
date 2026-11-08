@@ -11,8 +11,9 @@ directions are mutation-tested. Deleting the numbers was the other option and th
 reader wants the size of the suite, and a number that re-measures itself cannot go stale. Read them
 as static CALL SITES: the runtime PASS count is higher because ten sites sit inside `foreach` loops,
 and a bare `grep -c 'Assert-True'` overshoots both, counting the helper's own definition and a
-comment mentioning it. `tests/DesktopAICompanion.CoreTests/Program.cs:87` is the in-repo model for
-this whole class of problem: it counts its groups rather than hardcoding them.)*
+comment mentioning it. `tests/DesktopAICompanion.CoreTests/Program.cs` is the in-repo model for
+this whole class of problem: it counts its groups rather than hardcoding them (`Run` increments
+`_groups`, and the closing PASS line prints that count).)*
 
 *(Three GUI smokes are automated and deliberately not wired into the gate: `tests/tray-menu-smoke.ps1`,
 `tests/debug-menu-smoke.ps1` and `tests/tray-question-smoke.ps1` (app 1.6.0; it opens the debug window with
@@ -38,9 +39,13 @@ suite passed straight over, and every one of those bugs was visible in the first
 
 None of these needed a debugger. They needed someone to look.
 
-**How long.** About 35 minutes for the full pass. The **Core** sections (A through E) are 12 minutes and
-catch the class of bug above; do at least those before every release. Sections F through K are worth a full
-pass when the release touches them, and once a month regardless. Section K only matters when the release
+**How long.** By the section headings below, the full pass is about 47 minutes and the **Core** sections
+(A through E) about 17, before the three long-running steps in H: H7e waits 70 minutes for the Zoom
+sign-in renewal, H8d records for ten minutes, and H8f needs a recording past one hour and another past
+three. Start those early, or leave them for a release that touches those modules. (This said 35 and 12
+minutes from the first commit until N-audit-1106-207; the headings never added up to either.) The Core
+sections catch the class of bug above; do at least those before every release. Sections F through K are
+worth a full pass when the release touches them, and once a month regardless. Section K only matters when the release
 touches the installer, but when it does it matters a lot: the installer is the one component whose failures
 are invisible to every automated check in this repo.
 
@@ -252,7 +257,7 @@ Run the MSI **over a running app** — that is the path that used to fail.
       copy was reloaded and that the default companion waits for the restart.
 - [ ] **G7. Download a new companion and add it.** It appears in the gallery with a thumbnail, downloads, spawns.
 
-## H. Modules (6 min)
+## H. Modules (6 min, plus the waits in H7e, H8d and H8f)
 
 - [ ] **H1. Open the Modules pane and WAIT.** An available update should show up on its own, without
       pressing `Check online`. Installed modules show their versions either way.

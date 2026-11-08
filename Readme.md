@@ -30,8 +30,9 @@ Underneath, it is built two ways on purpose:
   happens if you don't answer. It never steals your keyboard, waits while you present or a game is fullscreen, and is
   hidden from screen sharing. Missed ones are listed in the tray under **No answer**. **Preferences → Speech** can have
   a companion mention a new one too (off by default).
-- **🔔 It tells you about updates without nagging.** At launch — and again when you open Preferences — it
-  checks whether a newer version exists, at most once a week. Notify-only: nothing downloads or installs
+- **🔔 It tells you about updates without nagging.** At launch it checks whether a newer version exists,
+  once a week after an answer (a check that could not read the catalog tries again at the next launch),
+  and opening Preferences refreshes it, at most once a minute. Notify-only: nothing downloads or installs
   itself. The version in the corner of Preferences becomes a link to the releases page. Switch it off in
   **Preferences → Modules**.
 - **🩺 When something goes wrong, there's a record.** A rolling diagnostic log is written from launch
@@ -669,9 +670,11 @@ them against `SHA256SUMS.txt` on the release.
   appears on and does not walk between monitors, which is why the preference is worded *let companions spawn on
   any screen* rather than promising traversal.
 - **Updates find you.** Opening **Options → Modules** or **Options → Companions** already shows what has a newer
-  version — no button press. A weekly background check writes down what it found, so the pane renders the
-  answer instantly and offline, and refreshes itself on open. The app's own check runs on the same weekly
-  schedule as the other two. All three are notify-only and each can be switched off in Preferences.
+  version — no button press: each pane fetches the catalog when it opens. The weekly background checks
+  record only when they last ran, not what they found, so offline a pane has no update to show. The
+  module check announces an update in a notification; the companion check only logs it, and the pane
+  shows it. The app's own check runs on the same weekly schedule as the other two. All three are
+  notify-only and each can be switched off in Preferences.
 - **Updating a companion you are looking at just works.** If a skin you have on screen gets an update, those companions
   are closed and respawned on the new definition. The default companion is the exception and says so: swapping it in
   place would close every companion on screen, so it asks you to restart, and the restart brings up the new version.
@@ -702,12 +705,12 @@ under `data\` beside the executable. Supported files from the legacy `%LOCALAPPD
 
 ## Meet the companions
 
-The default is the classic **eSheep**, but **Options → Companions** offers a catalog of **53** drop-in companions
+The default is the classic **eSheep**, but **Options → Companions** offers a catalog of **more than fifty** drop-in companions
 (each a self-contained `animations.xml`, SHA-256-verified on download). Choosing one replaces the
 current companion instantly. They vary a lot: some are plain walkers, and a few are packed with rare
 "easter-egg" behaviours that only surface once in a while.
 
-Thirty-one of them are **converted Shimeji skins** — Hornet, Ralsei, Cyn, KinitoPET, Gengar,
+More than half of them are **converted Shimeji skins** — Hornet, Ralsei, Cyn, KinitoPET, Gengar,
 SpongeBob, Uzi Doorman, Cartman and friends — imported with the repo's own converter rather than
 hand-authored. They walk, rest, **swing from your hand** while dragged, **climb the screen
 edges**, and **cross the ceiling** once they reach the top; the ones that came with jump frames also

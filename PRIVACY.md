@@ -171,13 +171,20 @@ DesktopAICompanion sends data only when a network feature is used:
   catalog URLs are **branch-pinned**, not commit-pinned, and there is no per-pack redistribution gate:
   the retired rights-evidence gate has not been replaced, so every listed pack is downloadable and each
   one's licence field reads `NOASSERTION`. Integrity is checked; rights are not.
-- **At most once a week**, DesktopAICompanion fetches the project's own content catalog to see whether a
-  newer build has been published, and tells you if one has. There are **three** such checks — one for
-  installed modules, one for installed companions, and one for the application itself — and they are the
-  only requests the application makes without being asked, so it is worth being precise about them. Each
-  is a plain HTTPS GET of a public file from the project's repository, sends no identifiers, settings, or
-  usage data of any kind, and downloads or installs nothing: updating stays a button you click. The module
-  check is skipped entirely when no module is installed. Turn each off under
+- **Once a week after an answer**, DesktopAICompanion fetches the project's own content catalog to see
+  whether a newer build has been published. There are **three** such checks — one for installed modules,
+  one for installed companions, and one for the application itself — and they are the only requests the
+  application makes without being asked, so it is worth being precise about them. Each is a plain HTTPS
+  GET of a public file from the project's repository, sends no identifiers, settings, or usage data of any
+  kind, and downloads or installs nothing: updating stays a button you click. The app check shows a newer
+  version as a link in the corner of Preferences, the module check as a notification; the companion check
+  only writes a line to the diagnostic log, and the Companions pane shows the update when you open it. The
+  module check is skipped entirely when no module is installed. A check waits a week only after it got an
+  answer. When the catalog could not be fetched or read (offline, for instance), or, for the module and
+  companion checks, it held an entry of that kind the app had to refuse, the check is not counted: the app
+  and companion checks ask again at the next launch, and the module check two minutes after the next
+  launch, or six hours later if the app is still running. The app check also refreshes when you open
+  Preferences, at most once a minute. Turn each off under
   **Settings → Preferences → Modules**, where they read *"Check weekly for module updates"*,
   *"Check weekly for companion updates"* and *"Check weekly for a new app version"* — each adding
   "(tells you; never installs on its own)". With all three off, the application makes no unprompted
