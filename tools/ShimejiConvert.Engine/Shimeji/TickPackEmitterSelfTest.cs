@@ -1581,12 +1581,16 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 }
             }
             // The tick source-pack path requires both configuration documents; it does not generate default entries.
+            // PrepareMembers reports the missing file as its coded TICK_MEMBER_CONFIGURATION refusal (a1e1906, Codex's
+            // converter lane), with the FileNotFoundException kept as the inner exception; this check was written on a
+            // branch from before that lane and expected the bare exception, so it now requires the coded form.
             using (var fixture = new Fixture())
             {
                 File.Delete(Path.Combine(fixture.Pack, "conf", "behaviors.xml"));
                 bool missing = false;
                 try { TickPackEmitter.PrepareMembers(fixture.Pack, false); }
-                catch (FileNotFoundException) { missing = true; }
+                catch (InvalidDataException refused) when (refused.Message.StartsWith("TICK_MEMBER_CONFIGURATION:", StringComparison.Ordinal)
+                    && refused.InnerException is FileNotFoundException) { missing = true; }
                 Require(missing, "M2-binding-paths: missing source behaviours unexpectedly generated invocation paths");
             }
         }
