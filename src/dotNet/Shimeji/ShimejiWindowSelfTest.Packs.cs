@@ -194,6 +194,56 @@ namespace DesktopAICompanion.Shimeji
             CheckPackPreviewRefusals(check);
             // ---- burndown/w9-host-1 ----
             CheckSinglePreviewRemoval(check);
+            // ---- burndown/w11-options-ui-1 ----
+            CheckUninstallSelection(check);
+        }
+
+        /// <summary>
+        /// An uninstall takes EVERY companion of the installed type before its folder goes, the ones born this session
+        /// included (N-bd-w10-host-1-01): StartUp.RemoveEveryPetOfType removes what StartUp.PetsOfInstalledType selects. A born
+        /// window holds its type's registry entry exactly as a chosen one does (StartUp.OpenBornTickPet), and that is what the
+        /// selection goes by; the pane removed a count of chosen pets, so a type with only born companions up lost none of
+        /// them. Driven on unshown windows and hand-made entries, through the selection StartUp uses.
+        /// </summary>
+        private static void CheckUninstallSelection(Action<bool, string> check)
+        {
+            var forms = new List<FormCompanion>();
+            try
+            {
+                const string typeId = "sp-uninstalled";
+                var installed = new CompanionTypeRegistry.Entry { Id = typeId };
+                var kept = new CompanionTypeRegistry.Entry { Id = "sp-kept" };
+                var preview = new CompanionTypeRegistry.Entry { Id = typeId, IsTransient = true };
+                for (int i = 0; i < 6; i++) forms.Add(new FormCompanion());
+                FormCompanion chosen = forms[0], bornA = forms[1], bornB = forms[2], other = forms[3], previewPet = forms[4], defaultPet = forms[5];
+                // The default type's pets hold no entry, so defaultPet is in the pet array and not in the map.
+                var entries = new Dictionary<FormCompanion, CompanionTypeRegistry.Entry>
+                {
+                    { chosen, installed }, { bornA, installed }, { bornB, installed }, { other, kept }, { previewPet, preview },
+                };
+                var pets = new FormCompanion[16];
+                pets[0] = defaultPet; pets[1] = bornA; pets[2] = chosen; pets[3] = other; pets[4] = previewPet; pets[5] = bornB;
+
+                List<FormCompanion> taken = StartUp.PetsOfInstalledType(pets, 6, entries, typeId);
+                check(taken.Count == 3 && taken.Contains(chosen) && taken.Contains(bornA) && taken.Contains(bornB),
+                    "uninstall: every companion of the type goes, chosen and born, and no other type's, preview or default pet (took " + taken.Count + ")");
+                List<FormCompanion> otherCase = StartUp.PetsOfInstalledType(pets, 6, entries, "SP-Uninstalled");
+                check(otherCase.Count == 3,
+                    "uninstall: the type id is matched whatever its case, as RemoveOneChosenPet matches it (took " + otherCase.Count + ")");
+                // The chosen pet already removed (the tray's Remove, or the count the pane used to take): the born ones still go.
+                pets[2] = bornB; pets[5] = null;
+                List<FormCompanion> bornOnly = StartUp.PetsOfInstalledType(pets, 5, entries, typeId);
+                check(bornOnly.Count == 2 && bornOnly.Contains(bornA) && bornOnly.Contains(bornB),
+                    "uninstall: a type with only born companions up has every one of them taken (took " + bornOnly.Count + ")");
+            }
+            catch (Exception e)
+            {
+                check(false, "uninstall: the checks ran without an exception: " + e);
+            }
+            finally
+            {
+                foreach (FormCompanion f in forms) { try { f.Dispose(); } catch { } }
+            }
         }
 
         /// <summary>

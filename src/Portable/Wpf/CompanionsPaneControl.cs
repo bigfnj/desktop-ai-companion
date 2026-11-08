@@ -375,8 +375,7 @@ namespace DesktopAICompanion.Wpf
             {
                 var uninstall = new Button { Content = "Uninstall", Width = 78, Margin = new Thickness(5, 0, 0, 0) };
                 string display = row.DisplayName ?? row.Id;
-                int onScreenCopy = onScreen;
-                uninstall.Click += delegate { UninstallPet(addId, display, onScreenCopy); };
+                uninstall.Click += delegate { UninstallPet(addId, display); };
                 btns.Children.Add(uninstall);
             }
             sp.Children.Add(btns);
@@ -1277,7 +1276,7 @@ namespace DesktopAICompanion.Wpf
         // Only a pet that actually lives in the writable library can be uninstalled (deleted). Built-in and
         // bundled pets ship with the app and are not the user's to remove. The test is CompanionProvenance.IsInLibrary.
 
-        private void UninstallPet(string id, string name, int onScreen)
+        private void UninstallPet(string id, string name)
         {
             if (MessageBox.Show(
                     "Uninstall “" + name + "”? This deletes it from your companion library.",
@@ -1296,8 +1295,12 @@ namespace DesktopAICompanion.Wpf
                     _status.Text = "Refused: " + ex.Message;
                     return;
                 }
-                for (int i = 0; i < onScreen; i++)
-                    try { if (Program.Mainthread != null) Program.Mainthread.RemoveOnePet(id); } catch { }
+                // EVERY companion of this type goes before its folder does, the ones born this session included
+                // (N-bd-w10-host-1-01). This called RemoveOnePet once per pet the card counted, and that count is
+                // OnScreenMix's, which leaves born companions out, so a hatchling of the type kept running from the
+                // deleted folder until exit; a count taken when the card was built also missed a pet added from the
+                // tray since. StartUp selects by the windows' own registry entries instead.
+                try { if (Program.Mainthread != null) Program.Mainthread.RemoveEveryPetOfType(id); } catch { }
                 if (Directory.Exists(dir)) Directory.Delete(dir, true);
                 // The file is gone, so the name, icon and counts cached under this id are for a pet that no
                 // longer exists; a later reinstall under the same id would have shown the old ones (F249).
