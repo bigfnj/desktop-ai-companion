@@ -1829,16 +1829,23 @@ namespace DesktopAICompanion
         /// <paramref name="entries"/> by its type name, exactly as OpenBornTickPet looks up the entry its window would hold,
         /// so a birth is dropped exactly when the window it would get is one the uninstall takes. Null host (no tick
         /// companion yet this session) drops nothing. Static, for --shimeji-window-selftest. The count dropped.
+        ///
+        /// The same types then leave the world's lookups (N-bd-w12-review-01, TickHost.RetireTypes), by the same
+        /// selection: a kept companion of another type whose Breed named this one at the next step still resolved it from
+        /// the world's reference index, and its birth opened a window for the uninstalled type one step later.
         /// </summary>
         internal static int RemovePendingBirthsOfInstalledType(Shimeji.TickHost host,
             IDictionary<string, CompanionTypeRegistry.Entry> entries, string typeId)
         {
             if (host == null || entries == null || string.IsNullOrEmpty(typeId)) return 0;
-            return host.RemovePendingBirths(delegate (Shimeji.TickHostType type)
+            Func<Shimeji.TickHostType, bool> ofType = delegate (Shimeji.TickHostType type)
             {
                 CompanionTypeRegistry.Entry entry;
                 return entries.TryGetValue(type.Type.Name, out entry) && IsOfInstalledType(entry, typeId);
-            });
+            };
+            int dropped = host.RemovePendingBirths(ofType);
+            host.RetireTypes(ofType);
+            return dropped;
         }
 
         /// <summary>
