@@ -81,7 +81,9 @@ namespace DesktopAICompanion.ReminderModule
                                 //        reminder (it chimed at 23:55 the night before; N-audit-1106-295) and is not
                                 //        offered by the tray's Join (N-bd-w2-reminder-1-02). The self-test's questions
                                 //        double refuses a seventh ask in a minute, as the host does, and the module
-                                //        is held to it (N-audit-1106-296; no behaviour change).
+                                //        is held to it (N-audit-1106-296; no behaviour change). "Skip meetings I've
+                                //        declined" says "(Outlook and local file)": a local file's "status" was
+                                //        always read and skipped too (N-bd-w2-reminder-1-01).
                                 // 1.3.0: Calendar 5 becomes the Zoom slot (the owner, 2026-11-03): the meetings the user
                                 //        HOSTS in Zoom, read from Zoom's REST API after a browser sign-in to a Zoom
                                 //        app the user creates (OAuth with PKCE, a loopback redirect, no secret; the
@@ -870,7 +872,7 @@ namespace DesktopAICompanion.ReminderModule
             fields.Add(new SettingField { Id = "chime", Label = "Play chimes with reminders (master switch for all calendars)", Kind = SettingKind.Bool, Group = "Timing" });
             // 1.1.0: the Join / Dismiss card at a meeting's start. On by default (the owner, 2026-10-15).
             fields.Add(new SettingField { Id = AskToJoinKey, Label = "Ask me to join when a meeting starts", Kind = SettingKind.Bool, Group = "Timing" });
-            fields.Add(new SettingField { Id = "skipDeclined", Label = "Skip meetings I've declined (Outlook only)", Kind = SettingKind.Bool, Group = "Filtering" });
+            fields.Add(new SettingField { Id = "skipDeclined", Label = "Skip meetings I've declined (Outlook and local file)", Kind = SettingKind.Bool, Group = "Filtering" });
             fields.Add(new SettingField { Id = "skipAllDay", Label = "Skip all-day events", Kind = SettingKind.Bool, Group = "Filtering" });
             fields.Add(new SettingField { Id = "quietFrom", Label = "Quiet hours start (HH:mm, 24h; blank = off)", Kind = SettingKind.Text, Group = "Quiet hours" });
             fields.Add(new SettingField { Id = "quietTo", Label = "Quiet hours end (HH:mm, 24h; blank = off)", Kind = SettingKind.Text, Group = "Quiet hours" });
@@ -1377,8 +1379,11 @@ namespace DesktopAICompanion.ReminderModule
         }
 
         // Whether an event is announced at all: a single gate used by scheduling, the agenda, and "next
-        // upcoming" so all three agree. Response status is only known from Outlook (an .ics feed doesn't carry
-        // "my" status), so skip-declined is a no-op for ICS feeds, which is the correct, safe default.
+        // upcoming" so all three agree. Response status comes from Outlook and from a local file's "status" field
+        // (LocalJsonSource); an .ics feed doesn't carry "my" status and Zoom never says declined, so skip-declined is a
+        // no-op for those, which is the correct, safe default. The setting's label names both sources that can say
+        // declined; until 1.3.1 it said "Outlook only" while a local file's declined rows were skipped too
+        // (N-bd-w2-reminder-1-01).
         private bool PassesFilter(CalendarEvent e)
         {
             if (e == null) return false;

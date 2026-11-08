@@ -32,7 +32,7 @@ Point the module at the file in **Options → Reminders → Reminder feed file (
 | `.location` | no       | Spoken after the reminder line, in brackets, and searched for a meeting link for Join. |
 | `.description` | no    | Searched for a meeting link (Teams, Zoom, Google Meet and the like) for Join and the question asked at the meeting's start. Never spoken. |
 | `.allDay`   | no       | `true` (or the string `"true"`) marks an all-day event. It gets no lead-time reminder (its start is midnight), never asks to join, is never offered by the tray's Join and is never the meeting under way; **Skip all-day events** in Options also leaves it out of the agenda and of the next event the tray and the feed status name. Missing → `false`. |
-| `.status`   | no       | Your answer to the invite: `accepted`, `tentative` or `declined`. A `declined` event is skipped while **Skip meetings I've declined** is on (the default), whatever that option's label says about Outlook. |
+| `.status`   | no       | Your answer to the invite: `accepted`, `tentative` or `declined`. A `declined` event is skipped while **Skip meetings I've declined** is on (the default). |
 | `.attendees` | no      | The invited roster: an array of `{ "name": "...", "status": "..." }` objects or bare name strings. Published with `meeting.current`, where the Remembrance module seeds a recording's attendance from it. |
 
 ## Two asks for the writer
