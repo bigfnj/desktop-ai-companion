@@ -45,6 +45,7 @@ SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/../.." && pwd)"
 MANIFEST="$SCRIPT_DIR/corpus-required-files.txt"
 OUT="$SCRIPT_DIR/fortunes.txt"
+RULE_SOURCE="$REPO_ROOT/modules/Fortunes/engine/FortuneProvider.cs"   # the module's row rule (see the row check)
 CHECK_ONLY=0
 [ "${1:-}" = "--check" ] && CHECK_ONLY=1
 
@@ -117,13 +118,52 @@ trap cleanup EXIT HUP INT TERM
 # version on either side can still move a count; the module self-test's embedded_rows line
 # (ValidateEmbeddedForSelfTest) parses the shipped file with the module's own code and stays the
 # backstop for that.
+#
+# THE REST OF THE MODULE'S ROW RULE IS CHECKED TOO (N-bd-w8-fortunes-1-01). TryParseTaggedContent and
+# TryParseCurrentRow refuse the whole embedded corpus over one line longer than MaximumTaggedLineCharacters
+# (string.Length, so UTF-16 code units), a source longer than MaximumSourceCharacters, a level, topic or genre
+# outside FortuneTaxonomy's sets (compared ordinally), or a profanity flag other than "0" or "1". This check used
+# to stop at the text, so a row labelled with a topic the module lacks passed here and only the module
+# self-test's embedded_rows line noticed. The rules are taken in the module's order. The three sets and the two
+# limits are READ FROM THE MODULE'S SOURCE ($RULE_SOURCE): each declaration must occur exactly once in the shape
+# below, and every set member must be a plain string literal, or the build stops and names what it could not
+# read. Rejected: a copy of the lists here. The taxonomy has grown once already (health-body, TAXONOMY.md), and
+# a copy that kept a member the module dropped would admit the very row this check exists to refuse. The flag
+# is the one rule copied, because it is the schema's boolean encoding rather than a list that grows. The source
+# needs only its length checked: it must equal a manifest id, and the manifest grammar above already limits that
+# to ASCII with no space or control character. Not checked here: the module's whole-file caps (MaximumTaggedRows,
+# MaximumTaggedContentCharacters), which the corpus is far below; embedded_rows is the backstop for those.
 perl -MHTML::Entities -e 1 2>/dev/null ||
   die "the row check needs perl with HTML::Entities (Git for Windows ships both), to count text as the module does"
 row_check='
 use strict; use warnings;
 use Encode ();
 use HTML::Entities ();
-my ($id, $file) = @ARGV;
+my ($rule_file, $id, $file) = @ARGV;
+# The sets and limits of the module, read from its source. Given the source alone, the program reads them and
+# stops. (No apostrophe anywhere in this program: the shell holds it in single quotes.)
+sub unreadable { print STDERR "$rule_file: cannot read $_[0] in the shape this check reads\n"; exit 2 }
+open(my $rule_in, "<:raw", $rule_file) or do { print STDERR "$rule_file: cannot read: $!\n"; exit 2 };
+my $code = do { local $/; <$rule_in> };
+close $rule_in;
+my %member;
+for my $set (qw(TopicSet GenreSet LevelSet)) {
+  my @found = $code =~ /\b$set\s*=\s*new\s+HashSet<string>\(\s*new\s*\[\]\s*\{([^{}]*)\}/g;
+  unreadable($set) if @found != 1;
+  (my $items = $found[0]) =~ s{//[^\n]*}{}g;      # a member commented out is not a member
+  my @values = $items =~ /"([^"\\]*)"/g;
+  (my $rest = $items) =~ s/"[^"\\]*"|[\s,]//g;    # anything else (a constant, an escape) cannot be read
+  unreadable($set) if !@values || length $rest;
+  my %values = map { ($_, 1) } @values;
+  $member{$set} = \%values;
+}
+my %limit;
+for my $name (qw(MaximumTaggedLineCharacters MaximumSourceCharacters)) {
+  my @found = $code =~ /\bconst\s+int\s+$name\s*=\s*([0-9]+)\s*;/g;
+  unreadable($name) if @found != 1;
+  $limit{$name} = $found[0];
+}
+exit 0 unless defined $file;
 my %named = map { my $name = $_; $name =~ s/;\z//; ($name => $HTML::Entities::entity2char{$_}) }
             keys %HTML::Entities::entity2char;
 my $ws = "[\t\n\x0B\f\r ]";   # NumberStyles.Integer white space
@@ -158,10 +198,19 @@ while (my $line = <$in>) {
   $rows++;
   chomp $line;
   # The module reads the file with a throwing UTF-8 decoder, so one bad byte anywhere empties the corpus.
-  refuse("not valid UTF-8") unless defined eval { Encode::decode("UTF-8", $line, Encode::FB_CROAK | Encode::LEAVE_SRC) };
+  my $decoded = eval { Encode::decode("UTF-8", $line, Encode::FB_CROAK | Encode::LEAVE_SRC) };
+  refuse("not valid UTF-8") unless defined $decoded;
+  # string.Length: a character beyond the BMP is a surrogate pair, two code units.
+  my $units = length($decoded) + (() = $decoded =~ /[\x{10000}-\x{10FFFF}]/g);
+  refuse(sprintf "line is %d UTF-16 code units, over the module limit of %d", $units, $limit{MaximumTaggedLineCharacters})
+    if $units > $limit{MaximumTaggedLineCharacters};
   my @f = split /\t/, $line, -1;
   refuse(sprintf "expected 6 tab-separated fields, found %d", scalar @f) if @f != 6;
   refuse(sprintf "source column is \"%s\", expected \"%s\"", $f[0], $id) if $f[0] ne $id;
+  refuse(sprintf "source is %d characters, over the module limit of %d", length($f[0]), $limit{MaximumSourceCharacters})
+    if length($f[0]) > $limit{MaximumSourceCharacters};
+  refuse(sprintf "unknown level \"%s\"", $f[3]) unless $member{LevelSet}{$f[3]};
+  refuse(sprintf "profanity flag is \"%s\", expected 0 or 1", $f[4]) unless $f[4] eq "0" || $f[4] eq "1";
   my $text = Encode::decode("UTF-8", $f[5]);
   for (1 .. 2) { last if index($text, "&") < 0; my $d = html_decode($text); last if $d eq $text; $text = $d }
   $text =~ tr/\x{200B}\x{200C}\x{200D}\x{FEFF}//d;
@@ -170,15 +219,18 @@ while (my $line = <$in>) {
   my $characters = () = $counted =~ /\X/g;
   refuse(sprintf "text length %d outside 8..280 characters", $characters) if $characters < 8 || $characters > 280;
   refuse("text holds a control character") if $text =~ /\p{Cc}/;
+  refuse(sprintf "unknown topic \"%s\"", $f[1]) unless $member{TopicSet}{$f[1]};
+  refuse(sprintf "unknown genre \"%s\"", $f[2]) unless $member{GenreSet}{$f[2]};
   print $line, "\n";
 }
 if ($rows == 0) { print STDERR "$file: no rows\n"; exit 2 }
 '
+perl -e "$row_check" -- "$RULE_SOURCE" || die "cannot read the module's row rule from $RULE_SOURCE"
 raw="$stage_dir/raw.tsv"
 : > "$raw"
 for i in "${!ids[@]}"; do
   id="${ids[$i]}" file="${inputs[$i]}"
-  perl -e "$row_check" -- "$id" "$file" >> "$raw" || die "input failed validation: $file"
+  perl -e "$row_check" -- "$RULE_SOURCE" "$id" "$file" >> "$raw" || die "input failed validation: $file"
 done
 
 # Deduplicate on spoken text, not on the whole row: the same line reaching the bubble twice under two
