@@ -40,6 +40,8 @@ namespace DesktopAICompanion.PetStudioModule
                                  //        not define, in an entry the original program can never pick (Frequency 0, or a
                                  //        condition that is plainly false), imports with a warning naming that entry
                                  //        instead of being refused; recovery is still asked for every other such entry.
+                                 //        The module's folder (and so petstudio.zip) carries base-conf\NOTICE.txt, the
+                                 //        BSD notice of the Shimeji base behaviour it embeds.
                                  // 1.4.0: converts far more Shimeji packs: Japanese-vocabulary documents, anonymous nested and
                                  //        instant embedded actions, hotspots and affordance offers, Toggleable behaviours, custom
                                  //        variables, ${} and #{} expressions, and the attributes and children the original program

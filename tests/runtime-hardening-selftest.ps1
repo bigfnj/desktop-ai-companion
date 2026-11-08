@@ -6168,6 +6168,21 @@ $p2ReviewRemoveAt = $p2MapCaller.IndexOf('Remove-MapReaderScratch $callerScratch
 $p2ReviewSuccessOnly = 'if \(\$readerPassed\)\s*\{\s*try \{ Remove-MapReaderScratch \$callerScratch \$callerScratchParent \}'
 Assert-True ($p2ReviewCreateAt -ge 0 -and $p2ReviewCreateAt -lt $p2MapChildAt -and $p2MapCaller.Contains('-ScratchRoot $callerScratch 2>&1') -and $p2ReviewPassAt -gt $p2MapJudgeAt -and $p2ReviewRemoveAt -gt $p2ReviewPassAt -and $p2MapCaller -cmatch $p2ReviewSuccessOnly -and $p2MapCaller.Contains('else { Write-Host (''Map reader failure evidence retained: '' + $callerScratch) }') -and 'if ($true) { try { Remove-MapReaderScratch $callerScratch $callerScratchParent }' -cnotmatch $p2ReviewSuccessOnly) 'bd-codex-parity-2-review: Invoke-Checks.ps1 owns scratch and cleans only after the actual pass (WITNESS: unconditional cleanup differs)'
 
+# ---- burndown/w5-converter-1 ----
+# N-bd-w2-docs-1-01: Pet Studio embeds the BSD-licensed base behaviour XML from the engine's base-conf folder, and
+# petstudio.zip is its output folder zipped (packaging/New-ModuleDistZip.ps1), so the project must copy that folder's
+# NOTICE.txt to its output. Asserted as the CONDITION (an embedded base-conf XML implies the copied notice), read
+# from the project with its XML comments removed, so a commented-out item does not count.
+$w5cStudioProject = [regex]::Replace((Get-Content -LiteralPath (Join-Path $repoRoot 'modules\PetStudio\PetStudio.csproj') -Raw),
+    '<!--.*?-->', '', [Text.RegularExpressions.RegexOptions]::Singleline)
+$w5cEmbedsBaseConf = $w5cStudioProject -cmatch '<EmbeddedResource\s+Include="[^"]*tools\\ShimejiConvert\.Engine\\base-conf\\[^"\\]+\.xml"'
+$w5cShipsNotice = $w5cStudioProject -cmatch ('<None\s+Include="[^"]*tools\\ShimejiConvert\.Engine\\base-conf\\NOTICE\.txt"\s+' +
+    'Link="base-conf\\NOTICE\.txt">\s*<CopyToOutputDirectory>(PreserveNewest|Always)</CopyToOutputDirectory>')
+Assert-True ($w5cEmbedsBaseConf) 'bd-w5-converter-1: WITNESS PetStudio.csproj embeds base-conf behaviour XML'
+Assert-True ((-not $w5cEmbedsBaseConf) -or $w5cShipsNotice) (
+    'bd-w5-converter-1: PetStudio.csproj copies base-conf\NOTICE.txt to its output beside the embedded base-conf XML (ships ' +
+    $w5cShipsNotice + ')')
+
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever

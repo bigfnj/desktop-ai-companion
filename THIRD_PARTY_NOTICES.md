@@ -151,7 +151,8 @@ the versions recorded there disagree with that lock file or with the runtime it 
 - `fortunes.zip`: `ONNXRUNTIME_LICENSE.txt` and `ONNXRUNTIME_THIRD_PARTY_NOTICES.txt`, copied at build
   time from the restored Microsoft.ML.OnnxRuntime package, so they cannot drift from its pinned
   version.
-- `petstudio.zip`: `native/NOTICE-libwebp.txt`.
+- `petstudio.zip`: `native/NOTICE-libwebp.txt`, and `base-conf/NOTICE.txt` for the Shimeji base behaviour
+  config it embeds.
 - `agentbroker.zip`: `worker/licenses/`, described above.
 
 `reminder.zip`, `remembrance.zip` and `aibrain.zip` ship no license file. That gap is recorded under

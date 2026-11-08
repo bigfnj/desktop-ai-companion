@@ -4604,6 +4604,25 @@ CASES = (
     ('bd-codex-parity-2-review: cleanup loses actual success flag', os.path.join(REPO, 'tools', 'ShimejiConvert.ValidationProbe', 'Invoke-Checks.ps1'), b'$readerPassed=$true', b'$readerPassed=$false', 'bd-codex-parity-2-review: Invoke-Checks.ps1 owns scratch and cleans only after the actual pass'),
     ('bd-codex-parity-2-review: cleanup becomes unconditional', os.path.join(REPO, 'tools', 'ShimejiConvert.ValidationProbe', 'Invoke-Checks.ps1'), b'if ($readerPassed) {', b'if ($true) {', 'bd-codex-parity-2-review: Invoke-Checks.ps1 owns scratch and cleans only after the actual pass'),
     ('bd-codex-parity-2-review: cleanup call becomes an echo', os.path.join(REPO, 'tools', 'ShimejiConvert.ValidationProbe', 'Invoke-Checks.ps1'), b'Remove-MapReaderScratch $callerScratch $callerScratchParent', b"Write-Host 'cleanup skipped'", 'bd-codex-parity-2-review: Invoke-Checks.ps1 owns scratch and cleans only after the actual pass'),
+    # ---- burndown/w5-converter-1 ----
+    # N-bd-w2-docs-1-01: Pet Studio embeds the base-conf XML again without copying its BSD notice to its output.
+    # "bd-w5-converter-1:" for one --only.
+    (
+        "bd-w5-converter-1: PetStudio ships the base-conf XML without its NOTICE.txt (N-bd-w2-docs-1-01)",
+        os.path.join(REPO, "modules", "PetStudio", "PetStudio.csproj"),
+        b"    <None Include=\"..\\..\\tools\\ShimejiConvert.Engine\\base-conf\\NOTICE.txt\" Link=\"base-conf\\NOTICE.txt\">\n",
+        b"    <None Include=\"..\\..\\tools\\ShimejiConvert.Engine\\base-conf\\NOTICE.txt\">\n",
+        "bd-w5-converter-1: PetStudio.csproj copies base-conf\\NOTICE.txt to its output",
+    ),
+    (
+        "bd-w5-converter-1: PetStudio's base-conf NOTICE.txt is commented out (N-bd-w2-docs-1-01)",
+        os.path.join(REPO, "modules", "PetStudio", "PetStudio.csproj"),
+        b"    <None Include=\"..\\..\\tools\\ShimejiConvert.Engine\\base-conf\\NOTICE.txt\" Link=\"base-conf\\NOTICE.txt\">\n"
+        b"      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>\n    </None>\n  </ItemGroup>\n\n  <!-- The validator",
+        b"    <!-- <None Include=\"..\\..\\tools\\ShimejiConvert.Engine\\base-conf\\NOTICE.txt\" Link=\"base-conf\\NOTICE.txt\">\n"
+        b"      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>\n    </None> -->\n  </ItemGroup>\n\n  <!-- The validator",
+        "bd-w5-converter-1: PetStudio.csproj copies base-conf\\NOTICE.txt to its output",
+    ),
 )
 
 

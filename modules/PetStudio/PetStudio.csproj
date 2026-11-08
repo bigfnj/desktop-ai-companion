@@ -104,6 +104,12 @@
     <EmbeddedResource Include="..\..\tools\ShimejiConvert.Engine\base-conf\behaviors.xml">
       <LogicalName>base-behaviors.xml</LogicalName>
     </EmbeddedResource>
+    <!-- The BSD licence asks that its copyright notice travel with the material, and petstudio.zip is the module's
+         output folder zipped (packaging/New-ModuleDistZip.ps1), so the notice is copied there beside the module
+         as NOTICE-libwebp.txt is below (N-bd-w2-docs-1-01). -->
+    <None Include="..\..\tools\ShimejiConvert.Engine\base-conf\NOTICE.txt" Link="base-conf\NOTICE.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
   <!-- The validator loads the schema by this exact manifest name (Properties.Resources.animations1 in the
