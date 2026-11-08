@@ -1954,6 +1954,31 @@ namespace DesktopAICompanion
                     Xml.ParseOnlyFlag("window-bottom") == TNextAnimation.TOnly.WINDOW_BOTTOM &&
                     CompanionXmlValidator.IsAllowedOnly("window-bottom"));
 
+                // Only an animation that can hang looks for an underside (N-audit-1106-225): the window walk runs only
+                // when one of the current animation's border edges asks for exactly window-bottom with a weight above
+                // zero, the one pick GripFor turns into a hang. Staged as a classic document's animations would be.
+                {
+                    var xGrip = new Xml(1);
+                    var aGrip = new Animations(xGrip);
+                    var hangs = new TAnimation("rise-and-hang", 1, xGrip);
+                    hangs.EndBorder.Add(new TNextAnimation(2, 5, TNextAnimation.TOnly.WINDOW));
+                    hangs.EndBorder.Add(new TNextAnimation(3, 5, TNextAnimation.TOnly.WINDOW_BOTTOM));
+                    var wildcard = new TAnimation("rise", 2, xGrip);
+                    wildcard.EndBorder.Add(new TNextAnimation(1, 5, TNextAnimation.TOnly.WINDOW));
+                    wildcard.EndBorder.Add(new TNextAnimation(1, 5, TNextAnimation.TOnly.NONE));
+                    var weightless = new TAnimation("rise-never-hangs", 3, xGrip);
+                    weightless.EndBorder.Add(new TNextAnimation(1, 0, TNextAnimation.TOnly.WINDOW_BOTTOM));
+                    aGrip.SheepAnimations[1] = hangs;
+                    aGrip.SheepAnimations[2] = wildcard;
+                    aGrip.SheepAnimations[3] = weightless;
+                    Check("hang: WITNESS an animation with a window-bottom edge looks for an underside",
+                        aGrip.HasUndersideGrip(1));
+                    Check("hang: an animation whose border edges cannot hang does not look for an underside " +
+                          "(window wildcard and unconditional " + aGrip.HasUndersideGrip(2) + ", weight-0 window-bottom " +
+                          aGrip.HasUndersideGrip(3) + ", unknown animation " + aGrip.HasUndersideGrip(99) + ")",
+                        !aGrip.HasUndersideGrip(2) && !aGrip.HasUndersideGrip(3) && !aGrip.HasUndersideGrip(99));
+                }
+
                 // The rising-boundary test. Asymmetric with the descending one on purpose: landing rests ON
                 // a surface, rising must pass THROUGH it.
                 Check("hang: a rising step that passes the window's bottom edge is a hit",

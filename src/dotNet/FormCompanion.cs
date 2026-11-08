@@ -393,10 +393,38 @@ namespace DesktopAICompanion
             OffsetY = 0.0;
             IsMovingLeft = !lookRight;
             if (petOpacity != opacity) SetPetOpacity(opacity);
-            RenderCurrentFrame(frame);
+            // AN ALPHA FRAME ALREADY ON THE WINDOW IS NOT PUSHED AGAIN (N-audit-1106-223). The tick host renders every
+            // companion on every 40 ms tick, and a push is a GetHbitmap copy of the whole frame plus an
+            // UpdateLayeredWindow, so a companion standing still paid for a full redraw 25 times a second with nothing
+            // changed. The system keeps a layered window's last pushed surface, so the same frame at the same place,
+            // size and opacity on the same visible window handle is already what the screen shows. A window being
+            // shown again is pushed regardless: that is once per show, and it keeps this from resting on how a hidden
+            // layered window keeps its surface. Colour-key pets are not touched: assigning the picture box the image
+            // it already holds costs nothing. Checked here and not inside PushLayeredFrame, because the opacity
+            // re-push in SetPetOpacity and the classic engine's pushes keep the behaviour they were verified with.
+            if (!LayeredFrameAlreadyPushed(frame)) RenderCurrentFrame(frame);
             if (!Visible) Visible = true;
             UpdateSpeechFollow();   // a bubble stays over the companion as it moves
         }
+
+        /// <summary>Whether <paramref name="frame"/> is the alpha frame this window last pushed, at its current place, at
+        /// its current opacity and on its current, visible handle: then a push would draw exactly what the window shows.</summary>
+        private bool LayeredFrameAlreadyPushed(Image frame)
+        {
+            return Xml != null && Xml.UsesAlpha && IsHandleCreated && Visible && frame != null &&
+                   ReferenceEquals(frame, _pushedFrame) && _pushedHandle == Handle &&
+                   _pushedLeft == Left && _pushedTop == Top && _pushedSize == Size && _pushedOpacity == petOpacity;
+        }
+
+        // What the last completed UpdateLayeredWindow put on this window (LayeredFrameAlreadyPushed).
+        private Image _pushedFrame;
+        private IntPtr _pushedHandle;
+        private int _pushedLeft, _pushedTop;
+        private Size _pushedSize;
+        private double _pushedOpacity = -1.0;
+
+        /// <summary>Self-test: how many per-pixel pushes this window has made (N-audit-1106-223).</summary>
+        internal int LayeredPushesForSelfTest { get; private set; }
 
         /// <summary>The window self-test's stand-in for the fullscreen SCAN's answer, one entry per screen as
         /// StartUp.BlockedMonitorsForStandDown returns it (the scan needs the running app). Null in production.</summary>
@@ -579,9 +607,17 @@ namespace DesktopAICompanion
                     SourceConstantAlpha = (byte)Math.Round(petOpacity * 255.0),
                     AlphaFormat = 1     // AC_SRC_ALPHA
                 };
-                NativeMethods.UpdateLayeredWindow(
+                bool pushed = NativeMethods.UpdateLayeredWindow(
                     Handle, screenDc, ref topPos, ref size,
                     memDc, ref pointSource, 0, ref blend, 0x02 /* ULW_ALPHA */);
+                LayeredPushesForSelfTest++;
+                // Remembered only when the push took, so a failed one is tried again on the next tick.
+                _pushedFrame = pushed ? frame : null;
+                _pushedHandle = Handle;
+                _pushedLeft = topPos.x;
+                _pushedTop = topPos.y;
+                _pushedSize = new Size(bmp.Width, bmp.Height);
+                _pushedOpacity = petOpacity;
             }
             finally
             {
@@ -1517,7 +1553,15 @@ namespace DesktopAICompanion
                 // The underside of a window is checked FIRST, for the same reason the window top is checked
                 // before the taskbar: a window is inside the screen, so testing the screen border first would
                 // let a jumping pet pass straight through one on its way to the top of the display.
-                WindowTopHit underside = hwndWindow == (IntPtr)0 ? RiseDetect(y, ins) : WindowTopHit.None;
+                //
+                // ONLY AN ANIMATION THAT CAN HANG LOOKS UP (N-audit-1106-225). RiseDetect enumerates every top-level window,
+                // with a title read and a title-bar query per visible one, on every upward tick. Its hit is used only when
+                // the border pick below lands on an edge whose only is exactly window-bottom (GripFor), so for an animation
+                // that declares no such edge every walk was thrown away, after a border roll whose winner was discarded.
+                // The motion is unchanged: a refused hit already fell through to the screen-top test with the handle given
+                // back, which is where a pet with no grip now goes directly.
+                WindowTopHit underside = hwndWindow == (IntPtr)0 && Animations.HasUndersideGrip(CurrentAnimation.ID)
+                    ? RiseDetect(y, ins) : WindowTopHit.None;
                 if (underside.Found)
                 {
                     TNextAnimation.TOnly chosenOnly;

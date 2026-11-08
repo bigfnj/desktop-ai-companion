@@ -4779,6 +4779,31 @@ CASES = (
         b"    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>\n",
         "w7-converter-1: the converter warning-level scan read the CLI and engine projects",
     ),
+    # ---- burndown/w7-host-1 ----
+    # N-audit-1106-221: Main starts the log as slot 1 whatever slot it took, so the second instance logs over the
+    # first one's live file again. "bd-w7-host-1:" for one --only.
+    (
+        "bd-w7-host-1: the log starts as slot 1 whatever slot this instance took (N-audit-1106-221)",
+        PROGRAM,
+        b"                DiagnosticLog.Start(InstanceSlotOf(instanceLease));\n",
+        b"                DiagnosticLog.Start(1);\n",
+        "w7-host-1: the diagnostic log starts in the folder of the instance slot this process took",
+    ),
+    (
+        "bd-w7-host-1: Start logs in the data root whatever slot it is handed (N-audit-1106-221)",
+        DIAGNOSTIC_LOG,
+        b"                    _directory = directory;\n",
+        b"                    _directory = root;\n",
+        "w7-host-1: the diagnostic log starts in the folder of the instance slot this process took",
+    ),
+    # N-audit-1106-225: the underside walk runs on every upward tick again, whatever the animation declares.
+    (
+        "bd-w7-host-1: every rising classic pet walks the windows for an underside again (N-audit-1106-225)",
+        os.path.join(REPO, "src", "dotNet", "FormCompanion.cs"),
+        b"                WindowTopHit underside = hwndWindow == (IntPtr)0 && Animations.HasUndersideGrip(CurrentAnimation.ID)\n",
+        b"                WindowTopHit underside = hwndWindow == (IntPtr)0 && (Animations.HasUndersideGrip(CurrentAnimation.ID) || true)\n",
+        "w7-host-1: the window-underside walk runs only for an animation that can hang from one",
+    ),
 )
 
 

@@ -84,9 +84,32 @@ namespace DesktopAICompanion
         }
 
         /// <summary>
-        /// Rotate and begin a new file. Called once, early, before anything worth recording happens.
+        /// The folder the second allowed instance keeps its log in, under the data root.
         /// </summary>
-        internal static void Start()
+        private const string SecondInstanceFolder = "instance-2";
+
+        /// <summary>
+        /// Where the instance holding <paramref name="instanceSlot"/> keeps its log: slot 1 in the data root
+        /// itself, where every earlier version kept it and where the support guide and AgentFlow's "Open the
+        /// log" look, and slot 2 in a folder of its own beneath it (N-audit-1106-221).
+        ///
+        /// The two allowed instances share ONE data root (Program.TryAcquireInstanceSlot keys both slots on it),
+        /// so a second instance used to run the launch rotation over the first instance's LIVE file, moving it
+        /// to .1 mid-run, and then Configure's keep trim deleted the previous run's log, the one record that
+        /// explains a fault that made somebody restart. Both then appended untagged lines to one file. A
+        /// folder rather than a second base name, so the rotation, the trim, Write and CurrentPath stay
+        /// functions of one directory, exactly as the scratch-directory tests drive them.
+        /// </summary>
+        internal static string DirectoryForSlot(string root, int instanceSlot)
+        {
+            return instanceSlot == 2 ? Path.Combine(root, SecondInstanceFolder) : root;
+        }
+
+        /// <summary>
+        /// Rotate and begin a new file. Called once, early, before anything worth recording happens, by the
+        /// instance that has just taken <paramref name="instanceSlot"/> (1 or 2).
+        /// </summary>
+        internal static void Start(int instanceSlot)
         {
             lock (Sync)
             {
@@ -96,8 +119,9 @@ namespace DesktopAICompanion
                 {
                     string root = AppPaths.DataRoot;
                     if (string.IsNullOrWhiteSpace(root)) return;
-                    Directory.CreateDirectory(root);
-                    _directory = root;
+                    string directory = DirectoryForSlot(root, instanceSlot);
+                    Directory.CreateDirectory(directory);
+                    _directory = directory;
                     RotateAtLaunchIn(_directory);
                 }
                 catch (Exception) { _directory = null; }
@@ -124,7 +148,8 @@ namespace DesktopAICompanion
                     ? "overridden by " + AppPaths.DataRootOverrideEnvironmentVariable
                     : (AppPaths.IsInstalled ? "installed" : "portable, beside the exe");
                 Write(LogCategory.App, "info", null,
-                      "data root (" + kind + "): " + AppPaths.DataRoot);
+                      "data root (" + kind + "): " + AppPaths.DataRoot +
+                      (instanceSlot == 2 ? " (second instance, logging to " + SecondInstanceFolder + ")" : ""));
             }
             catch (Exception) { }
         }

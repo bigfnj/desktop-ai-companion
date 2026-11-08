@@ -5349,7 +5349,7 @@ CASES = (
     ("burn/host-shell: --wpf-options-selftest starts the diagnostic log before configuring it",
      WPF_SELFTEST,
      b'                ok &= Check(sb, "the diagnostic log has not started in this process, so Configure below touches no file",\n',
-     b'                DiagnosticLog.Start();\n'
+     b'                DiagnosticLog.Start(1);\n'
      b'                ok &= Check(sb, "the diagnostic log has not started in this process, so Configure below touches no file",\n',
      HOST_CSPROJ, EXE,
      "--wpf-options-selftest", "dp-wpf-options-selftest.txt", "the diagnostic log has not started in this process"),
@@ -23572,6 +23572,81 @@ CASES = (
      b"                    if (bestX < 0)\n                        throw new InvalidDataException(\"TICK_SHEET_NO_GRID: no grid of \"",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
      SHIMEJI, "tick-emitter/sheet-layout", "26 distinct 768x768 frames were not refused as TICK_SHEET_NO_GRID"),
+
+    # ---- burndown/w7-host-1 ----
+    # Host entries of burn-down wave 7. "bd-w7-host-1:" for one --only.
+    # N-audit-1106-221: the second instance's log folder is the data root again, so its launch rotation and keep
+    # trim move the first instance's live log and delete its previous run. CoreTests drives the two slots' folders.
+    ("bd-w7-host-1: the second instance logs over the first one's live file (N-audit-1106-221)",
+     DIAGNOSTIC_LOG,
+     b"            return instanceSlot == 2 ? Path.Combine(root, SecondInstanceFolder) : root;",
+     b"            return root;",
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "The second instance's launch rotation moved the first instance's live log."),
+    # N-audit-1106-223: an alpha tick window re-pushes an unchanged frame on every tick again, or skips the push of
+    # one that moved. --shimeji-window-selftest counts the window's pushes.
+    ("bd-w7-host-1: an alpha tick window re-pushes an unchanged frame every tick (N-audit-1106-223)",
+     FORMCOMPANION_CS,
+     b"            if (!LayeredFrameAlreadyPushed(frame)) RenderCurrentFrame(frame);\n",
+     b"            RenderCurrentFrame(frame);\n",
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     "alpha re-push: an alpha frame already on the window at the same place and opacity is not pushed again"),
+    ("bd-w7-host-1: an alpha tick window keeps its old place when only the place changed (N-audit-1106-223)",
+     FORMCOMPANION_CS,
+     b"                   _pushedLeft == Left && _pushedTop == Top && _pushedSize == Size && _pushedOpacity == petOpacity;\n",
+     b"                   _pushedTop == Top && _pushedSize == Size && _pushedOpacity == petOpacity;\n",
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     "alpha re-push: WITNESS a new frame and a new place are each pushed once"),
+    # N-audit-1106-225: the underside predicate counts an edge of weight 0, or the window wildcard, as a grip.
+    ("bd-w7-host-1: a weight-0 window-bottom edge counts as an underside grip (N-audit-1106-225)",
+     os.path.join(REPO, "src", "dotNet", "Animations.cs"),
+     b"                if (edge.only == TNextAnimation.TOnly.WINDOW_BOTTOM && edge.Probability > 0) return true;\n",
+     b"                if (edge.only == TNextAnimation.TOnly.WINDOW_BOTTOM) return true;\n",
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "hang: an animation whose border edges cannot hang does not look for an underside"),
+    ("bd-w7-host-1: the window wildcard counts as an underside grip (N-audit-1106-225)",
+     os.path.join(REPO, "src", "dotNet", "Animations.cs"),
+     b"                if (edge.only == TNextAnimation.TOnly.WINDOW_BOTTOM && edge.Probability > 0) return true;\n",
+     b"                if (TNextAnimation.Eligible(edge.only, TNextAnimation.TOnly.WINDOW | TNextAnimation.TOnly.WINDOW_BOTTOM) && edge.Probability > 0) return true;\n",
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "hang: an animation whose border edges cannot hang does not look for an underside"),
+    # N-audit-1106-238: a version keeps only the parts it was given again, so 1.11.0.0 outranks 1.11.0.
+    ("bd-w7-host-1: a four-part MinHostVersion outranks the three-part host it names (N-audit-1106-238)",
+     os.path.join(REPO, "src", "dotNet", "Plugins", "ModuleHostRequirement.cs"),
+     b"            version = new Version(numbers[0], numbers[1], numbers[2], numbers[3]);\n",
+     b"            version = parts.Length == 4 ? new Version(numbers[0], numbers[1], numbers[2], numbers[3]) : new Version(numbers[0], numbers[1], numbers[2]);\n",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "gate: a four-part requirement equal to the host (1.11.0.0 on 1.11.0) loads"),
+    ("bd-w7-host-1: a one-part MinHostVersion is read as a typo again (N-audit-1106-238)",
+     os.path.join(REPO, "src", "dotNet", "Plugins", "ModuleHostRequirement.cs"),
+     b"            if (parts.Length > 4) return false;\n",
+     b"            if (parts.Length > 4 || parts.Length < 2) return false;\n",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "gate: a one-part requirement (2) is enforced, not read as a typo"),
+    # N-audit-1106-239: a question asked from inside Init is no longer ledgered, so a failed Init leaves it queued.
+    ("bd-w7-host-1: a failed Init leaves its tray question queued (N-audit-1106-239)",
+     COMPANION_HOST,
+     b"                        Ledger(() => questions.CancelModule(id));\n",
+     b"                        { }\n",
+     HOST_CSPROJ, EXE,
+     "--trayquestions-selftest", "dp-trayquestions-selftest.txt",
+     "host: an Init that throws after asking a tray question takes the question with it"),
+    # N-audit-1106-237: a module leaves its CredentialChanged handler attached after Shutdown; the convention run's
+    # leak check must name it (it could not before: the convention host offered no IHostCredentials). AiBrain, not the
+    # test module, because the test module's convention run is red by design and no baseline could pass.
+    ("bd-w7-host-1: AiBrain leaves its CredentialChanged handler after Shutdown (N-audit-1106-237)",
+     AIBRAIN_MODULE,
+     b"                try { sharedSignIn.CredentialChanged -= _sharedSignInChanged; } catch { }\n",
+     b"                try { } catch { }\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Shutdown unsubscribed every host event it subscribed to -- still attached: CredentialChanged"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

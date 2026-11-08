@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 
 namespace DesktopAICompanion.Plugins
 {
@@ -44,7 +45,7 @@ namespace DesktopAICompanion.Plugins
             if (string.IsNullOrWhiteSpace(minHostVersion)) return true;
 
             Version minimum;
-            if (!Version.TryParse(NumericPrefix(minHostVersion), out minimum))
+            if (!TryParseVersion(minHostVersion, out minimum))
             {
                 reason = "declares MinHostVersion '" + (minHostVersion ?? "").Trim() +
                     "', which is not a version; the requirement is ignored";
@@ -52,17 +53,45 @@ namespace DesktopAICompanion.Plugins
             }
 
             Version current;
-            if (!Version.TryParse(NumericPrefix(hostVersion), out current))
+            if (!TryParseVersion(hostVersion, out current))
             {
                 reason = "host version '" + (hostVersion ?? "") +
-                    "' is not a version; MinHostVersion " + minimum + " is not enforced";
+                    "' is not a version; MinHostVersion " + Display(minimum) + " is not enforced";
                 return true;
             }
 
             if (minimum <= current) return true;
 
-            reason = "needs host " + minimum + " or newer (this host is " + current + ")";
+            reason = "needs host " + Display(minimum) + " or newer (this host is " + Display(current) + ")";
             return false;
+        }
+
+        /// <summary>
+        /// One to four dot-separated numbers, with the parts left out read as 0 (N-audit-1106-238). System.Version keeps
+        /// the parts it was given and orders an absent part BELOW 0, so 1.11.0.0 compared greater than 1.11.0 and a module
+        /// declaring the four-part form was refused by exactly the host it named; and Version.TryParse refuses a single
+        /// part, so a declared "2" was read as a typo and its requirement ignored. Padding every value to four parts
+        /// makes the comparison one of numbers, which is what a version requirement means. Anything else (an empty
+        /// part, more than four, a part too large for an int) is still not a version.
+        /// </summary>
+        private static bool TryParseVersion(string text, out Version version)
+        {
+            version = null;
+            string prefix = NumericPrefix(text);
+            if (prefix.Length == 0) return false;
+            string[] parts = prefix.Split('.');
+            if (parts.Length > 4) return false;
+            var numbers = new int[4];
+            for (int i = 0; i < parts.Length; i++)
+                if (!int.TryParse(parts[i], NumberStyles.None, CultureInfo.InvariantCulture, out numbers[i])) return false;
+            version = new Version(numbers[0], numbers[1], numbers[2], numbers[3]);
+            return true;
+        }
+
+        /// <summary>A padded version as people write it: three parts, and the fourth only when it is not 0.</summary>
+        private static string Display(Version version)
+        {
+            return version.ToString(version.Revision > 0 ? 4 : 3);
         }
 
         /// <summary>

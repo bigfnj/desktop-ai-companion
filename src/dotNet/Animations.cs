@@ -1068,6 +1068,24 @@ namespace DesktopAICompanion
         /// caller is the single UI thread's timer tick.</summary>
         private bool _absenceIsNormal;
 
+        /// <summary>
+        /// Whether animation <paramref name="animationID"/> can ever take hold of a window's underside: one of its border
+        /// edges asks for exactly <c>window-bottom</c> with a positive probability (N-audit-1106-225). That is the only pick
+        /// FormCompanion.GripFor turns into a hang, and an edge of weight 0 is never picked, so with none the underside
+        /// search (RiseDetect, a walk of every top-level window) has nothing it could be used for. The plain
+        /// <c>window</c> wildcard does not count: it fires under a window, but GripFor gives it no grip and the hit is
+        /// thrown away. False for an id this pet does not have.
+        /// </summary>
+        public bool HasUndersideGrip(int animationID)
+        {
+            TAnimation animation;
+            if (SheepAnimations == null || !SheepAnimations.TryGetValue(animationID, out animation) || animation.EndBorder == null)
+                return false;
+            foreach (TNextAnimation edge in animation.EndBorder)
+                if (edge.only == TNextAnimation.TOnly.WINDOW_BOTTOM && edge.Probability > 0) return true;
+            return false;
+        }
+
             /// <summary>
             /// Start the next animation once a border was detected, reporting WHICH condition the chosen edge
             /// declared.

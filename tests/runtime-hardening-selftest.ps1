@@ -3853,7 +3853,7 @@ Assert-True (
 # one caller the CoreTests cannot reach. WITNESS: the cap-driven rotation in Write still goes through RotateNoLock,
 # so the absence asserted on Start() is a pattern this file can see.
 $diagnosticLogCodeCore = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\DiagnosticLog.cs') -Raw)
-$diagStartBodyCore = Get-MethodBody $diagnosticLogCodeCore 'internal static void Start()' $coreMemberStops
+$diagStartBodyCore = Get-MethodBody $diagnosticLogCodeCore 'internal static void Start(int instanceSlot)' $coreMemberStops
 $diagWriteBodyCore = Get-MethodBody $diagnosticLogCodeCore 'internal static void Write(LogCategory category, string level, string moduleId, string text)' $coreMemberStops
 $diagLaunchBodyCore = Get-MethodBody $diagnosticLogCodeCore 'internal static void RotateAtLaunchIn(string directory)' $coreMemberStops
 Assert-True ($diagStartBodyCore.Length -gt 0 -and $diagWriteBodyCore.Length -gt 0 -and $diagLaunchBodyCore.Length -gt 0) (
@@ -3874,7 +3874,7 @@ Assert-True (
 $programCodeCore = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\Program.cs') -Raw)
 $mainBodyCore = Get-MethodBody $programCodeCore 'static void Main(string[] args)' $coreMemberStops
 Assert-True ($mainBodyCore.Length -gt 0) 'Program.Main was located'
-$logStartAt = $mainBodyCore.IndexOf('DiagnosticLog.Start();')
+$logStartAt = $mainBodyCore.IndexOf('DiagnosticLog.Start(')
 $migrateAt = $mainBodyCore.IndexOf('if (StartupRegistration.MigrateLegacy())')
 $settingsLoadAt = $mainBodyCore.IndexOf('MyData = new LocalData();')
 Assert-True ($logStartAt -ge 0 -and $migrateAt -gt $logStartAt -and $settingsLoadAt -gt $migrateAt) (
@@ -6366,6 +6366,30 @@ Assert-True ($w7cvRead -eq 2 -and $w7cvFloor -ge 5) (
 Assert-True ($w7cvLowPins.Count -eq 0) (
     "w7-converter-1: no converter project pins WarningLevel below its framework default of $w7cvFloor" +
     $(if ($w7cvLowPins.Count) { ' -- ' + ($w7cvLowPins -join ', ') } else { '' }))
+
+# ---- burndown/w7-host-1 ----
+# N-audit-1106-221: the second allowed instance shares the data root, so its launch rotation moved the first
+# instance's live log to .1 and Configure's keep trim deleted the previous run's. CoreTests proves the two slots'
+# folders keep apart (DirectoryForSlot); this pins the WIRING CoreTests cannot reach: Main hands Start the slot
+# of the lease it holds, and Start picks its folder from that slot. Asserted as the ARGUMENT, since a Start(1)
+# would still read as a call to Start.
+$w7h1StartBody = Get-MethodBody $diagnosticLogCodeCore 'internal static void Start(int instanceSlot)' $coreMemberStops
+Assert-True ($w7h1StartBody.Length -gt 0 -and $mainBodyCore.Length -gt 0) 'w7-host-1: DiagnosticLog.Start and Program.Main were located'
+Assert-True (
+    $mainBodyCore -cmatch 'DiagnosticLog\.Start\(InstanceSlotOf\(instanceLease\)\);' -and
+    $w7h1StartBody -cmatch 'string directory = DirectoryForSlot\(root, instanceSlot\);' -and
+    $w7h1StartBody -cmatch '_directory = directory;' -and
+    $w7h1StartBody -cnotmatch '_directory = root;'
+) 'w7-host-1: the diagnostic log starts in the folder of the instance slot this process took'
+
+# N-audit-1106-225: RiseDetect walks every top-level window on every upward tick, and its hit is used only by an
+# animation with an exact window-bottom edge. --hardening-selftest proves Animations.HasUndersideGrip; this pins that
+# the walk is GATED on it, as the CONDITION of the call, so a predicate left standing but no longer asked fails.
+$w7h1FormCode = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\FormCompanion.cs') -Raw)
+Assert-True (
+    $w7h1FormCode -cmatch 'WindowTopHit underside = hwndWindow == \(IntPtr\)0 && Animations\.HasUndersideGrip\(CurrentAnimation\.ID\)\s*\?\s*RiseDetect\(y, ins\) : WindowTopHit\.None;' -and
+    $w7h1FormCode -cnotmatch 'underside = hwndWindow == \(IntPtr\)0 \? RiseDetect'
+) 'w7-host-1: the window-underside walk runs only for an animation that can hang from one'
 
 # LAST, and deliberately:this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that

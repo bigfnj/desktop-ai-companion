@@ -76,6 +76,7 @@ namespace DesktopAICompanion.Shimeji
                 CheckPutWindowsBack(check, host);
                 CheckOneMove(check, sprites, frames[0]);
                 CheckFirstShow(check, sprites, frames[0]);
+                CheckAlphaRepush(check);
 
                 Rectangle work = System.Windows.Forms.Screen.PrimaryScreen.WorkingArea;
                 int x = work.Left + work.Width / 2, floor = work.Bottom;
@@ -353,6 +354,50 @@ namespace DesktopAICompanion.Shimeji
                 check(hiddenBefore && shownAt.Count == 1 && shownAt[0] == target,
                     "first show: a new tick window stays hidden until its first frame and is first seen at that frame's place ("
                     + (hiddenBefore ? "hidden" : "shown") + " before; shown at " + shown + "; frame at " + target + ")");
+                form.Close();
+            }
+        }
+
+        /// <summary>
+        /// An alpha tick window pushes a frame only when something it draws changed (N-audit-1106-223). The tick host
+        /// renders every companion every 40 ms, and each push copied the whole frame into a GDI bitmap and called
+        /// UpdateLayeredWindow, so a companion standing still redrew 25 times a second with nothing new. Counted through
+        /// the window's own push counter: the same frame at the same place pushes nothing, and the WITNESSES are that a
+        /// new frame and a new place each push once. Drawn at opacity 0, with frames of its own.
+        /// </summary>
+        private static void CheckAlphaRepush(Action<bool, string> check)
+        {
+            var frames = new List<Bitmap>();
+            foreach (Color c in new[] { Color.Red, Color.Green })
+            {
+                var b = new Bitmap(64, 64);
+                using (Graphics g = Graphics.FromImage(b)) g.Clear(c);
+                frames.Add(b);
+            }
+            Bitmap first = frames[0], second = frames[1];
+            using (var alpha = new Xml(frames, 64, 64, true))
+            using (var form = new FormCompanion(new Animations(alpha), alpha))
+            {
+                form.OpenHiddenForTick(64, 64);
+                Rectangle work = System.Windows.Forms.Screen.PrimaryScreen.WorkingArea;
+                int x = work.Left + 160, y = work.Top + 160;
+                form.RenderTick(first, x, y, 64, 64, true, 0.0);
+                int shown = form.LayeredPushesForSelfTest;
+                form.RenderTick(first, x, y, 64, 64, true, 0.0);
+                form.RenderTick(first, x, y, 64, 64, true, 0.0);
+                int still = form.LayeredPushesForSelfTest;
+                form.RenderTick(second, x, y, 64, 64, true, 0.0);
+                int newFrame = form.LayeredPushesForSelfTest;
+                form.RenderTick(second, x + 8, y, 64, 64, true, 0.0);
+                int moved = form.LayeredPushesForSelfTest;
+                check(shown > 0 && form.Visible,
+                    "alpha re-push: WITNESS an alpha tick window's first frame is pushed (" + shown + " pushes)");
+                check(shown > 0 && still == shown,
+                    "alpha re-push: an alpha frame already on the window at the same place and opacity is not pushed again ("
+                    + (still - shown) + " extra pushes over two unchanged ticks)");
+                check(newFrame == still + 1 && moved == newFrame + 1,
+                    "alpha re-push: WITNESS a new frame and a new place are each pushed once (" + (newFrame - still) + ", "
+                    + (moved - newFrame) + ")");
                 form.Close();
             }
         }
