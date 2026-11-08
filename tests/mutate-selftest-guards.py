@@ -24472,6 +24472,22 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--module-host-selftest", "dp-module-host-selftest.txt",
      "abi180: store: no log line carries a value"),
+    # N-audit-1106-244: the live smoke test's verdict passes a catalog that offers no companion, or one with a refused
+    # entry. --catalog-selftest drives OnlineCatalogProblem offline.
+    ("bd-w10-host-1: the online verdict passes a catalog with no companion (N-audit-1106-244)",
+     os.path.join(REPO, "src", "dotNet", "RemoteCatalog.cs"),
+     b'            if (catalog.Pets.Count == 0) missing.Add("companion");\n',
+     b'',
+     HOST_CSPROJ, EXE,
+     "--catalog-selftest", "dp-catalog-selftest.txt",
+     "online verdict: a catalog that offers nothing fails, naming each kind"),
+    ("bd-w10-host-1: the online verdict passes a catalog with a refused entry (N-audit-1106-244)",
+     os.path.join(REPO, "src", "dotNet", "RemoteCatalog.cs"),
+     b'            if (catalog.Rejected.Count > 0)\n',
+     b'            if (catalog.Rejected.Count < 0)\n',
+     HOST_CSPROJ, EXE,
+     "--catalog-selftest", "dp-catalog-selftest.txt",
+     "online verdict: a catalog with a refused entry fails, naming it"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

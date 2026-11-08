@@ -6732,6 +6732,18 @@ Assert-True ($w9tsBare.Count -eq 0) (
     "w9-tests-scripts-2: no C# source starts cmd.exe by its bare name" +
     $(if ($w9tsBare.Count) { ' -- bare in: ' + ($w9tsBare -join ', ') } else { '' }))
 
+# ---- burndown/w10-host-1 ----
+# THE LIVE SMOKE TEST JUDGES ITS CATALOG BEFORE ANY DOWNLOAD (N-audit-1106-244). --catalog-selftest drives the verdict,
+# OnlineCatalogProblem, offline; the online test needs the network no gate has, so its use of the verdict is pinned
+# here: the fetched catalog is judged, a problem clears ok, and both come before the first download.
+$w10Online = Get-MethodBody $remoteCatalogCodeHost 'internal static bool OnlineSelfTest()' @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($w10Online.Length -gt 0) 'w10-host-1: OnlineSelfTest was located'
+$w10Judged = $w10Online.IndexOf('string problem = OnlineCatalogProblem(catalog);', [StringComparison]::Ordinal)
+$w10Download = $w10Online.IndexOf('DownloadVerifiedAsync(', [StringComparison]::Ordinal)
+Assert-True ($w10Judged -ge 0 -and $w10Download -gt $w10Judged -and
+    $w10Online.Substring([Math]::Max(0, $w10Judged)) -cmatch '^string problem = OnlineCatalogProblem\(catalog\);\s*if \(problem != null\)\s*\{\s*ok = false;') (
+    'w10-host-1: the online test judges the fetched catalog and fails on its problem before any download')
+
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever

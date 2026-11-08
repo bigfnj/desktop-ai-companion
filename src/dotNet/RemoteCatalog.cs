@@ -1788,6 +1788,28 @@ namespace DesktopAICompanion
                 catch { }
             }
 
+            // THE LIVE SMOKE TEST'S VERDICT ON A CATALOG (N-audit-1106-244), offline. A catalog offering nothing of a kind,
+            // or one this build refused an entry of, fails --online-selftest before any download, naming why; it used to
+            // pass with nothing verified. WITNESS: a catalog offering one of each and refusing nothing passes.
+            try
+            {
+                string whole = OnlineCatalogProblem(Parse(catalogOf(validPet, validPack, validModule)));
+                Check("online verdict: WITNESS a catalog offering a companion, a pack and a module and refusing nothing passes (" +
+                      (whole ?? "no problem") + ")", whole == null);
+                string empty = OnlineCatalogProblem(Parse(catalogOf("", "", "")));
+                Check("online verdict: a catalog that offers nothing fails, naming each kind (" + empty + ")",
+                      empty == "offers no companion, no pack, no module");
+                string noModule = OnlineCatalogProblem(Parse(catalogOf(validPet, validPack, "")));
+                Check("online verdict: a catalog with no module fails (" + noModule + ")", noModule == "offers no module");
+                string refusedOnly = OnlineCatalogProblem(Parse(catalogOf(validPet, validPack + ", 5", validModule)));
+                Check("online verdict: a catalog with a refused entry fails, naming it (" + refusedOnly + ")",
+                      refusedOnly != null && refusedOnly.StartsWith("refused 1 entry, first pack entry 2: ", StringComparison.Ordinal));
+            }
+            catch (Exception ex)
+            {
+                Check("online verdict: the verdict threw " + ex.GetType().Name + ": " + ex.Message, false);
+            }
+
             report.AppendLine("catalog_parse=" + (ok ? "PASS" : "FAIL"));
             report.AppendLine(ok ? "RESULT=PASS" : "RESULT=FAIL");
             try
@@ -1973,8 +1995,30 @@ namespace DesktopAICompanion
         }
 
         /// <summary>
-        /// Live smoke test (network): fetch the real catalog, then download-and-verify the first pet
-        /// and first pack through the actual app code path. Not wired into the offline test suites.
+        /// What makes a fetched live catalog a failed smoke test before any download (N-audit-1106-244), or null. The
+        /// test verifies the first pet and the first pack, so a catalog that offers none of a kind verified nothing and
+        /// used to pass; a kind with nothing offered fails it, modules included, and so does any entry this build
+        /// refused, since the published catalog and the build that reads it must agree (the refusal is named). Pure, so
+        /// the offline --catalog-selftest drives it.
+        /// </summary>
+        internal static string OnlineCatalogProblem(RemoteCatalog catalog)
+        {
+            if (catalog == null) return "no catalog";
+            var missing = new List<string>();
+            if (catalog.Pets.Count == 0) missing.Add("companion");
+            if (catalog.Packs.Count == 0) missing.Add("pack");
+            if (catalog.Modules.Count == 0) missing.Add("module");
+            string problem = missing.Count == 0 ? null : "offers no " + string.Join(", no ", missing.ToArray());
+            if (catalog.Rejected.Count > 0)
+                problem = (problem == null ? "" : problem + "; ") + "refused " + catalog.Rejected.Count + " entr" +
+                          (catalog.Rejected.Count == 1 ? "y" : "ies") + ", first " + catalog.Rejected[0];
+            return problem;
+        }
+
+        /// <summary>
+        /// Live smoke test (network): fetch the real catalog, judge it (<see cref="OnlineCatalogProblem"/>), then
+        /// download-and-verify the first pet and first pack through the actual app code path. Not wired into the
+        /// offline test suites.
         /// </summary>
         internal static bool OnlineSelfTest()
         {
@@ -1985,7 +2029,14 @@ namespace DesktopAICompanion
                 RemoteCatalog catalog = FetchAsync(CancellationToken.None)
                     .GetAwaiter().GetResult();
                 report.AppendLine("fetched pets=" + catalog.Pets.Count +
-                    " packs=" + catalog.Packs.Count);
+                    " packs=" + catalog.Packs.Count + " modules=" + catalog.Modules.Count +
+                    " refused=" + catalog.Rejected.Count);
+                string problem = OnlineCatalogProblem(catalog);
+                if (problem != null)
+                {
+                    ok = false;
+                    report.AppendLine("ONLINE CATALOG: " + problem);
+                }
 
                 if (catalog.Pets.Count > 0)
                 {

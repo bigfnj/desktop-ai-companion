@@ -5085,6 +5085,16 @@ CASES = (
         b'                world.ReportFault(mascot, action.Name + ": a partner transition failed: " + e.Message, picked, TickFaultVia.Arrive);\n',
         "bd-parity-host-2: the statements that form a fault cause are exactly the reviewed list",
     ),
+    # ---- burndown/w10-host-1 ----
+    # Host entries of burn-down wave 10. "bd-w10-host-1:" for one --only.
+    # N-audit-1106-244: the live smoke test fetches its catalog and goes on to the downloads whatever the verdict says.
+    (
+        "bd-w10-host-1: the online test ignores its catalog's verdict (N-audit-1106-244)",
+        os.path.join(REPO, "src", "dotNet", "RemoteCatalog.cs"),
+        b'                if (problem != null)\n                {\n                    ok = false;\n',
+        b'                if (false)\n                {\n                    ok = false;\n',
+        "w10-host-1: the online test judges the fetched catalog",
+    ),
 )
 
 
