@@ -24,17 +24,21 @@ project sites; treat star/fork counts as a snapshot. Uncertain items are flagged
 file** in the repo, and the README has no license section
 (<https://api.github.com/repos/Adrianotiger/desktopPet>). By default that means **"all rights reserved"**
 — the source is public but not granted for reuse/redistribution under any open-source terms. This
-matters for the [AI-Edition fork](01-history-and-lineage.md#4-this-repository-the-ai-edition-fork) if it
-is ever distributed:
+matters for the [AI-Edition fork](01-history-and-lineage.md#4-this-repository-the-ai-edition-fork), which
+is distributed:
 
-- The **engine code** carries no explicit grant. Reuse/redistribution rights are legally unclear —
-  **unverified:** any permission would have to come from Adriano directly.
+- The **engine code** is redistributed under a direct grant, not a public licence: the maintainer holds
+  written permission from the upstream author, recorded under "Bundled with a verified redistribution
+  grant" in [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md), which ships in the payload. The fork's
+  own MIT `LICENSE` still grants nothing over the upstream code. (This said the engine carried no grant
+  and its rights were unresolved until N-audit-1106-197, contradicting that notice.)
 - The **default sprite art** derives from Nomura's *Stray Sheep* character (the esheep64 companion credits
   *"Image rip by LiL_Stenly"*) — third-party IP, not the project's to relicense.
 - Contrast: the sibling **`web-esheep` is GPL-3.0** (see §3). The two repos are licensed differently.
 
-A future maintainer planning public distribution should resolve licensing explicitly rather than assume
-the fork inherits an open license.
+The fork does not inherit an open license from upstream. What is still unresolved is the art and the
+text, not the engine: `THIRD_PARTY_NOTICES.md` lists the sprites, the fortune corpus and the packs under
+"Unresolved redistribution items".
 
 ### Wiki = the authoring spec
 
