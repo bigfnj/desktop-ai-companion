@@ -27,7 +27,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
     /// unchanged. It does not touch pixels; <see cref="WebPLoader"/> handles decoding at composite time.
     ///
     /// Mapping (see the converter brief): each animation.key -&gt; one <see cref="ShimejiAction"/>;
-    /// type GROUND/WALL/CEILING -&gt; BorderType Floor/Wall/Ceiling (AIR/USER carry none); subtype
+    /// type GROUND/WALL/CEILING -&gt; BorderType Floor/Wall/Ceiling (AIR/USER carry none for a FALL or DRAG, and the border word Air/User otherwise, which the classifier lists as not attempted); subtype
     /// FALL/DRAG -&gt; Class Fall/Dragged, STAND/IDLE -&gt; Type Stay, WALK -&gt; Type Move, else Type Animate.
     /// Each frame -&gt; one <see cref="ShimejiPose"/> with Image from the manifest filePattern (leading "/"),
     /// Duration=durationTicks, VelX=dx, VelY=dy, and a bottom-centre anchor (width/2, height). Every action is
@@ -107,6 +107,13 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                                                   StringComparison.OrdinalIgnoreCase),
                     };
                     MapSubtype(GetString(anim, "subtype"), action);
+                    // AIR and USER carry no border, which a FALL or a DRAG never needs: each becomes the magic
+                    // fall or drag animation by its Class. Any OTHER subtype of the two (a USER fling, an AIR pose)
+                    // keeps the bundle's type as its border word, so the classifier lists it as not attempted with
+                    // a reason instead of grading a border-less Group1 map that the emitter admitted as a floor
+                    // spoke (N-audit-1106-155, decision 121).
+                    if (action.Class == null && action.BorderType == null)
+                        action.BorderType = AirOrUserBorder(GetString(anim, "type"));
 
                     var animation = new ShimejiAnimation();
                     JsonElement frames;
@@ -181,7 +188,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             }
         }
 
-        // GROUND/WALL/CEILING carry a border context; AIR (fall) and USER (drag/fling) do not.
+        // GROUND/WALL/CEILING carry a border context; AIR and USER do not (see AirOrUserBorder for the subtypes that are neither a FALL nor a DRAG).
         private static string MapBorder(string type)
         {
             if (type == null) return null;
@@ -190,6 +197,19 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 case "GROUND": return "Floor";
                 case "WALL": return "Wall";
                 case "CEILING": return "Ceiling";
+                default: return null;
+            }
+        }
+
+        // The border word for an AIR or USER animation (ActionClassifier.AirBorder / UserBorder), or null for any
+        // other type, which leaves an unknown or absent type border-less as before.
+        private static string AirOrUserBorder(string type)
+        {
+            if (type == null) return null;
+            switch (type.Trim().ToUpperInvariant())
+            {
+                case "AIR": return ActionClassifier.AirBorder;
+                case "USER": return ActionClassifier.UserBorder;
                 default: return null;
             }
         }

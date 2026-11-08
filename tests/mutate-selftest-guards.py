@@ -23322,6 +23322,21 @@ CASES = (
      b"                    if (!leftOutWithRegion) continue;",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
      SHIMEJI, "classic-emitter", "the left-out region action 'ClimbWall' is also listed in a 'These animations are not attempted' note"),
+    # N-audit-1106-155 (decision 121): an AIR or USER bundle animation that is neither a FALL nor a DRAG is admitted as a
+    # floor spoke again (the parser gives it no border), or keeps its border word but is graded an ordinary Group1 map,
+    # so the residue lists it as a converter gap with no reason.
+    ("bd-w7-converter-1: an AIR or USER animation that is neither a fall nor a drag gets no border again (N-audit-1106-155)",
+     os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Shimeji", "BundleParser.cs"),
+     b"                        action.BorderType = AirOrUserBorder(GetString(anim, \"type\"));\n",
+     b"                        action.BorderType = null;\n",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, "bundle", "air/user: PetEmitter.IsFloorAction admits 'fling' as a floor spoke"),
+    ("bd-w7-converter-1: the classifier grades an AIR or USER border as an ordinary map (N-audit-1106-155)",
+     os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Shimeji", "ActionClassifier.cs"),
+     b"            if (IsAirOrUserBorder(a.BorderType))\n",
+     b"            if (a.BorderType == \"no such border\")\n",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, "bundle", "air/user: no 'not attempted' note names 'fling' with the classifier's reason"),
     # N-audit-1106-154: each ActionClassifier branch that had no fixture is deleted in turn (its test made unmatchable),
     # so the fixture action falls through to a later branch and lands in the wrong group.
     ("bd-w7-converter-1: the classifier's pairing branch (Scan*/Interact) is deleted (N-audit-1106-154)",

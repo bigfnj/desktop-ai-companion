@@ -348,6 +348,75 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 try { if (Directory.Exists(escapeRoot)) Directory.Delete(escapeRoot, true); } catch { /* best-effort cleanup */ }
             }
 
+            // ---- 6) AN AIR OR USER ANIMATION THAT IS NEITHER A FALL NOR A DRAG IS NOT A FLOOR SPOKE ----
+            // Such an animation (a USER fling, an AIR pose) was lowered to a border-less, class-less Animate action
+            // that the classifier graded Group1 and PetEmitter.IsFloorAction admitted, so a mid-air or reaction pose
+            // played standing on the floor. Decision 121 (N-audit-1106-155): it is listed as not attempted, with the
+            // classifier's reason, and no animation of the pet carries it. The four base animations ride along as the
+            // WITNESS that the rule is about the type and subtype: the AIR FALL and USER DRAG still become the magic
+            // fall and drag animations, and the GROUND stand and walk are still floor spokes.
+            string airUserDir = Path.Combine(Path.GetTempPath(), "shimeji-bundle-airuser-selftest-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                string airUserJson = AnimationJson.Replace("\"frames\":[{\"sprite\":5,\"durationTicks\":8}]}",
+                    "\"frames\":[{\"sprite\":5,\"durationTicks\":8}]}," +
+                    "{\"key\":\"fling\",\"type\":\"USER\",\"subtype\":\"FLING\",\"loop\":\"ONESHOT\",\"direction\":\"ANY\"," +
+                      "\"frames\":[{\"sprite\":4,\"dx\":6,\"dy\":-4,\"durationTicks\":6}]}," +
+                    "{\"key\":\"hover\",\"type\":\"AIR\",\"subtype\":\"FLOAT\",\"loop\":\"LOOP\",\"direction\":\"ANY\"," +
+                      "\"frames\":[{\"sprite\":3,\"durationTicks\":6}]}");
+                BundleInfo airUserInfo;
+                ShimejiConfig airUser = BundleParser.ParseJson(ManifestJson, airUserJson, out airUserInfo);
+                if (airUser.Actions.Count != 6)
+                    failures.Add("air/user: the fixture parsed to " + airUser.Actions.Count + " actions, expected 6 (did the JSON splice miss?)");
+                foreach (string key in new[] { "fling", "hover" })
+                {
+                    ShimejiAction a = ByName(airUser, key);
+                    if (a == null) { failures.Add("air/user: action '" + key + "' missing"); continue; }
+                    if (a.Group != FidelityGroup.Group2 || a.Reason == null || a.Reason.IndexOf("not attempted", StringComparison.Ordinal) < 0)
+                        failures.Add("air/user: '" + key + "' (" + (a.BorderType ?? "<no border>") + ") classified " + a.Group
+                            + " (" + a.Reason + "), expected Group2 with a 'not attempted' reason");
+                    if (PetEmitter.IsFloorAction(a))
+                        failures.Add("air/user: PetEmitter.IsFloorAction admits '" + key + "' as a floor spoke");
+                }
+                CheckAction(failures, ByName(airUser, "fall"), "fall", "Animate", "Fall", null);
+                CheckAction(failures, ByName(airUser, "drag"), "drag", "Animate", "Dragged", null);
+
+                WriteSyntheticBundle(airUserDir);
+                File.WriteAllText(Path.Combine(airUserDir, "animation.json"), airUserJson, new UTF8Encoding(false));
+                string airUserError;
+                ConversionResult converted = BundleConverter.ConvertBundle(airUserDir, "Air User Skin", out airUserError);
+                if (converted == null || !converted.Accepted)
+                    failures.Add("air/user: the bundle did not convert to an accepted pet: "
+                        + (converted == null ? airUserError : converted.Error));
+                else
+                {
+                    foreach (string key in new[] { "fling", "hover" })
+                    {
+                        if (AnimationNamed(converted, key) != null)
+                            failures.Add("air/user: the pet carries an animation named '" + key + "'; it played on the floor");
+                        string note = converted.Residue.Notes.FirstOrDefault(n => n.StartsWith("These animations are not attempted:", StringComparison.Ordinal)
+                            && n.IndexOf(key + " (a bundle ", StringComparison.Ordinal) >= 0);
+                        if (note == null)
+                            failures.Add("air/user: no 'not attempted' note names '" + key + "' with the classifier's reason");
+                    }
+                    // WITNESS: the same pet still carries its floor spokes and the magic fall and drag (the walk may
+                    // be emitted under the locomotion name "walk", as part 4 reads it).
+                    foreach (string kept in new[] { "stand", "fall", "drag" })
+                        if (AnimationNamed(converted, kept) == null)
+                            failures.Add("WITNESS: air/user: the pet lost '" + kept + "'");
+                    if (AnimationNamed(converted, "walk") == null && AnimationNamed(converted, "walk_left") == null)
+                        failures.Add("WITNESS: air/user: the pet lost its walk");
+                }
+            }
+            catch (Exception ex)
+            {
+                failures.Add("air/user fixture threw -- " + ex.Message);
+            }
+            finally
+            {
+                try { if (Directory.Exists(airUserDir)) Directory.Delete(airUserDir, true); } catch { /* best-effort cleanup */ }
+            }
+
             var sb = new StringBuilder();
             sb.AppendLine("bundle self-test: manifest.json + animation.json -> ShimejiConfig -> accepted pet; one WebP through dwebp");
             foreach (string d in degraded) sb.AppendLine("  " + d);

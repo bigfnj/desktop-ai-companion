@@ -49,6 +49,18 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             return false;
         }
 
+        /// <summary>The border words <see cref="BundleParser"/> gives a bundle animation of type AIR or USER that is
+        /// neither a FALL nor a DRAG (decision 121, N-audit-1106-155). Neither is a region the emitter plays in.</summary>
+        public const string AirBorder = "Air";
+        public const string UserBorder = "User";
+
+        /// <summary>Whether <paramref name="borderType"/> is <see cref="AirBorder"/> or <see cref="UserBorder"/>.</summary>
+        public static bool IsAirOrUserBorder(string borderType)
+        {
+            return string.Equals(borderType, AirBorder, StringComparison.Ordinal)
+                || string.Equals(borderType, UserBorder, StringComparison.Ordinal);
+        }
+
         private static bool Has(string blob, string token)
         {
             return blob != null && blob.IndexOf(token, StringComparison.Ordinal) >= 0;
@@ -153,6 +165,21 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             if (a.Class != null)
             {
                 Set(a, FidelityGroup.Group2, "embedded behaviour (" + a.Class + ") has no desktopPet equivalent; the frames play but its special behaviour is lost");
+                return;
+            }
+
+            // An Android bundle animation of type AIR or USER that is neither a FALL nor a DRAG: BundleParser keeps
+            // the bundle's type as its border word for exactly these (a USER fling, an AIR pose). It has no floor,
+            // wall or ceiling to play on, and it used to reach the default rule below as a border-less Group1 map
+            // that PetEmitter.IsFloorAction admitted as an ordinary floor spoke, so a mid-air or reaction pose
+            // played standing on the floor, which reads as a glitch (N-audit-1106-155, decision 121: the private
+            // corpus holds no bundle input to weigh it against, so the default holds). Group2, because the residue
+            // lists an unused Group2 action under "not attempted" WITH this reason beside its name; a Group1
+            // leftover would be printed as a converter gap with no reason at all. The non-region border is what
+            // keeps it out of the floor graph (IsFloorAction admits a null or Floor border only).
+            if (IsAirOrUserBorder(a.BorderType))
+            {
+                Set(a, FidelityGroup.Group2, "a bundle " + a.BorderType.ToUpperInvariant() + " animation that is neither a fall nor a drag: it has no floor, wall or ceiling to play on, and played standing on the floor it would read as a glitch, so it is not attempted");
                 return;
             }
 
