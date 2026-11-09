@@ -13,7 +13,49 @@
 
 ---
 
-## START HERE (2026-09-25, fourteenth session) — backlog campaign, v1.2.5, and three dead test harnesses
+## START HERE (2026-11-09): Shimeji parity campaign, burn-down paused at wave 14 for a reboot
+
+This snapshot lives on `integration/burndown-w3`, which is not merged to master and not pushed. The campaign made every
+Shimeji-EE action convert and run, with parity proven against the real Shimeji runtime, then audited the result and is
+burning the backlog down to empty.
+
+**State.**
+- `BACKLOG.md` holds 146 open entries. Every closed one is in `docs/audits/2026-11-06-burndown-ledger.md` with its
+  disposition and evidence. The branch tip before this note applied burn-down wave 13.
+- Wave 14 (seven lanes, branches `burndown/w14-*`) was stopped for a reboot. One lane finished; the others hold commits
+  or uncommitted work in their worktrees. Rerun each unfinished lane, telling it to review its existing work first. Then
+  review every lane adversarially, merge, run the gate, and apply, as for waves 12 and 13.
+- Parity contract: v1.2 (trace/2) plus the screens clarification, adopted jointly. N-parity-1107-01, -02 and -04 closed
+  through the CONTRACT 10.9 closure. N-parity-1107-03, the grading of named policy divergences, is a joint draft with the
+  oracle and comparer owner (revision E). It stays unsigned until the paired calibration runs of the nine cap and
+  window cases are redone at the wave 13 tip; the first attempt was interrupted.
+
+**Owner decisions of 2026-11-09.**
+- The committed module zips carry a build machine's identity inside the bundled ModuleKit DLL's embedded Source Link
+  record. The build now turns Source Link off. Every module zip is republished clean at the coming release, and
+  history is left as it is.
+- The final release gets the full test tier (whole mutation harnesses plus soaks, about a day), with an estimate first.
+- Each of the 34 owner-decision entries gets its lane's recommendation, unless the change is user-visible or
+  irreversible; those return to the owner as one list. The triage is half done.
+- The AgentBroker entries stay with the separate AgentBroker work and move to `docs/BLOCKED.md`.
+
+**Rules learned this stretch.**
+- Run the gate with nothing else heavy on the machine. `--fortunes-engine-selftest` and `--aibrain-selftest` time out
+  at 180 s under contention, and pass in about 40 s alone.
+- `--shimeji-parity-run` refuses any trace path where something already exists, and never deletes or replaces a
+  file. Pass a fresh path.
+- An identity audit has to open committed archives and binaries. Text search cannot see inside a zip.
+
+**Next, in order.**
+1. Finish wave 14.
+2. Redo the calibration runs and get the policy signed.
+3. Finish the owner-decision triage.
+4. Move the owner-only, AgentBroker and other-agent entries to `docs/BLOCKED.md` with their blockers.
+5. Run the coordinator batch.
+6. Audit the burn-down: the old backlog against the ledger.
+7. Release on the full tier with every module zip republished, then merge to master.
+
+## Previous START HERE (2026-09-25, fourteenth session) — backlog campaign, v1.2.5, and three dead test harnesses
 
 A full pass over `BACKLOG.md` (72 open at the start), four parallel read-only re-audits, and a
 release. **v1.2.5 was tagged and published**, and `catalog.json` `app.version` was 1.2.5, so installed
