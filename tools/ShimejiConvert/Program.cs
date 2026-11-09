@@ -564,14 +564,16 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
         /// mapped to /_/; under the pdbonly they had, each CodeView record named its PDB by the absolute obj\Release
         /// path. Read back the way a debugger would, one verdict per dll: the CodeView path is not drive- or
         /// share-rooted, an embedded portable PDB with documents is present (the gate runs this build, and a throwing
-        /// suite's FAIL line needs its frame to resolve to a line, RA-382), every document sits under /_/, and the
-        /// Source Link and compilation-options records name no drive-rooted path (the SDK's default Source Link record
-        /// mapped the absolute checkout folder, which PathMap does not reach, until both projects turned it off).
-        /// WITNESS: the engine's table names a src\ file it compiles by link, the axis a map keyed on the project
-        /// directory alone would leave absolute. A Debug build keeps its full separate PDB on purpose and says so.
+        /// suite's FAIL line needs its frame to resolve to a line, RA-382), every document sits under /_/, there is no
+        /// Source Link record at all (both projects turn it off, N-bd-w12-review-04), and the compilation-options
+        /// record names no absolute path. WITNESS: the engine's table names a src\ file it compiles by link, the axis
+        /// a map keyed on the project directory alone would leave absolute. The compilation-options test runs on
+        /// synthetic records in every configuration first; a Debug build keeps its full separate PDB on purpose and
+        /// says so.
         /// </summary>
         private static string CheckSymbolsNameNoBuildFolder(List<string> failures)
         {
+            CheckRecordPathTest(failures);
 #if DEBUG
             return "symbols NOT checked: a Debug build keeps its full separate PDB on purpose, and the Release build is the witness";
 #else
@@ -585,6 +587,41 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
         private static readonly Guid SourceLinkRecord = new Guid("CC110556-A091-4D38-9FEC-25AB9A351A6A");
         private static readonly Guid CompilationOptionsRecord = new Guid("B5FEEC05-8CD0-4A83-96DA-466284BB4BD8");
 
+        /// <summary>
+        /// Whether a record's text names an absolute Windows path: a drive root with either slash, or a share root
+        /// (UNC) with either slash. N-bd-w12-review-04: the first cut matched a backslash drive path only, so D:/work
+        /// and \\host\share passed. The lookbehinds keep a URL out: "https:" has a letter before its colon, and its
+        /// two slashes follow a colon. Read as raw text, which is how the compilation-options record holds its values.
+        /// </summary>
+        private static bool RecordNamesAbsolutePath(string text)
+        {
+            return System.Text.RegularExpressions.Regex.IsMatch(text, @"(?<![A-Za-z])[A-Za-z]:[\\/]|(?<![:\\/])(\\\\|//)[^\\/\s]");
+        }
+
+        /// <summary>
+        /// The compilation-options test on synthetic records, in every configuration. No build input this repository
+        /// sets puts a path in that record (measured on both dlls: language, source-file-count, output-kind,
+        /// optimization, platform, runtime-version, language-version, define), so the walk over the real dlls alone
+        /// never shows the test catching anything. One record per root shape, and a WITNESS record in the shape the
+        /// build writes, with a mapped root and a URL beside it, that must read as naming none.
+        /// </summary>
+        private static void CheckRecordPathTest(List<string> failures)
+        {
+            string[][] rooted =
+            {
+                new[] { "a backslash drive path", "language\0C#\0key\0D:\\work\\repo\\x.cs" },
+                new[] { "a forward-slash drive path", "language\0C#\0key\0D:/work/repo/x.cs" },
+                new[] { "a UNC share path", "language\0C#\0key\0\\\\host\\share\\repo\\x.cs" },
+                new[] { "a forward-slash share path", "language\0C#\0key\0//host/share/repo/x.cs" },
+            };
+            foreach (string[] record in rooted)
+                if (!RecordNamesAbsolutePath(record[1]))
+                    failures.Add("CLI_SYMBOLS_RECORD_TEST: the compilation-options test misses " + record[0]);
+            string clean = "language\0C#\0runtime-version\010.0.0+0123456789abcdef\0define\0TRACE,RELEASE\0key\0/_/src/x.cs\0key\0https://example.invalid/x";
+            if (RecordNamesAbsolutePath(clean))
+                failures.Add("CLI_SYMBOLS_RECORD_TEST_WITNESS: the compilation-options test reads a mapped root or a URL as an absolute path");
+        }
+
         private static void CheckAssemblySymbols(System.Reflection.Assembly assembly, string linkedWitness, List<string> failures)
         {
             string location = assembly.Location;
@@ -597,7 +634,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             string codeView = null;
             bool embedded = false;
             var documents = new List<string>();
-            string rootedRecord = null;
+            string sourceLink = null, rootedRecord = null;
             using (FileStream file = File.OpenRead(location))
             using (var pe = new System.Reflection.PortableExecutable.PEReader(file))
             {
@@ -613,9 +650,13 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                             System.Reflection.Metadata.MetadataReader pdb = provider.GetMetadataReader();
                             foreach (System.Reflection.Metadata.DocumentHandle handle in pdb.Documents)
                                 documents.Add(pdb.GetString(pdb.GetDocument(handle).Name));
-                            // The module's TEXT records: Source Link (JSON, the SDK adds it by default and it maps the
-                            // checkout folder outside PathMap's reach) and the compilation options. The binary records
-                            // are not read as text, where a stray byte run could look like a drive.
+                            // The module's TEXT records. A Source Link record fails by its PRESENCE (N-bd-w12-review-04):
+                            // both projects set EnableSourceLink false, and a record whose keys never name the build
+                            // folder still carries the commit in its URLs, which the witness must not hash. Keys mapped
+                            // to /_/ (ContinuousIntegrationBuild with Source Link on), forward-slash and share keys all
+                            // passed the drive-path test this record had. The compilation options are read for an
+                            // absolute path. The binary records are not read as text, where a stray byte run could look
+                            // like a drive.
                             foreach (System.Reflection.Metadata.CustomDebugInformationHandle handle in pdb.CustomDebugInformation)
                             {
                                 System.Reflection.Metadata.CustomDebugInformation record = pdb.GetCustomDebugInformation(handle);
@@ -623,9 +664,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                                 Guid kind = pdb.GetGuid(record.Kind);
                                 if (kind != SourceLinkRecord && kind != CompilationOptionsRecord) continue;
                                 string text = Encoding.UTF8.GetString(pdb.GetBlobBytes(record.Value));
-                                if (rootedRecord == null && System.Text.RegularExpressions.Regex.IsMatch(text, @"(?<![A-Za-z])[A-Za-z]:\\"))
-                                    rootedRecord = (kind == SourceLinkRecord ? "Source Link" : "compilation options") + " record: "
-                                        + (text.Length > 160 ? text.Substring(0, 160) : text);
+                                string shown = (text.Length > 160 ? text.Substring(0, 160) : text).Replace('\0', ' ');
+                                if (kind == SourceLinkRecord) { if (sourceLink == null) sourceLink = shown; }
+                                else if (rootedRecord == null && RecordNamesAbsolutePath(text)) rootedRecord = shown;
                             }
                         }
                     }
@@ -640,8 +681,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                 failures.Add("CLI_SYMBOLS_NOT_EMBEDDED: " + name + " carries no embedded portable PDB with documents, the Release shape both converter projects set");
             else if (unmapped != null)
                 failures.Add("CLI_SYMBOLS_DOCUMENT_PATH: " + name + " names a source document outside the mapped /_/ root: " + unmapped);
+            else if (sourceLink != null)
+                failures.Add("CLI_SYMBOLS_SOURCE_LINK: " + name + " carries a Source Link record, which both converter projects turn off: " + sourceLink);
             else if (rootedRecord != null)
-                failures.Add("CLI_SYMBOLS_RECORD_PATH: " + name + " names an absolute path in its " + rootedRecord);
+                failures.Add("CLI_SYMBOLS_RECORD_PATH: " + name + " names an absolute path in its compilation options record: " + rootedRecord);
             else if (linkedWitness != null && !documents.Any(d => d.EndsWith(linkedWitness, StringComparison.Ordinal)))
                 failures.Add("CLI_SYMBOLS_WITNESS: " + name + " names no document ending " + linkedWitness + ", so the linked-source axis went unread");
         }
