@@ -394,11 +394,39 @@ namespace DesktopAICompanion
         /// paths (RA-208): fifteen D:\...\src\DesktopAICompanion.ModuleKit\*.cs strings in every modules-dist
         /// zip, inside a compressed blob no byte-scan of the DLL could see. PathMap in both csproj files
         /// rewrites the project directory to a /_/ root; this reads the table back the way a debugger would.
+        /// The module's two TEXT records too (N-bd-w12-converter-1-01): the SDK's default Source Link record
+        /// mapped the absolute checkout folder, which PathMap does not reach, to a raw URL with the commit, in
+        /// every modules-dist zip, while the table read clean. Any Source Link record fails, since both projects
+        /// turn it off; the compilation-options record must be present and name no absolute path.
         /// </summary>
         private static void TestModuleKitShippedSymbols()
         {
+            // WITNESS for the rooted-path test the compilation-options leg uses: no build input reaches that record
+            // with a path today (its keys are the compiler, language, counts and defines), so these strings are
+            // what keep the test from passing everything.
+            AssertTrue(NamesRootedPath("output-kind\0x\0C:\\build\\obj"), "WITNESS the rooted-path test misses a drive path written with a backslash");
+            AssertTrue(NamesRootedPath("output-kind\0x\0c:/build/obj"), "WITNESS the rooted-path test misses a drive path written with a forward slash");
+            AssertTrue(NamesRootedPath("output-kind\0x\0\\\\server\\share\\obj"), "WITNESS the rooted-path test misses a UNC path");
+            AssertFalse(NamesRootedPath("https://example.invalid/x"), "the rooted-path test reads a URL's scheme as a drive");
             AssertShippedSymbolsCarryNoBuildPath(typeof(KitAtomicFile).Assembly, "ModuleKit");
             AssertShippedSymbolsCarryNoBuildPath(typeof(IModule).Assembly, "Contracts");
+        }
+
+        // The two module-level Portable PDB records that hold text, by their kind GUIDs from the Portable PDB
+        // format; the converter's Program.CheckAssemblySymbols reads the same two.
+        private static readonly Guid SourceLinkRecordKind = new Guid("CC110556-A091-4D38-9FEC-25AB9A351A6A");
+        private static readonly Guid CompilationOptionsRecordKind = new Guid("B5FEEC05-8CD0-4A83-96DA-466284BB4BD8");
+
+        // A drive with either slash, or a UNC root, anywhere in the text. The lookbehind keeps a URL's scheme
+        // ("https:/") from reading as a drive.
+        private static bool NamesRootedPath(string text)
+        {
+            return System.Text.RegularExpressions.Regex.IsMatch(text, @"(?<![A-Za-z])[A-Za-z]:[\\/]|\\\\");
+        }
+
+        private static string Clip(string text)
+        {
+            return text.Length > 160 ? text.Substring(0, 160) : text;
         }
 
         private static void AssertShippedSymbolsCarryNoBuildPath(Assembly assembly, string label)
@@ -407,6 +435,7 @@ namespace DesktopAICompanion
             AssertTrue(!string.IsNullOrEmpty(location) && File.Exists(location), label + ": the assembly has no file to read symbols from.");
             var documents = new List<string>();
             bool embedded = false;
+            string sourceLink = null, compilationOptions = null;
             using (FileStream file = File.OpenRead(location))
             using (var pe = new PEReader(file))
             {
@@ -419,6 +448,17 @@ namespace DesktopAICompanion
                         MetadataReader pdb = provider.GetMetadataReader();
                         foreach (DocumentHandle handle in pdb.Documents)
                             documents.Add(pdb.GetString(pdb.GetDocument(handle).Name));
+                        // Module-level records only; the binary ones (metadata references) are not read as text.
+                        foreach (CustomDebugInformationHandle handle in pdb.CustomDebugInformation)
+                        {
+                            CustomDebugInformation record = pdb.GetCustomDebugInformation(handle);
+                            if (record.Parent.Kind != HandleKind.ModuleDefinition) continue;
+                            Guid kind = pdb.GetGuid(record.Kind);
+                            if (kind == SourceLinkRecordKind)
+                                sourceLink = Encoding.UTF8.GetString(pdb.GetBlobBytes(record.Value));
+                            else if (kind == CompilationOptionsRecordKind)
+                                compilationOptions = Encoding.UTF8.GetString(pdb.GetBlobBytes(record.Value));
+                        }
                     }
                 }
             }
@@ -432,6 +472,11 @@ namespace DesktopAICompanion
                 AssertTrue(name.StartsWith("/_/", StringComparison.Ordinal),
                     label + ": a source document is not under the mapped /_/ root: " + name);
             }
+            AssertTrue(sourceLink == null,
+                label + ": the shipped symbols carry a Source Link record, which maps the checkout folder outside PathMap's reach: " + (sourceLink == null ? "" : Clip(sourceLink)));
+            AssertTrue(compilationOptions != null, label + ": WITNESS the embedded PDB carries no compilation-options record, so the module records went unread.");
+            AssertFalse(NamesRootedPath(compilationOptions),
+                label + ": the compilation-options record names an absolute path: " + Clip(compilationOptions.Replace('\0', ' ')));
         }
 
         private static void TestModuleKitModulePaths()

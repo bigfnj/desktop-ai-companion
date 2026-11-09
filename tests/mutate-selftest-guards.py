@@ -25305,6 +25305,56 @@ CASES = (
      b"    foreach ($dir in $Fixture.Created) {\n",
      None, None, PRIVACY, None,
      "folder stayed because it was there before the run"),
+    # ---- burndown/w13-contracts-1 ----
+    # N-bd-w12-converter-1-01, graded through CoreTests' "ModuleKit shipped symbols": ModuleKit or Contracts keeps the
+    # SDK's default Source Link record again, which maps the absolute checkout folder outside PathMap's reach (a csproj
+    # edit rebuilds the library, so its copy in the CoreTests output is the artefact); or the check's own new legs go
+    # blind: the rooted-path test loses the forward-slash drive, the UNC root or the lookbehind that keeps a URL's
+    # scheme from reading as a drive, the reader stops finding the compilation-options record, or a rooted path in that
+    # record goes unreported. No build input reaches that record with a path, so the last case puts one there.
+    # "bd-w13-contracts-1:" for one --only.
+    ("bd-w13-contracts-1: ModuleKit keeps the SDK's default Source Link record again (N-bd-w12-converter-1-01)",
+     MODULEKIT_CSPROJ,
+     b"    <EnableSourceLink>false</EnableSourceLink>\n",
+     b"",
+     CORETESTS_CSPROJ, CORETESTS_MODULEKIT_DLL,
+     CORETESTS, None, "ModuleKit: the shipped symbols carry a Source Link record"),
+    ("bd-w13-contracts-1: Contracts keeps the SDK's default Source Link record again (N-bd-w12-converter-1-01)",
+     os.path.join(REPO, "src", "DesktopAICompanion.Contracts", "DesktopAICompanion.Contracts.csproj"),
+     b"    <EnableSourceLink>false</EnableSourceLink>\n",
+     b"",
+     CORETESTS_CSPROJ, os.path.join(os.path.dirname(CORETESTS_MODULEKIT_DLL), "DesktopAICompanion.Contracts.dll"),
+     CORETESTS, None, "Contracts: the shipped symbols carry a Source Link record"),
+    ("bd-w13-contracts-1: the rooted-path test misses a forward-slash drive (N-bd-w12-converter-1-01)",
+     MODULEKIT_TESTS,
+     b":[\\\\/]|\\\\\\\\\");",
+     b":[\\\\]|\\\\\\\\\");",
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "WITNESS the rooted-path test misses a drive path written with a forward slash"),
+    ("bd-w13-contracts-1: the rooted-path test misses a UNC root (N-bd-w12-converter-1-01)",
+     MODULEKIT_TESTS,
+     b":[\\\\/]|\\\\\\\\\");",
+     b":[\\\\/]\");",
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "WITNESS the rooted-path test misses a UNC path"),
+    ("bd-w13-contracts-1: the rooted-path test reads a URL's scheme as a drive (N-bd-w12-converter-1-01)",
+     MODULEKIT_TESTS,
+     b"@\"(?<![A-Za-z])[A-Za-z]:",
+     b"@\"[A-Za-z]:",
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "the rooted-path test reads a URL's scheme as a drive"),
+    ("bd-w13-contracts-1: the symbols reader skips the compilation-options record (N-bd-w12-converter-1-01)",
+     MODULEKIT_TESTS,
+     b"else if (kind == CompilationOptionsRecordKind)",
+     b"else if (kind == Guid.Empty)",
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "ModuleKit: WITNESS the embedded PDB carries no compilation-options record"),
+    ("bd-w13-contracts-1: the compilation-options record names a drive path (N-bd-w12-converter-1-01)",
+     MODULEKIT_TESTS,
+     b"compilationOptions = Encoding.UTF8.GetString(pdb.GetBlobBytes(record.Value));",
+     b"compilationOptions = Encoding.UTF8.GetString(pdb.GetBlobBytes(record.Value)) + \"\\0D:\\\\obj\";",
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "ModuleKit: the compilation-options record names an absolute path"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
