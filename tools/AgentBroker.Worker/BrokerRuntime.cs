@@ -5,6 +5,9 @@ using System.Runtime.ExceptionServices;
 
 namespace AgentBroker.Worker;
 
+// The exclusion class of a blocking wait (BrokerRuntime.BeginWait): one active wait per session address and class.
+internal enum WaitClass { Incoming, Receipt }
+
 public sealed partial class BrokerRuntime(BrokerStore store, IPeerFederation federation,
     IReadOnlyList<ILocalAgentAdapter> adapters, SessionPreferences? sessionPreferences = null,
     TimeProvider? clock = null, ICallerProcessResolver? callerProcesses = null) : IAsyncDisposable
@@ -98,33 +101,77 @@ public sealed partial class BrokerRuntime(BrokerStore store, IPeerFederation fed
         }
     }
 
-    // Blocking MCP waits hold an HTTP request each. One per session address (a second would only race
-    // the first for the same messages) and sixteen per worker, well inside Kestrel's connection bound.
+    // Blocking MCP waits hold an HTTP request each. One per session address and wait class, and sixteen per worker across
+    // every class, well inside Kestrel's connection bound. wait_for_messages and wait_for_reply share the Incoming class:
+    // both return the same Accepted reply, so a second would only race the first for it. wait_for_receipt returns no
+    // message, so its Receipt class runs beside them.
     internal const int MaximumConcurrentWaits = 16;
-    private readonly ConcurrentDictionary<SessionAddress, byte> waits = new();
+    private readonly object waitGate = new();
+    private readonly ConcurrentDictionary<(SessionAddress Session, WaitClass Class), byte> waits = new();
     private int activeWaits;
-
-    internal IDisposable BeginWait(SessionAddress session)
+    private readonly CancellationTokenSource waitStop = new();
+    private CancellationToken waitStopToken;
+    private bool waitsClosed;
+    internal int ActiveWaitCount { get { lock (waitGate) return activeWaits; } }
+    // Cache before disposing the source, including when disposal precedes the first request.
+    internal CancellationToken WaitStopping
     {
-        if (!waits.TryAdd(session, 0)) throw new BrokerException("wait_in_progress", "This session already has an active wait.");
-        if (Interlocked.Increment(ref activeWaits) > MaximumConcurrentWaits)
-        {
-            Interlocked.Decrement(ref activeWaits); waits.TryRemove(session, out _);
-            throw new BrokerException("wait_capacity", "The broker's concurrent wait capacity is in use.");
-        }
-        store.SetListening(session, true);
-        return new WaitSlot(this, session);
+        get { lock (waitGate) return waitStopToken.CanBeCanceled ? waitStopToken : waitStopToken = waitStop.Token; }
     }
 
-    private sealed class WaitSlot(BrokerRuntime owner, SessionAddress session) : IDisposable
+    internal IDisposable BeginWait(SessionAddress session, WaitClass waitClass)
+    {
+        lock (waitGate)
+        {
+            if (waitsClosed) throw new BrokerException("broker_stopping", "Broker waits are stopping.");
+            return BeginWaitCore(session, waitClass);
+        }
+    }
+
+    // Caller holds waitGate through admission and its listening increment.
+    private IDisposable BeginWaitCore(SessionAddress session, WaitClass waitClass)
+    {
+        var slot = (session, waitClass);
+        if (!waits.TryAdd(slot, 0)) throw new BrokerException("wait_in_progress", "This session already has an active wait of this class.");
+        if (Interlocked.Increment(ref activeWaits) > MaximumConcurrentWaits)
+        {
+            Interlocked.Decrement(ref activeWaits); waits.TryRemove(slot, out _);
+            throw new BrokerException("wait_capacity", "The broker's concurrent wait capacity is in use.");
+        }
+        store.EnterListening(session);
+        return new WaitSlot(this, slot);
+    }
+
+    private sealed class WaitSlot(BrokerRuntime owner, (SessionAddress Session, WaitClass Class) slot) : IDisposable
     {
         private int released;
         public void Dispose()
         {
             if (Interlocked.Exchange(ref released, 1) != 0) return;
-            owner.Store.SetListening(session, false);
-            Interlocked.Decrement(ref owner.activeWaits); owner.waits.TryRemove(session, out _);
+            lock (owner.waitGate)
+            {
+                // Runtime disposal already released every admitted slot and prevents a replacement.
+                if (!owner.waits.ContainsKey(slot)) return;
+                owner.Store.LeaveListening(slot.Session);
+                Interlocked.Decrement(ref owner.activeWaits); owner.waits.TryRemove(slot, out _);
+            }
         }
+    }
+
+    internal void StopWaits()
+    {
+        lock (waitGate)
+        {
+            if (waitsClosed) return;
+            waitsClosed = true;
+            _ = WaitStopping;
+            foreach (var slot in waits.Keys) store.LeaveListening(slot.Session);
+            waits.Clear();
+            activeWaits = 0;
+        }
+        // Cancellation callbacks may release their slots, so invoke them outside the admission gate.
+        try { waitStop.Cancel(); }
+        finally { waitStop.Dispose(); }
     }
 
     public void Start(CancellationToken stop)
@@ -159,7 +206,10 @@ public sealed partial class BrokerRuntime(BrokerStore store, IPeerFederation fed
             var peers = store.Peers();
             var authorizations = peers.ToDictionary(p => p.BrokerId, store.CapturePeerAuthorization);
             var directories = new ConcurrentDictionary<Guid, BrokerSession[]>();
-            using var budget = CancellationTokenSource.CreateLinkedTokenSource(token);
+            // The budget also ends when the broker starts stopping (ApplicationStopping -> StopWaits), so a paired broker that
+            // never answers cannot hold the host drain past the supervisor's 4-second kill (N4, AgentBroker next campaign
+            // 2026-11-08). Stopping returns what the budget would: the local rows and any peer directory already complete.
+            using var budget = CancellationTokenSource.CreateLinkedTokenSource(token, WaitStopping);
             budget.CancelAfter(TimeSpan.FromSeconds(5));
             try
             {
@@ -491,6 +541,8 @@ public sealed partial class BrokerRuntime(BrokerStore store, IPeerFederation fed
     private async Task DisposeCoreAsync()
     {
         var failures = new List<Exception>();
+        try { StopWaits(); }
+        catch (Exception error) { failures.Add(error); }
         try { lifetime?.Cancel(); }
         catch (Exception error) { failures.Add(error); }
         try { if (loop is not null) await loop; }

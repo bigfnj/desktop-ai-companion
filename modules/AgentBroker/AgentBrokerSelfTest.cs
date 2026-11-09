@@ -29,6 +29,7 @@ public sealed partial class AgentBrokerModule
             RunPairingChecks(Check, dispatcher);
             RunFirewallChecks(Check, dispatcher);
             RunOnboardingChecks(Check, dispatcher);
+            RunClientSetupChecks(Check, dispatcher);
             RunClientRouteChecks(Check);
             RunDesktopChatChecks(Check, dispatcher);
             RunPeerClockChecks(Check);

@@ -81,9 +81,11 @@ public sealed partial class BrokerStore : IDisposable
     // Generic MCP mailboxes only: when the owner last registered or renewed. Process-local like the
     // sessions themselves (never on the wire, never in State), so a worker restart still drops them.
     private readonly Dictionary<SessionAddress, DateTimeOffset> mailboxActivity = new();
-    // Generic mailboxes whose owner is inside a wait right now (the worker's BeginWait). In memory only, and read only by
-    // PresentedDirectory, so presence, retention and every routing check keep using the stored activity.
-    private readonly HashSet<SessionAddress> listening = [];
+    // Generic mailboxes whose owner is inside a wait right now (the worker's BeginWait), counted per address: an incoming
+    // wait and a receipt wait of one address can overlap, and the first to end must never clear the other's. In memory
+    // only, and read only by PresentedDirectory, so presence, retention and every routing check keep using the stored
+    // activity.
+    private readonly Dictionary<SessionAddress, int> listening = new();
     private readonly Dictionary<Guid, Guid> peerAuthorizations = new();
     // Completed and replaced by every Commit. A waiter captures it BEFORE checking state, so a commit
     // between its check and its wait has already completed the task it awaits. Never awaited under gate.
@@ -179,9 +181,21 @@ public sealed partial class BrokerStore : IDisposable
         }
     }
 
-    public void SetListening(SessionAddress address, bool value)
+    // One EnterListening per admitted wait, one LeaveListening when it ends. The address stays listening until its last wait
+    // ends; an unmatched leave changes nothing.
+    public void EnterListening(SessionAddress address)
     {
-        lock (gate) { if (value) listening.Add(address); else listening.Remove(address); }
+        lock (gate) listening[address] = listening.GetValueOrDefault(address) + 1;
+    }
+
+    public void LeaveListening(SessionAddress address)
+    {
+        lock (gate)
+        {
+            if (!listening.TryGetValue(address, out int count)) return;
+            if (count > 1) listening[address] = count - 1;
+            else listening.Remove(address);
+        }
     }
 
     // The directory as agents see it, through list_sessions and a paired broker's /federation/directory alike: a present
@@ -191,7 +205,7 @@ public sealed partial class BrokerStore : IDisposable
     {
         lock (gate)
         {
-            return Directory(forPeer).Select(s => s.Adapter == "mcp" && s.Activity == SessionActivity.Idle && !listening.Contains(s.Address)
+            return Directory(forPeer).Select(s => s.Adapter == "mcp" && s.Activity == SessionActivity.Idle && !listening.ContainsKey(s.Address)
                 ? s with { Activity = SessionActivity.Unknown } : s).ToArray();
         }
     }
@@ -245,6 +259,21 @@ public sealed partial class BrokerStore : IDisposable
         lock (gate) { EnsureOpen(); return Addressable(address); }
     }
 
+    /// <summary>Time until this exact registration becomes unavailable without another mutation. Does not renew or scan messages.</summary>
+    public TimeSpan TimeUntilAddressUnavailable(SessionAddress address)
+    {
+        lock (gate)
+        {
+            EnsureOpen(); address.Validate();
+            if (!Addressable(address) || !sessions.TryGetValue(address, out var row)) return TimeSpan.Zero;
+            DateTimeOffset until = row.LeaseUntil;
+            if (row.Adapter == "mcp" && mailboxActivity.TryGetValue(address, out var seen) && seen + BrokerLimits.MailboxRetention > until)
+                until = seen + BrokerLimits.MailboxRetention;
+            var remaining = until - Now;
+            return remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
+        }
+    }
+
     /// <summary>Frees one registration slot by evicting a retained mailbox; null when none is retained.</summary>
     public SessionAddress? EvictRetainedMailbox()
     {
@@ -269,8 +298,8 @@ public sealed partial class BrokerStore : IDisposable
     }
 
     /// <summary>
-    /// The task the next committed change completes. Capture it BEFORE checking state, check, then await
-    /// it outside every lock; a commit in between has already completed it, so no change is missed.
+    /// The task the next durable commit or registration removal completes. Capture it BEFORE checking state, check,
+    /// then await outside every lock; a change in between has already completed it, so no change is missed.
     /// </summary>
     public Task ChangeSignal()
     {
@@ -391,6 +420,11 @@ public sealed partial class BrokerStore : IDisposable
                 }
                 return existing;
             }
+            // A delayed terminal notice can outlive its source. Keep its UUID reserved until that notice's ordinary
+            // retention ends, without extending source retention or changing the legacy notice ID. Stable source retries
+            // above still return their original receipt. New messages should always choose a fresh UUID.
+            var previousNotice = Stored(NoticeId(message.Id), null, out _);
+            if (previousNotice is not null && previousNotice.Message.ExpiresAt > Now - RecordGrace) Fail("message_id_collision");
             ValidateMessage(message);
             // Only direct federation. This rejects forwarding a third broker's message or a peer
             // asking us to route onward to another peer.
@@ -811,6 +845,12 @@ public sealed partial class BrokerStore : IDisposable
             if (previous.Status == outcome) return previous;
             if (previous.Status is MessageStatus.Delivered or MessageStatus.Refused or MessageStatus.Expired) Fail("receipt_final");
             if (previous.Status == MessageStatus.Accepted && previous.Message.ExpiresAt <= Now) Fail("message_expired");
+            // A local Held past the deadline (on a Submitted or Uncertain record) would be rewritten to Expired by the next
+            // read, after which the recipient's own Delivered fails receipt_final: refuse it as a late Accepted is refused
+            // (X1, AgentBroker next campaign 2026-11-08). A late Delivered or Refused still settles the record, and a paired
+            // broker's receipt keeps its own path; Held never extends a message's lifetime.
+            if (outcome == MessageStatus.Held && authenticatedBroker == state.BrokerId && previous.Message.ExpiresAt <= Now)
+                Fail("message_expired");
             var next = previous with { Status = outcome, UpdatedAt = Now, Reason = reason, Attempts = 1 };
             // The answer is what the store now holds: for a Delivered or Refused message this broker sent, a tombstone.
             messages[index] = next; Commit(state with { Messages = messages }); return Stored(messageId, null, out _)!;
@@ -851,11 +891,16 @@ public sealed partial class BrokerStore : IDisposable
     }
     private void Forget(SessionAddress address, string cause)
     {
-        if (sessions.Remove(address)) RememberForgotten(address, cause);
+        bool removed = sessions.Remove(address);
+        if (removed) RememberForgotten(address, cause);
         mailboxActivity.Remove(address);
         if (nativeProofs.TryGetValue(address.SessionId, out var proof) && proof.Address == address) nativeProofs.Remove(address.SessionId);
+        // Disconnect, replacement, lease/retention trimming and capacity eviction all pass here. A no-op removal
+        // does not wake anyone; real address loss wakes blocked tools without polling their retained message history.
+        if (removed) SignalChange();
     }
     private static TaskCompletionSource NewSignal() => new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private void SignalChange() => Interlocked.Exchange(ref changeSignal, NewSignal()).TrySetResult();
     private List<MessageReceipt> Expire(List<MessageReceipt> messages) => messages
         .Where(r => r.Message.ExpiresAt > Now - RecordGrace)
         .Select(r => IsPending(r.Status) && r.Message.ExpiresAt <= Now
@@ -930,8 +975,10 @@ public sealed partial class BrokerStore : IDisposable
         }
         return data.ToArray();
     }
-    private void Commit(State next)
+    // Timed by Commit (BrokerStore.CommitTimings.cs); each stage marker below only names where a slow commit is spending time.
+    private void CommitCore(State next)
     {
+        BeginCommitStage(NoticesStage);
         (next, var owing, var dropped) = WithSenderNotices(next);
         // A Delivered or Refused message this broker sent leaves the snapshot as a tombstone. The tombstone is appended
         // durably FIRST: a crash between the two writes leaves the message in both files, the snapshot wins at load,
@@ -939,6 +986,7 @@ public sealed partial class BrokerStore : IDisposable
         var added = next.Messages.Where(Tombstoned).Select(ToTombstone).ToList();
         if (added.Count > 0)
         {
+            BeginCommitStage(TombstonesStage);
             AppendTombstones(added);
             next = next with { Messages = next.Messages.Where(receipt => !Tombstoned(receipt)).ToList() };
         }
@@ -947,8 +995,10 @@ public sealed partial class BrokerStore : IDisposable
         var temporary = path + ".next";
         try
         {
+            BeginCommitStage(SnapshotWriteStage);
             using (var stream = new FileStream(temporary, FileMode.Create, FileAccess.Write, FileShare.None, 4096, FileOptions.WriteThrough))
             { JsonSerializer.Serialize(stream, next, Json); stream.Flush(true); }
+            BeginCommitStage(SnapshotReplaceStage);
             ReplaceFile(temporary, path);
             state = next;
             (inboxSequences, inboxHighWater) = inbox;
@@ -957,7 +1007,7 @@ public sealed partial class BrokerStore : IDisposable
             foreach (var id in owedRefusal.Keys.Where(id => !owed.ContainsKey(id)).ToArray()) owedRefusal.Remove(id);
             foreach (var tombstone in added) AddTombstone(tombstone);
             // Continuations run asynchronously, so completing under gate never runs a waiter here.
-            Interlocked.Exchange(ref changeSignal, NewSignal()).TrySetResult();
+            SignalChange();
         }
         finally
         {
@@ -965,7 +1015,11 @@ public sealed partial class BrokerStore : IDisposable
             catch (IOException) { /* Preserve the original write failure; next commit replaces the scratch file. */ }
             catch (UnauthorizedAccessException) { }
         }
-        if (added.Count > 0 && journalEntries > 2L * tombstones.Count + JournalCompactionSlack) CompactTombstones();
+        if (added.Count > 0 && journalEntries > 2L * tombstones.Count + JournalCompactionSlack)
+        {
+            BeginCommitStage(CompactionStage);
+            CompactTombstones();
+        }
     }
 
     // Same-directory replacement, matching the repository's AtomicFile primary path. Unlike
@@ -988,9 +1042,10 @@ public sealed partial class BrokerStore : IDisposable
     }
 
     // N-broker-notices-01 (2026-10-28): two messages sent to a mailbox nobody read expired with attempts=0, and their
-    // sender was never told. Now a local sender whose message ends Expired or Refused gets one notice in its own queue:
+    // sender was never told. A local sender whose message ends Expired or Refused gets one terminal notice; since 1.10.0,
+    // entering Uncertain also creates an independent historical advisory. Both use its original exact sender's queue:
     // a native session is woken with it, and a generic mailbox's wait_for_messages returns it. This runs in Commit, the
-    // one write path, so every route to Expired or Refused is covered.
+    // one write path, so each qualifying transition is covered, including interrupted submissions recovered at startup.
     // A notice is OWED to its sender's exact address while its source receipt is retained and no notice with its ID
     // exists, as a record or a tombstone. The durable receipts are the authority: RebuildOwed derives the owed set when
     // the store opens, and each commit adds what it ends, so neither a restart nor a deferral loses one. A notice is
@@ -1006,11 +1061,12 @@ public sealed partial class BrokerStore : IDisposable
     private (State Next, Dictionary<Guid, MessageReceipt>? Owed, NoticeDrops? Dropped) WithSenderNotices(State next)
     {
         var open = state.Messages.Where(r => r.Status is not (MessageStatus.Delivered or MessageStatus.Refused or MessageStatus.Expired))
-            .Select(r => r.Message.Id).ToHashSet();
+            .ToDictionary(r => r.Message.Id, r => r.Status);
         Dictionary<Guid, MessageReceipt>? owing = null;
-        foreach (var ended in next.Messages.Where(r => r.Status is (MessageStatus.Expired or MessageStatus.Refused) &&
-            open.Contains(r.Message.Id) && r.Message.Sender.BrokerId == state.BrokerId && r.Message.Sender.SessionId != NoticeSessionId))
-            (owing ??= new(owed)).TryAdd(NoticeId(ended.Message.Id), Source(ended));
+        foreach (var ended in next.Messages.Where(r => r.Status is (MessageStatus.Expired or MessageStatus.Refused or MessageStatus.Uncertain) &&
+            open.TryGetValue(r.Message.Id, out var previous) && (r.Status != MessageStatus.Uncertain || previous != MessageStatus.Uncertain) &&
+            r.Message.Sender.BrokerId == state.BrokerId && r.Message.Sender.SessionId != NoticeSessionId))
+            (owing ??= new(owed)).TryAdd(SenderNoticeId(ended), Source(ended));
         if ((owing ?? owed).Count == 0) return (next, owing, null);
         owing ??= new(owed);
         // Counts are taken once per pass, so senders that are still away cost one scan and never delay one that is back.
@@ -1023,6 +1079,9 @@ public sealed partial class BrokerStore : IDisposable
         var ids = next.Messages.Select(r => r.Message.Id).ToHashSet();
         int withText = next.Messages.Count(r => !Tombstoned(r)), records = next.Messages.Count + tombstones.Count;
         var pending = PendingByRecipient(next.Messages);
+        // Cancel an unadmitted advisory after its exact source lifetime resolves. An admitted advisory remains historical.
+        var uncertainSources = next.Messages.Where(receipt => receipt.Status == MessageStatus.Uncertain)
+            .ToDictionary(receipt => SenderNoticeId(receipt));
         List<MessageReceipt>? messages = null;
         NoticeDrops? dropped = null;
         foreach (var (id, source) in owing.OrderBy(p => p.Value.UpdatedAt).ToArray())
@@ -1044,6 +1103,7 @@ public sealed partial class BrokerStore : IDisposable
                 };
                 continue;
             }
+            if (source.Status == MessageStatus.Uncertain && !uncertainSources.ContainsKey(id)) { owing.Remove(id); continue; }
             if (Refusal(owner, withText, records, pending) is { } refused) { owedRefusal[id] = refused; continue; }
             // Always the maximum lifetime, never the configurable default: a source lives at most that long plus RecordGrace,
             // so the notice's record or tombstone outlives every source it could be rebuilt from, and is never recreated.
@@ -1057,17 +1117,17 @@ public sealed partial class BrokerStore : IDisposable
         return (messages is null ? next : next with { Messages = messages }, owing, dropped);
     }
 
-    // Every terminal message a local session sent (an Expired record, a Refused tombstone) whose notice exists in neither
-    // form. On the first start after an upgrade this includes messages that ended without a notice in the retained day.
+    // Every retained Expired or Uncertain record, or Refused tombstone, a local session sent whose notice exists in neither
+    // form. On the first start after an upgrade this also backfills uncertainty advisories from retained old receipts.
     private Dictionary<Guid, MessageReceipt> RebuildOwed()
     {
         var ids = state.Messages.Select(r => r.Message.Id).ToHashSet();
         var result = new Dictionary<Guid, MessageReceipt>();
-        foreach (var source in state.Messages.Where(r => r.Status is MessageStatus.Expired or MessageStatus.Refused)
+        foreach (var source in state.Messages.Where(r => r.Status is MessageStatus.Expired or MessageStatus.Refused or MessageStatus.Uncertain)
             .Concat(tombstones.Values.Where(t => t.Status == MessageStatus.Refused).Select(t => Render(t, ""))))
         {
             if (source.Message.Sender.BrokerId != state.BrokerId || source.Message.Sender.SessionId == NoticeSessionId) continue;
-            var id = NoticeId(source.Message.Id);
+            var id = SenderNoticeId(source);
             if (!ids.Contains(id) && !tombstones.ContainsKey(id)) result.TryAdd(id, Source(source));
         }
         return result;
@@ -1130,6 +1190,24 @@ public sealed partial class BrokerStore : IDisposable
         return new Guid(bytes);
     }
 
+    // A separate durable event ID preserves the legacy terminal-notice ID and distinguishes reused source UUIDs.
+    // Hash immutable routing/lifetime metadata only. Process-local admission stamps and source text never enter it.
+    private static Guid SenderNoticeId(MessageReceipt source)
+    {
+        if (source.Status != MessageStatus.Uncertain) return NoticeId(source.Message.Id);
+        var message = source.Message;
+        string identity = JsonSerializer.Serialize(new
+        {
+            message.Id, message.ConversationId, message.ReplyTo, message.Sender, message.Recipient,
+            CreatedAt = message.CreatedAt.UtcTicks, ExpiresAt = message.ExpiresAt.UtcTicks, message.RemainingReplies
+        });
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes("agentbroker-uncertainty-notice-v1:" + identity))[..16];
+        NoticeMarker.CopyTo(bytes, 0);
+        bytes[7] = (byte)(bytes[7] & 0x0F | 0x80);
+        bytes[8] = (byte)(bytes[8] & 0x3F | 0x80);
+        return new Guid(bytes);
+    }
+
     public static bool IsNoticeId(Guid id)
     {
         Span<byte> bytes = stackalloc byte[16];
@@ -1140,6 +1218,13 @@ public sealed partial class BrokerStore : IDisposable
     private string NoticeText(MessageReceipt ended)
     {
         var m = ended.Message;
+        if (ended.Status == MessageStatus.Uncertain)
+            return $"AgentBroker delivery advisory: your message {m.Id} (conversation {m.ConversationId}) to exact address " +
+                $"{m.Recipient.BrokerId}/{m.Recipient.SessionId}/{m.Recipient.Incarnation} became Uncertain at {ended.UpdatedAt:u} " +
+                $"({ended.Reason ?? "unknown"}). It may have reached the recipient. This is a historical event; its receipt may " +
+                "have changed since. Use get_message_receipt with this message ID to inspect the current status and includeText " +
+                "to recover retained content. Do not resend automatically: check with the recipient before choosing any new send. " +
+                "Delivered means receipt, not work completion.";
         string to = sessions.TryGetValue(m.Recipient, out var recipient) && !string.IsNullOrWhiteSpace(recipient.Label)
             ? $"\"{recipient.Label}\" ({m.Recipient.SessionId})" : m.Recipient.SessionId;
         var lifetime = m.ExpiresAt - m.CreatedAt;
@@ -1160,6 +1245,10 @@ public sealed partial class BrokerStore : IDisposable
                   "receipt (peer_expired). The broker cannot tell whether the recipient read it."
             : ended.Reason?.StartsWith("peer_", StringComparison.Ordinal) == true
                 ? $"ended at the recipient's paired broker without a Delivered receipt ({ended.Reason})."
+            // A definite refusal a paired broker reported (its admission answer or a reconciled receipt) is that broker's, not
+            // this one's (X2, AgentBroker next campaign 2026-11-08; reasons passed through since 1003063b).
+            : m.Recipient.BrokerId != state.BrokerId
+                ? $"was refused by the recipient's paired broker {m.Recipient.BrokerId} before delivery ({ended.Reason ?? "refused"})."
                 : $"was refused by this broker before delivery ({ended.Reason ?? "refused"}).";
         return $"AgentBroker delivery notice: your message {m.Id} (conversation {m.ConversationId}) to {to}, sent {m.CreatedAt:u}, {outcome}";
     }

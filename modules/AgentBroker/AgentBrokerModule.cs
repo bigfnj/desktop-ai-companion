@@ -41,7 +41,7 @@ public sealed partial class AgentBrokerModule : IModule
     {
         Id = "agentbroker",
         Name = "AgentBroker",
-        Version = "1.9.1",   // 1.9.1: peer-directory boundary validation and installed-health port support.
+        Version = "1.10.0",  // Collaboration handoffs, retained client output and delivery advisories.
                              // 1.9.0: authenticated certificate renewal and post-push reliability repairs.
                              //        Exact-incarnation delivery and the host ABI floor are unchanged.
                              // 1.8.0: arrival-cursor inbox reads, report-only native recovery, exact-address declarations,
@@ -645,6 +645,7 @@ public sealed partial class AgentBrokerModule : IModule
             return "Could not verify the broker connection. Refresh status, then try Connect Claude MCP again.";
         string? endpoint = client == "claude" ? AgentClientSetup.EndpointFromConnection(connection) : null;
         string worker = Path.Combine(Path.GetDirectoryName(typeof(AgentBrokerModule).Assembly.Location)!, "worker", "AgentBroker.Worker.exe");
-        return await ClientSetup.ConfigureAsync(client, worker, directory, token, endpoint);
+        return await ClientSetup.ConfigureAsync(client, worker, directory, token, endpoint,
+            inspectionMcpEndpoint: client == "codex" ? LoopbackMcpEndpoint() : null);
     }
 }

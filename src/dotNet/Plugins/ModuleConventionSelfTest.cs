@@ -107,6 +107,11 @@ namespace DesktopAICompanion.Plugins
                     ok &= Check(sb, "declares a parseable Version (the update check compares it)",
                         Version.TryParse(module.Info.Version, out parsed));
 
+                    if (string.Equals(moduleId, "agentbroker", StringComparison.Ordinal))
+                    {
+                        sb.AppendLine("WITNESS: MODULE_SELFTEST_LOADED_SHA256 agentbroker " + FileSha256(module.GetType().Assembly.Location));
+                        sb.AppendLine("WITNESS: MODULE_SELFTEST_WORKER_PAYLOAD_SHA256 agentbroker " + WorkerPayloadSha256(Path.Combine(dest, "worker")));
+                    }
                     ok &= RunModuleSelfTest(sb, module.GetType(), moduleId);
 
                     // THE CONVENTION, ENFORCED BY THE HOST rather than by each module choosing to.
@@ -273,6 +278,29 @@ namespace DesktopAICompanion.Plugins
                 if (parameters[0].ParameterType == typeof(string).MakeByRefType()) return candidate;
             }
             return null;
+        }
+
+        // Self-test-only artifact witnesses; copied Worker files are not Worker execution.
+        private static string FileSha256(string path)
+        {
+            using (var hash = System.Security.Cryptography.SHA256.Create())
+            using (var stream = File.OpenRead(path))
+                return BitConverter.ToString(hash.ComputeHash(stream)).Replace("-", "");
+        }
+
+        private static string WorkerPayloadSha256(string root)
+        {
+            if (!File.Exists(Path.Combine(root, "AgentBroker.Worker.exe")) || !File.Exists(Path.Combine(root, "AgentBroker.Worker.dll")))
+                throw new IOException("The self-test Worker payload is incomplete.");
+            string prefix = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            string[] files = Directory.GetFiles(prefix, "*", SearchOption.AllDirectories);
+            Array.Sort(files, StringComparer.Ordinal);
+            var manifest = new StringBuilder();
+            foreach (string file in files)
+                manifest.Append(file.Substring(prefix.Length).Replace(Path.DirectorySeparatorChar, '/')).Append((char)0)
+                    .Append(FileSha256(file)).Append((char)10);
+            using (var hash = System.Security.Cryptography.SHA256.Create())
+                return BitConverter.ToString(hash.ComputeHash(Encoding.UTF8.GetBytes(manifest.ToString()))).Replace("-", "");
         }
 
         /// <summary>Find and run the module's own <c>public static bool SelfTest(out string)</c>. Absent is a

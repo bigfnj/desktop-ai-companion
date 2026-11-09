@@ -34,6 +34,13 @@ internal static class InstructionsChecks
             lines[1].Contains("(none, or observation-only), register_agent", StringComparison.Ordinal) &&
             lines[1].Contains("codex:<CODEX_THREAD_ID>", StringComparison.Ordinal),
             "CARD_CAPABILITY_GATE: no mailbox only for a row with Receive and WakeIdle; an observation-only row registers one; Codex uses CODEX_THREAD_ID");
+        // AgentBroker next campaign (2026-11-08): two wait classes, and notices that include historical Uncertain events.
+        check(BrokerInstructions.Text.Contains("one message or reply wait per inbox, plus one wait_for_receipt", StringComparison.Ordinal) &&
+            !BrokerInstructions.Text.Contains("one wait per inbox.", StringComparison.Ordinal),
+            "CARD_WAIT_CLASSES: the card says message and reply waits share one slot and a receipt wait runs beside it");
+        check(BrokerInstructions.Text.Contains("agentbroker:notices reports Expired/Refused and historical Uncertain events", StringComparison.Ordinal) &&
+            BrokerInstructions.Text.Contains("acknowledge, never auto-resend", StringComparison.Ordinal),
+            "CARD_NOTICE_UNCERTAIN: the card names Uncertain notices and says to acknowledge without resending");
         using var scratchOwner = OwnedScratch.Create("instructions");
         string scratch = scratchOwner.Root;
         Guid brokerId;

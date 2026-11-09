@@ -22,10 +22,13 @@ internal sealed class AgentClientSetup(IAgentClientCommand command)
 {
     internal const string ServerName = "desktop-ai-companion-agentbroker";
     public async Task<string> ConfigureAsync(string client, string worker, string directory, CancellationToken token,
-        string? loopbackMcpEndpoint = null)
+        string? loopbackMcpEndpoint = null, string? inspectionMcpEndpoint = null)
     {
         if (loopbackMcpEndpoint is not null && (client != "claude" || !IsLiteralLoopbackEndpoint(loopbackMcpEndpoint)))
             return "The broker returned an invalid local MCP endpoint. Refresh its status before connecting Claude Code.";
+        // Codex setup remains stdio. Its known broker endpoint is only for recognizing an existing HTTP entry.
+        if (inspectionMcpEndpoint is not null && (client != "codex" || !IsLiteralLoopbackEndpoint(inspectionMcpEndpoint)))
+            return "The broker returned an invalid inspection MCP endpoint. Refresh its status before checking Codex setup.";
         if (client is not ("codex" or "claude") || !Path.IsPathFullyQualified(worker) || !File.Exists(worker) ||
             !Path.IsPathFullyQualified(directory)) return "The packaged worker and module storage must be available first.";
         string[] bridgeArguments = ["--mcp-stdio", "--data", directory];
@@ -36,9 +39,16 @@ internal sealed class AgentClientSetup(IAgentClientCommand command)
             var existing = await command.RunAsync(client, get, token);
             if (existing.ExitCode == 0)
             {
-                if (client == "codex" && MatchesCodex(existing.Output, worker, bridgeArguments) ||
-                    client == "claude" && InspectClaude(existing.Output, worker, directory,
-                        loopbackMcpEndpoint ?? "", DateTimeOffset.UtcNow).State == ClientConfiguration.Configured)
+                var inspection = client == "codex"
+                    ? InspectCodex(existing.Output, worker, directory, inspectionMcpEndpoint ?? "", DateTimeOffset.UtcNow)
+                    : InspectClaude(existing.Output, worker, directory, loopbackMcpEndpoint ?? "", DateTimeOffset.UtcNow);
+                if (client == "codex" && inspection.State == ClientConfiguration.PolicyBlocked)
+                    return "Codex reports this AgentBroker entry disabled by requirements. Ask the policy owner to permit this exact local server, then start a fresh chat. No configuration was changed.";
+                if (client == "codex" && inspection.State == ClientConfiguration.Disabled)
+                    return "This AgentBroker MCP entry exists but is disabled in Codex. Review its MCP settings and disabled reason before reconnecting. No configuration was changed.";
+                if (client == "codex" && inspection.State == ClientConfiguration.Unrecognized)
+                    return "Codex returned an unrecognized AgentBroker configuration. Review this entry in Codex's MCP settings; nothing was changed.";
+                if (inspection.State == ClientConfiguration.Configured)
                     return "AgentBroker is already configured. Reconnect MCP or restart the client to load it.";
                 return "An MCP entry with this name already exists. Review it with the client's MCP settings before changing it.";
             }

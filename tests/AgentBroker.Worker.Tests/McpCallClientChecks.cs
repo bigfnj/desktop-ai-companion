@@ -174,6 +174,108 @@ internal static class McpCallClientChecks
             if (Directory.Exists(scratch)) Directory.Delete(scratch, true);
         }
         await WireContractsAsync(check);
+        await OutputContractsAsync(check);
+    }
+
+    internal static async Task OutputContractsAsync(Action<bool, string> check)
+    {
+        Console.WriteLine("WITNESS: MCP_OUTPUT_CLIENT_EXECUTED");
+        await PublicationContractsAsync(check);
+        await using var wire = new WireFixture();
+        const string text = "retained actual line\nC:\\literal\\file\n雪🙂";
+        foreach (var mode in new[] { WireMode.Json, WireMode.Sse, WireMode.EmptyArray, WireMode.Singleton, WireMode.EmptyString,
+            WireMode.ToolError, WireMode.RpcError, WireMode.HttpError, WireMode.WrongResponseId, WireMode.Discovery })
+        {
+            wire.Begin(mode);
+            string destination = Path.Combine(wire.Root, "retained-" + mode + ".json");
+            Guid id = Guid.NewGuid();
+            await File.WriteAllTextAsync(wire.RequestFile, JsonSerializer.Serialize(new { tool = "send", arguments = new { messageId = id, text } }), new UTF8Encoding(false));
+            var child = await RunWireChildAsync(wire.Root, wire.RequestFile, mode == WireMode.Discovery, check, destination);
+            byte[] bytes = await File.ReadAllBytesAsync(destination);
+            using var saved = JsonDocument.Parse(bytes);
+            var retained = child.Value.GetProperty("retention");
+            check(saved.RootElement.EnumerateObject().All(property => child.Value.TryGetProperty(property.Name, out var value) &&
+                    JsonElement.DeepEquals(property.Value, value)) && !saved.RootElement.TryGetProperty("retention", out _) &&
+                saved.RootElement.EnumerateObject().Count() + 1 == child.Value.EnumerateObject().Count(),
+                "MCP_OUTPUT_ORIGINAL_RESULT: local retention contains the original decoded response without synthesized replacement");
+            check(retained.GetProperty("path").GetString() == destination && retained.GetProperty("bytes").GetInt64() == bytes.LongLength &&
+                retained.GetProperty("sha256").GetString() == Convert.ToHexString(SHA256.HashData(bytes)),
+                "MCP_OUTPUT_HASH_BYTES: the explicit file matches its retention identity and length");
+            check(!Encoding.UTF8.GetString(bytes).Contains(wire.Token, StringComparison.Ordinal) &&
+                !child.Raw.Contains(wire.Token, StringComparison.Ordinal),
+                "MCP_OUTPUT_CREDENTIAL_PRIVATE: retention and stdout contain no control-pipe credentials");
+            int expected = mode == WireMode.ToolError ? 10 : mode == WireMode.RpcError ? 11 : mode == WireMode.HttpError ? 12 :
+                mode == WireMode.WrongResponseId ? 69 : 0;
+            check(child.Code == expected && wire.ToolCalls == 1 && (mode == WireMode.Discovery || wire.LastArguments!.Value.GetProperty("messageId").GetGuid() == id),
+                "MCP_OUTPUT_EXIT_NO_REPLAY: retention keeps the tool exit and dispatches each stable message once");
+            if (mode == WireMode.Discovery)
+                check(saved.RootElement.GetProperty("instructions").GetString() == WireFixture.Instructions &&
+                    saved.RootElement.GetProperty("result").GetProperty("tools").GetArrayLength() == 1,
+                    "MCP_OUTPUT_DISCOVERY: retained list-tools output keeps the instruction card and schemas");
+        }
+
+        wire.Begin(WireMode.Json);
+        string race = Path.Combine(wire.Root, "raced-output.json");
+        wire.OutputRacePath = race;
+        await File.WriteAllTextAsync(wire.RequestFile, JsonSerializer.Serialize(new { tool = "send", arguments = new { messageId = Guid.NewGuid(), text } }), new UTF8Encoding(false));
+        var failed = await RunWireChildAsync(wire.Root, wire.RequestFile, false, check, race);
+        check(failed.Code == 74 && failed.Value.GetProperty("status").GetString() == "output_error" &&
+            failed.Value.GetProperty("dispatchState").GetString() == "confirmed" &&
+            !failed.Value.GetProperty("retained").GetBoolean() && failed.Value.GetProperty("response").GetProperty("status").GetString() == "ok" &&
+            failed.Value.GetProperty("response").GetProperty("result").GetProperty("text").GetString() == text && wire.ToolCalls == 1,
+            "MCP_OUTPUT_FAILURE_CONFIRMED: a post-dispatch disk collision preserves the known result and never resends");
+        check(await File.ReadAllTextAsync(race) == "raced output sentinel",
+            "MCP_OUTPUT_RACE_PRESERVED: post-dispatch output failure cannot overwrite a raced destination");
+
+        wire.Begin(WireMode.Json);
+        var existing = await RunWireChildAsync(wire.Root, wire.RequestFile, false, check, race);
+        check(existing.Code == 74 && existing.Value.GetProperty("dispatchState").GetString() == "not_dispatched" && wire.Methods.Count == 0 &&
+            await File.ReadAllTextAsync(race) == "raced output sentinel",
+            "MCP_OUTPUT_PREFLIGHT: an existing output is refused before connecting and remains unchanged");
+        var missing = await RunWireChildAsync(wire.Root, wire.RequestFile, false, check, Path.Combine(wire.Root, "absent-parent", "out.json"));
+        check(missing.Code == 74 && missing.Value.GetProperty("dispatchState").GetString() == "not_dispatched" && wire.Methods.Count == 0 &&
+            !Directory.Exists(Path.Combine(wire.Root, "absent-parent")),
+            "MCP_OUTPUT_MISSING_PARENT: a missing output directory causes no tool call or implicit creation");
+        string malformedPath = Path.Combine(wire.Root, "invalid-request-result.json");
+        await File.WriteAllTextAsync(wire.RequestFile, "{", new UTF8Encoding(false));
+        var invalidRequest = await RunWireChildAsync(wire.Root, wire.RequestFile, false, check, malformedPath);
+        using (var malformedResult = JsonDocument.Parse(await File.ReadAllBytesAsync(malformedPath)))
+            check(invalidRequest.Code == 2 && wire.Methods.Count == 0 &&
+                malformedResult.RootElement.GetProperty("status").GetString() == "invalid_request" &&
+                malformedResult.RootElement.GetProperty("dispatchState").GetString() == "not_dispatched",
+                "MCP_OUTPUT_INVALID_REQUEST: malformed request errors can be retained without any broker connection");
+        string invalidArgumentsPath = Path.Combine(wire.Root, "invalid-arguments.json");
+        var invalidArguments = await HandoffClientChecks.ChildAsync(check, "--mcp-call", "--output-file", invalidArgumentsPath);
+        check(invalidArguments.Code == 2 && invalidArguments.Value.GetProperty("status").GetString() == "invalid_arguments" &&
+            !File.Exists(invalidArgumentsPath) && wire.Methods.Count == 0,
+            "MCP_OUTPUT_INVALID_ARGUMENTS: argument failure neither creates output nor contacts the broker");
+        await File.WriteAllTextAsync(wire.RequestFile, JsonSerializer.Serialize(new { tool = "send", arguments = new { messageId = Guid.NewGuid(), text } }), new UTF8Encoding(false));
+        string relativeOutput = "relative-output-" + Guid.NewGuid().ToString("N") + ".json";
+        string relativeActual = Path.Combine(AppContext.BaseDirectory, relativeOutput);
+        try
+        {
+            var relative = await HandoffClientChecks.ChildAsync(check, "--mcp-call", "--data", wire.Root,
+                "--request-file", wire.RequestFile, "--output-file", relativeOutput);
+            check(relative.Code == 2 && relative.Value.GetProperty("status").GetString() == "invalid_arguments" &&
+                !File.Exists(relativeActual) && wire.Methods.Count == 0,
+                "MCP_OUTPUT_RELATIVE_ARGUMENT: otherwise-valid MCP arguments reject a relative output before connection or file creation");
+        }
+        finally { File.Delete(relativeActual); }
+        string handoffRequest = Path.Combine(wire.Root, "relative-output-handoff.json");
+        await File.WriteAllTextAsync(handoffRequest,
+            new HandoffPacket(HandoffPacket.Version, "relative-output", "request", "ordinary owned fixture", []).ToText(), new UTF8Encoding(false));
+        try
+        {
+            var relative = await HandoffClientChecks.ChildAsync(check, "--handoff-prepare", "--request-file", handoffRequest,
+                "--output-file", relativeOutput);
+            check(relative.Code == 2 && relative.Value.GetProperty("status").GetString() == "invalid_arguments" &&
+                !File.Exists(relativeActual) && wire.Methods.Count == 0,
+                "HANDOFF_OUTPUT_RELATIVE_ARGUMENT: otherwise-valid handoff arguments reject a relative output before file access");
+        }
+        finally { File.Delete(relativeActual); }
+        HandoffClientChecks.OutputPublicationChecks(check, wire.Root, "MCP_OUTPUT");
+        check(!Directory.EnumerateFiles(wire.Root, ".agentbroker-output-*.tmp", SearchOption.AllDirectories).Any(),
+            "MCP_OUTPUT_TEMP_CLEANUP: output success and failure leave no owned sibling temporary files");
     }
 
     private static async Task WireContractsAsync(Action<bool, string> check)
@@ -269,7 +371,8 @@ internal static class McpCallClientChecks
         }
     }
 
-    private static async Task<(int Code, JsonElement Value, string Raw)> RunWireChildAsync(string root, string request, bool list, Action<bool, string> check)
+    private static async Task<(int Code, JsonElement Value, string Raw)> RunWireChildAsync(string root, string request, bool list, Action<bool, string> check,
+        string? outputFile = null)
     {
         var start = new ProcessStartInfo("dotnet")
         {
@@ -280,6 +383,7 @@ internal static class McpCallClientChecks
         foreach (string argument in new[] { typeof(WorkerApplication).Assembly.Location, "--mcp-call", "--data", root }) start.ArgumentList.Add(argument);
         if (list) start.ArgumentList.Add("--list-tools");
         else { start.ArgumentList.Add("--request-file"); start.ArgumentList.Add(request); }
+        if (outputFile is not null) { start.ArgumentList.Add("--output-file"); start.ArgumentList.Add(outputFile); }
         using var process = Process.Start(start) ?? throw new IOException("CLI wire child did not start.");
         var stdout = process.StandardOutput.ReadToEndAsync();
         var stderr = process.StandardError.ReadToEndAsync();
@@ -291,6 +395,90 @@ internal static class McpCallClientChecks
             "MCP_CALL_PROCESS_WIRE_FRAME: each actual child emits exactly one JSON line and no stderr");
         using var result = JsonDocument.Parse(raw);
         return (process.ExitCode, result.RootElement.Clone(), raw);
+    }
+
+    internal static async Task PublicationContractsAsync(Action<bool, string> check)
+    {
+        Console.WriteLine("WITNESS: MCP_PUBLICATION_EXECUTED");
+        await using var wire = new WireFixture();
+        foreach (var mode in new[] { WireMode.Json, WireMode.ToolError, WireMode.RpcError, WireMode.Discovery, WireMode.InitializeRpcError })
+        {
+            wire.Begin(mode);
+            await File.WriteAllTextAsync(wire.RequestFile, "{\"tool\":\"send\",\"arguments\":{\"messageId\":\"" + Guid.NewGuid() + "\",\"text\":\"Synthetic publication message.\"}}", new UTF8Encoding(false));
+            using var caller = new CancellationTokenSource();
+            using var output = new CancelAfterWriteStream(caller);
+            int code = await McpCallClient.RunAsync(new(wire.Root, wire.RequestFile, mode == WireMode.Discovery), output, caller.Token);
+            JsonElement envelope = default;
+            try { using var parsed = JsonDocument.Parse(output.ToArray()); envelope = parsed.RootElement.Clone(); }
+            catch (JsonException) { }
+            int expectedCode = mode == WireMode.ToolError ? 10 : mode is WireMode.RpcError or WireMode.InitializeRpcError ? 11 : 0;
+            string expectedDispatch = mode == WireMode.InitializeRpcError ? "not_dispatched" : "confirmed";
+            string expectedStatus = mode is WireMode.RpcError or WireMode.InitializeRpcError ? "rpc_error" : mode == WireMode.ToolError ? "tool_error" : "ok";
+            check(caller.IsCancellationRequested && code == expectedCode && envelope.ValueKind == JsonValueKind.Object &&
+                envelope.GetProperty("dispatchState").GetString() == expectedDispatch && envelope.GetProperty("status").GetString() == expectedStatus &&
+                output.ToArray().Count(value => value == (byte)'\n') == 1 && wire.ToolCalls == (mode == WireMode.InitializeRpcError ? 0 : 1),
+                "MCP_PUBLICATION_CANCEL_KNOWN: cancellation after the first output write preserves one known envelope and its exact exit without replay (" + mode + ")");
+        }
+        wire.Begin(WireMode.Json);
+        using (var caller = new CancellationTokenSource())
+        using (var output = new CancelAfterWriteStream(caller))
+        {
+            string destination = Path.Combine(wire.Root, "cancelled-publication.json");
+            int code = await McpCallClient.RunAsync(new(wire.Root, wire.RequestFile, false, destination), output, caller.Token);
+            using var saved = JsonDocument.Parse(await File.ReadAllBytesAsync(destination));
+            using var printed = JsonDocument.Parse(output.ToArray());
+            check(code == 0 && caller.IsCancellationRequested && wire.ToolCalls == 1 &&
+                saved.RootElement.GetProperty("dispatchState").GetString() == "confirmed" &&
+                printed.RootElement.GetProperty("dispatchState").GetString() == "confirmed" &&
+                printed.RootElement.GetProperty("retention").GetProperty("sha256").GetString() == Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(destination))),
+                "MCP_PUBLICATION_CANCEL_RETAINED: cancellation while printing cannot corrupt or downgrade the retained confirmed response");
+        }
+        wire.Begin(WireMode.Json);
+        using (var output = new FailAfterWriteStream())
+        {
+            Exception? failure = null;
+            try { await McpCallClient.RunAsync(new(wire.Root, wire.RequestFile, false), output); }
+            catch (IOException error) { failure = error; }
+            JsonElement known = default;
+            try { using var parsed = JsonDocument.Parse(output.ToArray()); known = parsed.RootElement.Clone(); }
+            catch (JsonException) { }
+            check(ReferenceEquals(failure, output.Failure) && output.Writes == 1 && wire.ToolCalls == 1 &&
+                known.ValueKind == JsonValueKind.Object && known.GetProperty("dispatchState").GetString() == "confirmed",
+                "MCP_PUBLICATION_IO_NOT_TRANSPORT: an output failure surfaces unchanged without appending transport uncertainty or replaying the call");
+        }
+        wire.Begin(WireMode.Json);
+        using (var caller = new CancellationTokenSource())
+        using (var output = new MemoryStream())
+        {
+            caller.Cancel();
+            int code = await McpCallClient.RunAsync(new(wire.Root, wire.RequestFile, false), output, caller.Token);
+            using var result = JsonDocument.Parse(output.ToArray());
+            check(code == 69 && wire.Methods.Count == 0 && result.RootElement.GetProperty("dispatchState").GetString() == "not_dispatched",
+                "MCP_PUBLICATION_CANCEL_BEFORE_DISPATCH: cancellation before transport remains a truthful not-dispatched failure");
+        }
+    }
+
+    private sealed class CancelAfterWriteStream(CancellationTokenSource caller) : MemoryStream
+    {
+        private bool written;
+        public override async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken token = default)
+        {
+            token.ThrowIfCancellationRequested();
+            await base.WriteAsync(buffer, token);
+            if (!written) { written = true; caller.Cancel(); }
+        }
+    }
+
+    private sealed class FailAfterWriteStream : MemoryStream
+    {
+        internal IOException Failure { get; } = new("Synthetic output failure.");
+        internal int Writes { get; private set; }
+        public override async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken token = default)
+        {
+            Writes++;
+            await base.WriteAsync(buffer, token);
+            if (Writes == 1) throw Failure;
+        }
     }
 
     private enum WireMode { Json, Sse, EmptyArray, Singleton, EmptyString, ToolError, RpcError, HttpError, DropAfterDispatch,
@@ -313,6 +501,7 @@ internal static class McpCallClientChecks
         internal bool AllAuthorized = true;
         internal int ToolCalls;
         internal JsonElement? LastArguments;
+        internal string? OutputRacePath;
         public WorkerOptions Options { get; }
         public BrokerRuntime Runtime => fixture.Runtime;
         public WebApplication Application { get; }
@@ -333,7 +522,7 @@ internal static class McpCallClientChecks
         }
 
         internal void Begin(WireMode selected)
-        { mode = selected; Methods.Clear(); AllAuthorized = true; ToolCalls = 0; LastArguments = null; }
+        { mode = selected; Methods.Clear(); AllAuthorized = true; ToolCalls = 0; LastArguments = null; OutputRacePath = null; }
 
         private async Task RunAsync()
         {
@@ -384,6 +573,7 @@ internal static class McpCallClientChecks
                 return;
             }
             ToolCalls++;
+            if (OutputRacePath is { } destination) await File.WriteAllTextAsync(destination, "raced output sentinel", new UTF8Encoding(false), deadline.Token);
             if (method == "tools/call") LastArguments = root.GetProperty("params").GetProperty("arguments").Clone();
             if (mode == WireMode.DropAfterDispatch) { client.Client.LingerState = new LingerOption(true, 0); return; }
             if (mode == WireMode.HttpError) { await ReplyAsync(stream, 503, "application/json", "{}", deadline.Token); return; }

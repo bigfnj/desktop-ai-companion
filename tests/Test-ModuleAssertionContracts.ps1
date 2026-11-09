@@ -17,25 +17,25 @@ function Refuses([scriptblock]$Action, [string]$Name) {
     }
     Check $failed $Name
 }
-$terse = '  [agentbroker] 385 checks passed'
-$verbose = @(1..385 | ForEach-Object { "  [agentbroker] PASS: synthetic assertion $_" })
+$terse = '  [agentbroker] 408 checks passed'
+$verbose = @(1..408 | ForEach-Object { "  [agentbroker] PASS: synthetic assertion $_" })
 $hostLines = @('PASS: the real loader accepted the module', 'RESULT=PASS')
-Check ((Get-ModuleAssertionCount ($hostLines + $terse) 'agentbroker' 385) -eq 385) 'MODULE_TERSE_ACCEPTED'
-Check ((Get-ModuleAssertionCount ($hostLines + $verbose) 'agentbroker' 385) -eq 385) 'MODULE_VERBOSE_ACCEPTED'
-Check ((Get-ModuleAssertionCount ($verbose + $terse) 'agentbroker' 385) -eq 385) 'MODULE_MATCHING_COUNTER_RECONCILED'
-Check ((Get-ModuleAssertionCount @('[agentbroker] 386 checks passed') 'agentbroker' 385) -eq 386) 'MODULE_COUNTER_CAN_GROW'
-Check ((Get-ModuleAssertionCount @('[other] 385 checks passed', '[other] PASS: foreign') 'agentbroker') -eq 0) 'MODULE_FOREIGN_TOTAL_EXCLUDED'
+Check ((Get-ModuleAssertionCount ($hostLines + $terse) 'agentbroker' 408) -eq 408) 'MODULE_TERSE_ACCEPTED'
+Check ((Get-ModuleAssertionCount ($hostLines + $verbose) 'agentbroker' 408) -eq 408) 'MODULE_VERBOSE_ACCEPTED'
+Check ((Get-ModuleAssertionCount ($verbose + $terse) 'agentbroker' 408) -eq 408) 'MODULE_MATCHING_COUNTER_RECONCILED'
+Check ((Get-ModuleAssertionCount @('[agentbroker] 409 checks passed') 'agentbroker' 408) -eq 409) 'MODULE_COUNTER_CAN_GROW'
+Check ((Get-ModuleAssertionCount @('[other] 408 checks passed', '[other] PASS: foreign') 'agentbroker') -eq 0) 'MODULE_FOREIGN_TOTAL_EXCLUDED'
 Check ((Get-ModuleAssertionCount $hostLines 'agentbroker') -eq 0) 'MODULE_HOST_TOTAL_EXCLUDED'
 Check ((Get-ModuleAssertionCount @('[other] PASS: ordinary assertion') 'other' 1) -eq 1) 'MODULE_OTHER_VERBOSE_FLOOR_UNCHANGED'
-Refuses { Get-ModuleAssertionCount @('[agentbroker] 384 checks passed') 'agentbroker' 385 } 'MODULE_LOWERED_COUNTER_REFUSED'
-Refuses { Get-ModuleAssertionCount $hostLines 'agentbroker' 385 } 'MODULE_MISSING_COUNTER_REFUSED'
-Refuses { Get-ModuleAssertionCount @('[other] 385 checks passed') 'agentbroker' 385 } 'MODULE_FOREIGN_COUNTER_CANNOT_SATISFY_FLOOR'
+Refuses { Get-ModuleAssertionCount @('[agentbroker] 407 checks passed') 'agentbroker' 408 } 'MODULE_LOWERED_COUNTER_REFUSED'
+Refuses { Get-ModuleAssertionCount $hostLines 'agentbroker' 408 } 'MODULE_MISSING_COUNTER_REFUSED'
+Refuses { Get-ModuleAssertionCount @('[other] 408 checks passed') 'agentbroker' 408 } 'MODULE_FOREIGN_COUNTER_CANNOT_SATISFY_FLOOR'
 Refuses { Get-ModuleAssertionCount ($terse, $terse) 'agentbroker' } 'MODULE_DUPLICATE_COUNTER_REFUSED'
-Refuses { Get-ModuleAssertionCount ($verbose + '[agentbroker] 386 checks passed') 'agentbroker' 385 } 'MODULE_CONTRADICTORY_COUNTER_REFUSED'
+Refuses { Get-ModuleAssertionCount ($verbose + '[agentbroker] 409 checks passed') 'agentbroker' 408 } 'MODULE_CONTRADICTORY_COUNTER_REFUSED'
 Refuses { Get-ModuleAssertionCount @('[agentbroker] 0 checks passed') 'agentbroker' } 'MODULE_ZERO_COUNTER_REFUSED'
 Refuses { Get-ModuleAssertionCount @('[agentbroker] 999999999999999999999 checks passed') 'agentbroker' } 'MODULE_OVERFLOW_COUNTER_REFUSED'
-Refuses { Get-ModuleAssertionCount @('noise [agentbroker] 385 checks passed') 'agentbroker' 385 } 'MODULE_UNANCHORED_COUNTER_REFUSED'
-Refuses { Get-ModuleAssertionCount @('[agentbroker] 385 checks passed trailing') 'agentbroker' 385 } 'MODULE_COUNTER_SUFFIX_REFUSED'
+Refuses { Get-ModuleAssertionCount @('noise [agentbroker] 408 checks passed') 'agentbroker' 408 } 'MODULE_UNANCHORED_COUNTER_REFUSED'
+Refuses { Get-ModuleAssertionCount @('[agentbroker] 408 checks passed trailing') 'agentbroker' 408 } 'MODULE_COUNTER_SUFFIX_REFUSED'
 
 # Execute the actual public caller's floor assignment and grading assignment with synthetic rows.
 $tokens = $null; $errors = $null
@@ -54,13 +54,13 @@ $floorsCode = Assignment 'moduleAssertionFloors'
 $minimumCode = Assignment 'minimum'
 $counterCode = Assignment 'assertions'
 . ([scriptblock]::Create($floorsCode))
-Check ($moduleAssertionFloors.Count -eq 1 -and $moduleAssertionFloors.agentbroker -eq 385) 'MODULE_RECORDED_FLOOR_385'
+Check ($moduleAssertionFloors.Count -eq 1 -and $moduleAssertionFloors.agentbroker -eq 408) 'MODULE_RECORDED_FLOOR_408'
 $id = 'agentbroker'
 $r = [pscustomobject]@{ Result = 'PASS'; Lines = @($terse) }
 . ([scriptblock]::Create($minimumCode))
 . ([scriptblock]::Create($counterCode))
-Check ($assertions -eq 385) 'MODULE_ACTUAL_CALLER_TERSE'
-$r.Lines = @('[agentbroker] 384 checks passed')
+Check ($assertions -eq 408) 'MODULE_ACTUAL_CALLER_TERSE'
+$r.Lines = @('[agentbroker] 385 checks passed')
 Refuses { . ([scriptblock]::Create($counterCode)) } 'MODULE_ACTUAL_CALLER_REFUSES_REGISTRATION_LOSS'
 $id = 'other'
 $r.Lines = @('[other] PASS: actual assertion')

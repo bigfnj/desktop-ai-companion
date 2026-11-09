@@ -43,6 +43,19 @@ category of the broker's LAN interface beside the rule's Private profile, and ob
 separately from the configured rule. See `AgentBrokerModule.Clients.cs` and
 `tools/AgentBroker.Worker/LanProfile.cs`.
 
+Connect preserves an existing entry and reports disabled, policy-blocked or mismatched
+Codex configuration without replacing it. Existing local HTTP entries use the current
+broker endpoint for matching; new Codex entries still use stdio. Restart, shutdown and
+cancellation prevent stale completions from changing the new connection's status.
+The pane preserves a sanitized action result and asks for another setup check (`AgentClientSetup.cs`,
+`AgentBrokerModule.Clients.cs`).
+
+The packaged worker also supports a [one-request client](../../docs/agentbroker-client.md)
+with explicit retained output and bounded typed handoff text. Blocking waits allow one
+incoming wait and one receipt wait per exact address, with sixteen total per worker.
+Uncertainty advisories describe historical delivery events and never automatically
+resend a message. See the [broker guide](../../docs/agentbroker.md).
+
 Build: dotnet build modules/AgentBroker/AgentBroker.csproj -c Release
 
 The public SelfTest(out string detail) exercises real Init, Options, tray controls, pairing scope,

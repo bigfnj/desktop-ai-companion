@@ -28,7 +28,9 @@ internal static class BrokerRecoveryGuidance
         "receipt_final" => new(code, "get_message_receipt",
             "Inspect the final receipt. Acknowledgement is receipt of content, not completion of the requested work."),
         "wait_in_progress" or "wait_capacity" => new(code, "read_inbox_page",
-            "Finish or cancel the existing wait, or fetch pending incoming messages without taking a wait slot. Do not start another blocking wait for the same session."),
+            "Finish or cancel the existing wait, or fetch pending incoming messages without taking a wait slot. wait_for_messages and wait_for_reply share one wait per session; wait_for_receipt has its own and may run beside them. Do not start a second wait of the same kind."),
+        "broker_stopping" => new(code, "list_sessions",
+            "The broker is stopping. Reconnect after it restarts, refresh the exact session address, then inspect existing receipts before retrying any message."),
         "inbox_cursor_reset_required" or "invalid_inbox_cursor" => new(code, "read_inbox_page",
             "Discard the inbox cursor and rescan without it, deduplicating by stable message ID. Retain needed content before acknowledgement."),
         "native_recovery_cursor_reset_required" or "invalid_native_recovery_cursor" => new(code, "read_native_recovery",
@@ -43,6 +45,15 @@ internal static class BrokerRecoveryGuidance
             "Delivery is not authorized or the recipient cannot receive. Preserve that boundary; do not route through another session to bypass it."),
         "recipient_queue_full" or "message_limit" => new(code, "get_message_receipt",
             "Admission is refused at a storage bound. Check the stable message ID, then wait for capacity; do not generate repeated new messages."),
+        "notice_reply_refused" => new(code, "acknowledge_message",
+            "A delivery notice cannot be answered. Acknowledge it (Delivered); to follow up, inspect your original message's receipt and, if authorized, send from your current address."),
+        // X3 (AgentBroker next campaign 2026-11-08): local display hints only; none of these affects delivery or routing.
+        "native_session_unverified" => new(code, "list_sessions",
+            "Declarations need your exact current adapter-verified native row with Receive, and titles a canonical claude: row. Check your row in list_sessions; a generic mailbox, an observation-only row or a codex: title cannot set one."),
+        "invalid_session_declaration" or "invalid_session_title" => new(code, "list_sessions",
+            "Correct the value to the bounds in the tool description and retry on the same exact address; an empty value clears it."),
+        "declaration_limit" or "session_title_limit" => new(code, "list_sessions",
+            "The local hint capacity is in use. Clear a hint you set or retry later; never register another session to get around it."),
         _ => null
     };
 

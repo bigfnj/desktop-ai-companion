@@ -94,7 +94,7 @@ $Covered = @('agentbroker', 'agentflow', 'aibrain', 'blinkingled', 'fortunes', '
 # before it times out. A caller's larger -TimeoutSeconds still wins (Get-ModuleTimeoutSeconds), so this can only lengthen
 # a module's limit, never shorten it below what the caller asked for.
 $ModuleTimeoutSeconds = @{ 'fortunes' = 300 }
-$moduleAssertionFloors = @{ 'agentbroker' = 385 }
+$moduleAssertionFloors = @{ 'agentbroker' = 408 }
 
 # The EXACT set of failures each uncovered module is expected to report -- not merely "it failed",
 # and not just its first failure. The first draft of this file matched the first FAIL line only, and
@@ -660,7 +660,12 @@ try {
         $documentsWatch = $null
         if ($watchParent -and $realRemembranceWatched -contains $id) { $documentsWatch = Start-DocumentsWatch $watchParent $watchName }
         $r = $null
-        try { $r = Invoke-ModuleSelfTest $id }
+        try {
+            $r = Invoke-ModuleSelfTest $id
+            foreach ($line in $r.Lines) {
+                if ($line -cmatch '^WITNESS: MODULE_SELFTEST_(?:LOADED|WORKER_PAYLOAD)_SHA256 agentbroker [A-F0-9]{64}$') { Write-Host $line }
+            }
+        }
         finally {
             # Graded whatever the module's verdict, like the real-input rules below: it is about the owner's files, not the suite.
             $documentsProblem = $null

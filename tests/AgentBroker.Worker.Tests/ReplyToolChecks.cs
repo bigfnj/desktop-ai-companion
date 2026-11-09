@@ -10,23 +10,25 @@ internal static class ReplyToolChecks
     {
         using var scratchOwner = OwnedScratch.Create("reply-http");
         string scratch = scratchOwner.Root;
+        var clock = new ToolFixture.ManualClock();
         Guid brokerId;
-        using (var seed = new BrokerStore(Path.Combine(scratch, "store"))) brokerId = seed.BrokerId;
+        using (var seed = new BrokerStore(Path.Combine(scratch, "store"), clock: clock)) brokerId = seed.BrokerId;
         string keyName = AgentBroker.Worker.Security.BrokerIdentity.KeyNameFor(scratch, brokerId);
         try
         {
             await using var worker = await WorkerApplication.CreateAsync(new(scratch, "Synthetic reply HTTP test", LoopbackPort: 0,
-                EnableLan: false) { EnableBrokerDiscovery = false }, []);
+                EnableLan: false, AllowUnauthenticatedLoopback: false) { EnableBrokerDiscovery = false }, [], clock);
             await worker.StartAsync();
             string endpoint = worker.Application.Urls.Single(url => url.StartsWith("http://127.0.0.1:", StringComparison.Ordinal));
             using var client = new HttpClient { BaseAddress = new Uri(endpoint + "/mcp"), Timeout = TimeSpan.FromSeconds(5) };
+            client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", worker.LocalAccessToken);
             client.DefaultRequestHeaders.Accept.ParseAdd("application/json, text/event-stream");
             using (var initialized = await client.PostAsJsonAsync("", new
             {
                 jsonrpc = "2.0", id = 1, method = "initialize",
                 @params = new { protocolVersion = "2025-11-25", capabilities = new { }, clientInfo = new { name = "synthetic-reply-test", version = "1" } }
             })) initialized.EnsureSuccessStatusCode();
-            await RunAsync(worker, client, check);
+            await RunAsync(worker, client, clock, check);
         }
         finally
         {
@@ -35,19 +37,30 @@ internal static class ReplyToolChecks
         }
     }
 
-    internal static async Task RunAsync(WorkerApplication worker, HttpClient client, Action<bool, string> check)
+    private static async Task RunAsync(WorkerApplication worker, HttpClient client, ToolFixture.ManualClock clock, Action<bool, string> check)
     {
-        var sender = worker.Runtime.RegisterPollingAgent(Guid.NewGuid(), Guid.NewGuid(), "Synthetic reply sender", false);
-        var recipient = worker.Runtime.RegisterPollingAgent(Guid.NewGuid(), Guid.NewGuid(), "Synthetic reply recipient", false);
-        var now = DateTimeOffset.UtcNow;
+        check(worker.Runtime.StoreNow == clock.GetUtcNow(),
+            "REPLY_HTTP_RUNTIME_CLOCK: the HTTP fixture runtime uses the controlled clock before any registration");
+        BrokerSession? registeredSender = null, registeredRecipient = null;
+        try
+        {
+            registeredSender = worker.Runtime.RegisterPollingAgent(Guid.NewGuid(), Guid.NewGuid(), "Synthetic reply sender", false);
+            registeredRecipient = worker.Runtime.RegisterPollingAgent(Guid.NewGuid(), Guid.NewGuid(), "Synthetic reply recipient", false);
+        }
+        catch (BrokerException error) when (error.Code == "invalid_lease") { }
+        check(registeredSender is not null && registeredRecipient is not null,
+            "REPLY_HTTP_STORE_CLOCK: the store admits leases from the same controlled clock as its runtime");
+        var sender = registeredSender!;
+        var recipient = registeredRecipient!;
+        var now = clock.GetUtcNow();
         var parent = new BrokerMessage(Guid.NewGuid(), Guid.NewGuid(), null, sender.Address, recipient.Address,
             "Synthetic original for the HTTP reply regression.", now, now.AddMinutes(1));
         worker.Runtime.Store.Accept(parent, worker.Runtime.Store.BrokerId);
         Guid replyId = Guid.NewGuid();
         check(await Reply(client, parent.Id, replyId, "Stable HTTP reply."), "reply_to_message admits a reply through the actual authenticated MCP HTTP schema");
         var first = worker.Runtime.Store.FindReceipt(replyId)!;
-        await Task.Delay(25);
-        check(await Reply(client, parent.Id, replyId, "Stable HTTP reply."), "same-ID HTTP reply retry succeeds after wall-clock time advances");
+        clock.Advance(TimeSpan.FromMilliseconds(25));
+        check(await Reply(client, parent.Id, replyId, "Stable HTTP reply."), "same-ID HTTP reply retry succeeds after the controlled clock advances");
         check(worker.Runtime.Store.FindReceipt(replyId) == first,
             "HTTP reply retry preserves the originally persisted creation and expiry timestamps");
         check(!await Reply(client, parent.Id, replyId, "Conflicting HTTP reply text."),
@@ -58,15 +71,19 @@ internal static class ReplyToolChecks
         check(admitted.All(value => value), "concurrent actual MCP reply calls share one stable-ID admission without collision errors");
         check(worker.Runtime.Store.Messages(sender.Address).Count(receipt => receipt.Message.Id == simultaneousId) == 1,
             "concurrent HTTP reply retries persist exactly one correlated reply message");
-        var deliveredParent = parent with { Id = Guid.NewGuid(), ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(1) };
+        var deliveredParent = parent with { Id = Guid.NewGuid(), CreatedAt = clock.GetUtcNow(), ExpiresAt = clock.GetUtcNow().AddSeconds(1) };
         worker.Runtime.Store.Accept(deliveredParent, worker.Runtime.Store.BrokerId);
-        worker.Runtime.Store.RecordRecipientReceipt(deliveredParent.Id, recipient.Address, worker.Runtime.Store.BrokerId, MessageStatus.Delivered);
-        await Task.Delay(TimeSpan.FromSeconds(1.1));
+        var delivered = worker.Runtime.Store.RecordRecipientReceipt(deliveredParent.Id, recipient.Address, worker.Runtime.Store.BrokerId, MessageStatus.Delivered);
+        check(delivered.Status == MessageStatus.Delivered && delivered.UpdatedAt == clock.GetUtcNow() && clock.GetUtcNow() < deliveredParent.ExpiresAt,
+            "REPLY_HTTP_DELIVERED_BEFORE_ADVANCE: both durable commits finish as Delivered before the controlled deadline advances");
+        clock.Advance(TimeSpan.FromSeconds(2));
+        check(worker.Runtime.StoreNow == clock.GetUtcNow() && clock.GetUtcNow() > deliveredParent.ExpiresAt,
+            "REPLY_HTTP_AFTER_DEADLINE: the actual HTTP late reply runs only after its delivered parent's original deadline");
         Guid lateReplyId = Guid.NewGuid();
         check(await Reply(client, deliveredParent.Id, lateReplyId, "Finished the previously delivered task."),
             "actual HTTP reply tool permits finishing a delivered task after its original delivery deadline");
         var lateReply = worker.Runtime.Store.FindReceipt(lateReplyId)!.Message;
-        check(lateReply.CreatedAt > deliveredParent.ExpiresAt && lateReply.ExpiresAt > DateTimeOffset.UtcNow &&
+        check(lateReply.CreatedAt == clock.GetUtcNow() && lateReply.CreatedAt > deliveredParent.ExpiresAt && lateReply.ExpiresAt > clock.GetUtcNow() &&
             lateReply.RemainingReplies == deliveredParent.RemainingReplies - 1,
             "late HTTP task reply receives its own valid delivery deadline and decremented reply budget");
     }

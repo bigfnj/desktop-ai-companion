@@ -73,6 +73,9 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
     // Conversations whose owner lookup failed or ran out of time on the last pass that reached them. They are looked up
     // last on the next pass, so one slow conversation cannot again hold up the renewal of every one after it.
     private readonly HashSet<Guid> slowLookups = [];
+    // Keep the unattempted suffix's order across passes; re-sorting its members by directory order can starve
+    // the third candidate when a pass reaches only one. This queue contains at most the current 256 candidates.
+    private readonly List<Guid> lookupOrder = [];
     // When each row's engine check was first found unable to complete, in the current run of passes that did not complete
     // it. A failed pass leaves it in place: it completed no check either, so the run is not broken.
     private readonly Dictionary<SessionAddress, DateTimeOffset> pendingSince = [];
@@ -140,15 +143,20 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
             // whose lookup times out on every pass went first again on the pass after one that did not reach it, and ended
             // that pass too (N-broker-162-01).
             var skipped = new HashSet<Guid>();
+            var unreached = new HashSet<Guid>();
             var slow = new HashSet<Guid>();
             void NotReached(Guid conversation)
             {
                 skipped.Add(conversation);
+                unreached.Add(conversation);
                 if (slowLookups.Contains(conversation)) slow.Add(conversation);
             }
             var pendingNow = new Dictionary<SessionAddress, DateTimeOffset>();
-            // OrderBy is stable: last pass's slow lookups go last, everything else keeps the directory's order.
-            var ordered = rows.DistinctBy(r => r.ConversationId).OrderBy(r => slowLookups.Contains(r.ConversationId)).ToArray();
+            // Failed lookups remain last. Within each class, resume the previous queue before directory-new IDs.
+            var orderIndex = lookupOrder.Select((thread, index) => (thread, index)).ToDictionary(pair => pair.thread, pair => pair.index);
+            var ordered = rows.DistinctBy(r => r.ConversationId)
+                .OrderBy(r => slowLookups.Contains(r.ConversationId))
+                .ThenBy(r => orderIndex.GetValueOrDefault(r.ConversationId, int.MaxValue)).ToArray();
             foreach (var row in ordered)
             {
                 if (row.ConversationId == Guid.Empty) { invalid++; continue; }
@@ -218,6 +226,9 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
             bindings.Clear(); foreach (var pair in found) bindings.Add(pair.Key, pair.Value);
             publishedBindings = observations;
             slowLookups.Clear(); slowLookups.UnionWith(slow);
+            lookupOrder.Clear();
+            lookupOrder.AddRange(ordered.Where(row => unreached.Contains(row.ConversationId))
+                .Concat(ordered.Where(row => !unreached.Contains(row.ConversationId))).Select(row => row.ConversationId));
             skippedLastPass = skipped.Count;
             staleLastPass = stale; missingLastPass = missing; invalidLastPass = invalid;
             // Reporting cannot prevent a successfully resolved binding from being saved. Empty passes still report

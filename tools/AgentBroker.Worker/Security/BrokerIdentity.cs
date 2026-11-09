@@ -30,7 +30,22 @@ public sealed class BrokerIdentity : IDisposable
     public static BrokerIdentity LoadOrCreate(string dataDir, Guid brokerId) => LoadOrCreate(dataDir, brokerId, DateTimeOffset.UtcNow);
 
     internal static BrokerIdentity LoadOrCreate(string dataDir, Guid brokerId, DateTimeOffset now) =>
-        LoadOrCreate(dataDir, brokerId, now, static (temporary, destination) => File.Replace(temporary, destination, null));
+        LoadOrCreate(dataDir, brokerId, now, static (temporary, destination) => ReplaceMetadata(temporary, destination));
+
+    // Use the same durable same-volume replacement policy as broker state. A native fallback failure is still an IO
+    // failure to persist metadata, not a reason to replace this identity or its nonexportable key.
+    internal static void ReplaceMetadata(string temporary, string destination,
+        Action<string, string, string, bool>? replaceFile = null)
+    {
+        try
+        {
+            DesktopAICompanion.ModuleKit.AtomicFile.ReplaceExisting(temporary, destination, null!, CancellationToken.None, replaceFile!);
+        }
+        catch (Win32Exception error)
+        {
+            throw new IOException("Broker identity metadata replacement failed.", error);
+        }
+    }
 
     // The replacement seam verifies failure ownership without touching another identity or the installed app.
     internal static BrokerIdentity LoadOrCreate(string dataDir, Guid brokerId, DateTimeOffset now, Action<string, string> replace)
@@ -155,6 +170,7 @@ public sealed class BrokerIdentity : IDisposable
         finally { CryptographicOperations.ZeroMemory(plain); }
         if (encrypted.Length > MaximumCiphertextBytes) throw new InvalidDataException("Identity ciphertext is oversized.");
         string temporary = Path.Combine(directory, "identity-" + Guid.NewGuid().ToString("N") + ".tmp");
+        bool completed = false;
         try
         {
             using (var output = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, FileOptions.WriteThrough))
@@ -162,8 +178,16 @@ public sealed class BrokerIdentity : IDisposable
             RejectLinks(path, allowMissing: replace is null);
             if (replace is null) File.Move(temporary, path, false);
             else replace(temporary, path);
+            completed = true;
         }
-        finally { if (File.Exists(temporary)) File.Delete(temporary); }
+        finally
+        {
+            // ReplaceFile can fail after removing the destination (documented Win32 error 1176). If the rename
+            // fallback also fails, this sealed renewal metadata may be the last original-anchor copy. Preserve it
+            // for explicit recovery, without accepting it at startup or changing the key or trust decision.
+            // Initial-creation failures still remove their temporary because their new key is deleted by the caller.
+            if (File.Exists(temporary) && (replace is null || completed || File.Exists(path))) File.Delete(temporary);
+        }
     }
 
     private static InvalidDataException InvalidIdentity() => new("Stored TLS identity does not match this broker. Identity was preserved.");

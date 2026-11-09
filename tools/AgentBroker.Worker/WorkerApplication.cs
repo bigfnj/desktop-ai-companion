@@ -21,7 +21,7 @@ public sealed class WorkerApplication : IAsyncDisposable
     private Task? certificateWatch;
     private LocalControlServer? control;
     private readonly McpActivityTracker mcpActivity;
-    private readonly CancellationTokenRegistration mcpStarted, mcpStopping;
+    private readonly CancellationTokenRegistration mcpStarted, mcpStopping, waitStopping;
     private int disposed;
     private int certificateRenewalRequested;
     private int shutdownCleanupFailed;
@@ -46,14 +46,24 @@ public sealed class WorkerApplication : IAsyncDisposable
         this.mcpActivity = mcpActivity;
         mcpStarted = application.Lifetime.ApplicationStarted.Register(static state => ((McpActivityTracker)state!).SetReady(true), mcpActivity);
         mcpStopping = application.Lifetime.ApplicationStopping.Register(static state => ((McpActivityTracker)state!).SetReady(false), mcpActivity);
+        waitStopping = application.Lifetime.ApplicationStopping.Register(static state => ((BrokerRuntime)state!).StopWaits(), runtime);
     }
 
-    public static async Task<WorkerApplication> CreateAsync(WorkerOptions options,
-        IReadOnlyList<ILocalAgentAdapter>? adapters = null, CancellationToken token = default)
+    public static Task<WorkerApplication> CreateAsync(WorkerOptions options,
+        IReadOnlyList<ILocalAgentAdapter>? adapters = null, CancellationToken token = default) =>
+        CreateCoreAsync(options, adapters, TimeProvider.System, token);
+
+    internal static Task<WorkerApplication> CreateAsync(WorkerOptions options,
+        IReadOnlyList<ILocalAgentAdapter>? adapters, TimeProvider clock, CancellationToken token = default) =>
+        CreateCoreAsync(options, adapters, clock, token);
+
+    private static async Task<WorkerApplication> CreateCoreAsync(WorkerOptions options,
+        IReadOnlyList<ILocalAgentAdapter>? adapters, TimeProvider clock, CancellationToken token)
     {
+        ArgumentNullException.ThrowIfNull(clock);
         token.ThrowIfCancellationRequested(); options.Validate();
         var store = new BrokerStore(Path.Combine(options.DataDirectory, "store"),
-            new BrokerLimits(DefaultMessageLifetimeMinutes: options.DefaultMessageLifetimeMinutes));
+            new BrokerLimits(DefaultMessageLifetimeMinutes: options.DefaultMessageLifetimeMinutes), clock);
         BrokerIdentity? identity = null;
         IPeerFederation? federation = null;
         IReadOnlyList<ILocalAgentAdapter>? nativeAdapters = null;
@@ -65,7 +75,7 @@ public sealed class WorkerApplication : IAsyncDisposable
             identity = BrokerIdentity.LoadOrCreate(options.DataDirectory, store.BrokerId);
             federation = new PeerFederation(store, identity, options, enableDiscovery: options.EnableBrokerDiscovery);
             nativeAdapters = adapters ?? CreateNativeAdapters(options);
-            runtime = new BrokerRuntime(store, federation, nativeAdapters, new SessionPreferences(options.DataDirectory));
+            runtime = new BrokerRuntime(store, federation, nativeAdapters, new SessionPreferences(options.DataDirectory), clock);
             var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions
             { Args = [], ContentRootPath = AppContext.BaseDirectory, EnvironmentName = "Production" });
             builder.Logging.ClearProviders(); // Neither message text nor credentials enter request logs.
@@ -97,7 +107,7 @@ public sealed class WorkerApplication : IAsyncDisposable
             var mcpFilters = new McpActivityFilters(mcpActivity, store.BrokerId, runtime);
             // The instructions card reaches HTTP clients directly and Codex through the verbatim stdio bridge.
             builder.Services.AddMcpServer(server => server.ServerInstructions = BrokerInstructions.Text).WithHttpTransport(transport =>
-                transport.SessionMode = HttpServerSessionMode.Stateless).WithTools<BrokerTools>()
+                transport.SessionMode = HttpServerSessionMode.Stateless).WithTools<BrokerTools>(McpToolJson.Create())
                 .WithMessageFilters(filters => filters.AddIncomingFilter(mcpFilters.Incoming()).AddOutgoingFilter(mcpFilters.Outgoing()))
                 .WithRequestFilters(filters => filters.AddListToolsFilter(mcpFilters.ListTools()).AddCallToolFilter(mcpFilters.CallTool()));
             app = builder.Build();
@@ -271,7 +281,7 @@ public sealed class WorkerApplication : IAsyncDisposable
         finally
         {
             Runtime.Store.Dispose(); identity.Dispose();
-            mcpStarted.Dispose(); mcpStopping.Dispose();
+            mcpStarted.Dispose(); mcpStopping.Dispose(); waitStopping.Dispose();
             CryptographicOperations.ZeroMemory(localToken); lifetime.Dispose();
         }
         async Task CleanAsync(Func<Task> action)

@@ -709,8 +709,8 @@ internal static class RuntimeLifecycleChecks
         check(adapter.DiscoveryDiagnostics.Any(item => item.Code == "codex_owner_lookup_skipped" && item.Description.StartsWith("2 Codex conversations", StringComparison.Ordinal)),
             "CODEX_SLOW_ROW_DIAGNOSTIC: the pass that skipped conversations names how many");
         var second = await PassAsync();
-        check(Ids(second) == "0,2" && provider.Order[^3..].SequenceEqual(new[] { provider.Threads[0], provider.Threads[2], provider.Threads[1] }),
-            "CODEX_SLOW_ROW_LAST: the slow conversation goes last on the next pass, so every other one is renewed (" + Ids(second) + ")");
+        check(Ids(second) == "0,2" && provider.Order[^3..].SequenceEqual(new[] { provider.Threads[2], provider.Threads[0], provider.Threads[1] }),
+            "CODEX_SLOW_ROW_LAST: the unreached healthy conversation goes first and the slow conversation last, so every other one is renewed (" + Ids(second) + ")");
         provider.Slow = null; provider.Failing = provider.Threads[0];
         IReadOnlyList<BrokerSession>? third = null;
         try { third = await PassAsync(); } catch (IOException) { }

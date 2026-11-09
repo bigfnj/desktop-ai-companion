@@ -13,11 +13,11 @@ public static class McpCallClient
     private const string ProtocolVersion = "2025-11-25";
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { MaxDepth = 32 };
 
-    public sealed record Options(string DataDirectory, string? RequestFile, bool ListTools)
+    public sealed record Options(string DataDirectory, string? RequestFile, bool ListTools, string? OutputFile = null)
     {
         public static Options Parse(string[] arguments)
         {
-            string? directory = null, request = null;
+            string? directory = null, request = null, output = null;
             bool list = false;
             if (arguments.Length == 0 || arguments[0] != Command) throw new ArgumentException("invalid_arguments");
             for (int i = 1; i < arguments.Length; i++)
@@ -28,14 +28,16 @@ public static class McpCallClient
                 {
                     case "--data" when directory is null: directory = arguments[++i]; break;
                     case "--request-file" when request is null: request = arguments[++i]; break;
+                    case "--output-file" when output is null: output = arguments[++i]; break;
                     default: throw new ArgumentException("invalid_arguments");
                 }
             }
             if (directory is null || !Path.IsPathFullyQualified(directory) ||
                 (list ? request is not null : request is null) ||
-                request is not null && !Path.IsPathFullyQualified(request))
+                request is not null && !Path.IsPathFullyQualified(request) ||
+                output is not null && !Path.IsPathFullyQualified(output))
                 throw new ArgumentException("invalid_arguments");
-            return new(directory, request, list);
+            return new(directory, request, list, output);
         }
     }
 
@@ -52,8 +54,41 @@ public static class McpCallClient
 
     // Credentials come from the existing verified control pipe, remain in memory, and are never output.
     // Business message IDs come from the request unchanged. No submitted operation is retried.
-    public static Task<int> RunAsync(Options options, Stream output, CancellationToken cancellation = default) =>
-        RunCoreAsync(options, output, null, cancellation);
+    public static async Task<int> RunAsync(Options options, Stream output, CancellationToken cancellation = default)
+    {
+        if (options.OutputFile is null) return await RunCoreAsync(options, output, null, cancellation);
+        try { LocalOutputFile.Validate(options.OutputFile); }
+        catch (Exception error) when (OutputFailure(error))
+        {
+            return await WriteAsync(output, new { status = "output_error", dispatchState = "not_dispatched",
+                retained = false, code = "output_unavailable", nextAction = "Choose a new local file in an existing plain directory; no tool was dispatched." }, 74, CancellationToken.None);
+        }
+
+        using var original = new MemoryStream();
+        int code = await RunCoreAsync(options, original, null, cancellation);
+        byte[] bytes = original.ToArray();
+        using var document = JsonDocument.Parse(bytes);
+        LocalOutputFile.Retention retention;
+        try
+        {
+            retention = LocalOutputFile.Save(options.OutputFile, bytes);
+        }
+        catch (Exception error) when (OutputFailure(error))
+        {
+            // The broker response is known even if the file could not be retained. Never turn a confirmed send into
+            // transport uncertainty or replay it because its output path raced, filled up, or became unwritable.
+            return await WriteAsync(output, new { status = "output_error",
+                dispatchState = document.RootElement.GetProperty("dispatchState").GetString(), retained = false,
+                code = "output_unavailable", response = document.RootElement,
+                nextAction = "Retain this response using a new local file. Do not repeat a confirmed operation because retention failed." }, 74, CancellationToken.None);
+        }
+        var response = document.RootElement.EnumerateObject().ToDictionary(property => property.Name, property => property.Value.Clone());
+        response.Add("retention", JsonSerializer.SerializeToElement(retention, Json));
+        return await WriteAsync(output, response, code, CancellationToken.None);
+    }
+
+    private static bool OutputFailure(Exception error) => error is IOException or InvalidDataException or UnauthorizedAccessException or
+        ArgumentException or NotSupportedException or System.Security.SecurityException;
 
     // Purpose-scoped local integrations reuse exactly the authenticated transport and result/exit contract, without
     // writing request files. This is internal and exposes no extra CLI operation or credential path.
@@ -62,6 +97,14 @@ public static class McpCallClient
             JsonSerializer.SerializeToElement(new { tool, arguments }, Json), cancellation);
 
     private static async Task<int> RunCoreAsync(Options options, Stream output, JsonElement? memoryRequest, CancellationToken cancellation)
+    {
+        var response = await RequestEnvelopeAsync(options, memoryRequest, cancellation);
+        // Publication is local output, after transport classification has finished. Caller cancellation or a failed
+        // output stream must never downgrade a known response or append a second transport-error envelope.
+        return await WriteAsync(output, response.Value, response.ExitCode, CancellationToken.None);
+    }
+
+    private static async Task<(object Value, int ExitCode)> RequestEnvelopeAsync(Options options, JsonElement? memoryRequest, CancellationToken cancellation)
     {
         bool toolDispatchStarted = false;
         bool requestValidated = options.ListTools;
@@ -101,7 +144,7 @@ public static class McpCallClient
                 clientInfo = new { name = "agentbroker-cli", version = "1.0" },
             }, prefix + "-initialize");
             if (initialized.TryGetProperty("error", out var initializationError))
-                return await WriteAsync(output, new { status = "rpc_error", dispatchState = "not_dispatched", error = initializationError }, 11, deadline.Token);
+                return (new { status = "rpc_error", dispatchState = "not_dispatched", error = initializationError }, 11);
             if (!initialized.TryGetProperty("result", out var initialization) || initialization.ValueKind != JsonValueKind.Object ||
                 !initialization.TryGetProperty("protocolVersion", out var negotiated) ||
                 negotiated.ValueKind != JsonValueKind.String || negotiated.GetString() != ProtocolVersion)
@@ -113,22 +156,22 @@ public static class McpCallClient
                 ? await ExchangeAsync("tools/list", new { }, prefix + "-query")
                 : await ExchangeAsync("tools/call", new { name = tool, arguments }, prefix + "-query");
             if (reply.TryGetProperty("error", out var rpcError))
-                return await WriteAsync(output, new { status = "rpc_error", dispatchState = "confirmed", error = rpcError }, 11, deadline.Token);
+                return (new { status = "rpc_error", dispatchState = "confirmed", error = rpcError }, 11);
             if (!reply.TryGetProperty("result", out var result)) throw new InvalidDataException("response_unavailable");
             if (options.ListTools)
-                return await WriteAsync(output, new { status = "ok", dispatchState = "confirmed", result,
+                return (new { status = "ok", dispatchState = "confirmed", result,
                     instructions = initialization.TryGetProperty("instructions", out var card) && card.ValueKind == JsonValueKind.String
-                        ? card.GetString() : null }, 0, deadline.Token);
+                        ? card.GetString() : null }, 0);
             if (result.ValueKind != JsonValueKind.Object) throw new InvalidDataException("response_unavailable");
             bool failed = result.TryGetProperty("isError", out var flag) && flag.ValueKind == JsonValueKind.True;
             if (result.TryGetProperty("isError", out flag) && flag.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
                 throw new InvalidDataException("response_unavailable");
             var decoded = DecodeToolResult(result);
-            return await WriteAsync(output, new
+            return (new
             {
                 status = failed ? "tool_error" : "ok", dispatchState = "confirmed",
                 result = decoded.Value, advisories = decoded.Advisories, structuredContent = decoded.Structured,
-            }, failed ? 10 : 0, deadline.Token);
+            }, failed ? 10 : 0);
 
             async Task<JsonElement> ExchangeAsync(string method, object parameters, string? id)
             {
@@ -157,7 +200,7 @@ public static class McpCallClient
             bool invalidRequest = !requestValidated && error is not OperationCanceledException;
             string status = invalidRequest ? "invalid_request" : error is HttpRequestException { StatusCode: not null }
                 ? "http_error" : "transport_error";
-            return await WriteAsync(output, new
+            return (new
             {
                 status, dispatchState = toolDispatchStarted ? "unknown" : "not_dispatched",
                 code = invalidRequest ? "invalid_request" : "broker_request_unconfirmed",
@@ -165,7 +208,7 @@ public static class McpCallClient
                 nextAction = toolDispatchStarted
                     ? "Check the receipt before retrying a message with its identical stable ID and payload."
                     : "Check the request and broker connection; the tool was not dispatched.",
-            }, invalidRequest ? 2 : status == "http_error" ? 12 : 69, CancellationToken.None);
+            }, invalidRequest ? 2 : status == "http_error" ? 12 : 69);
         }
     }
 

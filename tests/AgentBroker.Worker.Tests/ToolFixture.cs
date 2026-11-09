@@ -26,7 +26,20 @@ internal sealed class ToolFixture : IAsyncDisposable
         Store = new BrokerStore(Path.Combine(Root, "store"), limits, clock ?? Clock);
         Runtime = new BrokerRuntime(Store, new NoPeers(), adapters ?? [], new SessionPreferences(Root), clock ?? Clock, callers);
         Context.Items["agentbroker.identity"] = Store.BrokerId;
-        Tools = new BrokerTools(Runtime, new HttpContextAccessor { HttpContext = Context });
+        Tools = new BrokerTools(Runtime, new FixedHttpContextAccessor { HttpContext = Context });
+    }
+    // Each concurrent request owns its transport metadata. HttpContextAccessor uses a static
+    // AsyncLocal holder, so separate instances still interfere when tests share one execution flow.
+    internal (DefaultHttpContext Context, BrokerTools Tools) NewRequest()
+    {
+        var context = new DefaultHttpContext();
+        if (Context.Items.TryGetValue("agentbroker.identity", out var identity))
+            context.Items["agentbroker.identity"] = identity;
+        return (context, new BrokerTools(Runtime, new FixedHttpContextAccessor { HttpContext = context }));
+    }
+    private sealed class FixedHttpContextAccessor : IHttpContextAccessor
+    {
+        public HttpContext? HttpContext { get; set; }
     }
     internal BrokerSession Register(string label) => Runtime.RegisterPollingAgent(Guid.NewGuid(), Guid.NewGuid(), label, false);
     internal BrokerSession? Current(SessionAddress address) => Store.Directory().SingleOrDefault(session => session.Address == address);

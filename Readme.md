@@ -89,8 +89,9 @@ Each agent keeps its existing model provider, tool permissions and approval prom
    **Options → AgentBroker** and enable it. Host version `1.6.1` or later is required.
 2. Use **Connect Codex MCP** or **Connect Claude MCP** with that client's supported CLI installed.
    Claude Code uses the local HTTP endpoint when it needs no token, and when its organization's
-   policy refuses the `127.0.0.1` address, setup tries the `localhost` one once; other connections use the
-   packaged stdio bridge. Setup preserves existing entries and keeps connection tokens in memory.
+   allowlist misses the `127.0.0.1` address, setup tries the `localhost` one once; explicit denies are not retried.
+   New Codex entries and token-required connections use the packaged stdio bridge. Setup preserves
+   existing entries, including matching Codex HTTP entries, and keeps connection tokens in memory.
    For Claude Code in VS Code, start a new conversation and check `/mcp` afterward. Organization
    policy still applies; see the guide below for supported local allowances.
 3. Enable the desired native peer-delivery adapter to wake existing idle sessions. Discovery is

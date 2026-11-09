@@ -42,6 +42,10 @@ internal static class PendingInboxChecks
             store.Accept(uncertain, store.BrokerId);
             Check(store.BeginDelivery()?.Message.Id == uncertain.Id, "INBOX_WITNESS_UNCERTAIN: lower UUID arrives second");
             store.CompleteDelivery(store.FindReceipt(uncertain.Id)!, MessageStatus.Uncertain, "synthetic_uncertain");
+            // This fixture targets the owner's inbox. Independently settle its sender's new uncertainty advisory so
+            // the next real claim still witnesses the intended owner input rather than that unrelated broker notice.
+            var advisory = store.AcceptedIncoming(sender.Address, 16).Single(receipt => receipt.Message.Sender.SessionId == BrokerStore.NoticeSessionId);
+            store.RecordRecipientReceipt(advisory.Message.Id, sender.Address, store.BrokerId, MessageStatus.Delivered);
             var submitting = Message(Guid.NewGuid()); store.Accept(submitting, store.BrokerId);
             Check(store.BeginDelivery()?.Message.Id == submitting.Id, "INBOX_WITNESS_SUBMITTING: native attempt remains in flight");
             var accepted = Message(Guid.NewGuid()); store.Accept(accepted, store.BrokerId);

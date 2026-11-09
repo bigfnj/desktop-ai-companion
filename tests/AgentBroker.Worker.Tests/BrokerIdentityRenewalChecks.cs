@@ -4,6 +4,9 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.Json;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
 
 internal static class BrokerIdentityRenewalChecks
 {
@@ -16,6 +19,83 @@ internal static class BrokerIdentityRenewalChecks
         var now = DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds());
         try
         {
+            ProbeReplacementForms(Path.Combine(root, "replacement-diagnostic"));
+            Guid defaultId = Guid.NewGuid(); string defaultDir = Own("default-replacement", defaultId);
+            string defaultPath = Path.Combine(defaultDir, "tls-identity.dat");
+            string defaultKey, defaultPin; byte[] defaultAnchor; DateTimeOffset defaultDue;
+            using (var original = BrokerIdentity.LoadOrCreate(defaultDir, defaultId, now))
+            {
+                defaultKey = original.KeyName; defaultPin = original.Fingerprint;
+                defaultAnchor = original.Certificate.RawData; defaultDue = original.RenewalDueAt;
+            }
+            byte[] defaultBefore = File.ReadAllBytes(defaultPath); Exception? defaultFailure = null;
+            using (var locked = new FileStream(defaultPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+            {
+                // Exercise the shipped three-argument default. A raw File.Replace reversion throws its primary
+                // IOException directly, while the actual helper wraps its failed native fallback.
+                try { using var rejected = BrokerIdentity.LoadOrCreate(defaultDir, defaultId, defaultDue); }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException or Win32Exception) { defaultFailure = error; }
+            }
+            DescribeReplacement("default-renewal-locked", defaultFailure, null, primaryObserved: false);
+            check(defaultFailure is IOException { InnerException: Win32Exception nativeFailure } && nativeFailure.NativeErrorCode is 5 or 32,
+                "IDENTITY_DEFAULT_REPLACEMENT_WIRING: the real default renewal reaches the helper and wraps an actual locked-destination native failure");
+            check(File.ReadAllBytes(defaultPath).SequenceEqual(defaultBefore) && CngKey.Exists(defaultKey) &&
+                Directory.GetFiles(defaultDir, "identity-*.tmp").Length == 0,
+                "IDENTITY_DEFAULT_REPLACEMENT_PRESERVED: a default-path sharing failure retains exact prior ciphertext and key and cleans its temporary");
+            using (var reloaded = BrokerIdentity.LoadOrCreate(defaultDir, defaultId, defaultDue.AddTicks(-1)))
+                check(reloaded.KeyName == defaultKey && reloaded.Fingerprint == defaultPin && reloaded.Certificate.RawData.SequenceEqual(defaultAnchor),
+                    "IDENTITY_DEFAULT_REPLACEMENT_USABLE: the original default-path identity remains usable after the locked renewal");
+
+            Guid partialId = Guid.NewGuid(); string partialDir = Own("missing-destination", partialId);
+            string partialPath = Path.Combine(partialDir, "tls-identity.dat");
+            string partialKey, partialPin; byte[] partialAnchor; DateTimeOffset partialDue;
+            using (var original = BrokerIdentity.LoadOrCreate(partialDir, partialId, now))
+            {
+                partialKey = original.KeyName; partialPin = original.Fingerprint;
+                partialAnchor = original.Certificate.RawData; partialDue = original.RenewalDueAt;
+            }
+            string? retainedTemporary = null; byte[]? retainedCiphertext = null; int partialCalls = 0; bool partialFailed = false;
+            try { using var rejected = BrokerIdentity.LoadOrCreate(partialDir, partialId, partialDue, (temporary, destination) =>
+            {
+                partialCalls++; retainedTemporary = temporary; retainedCiphertext = File.ReadAllBytes(temporary);
+                File.Delete(destination);
+                throw new IOException("Synthetic partial replacement: destination removed before replacement publication.");
+            }); }
+            catch (IOException) { partialFailed = true; }
+            check(partialFailed && partialCalls == 1 && !File.Exists(partialPath) && CngKey.Exists(partialKey) &&
+                retainedTemporary is not null && File.Exists(retainedTemporary) && retainedCiphertext is not null &&
+                File.ReadAllBytes(retainedTemporary).SequenceEqual(retainedCiphertext) && Directory.GetFiles(partialDir, "identity-*.tmp").Length == 1,
+                "IDENTITY_MISSING_DEST_TEMP_PRESERVED: failed renewal preserves its exact sealed temporary when the destination has disappeared");
+            using (var metadata = Read(retainedTemporary!))
+            using (var current = X509CertificateLoader.LoadCertificate(metadata.RootElement.GetProperty("CurrentCertificateDER").GetBytesFromBase64()))
+            using (var anchorCertificate = X509CertificateLoader.LoadCertificate(partialAnchor))
+            using (var anchorPublic = anchorCertificate.GetRSAPublicKey())
+            using (var key = CngKey.Open(partialKey))
+            using (var rsa = new RSACng(key))
+                check(metadata.RootElement.GetProperty("Version").GetInt32() == 2 &&
+                    metadata.RootElement.GetProperty("BrokerId").GetGuid() == partialId && metadata.RootElement.GetProperty("KeyName").GetString() == partialKey &&
+                    metadata.RootElement.GetProperty("OriginalAnchorDER").GetBytesFromBase64().SequenceEqual(partialAnchor) &&
+                    CertificateContinuity.MatchesPinnedCertificate(current, partialId, partialPin, partialDue) &&
+                    anchorPublic!.ExportSubjectPublicKeyInfo().SequenceEqual(rsa.ExportSubjectPublicKeyInfo()),
+                    "IDENTITY_MISSING_DEST_BINDING: retained sealed metadata preserves the exact broker, key and original anchor rather than inventing a new identity");
+            bool orphanRejected = false;
+            try { using var rejected = BrokerIdentity.LoadOrCreate(partialDir, partialId, partialDue); }
+            catch (CryptographicException) { orphanRejected = true; }
+            check(orphanRejected && !File.Exists(partialPath) && CngKey.Exists(partialKey) &&
+                File.ReadAllBytes(retainedTemporary!).SequenceEqual(retainedCiphertext!),
+                "IDENTITY_MISSING_DEST_FAIL_CLOSED: startup preserves the orphaned original key and recovery file without promoting metadata automatically");
+            // The synthetic recovery copy is removed only by this test's explicit cleanup.
+            File.Delete(retainedTemporary!);
+
+            Guid creationId = Guid.NewGuid(); string creationDir = Own("creation-failure", creationId);
+            Directory.CreateDirectory(Path.Combine(creationDir, "tls-identity.dat"));
+            bool creationFailed = false;
+            try { using var rejected = BrokerIdentity.LoadOrCreate(creationDir, creationId, now); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException) { creationFailed = true; }
+            check(creationFailed && !CngKey.Exists(BrokerIdentity.KeyNameFor(creationDir, creationId)) &&
+                Directory.GetFiles(creationDir, "identity-*.tmp").Length == 0 && Directory.Exists(Path.Combine(creationDir, "tls-identity.dat")),
+                "IDENTITY_CREATE_FAILURE_CLEAN: failed initial creation still deletes its own key and temporary and preserves the pre-existing obstacle");
+
             Guid id = Guid.NewGuid();
             string directory = Own("lifecycle", id);
             string path = Path.Combine(directory, "tls-identity.dat");
@@ -98,6 +178,73 @@ internal static class BrokerIdentityRenewalChecks
                     "IDENTITY_REPLACE_RECOVERY: the original identity remains usable after a failed replacement");
             }
 
+            Guid fallbackId = Guid.NewGuid(); string fallbackDir = Own("replace-fallback", fallbackId);
+            string fallbackPath = Path.Combine(fallbackDir, "tls-identity.dat");
+            string fallbackKey, fallbackPin; byte[] fallbackAnchor; DateTimeOffset fallbackDue;
+            using (var initial = BrokerIdentity.LoadOrCreate(fallbackDir, fallbackId, now))
+            {
+                fallbackKey = initial.KeyName; fallbackPin = initial.Fingerprint; fallbackAnchor = initial.Certificate.RawData;
+                fallbackDue = initial.RenewalDueAt;
+            }
+            int primaryCalls = 0; byte[]? stagedBytes = null; (uint Volume, ulong Index)? stagedIdentity = null;
+            bool primaryContract = false;
+            BrokerIdentity? fallbackRenewed = null;
+            try { fallbackRenewed = BrokerIdentity.LoadOrCreate(fallbackDir, fallbackId, fallbackDue,
+                (temporary, destination) => BrokerIdentity.ReplaceMetadata(temporary, destination, (source, target, backup, ignoreMetadataErrors) =>
+                {
+                    primaryCalls++;
+                    primaryContract = source == temporary && target == destination && backup is null && ignoreMetadataErrors &&
+                        Path.GetDirectoryName(source) == Path.GetDirectoryName(target);
+                    stagedBytes = File.ReadAllBytes(source); stagedIdentity = FileStamp(source);
+                    throw new IOException("Synthetic primary replacement failure before mutation.");
+                })); }
+            catch (IOException) { }
+            check(fallbackRenewed is not null,
+                "IDENTITY_FALLBACK_COMPLETES: a primary IOException reaches the real atomic fallback and completes renewal");
+            using (var renewed = fallbackRenewed!)
+            {
+                check(primaryCalls == 1 && primaryContract,
+                    "IDENTITY_FALLBACK_PRIMARY_ONCE: the actual helper attempts its primary once with no backup and same-directory paths");
+                check(stagedBytes is not null && File.ReadAllBytes(fallbackPath).SequenceEqual(stagedBytes),
+                    "IDENTITY_FALLBACK_EXACT_BYTES: a real native fallback publishes exactly the flushed temporary metadata");
+                check(stagedIdentity is not null && FileStamp(fallbackPath) == stagedIdentity && Directory.GetFiles(fallbackDir, "identity-*.tmp").Length == 0,
+                    "IDENTITY_FALLBACK_RENAME: native fallback preserves source file identity rather than copying its bytes and deleting it");
+                using var metadata = Read(fallbackPath);
+                check(renewed.Fingerprint == fallbackPin && renewed.KeyName == fallbackKey &&
+                    metadata.RootElement.GetProperty("OriginalAnchorDER").GetBytesFromBase64().SequenceEqual(fallbackAnchor) &&
+                    metadata.RootElement.GetProperty("CurrentCertificateDER").GetBytesFromBase64().SequenceEqual(renewed.Certificate.RawData),
+                    "IDENTITY_FALLBACK_SAME_KEY_PIN: fallback renewal preserves the original anchor, key and exact renewed leaf");
+
+                byte[] beforeFailure = File.ReadAllBytes(fallbackPath); int failedPrimaryCalls = 0; Exception? failure = null;
+                using (var locked = new FileStream(fallbackPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+                {
+                    try
+                    {
+                        using var rejected = BrokerIdentity.LoadOrCreate(fallbackDir, fallbackId, renewed.RenewalDueAt,
+                            (temporary, destination) => BrokerIdentity.ReplaceMetadata(temporary, destination, (_, _, _, _) =>
+                            {
+                                failedPrimaryCalls++;
+                                throw new IOException("Synthetic primary failure before the actual sharing-denied fallback.");
+                            }));
+                    }
+                    catch (Exception error) when (error is IOException or Win32Exception) { failure = error; }
+                }
+                check(failure is IOException { InnerException: Win32Exception } && failedPrimaryCalls == 1,
+                    "IDENTITY_FALLBACK_NATIVE_IO: a real locked-destination native failure surfaces as IOException with its Win32 cause");
+                check(File.ReadAllBytes(fallbackPath).SequenceEqual(beforeFailure) && CngKey.Exists(fallbackKey) &&
+                    Directory.GetFiles(fallbackDir, "identity-*.tmp").Length == 0,
+                    "IDENTITY_FALLBACK_FAILURE_PRESERVED: failed fallback preserves exact prior ciphertext and original key and cleans its own temporary");
+                using var recovered = BrokerIdentity.LoadOrCreate(fallbackDir, fallbackId, fallbackDue.AddMinutes(1));
+                using var beforePublic = renewed.Certificate.GetRSAPublicKey(); using var afterPublic = recovered.Certificate.GetRSAPublicKey();
+                using var afterPrivate = recovered.Certificate.GetRSAPrivateKey();
+                byte[] challenge = Encoding.UTF8.GetBytes("Synthetic post-failure key possession.");
+                check(recovered.Fingerprint == renewed.Fingerprint && recovered.Certificate.RawData.SequenceEqual(renewed.Certificate.RawData) &&
+                    beforePublic!.ExportSubjectPublicKeyInfo().SequenceEqual(afterPublic!.ExportSubjectPublicKeyInfo()) &&
+                    beforePublic.VerifyData(challenge, afterPrivate!.SignData(challenge, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1),
+                        HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1),
+                    "IDENTITY_FALLBACK_FAILURE_USABLE: the previous certificate and same private-key identity remain usable after failure");
+            }
+
             Guid expiredId = Guid.NewGuid(); string expiredDir = Own("expired-legacy", expiredId);
             string expiredPin;
             using (var expired = BrokerIdentity.LoadOrCreate(expiredDir, expiredId, now.AddYears(-6))) expiredPin = expired.Fingerprint;
@@ -174,10 +321,63 @@ internal static class BrokerIdentityRenewalChecks
         }
     }
 
+    private static void ProbeReplacementForms(string directory)
+    {
+        Console.WriteLine("WITNESS: IDENTITY_REPLACE_DIAGNOSTIC_EXECUTED");
+        foreach (string mode in new[] { "replace-false", "replace-true", "helper" })
+        {
+            string own = Path.Combine(directory, mode); Directory.CreateDirectory(own);
+            string destination = Path.Combine(own, "destination.dat"), temporary = Path.Combine(own, "replacement.dat");
+            byte[] expected = Encoding.UTF8.GetBytes("Synthetic fresh-copy replacement bytes.");
+            File.WriteAllText(destination, "Synthetic original bytes."); File.WriteAllBytes(temporary, expected);
+            Exception? primary = null, failure = null;
+            try
+            {
+                if (mode == "helper") BrokerIdentity.ReplaceMetadata(temporary, destination, (source, target, backup, ignoreErrors) =>
+                {
+                    try { File.Replace(source, target, backup, ignoreErrors); }
+                    catch (Exception error) { primary = error; throw; }
+                });
+                else File.Replace(temporary, destination, null, mode == "replace-true");
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or Win32Exception) { failure = error; }
+            DescribeReplacement(mode, failure, mode == "helper" ? primary : failure);
+            Console.WriteLine("IDENTITY_REPLACE_DIAGNOSTIC mode=" + mode + " destinationExists=" + File.Exists(destination) +
+                " temporaryExists=" + File.Exists(temporary) + " publishedExactBytes=" +
+                (File.Exists(destination) && File.ReadAllBytes(destination).SequenceEqual(expected)));
+        }
+    }
+
+    private static void DescribeReplacement(string mode, Exception? failure, Exception? primary, bool primaryObserved = true)
+    {
+        string Describe(Exception? error) => error is null ? "success" : error.GetType().Name + ":HResult=0x" +
+            unchecked((uint)error.HResult).ToString("X8", System.Globalization.CultureInfo.InvariantCulture) +
+            (error is Win32Exception native ? ":NativeErrorCode=" + native.NativeErrorCode : "") +
+            (error.InnerException is null ? "" : ":Inner=" + Describe(error.InnerException));
+        Console.WriteLine("IDENTITY_REPLACE_DIAGNOSTIC mode=" + mode + " result=" + Describe(failure) +
+            " primary=" + (primaryObserved ? Describe(primary) : "not_observed"));
+    }
+
     private static JsonDocument Read(string path)
     {
         byte[] plain = UserProtection.Unseal(File.ReadAllBytes(path));
         try { using var input = new MemoryStream(plain, writable: false); return JsonDocument.Parse(input); }
         finally { CryptographicOperations.ZeroMemory(plain); }
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct FileInformation
+    {
+        public uint Attributes, CreatedLow, CreatedHigh, AccessLow, AccessHigh, WrittenLow, WrittenHigh,
+            Volume, SizeHigh, SizeLow, Links, IndexHigh, IndexLow;
+    }
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetFileInformationByHandle(SafeFileHandle handle, out FileInformation information);
+    private static (uint Volume, ulong Index) FileStamp(string path)
+    {
+        using var handle = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        if (!GetFileInformationByHandle(handle, out var information)) throw new Win32Exception(Marshal.GetLastWin32Error());
+        return (information.Volume, (ulong)information.IndexHigh << 32 | information.IndexLow);
     }
 }

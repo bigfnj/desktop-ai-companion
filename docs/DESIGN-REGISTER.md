@@ -8012,3 +8012,19 @@ sentence was rewritten to stop carrying a literal at all. The trap that produced
 `grep -c 'Assert-True'` over `tests/runtime-hardening-selftest.ps1` counts the function definition
 and a comment mentioning the helper, and ten of the real call sites sit inside `foreach` loops, so
 the static site count and the runtime PASS count are different numbers and neither is the raw grep.
+
+## AgentBroker 1.10.0 collaboration contracts (2026-11-08)
+
+The [campaign ledger](agentbroker-next-validation-20261108.md) records implementation and validation separately from installation and publication. Complete addresses, native discovery authority, report-only recovery, peer trust and agent permissions retain their existing roles.
+
+MCP marshalling explicitly emits the required nullable `replyTo` and `blockReason` fields. This also adds `replyTo: null` to legacy MCP message responses for non-replies. The adjustment belongs to per-host tool serializer options, with no domain DTO attribute, durable-state or federation serializer change (`McpToolJson.cs`, `WorkerApplication.cs`). Published schemas and real response content are checked over HTTP and stdio.
+
+Blocking operations have two exclusion classes per exact address. Incoming message and reply waits share one class; a receipt wait has its own class and can overlap it. Sixteen waits total remain the worker limit. Any active class preserves the generic mailbox's existing Idle presentation. Real address removal signals wake blocked tools; quiet lease or mailbox-retention expiry wakes at its exact addressability deadline. Message history is not polled on a one-second fallback. ApplicationStopping closes wait admission and cancels active waits before the HTTP host drains, returning `broker_stopping` (`BrokerRuntime.cs`, `BrokerTools.cs`, `BrokerStore.TimeUntilAddressUnavailable`, `WorkerApplication.cs`).
+
+The optional `agentbroker.handoff.v1` client convention has a task ID, state, summary and artifact metadata. Preparation validates its bounded text without opening artifact paths. Inner text uses its actual UTF-8 length for the existing 16 KiB message bound. The broker and federation continue to carry ordinary text. Paths, hashes, byte counts and result states remain peer claims (`HandoffPacket.cs`); see the [client guide](agentbroker-client.md).
+
+Explicit output retention flushes a new local temporary and publishes without replacing an existing destination. It retains the original decoded client response before reporting the retention path, byte count and hash. A retention failure preserves known dispatch state and never retries the broker operation. Parent and temporary checks also bound cleanup scope after refused publication (`LocalOutputFile.cs`, `McpCallClient.cs`, `HandoffPrepareClient.cs`).
+
+Uncertain delivery creates a historical advisory independently of a later terminal notice. Its ID includes the source lifetime, so acknowledged advisories and restarts do not repeat it. An unadmitted advisory is cancelled when the source resolves. Restart-interrupted submissions remain included because they may have reached input. Advisory and terminal text never proves work completion or authorizes automatic resend. Legacy terminal notice IDs remain stable; a retained terminal notice reserves a pruned source UUID until ordinary notice retention ends, returning `message_id_collision` even for a retry whose source is no longer retained. Retained-source retries still return their original receipts (`BrokerStore.WithSenderNotices`, `RebuildOwed`, `SenderNoticeId`, `Accept`).
+
+Actual legacy-reader compatibility is a separately identified opt-in run using a hash-verified assembly built from pinned source. Ordinary checks visibly report that compatibility was not run. A passing ordinary inventory is not a legacy-reader result (`UncertainNoticeChecks.cs`).

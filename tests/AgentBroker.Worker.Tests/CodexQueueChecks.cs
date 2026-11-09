@@ -31,6 +31,8 @@ internal static class CodexQueueChecks
             await using (var worker = await WorkerApplication.CreateAsync(options,
                 [new CodexNativeAdapter(engine, enableDelivery: true)]))
             {
+                // N-broker-next-native-test-timing-01: a timeout also reports the store's commit timing, read without its gate.
+                storeDiagnostics = () => worker.Runtime.Store.CommitTimings().ToString();
                 await worker.StartAsync();
                 using var client = new HttpClient(new SocketsHttpHandler { UseProxy = false, AllowAutoRedirect = false })
                 {
@@ -112,6 +114,7 @@ internal static class CodexQueueChecks
         }
         finally
         {
+            storeDiagnostics = null; // Never root the disposed worker or its store for the rest of the harness.
             if (CngKey.Exists(keyName, CngProvider.MicrosoftSoftwareKeyStorageProvider, CngKeyOpenOptions.Silent))
             { using var key = CngKey.Open(keyName, CngProvider.MicrosoftSoftwareKeyStorageProvider, CngKeyOpenOptions.Silent); key.Delete(); }
             string allowed = scratchRoot + Path.DirectorySeparatorChar;
@@ -158,7 +161,7 @@ internal static class CodexQueueChecks
             lock (RecentRpcs) recent = string.Join(", ", RecentRpcs);
             throw new TimeoutException($"N-bus-03 capture: {call} (RPC id {id}) timed out after {watch.ElapsedMilliseconds} ms; " +
                 $"thread pool busy {maxWorkers - workers} of {maxWorkers} workers, {maxPorts - ports} IO, {ThreadPool.ThreadCount} threads, " +
-                $"{ThreadPool.PendingWorkItemCount} queued; last RPCs: {recent}", timeout);
+                $"{ThreadPool.PendingWorkItemCount} queued; last RPCs: {recent}; {storeDiagnostics?.Invoke() ?? "store commit timing unavailable"}", timeout);
         }
         using var response = posted;
         lock (RecentRpcs) { RecentRpcs.Enqueue(call + " " + watch.ElapsedMilliseconds + " ms"); while (RecentRpcs.Count > 6) RecentRpcs.Dequeue(); }
@@ -173,6 +176,7 @@ internal static class CodexQueueChecks
         return root.Clone();
     }
     private static int nextRpcId;
+    private static Func<string>? storeDiagnostics;
     private static readonly Queue<string> RecentRpcs = new();
 
     private static async Task UntilAsync(Func<Task<bool>> condition)

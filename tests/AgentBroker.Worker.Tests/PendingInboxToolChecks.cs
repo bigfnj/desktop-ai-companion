@@ -8,6 +8,7 @@ using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 internal static class PendingInboxToolChecks
 {
@@ -52,12 +53,14 @@ internal static class PendingInboxToolChecks
             http.DefaultRequestHeaders.Accept.ParseAdd("application/json, text/event-stream");
             http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", worker.LocalAccessToken);
             await Rpc(http, "initialize", new { protocolVersion = "2025-11-25", capabilities = new { }, clientInfo = new { name = "synthetic-pending", version = "1" } });
-            await VerifyAsync("HTTP", async (name, arguments) => await Rpc(http, "tools/call", new { name, arguments }));
+            var httpSchema = Schema(await Rpc(http, "tools/list", new { }));
+            await VerifyAsync("HTTP", httpSchema, async (name, arguments) => await Rpc(http, "tools/call", new { name, arguments }));
             await using var bridge = new Bridge(scratch);
             await bridge.RpcAsync("initialize", new { protocolVersion = "2025-11-25", capabilities = new { }, clientInfo = new { name = "synthetic-pending-stdio", version = "1" } });
-            await VerifyAsync("STDIO", async (name, arguments) => await bridge.RpcAsync("tools/call", new { name, arguments }));
+            await VerifyAsync("STDIO", Schema(await bridge.RpcAsync("tools/list", new { })),
+                async (name, arguments) => await bridge.RpcAsync("tools/call", new { name, arguments }));
 
-            async Task VerifyAsync(string transport, Func<string, object, Task<JsonElement>> call)
+            async Task VerifyAsync(string transport, JsonElement outputSchema, Func<string, object, Task<JsonElement>> call)
             {
                 var sender = worker.Runtime.RegisterPollingAgent(Guid.NewGuid(), Guid.NewGuid(), "Synthetic sender", false);
                 BrokerSession Native() => new(new(worker.Runtime.Store.BrokerId, "codex:" + Guid.NewGuid().ToString("D"), Guid.NewGuid()),
@@ -73,8 +76,38 @@ internal static class PendingInboxToolChecks
                     "INBOX_WIRE_FIRST_BLOCK_" + transport + ": send keeps its original compact receipt first");
                 check(Hint(sent).GetProperty("session").Deserialize<SessionAddress>(Json) == sender.Address && Hint(sent).GetProperty("pendingCount").GetInt32() == 1,
                     "INBOX_HINT_SENDER_" + transport + ": send counts exact sender inbox, never recipient inbox");
+                var legacyWait = Body(await call("wait_for_messages", new { session = owner.Address, timeoutSeconds = 0 }));
+                check(legacyWait.GetArrayLength() == 1 && HasNonReplyNull(legacyWait[0]),
+                    "INBOX_LEGACY_WAIT_NULL_" + transport + ": the actual legacy incoming-wait content includes replyTo:null for a non-reply message");
+                var legacyInbox = Body(await call("read_inbox", new { session = owner.Address }));
+                check(legacyInbox.GetArrayLength() == 1 && HasNonReplyNull(legacyInbox[0]),
+                    "INBOX_LEGACY_READ_NULL_" + transport + ": the actual legacy inbox content includes replyTo:null for a non-reply message");
                 var fetched = await call("read_inbox_page", new { session = owner.Address });
                 var body = Body(fetched); var receipt = body.GetProperty("entries")[0].GetProperty("receipt");
+                var structured = fetched.GetProperty("result").GetProperty("structuredContent");
+                check(PublishedOutputSchema.Matches(outputSchema, structured, out string schemaFailure) &&
+                    PublishedOutputSchema.Matches(outputSchema, body, out schemaFailure),
+                    "INBOX_OUTPUT_SCHEMA_" + transport + ": actual non-reply output follows tools/list schema; " + schemaFailure);
+                var missing = JsonNode.Parse(structured.GetRawText())!;
+                missing["entries"]![0]!["receipt"]!["message"]!.AsObject().Remove("replyTo");
+                check(!PublishedOutputSchema.Matches(outputSchema, JsonSerializer.SerializeToElement(missing), out string missingFailure) &&
+                    missingFailure.Contains("replyTo: required", StringComparison.Ordinal),
+                    "INBOX_SCHEMA_MISSING_CONTROL_" + transport + ": evaluator refuses the original absent-null defect at its path");
+                var wrongType = JsonNode.Parse(structured.GetRawText())!;
+                wrongType["entries"]![0]!["receipt"]!["message"]!["text"] = 17;
+                check(!PublishedOutputSchema.Matches(outputSchema, JsonSerializer.SerializeToElement(wrongType), out string typeFailure) &&
+                    typeFailure.Contains("text: type", StringComparison.Ordinal),
+                    "INBOX_SCHEMA_TYPE_CONTROL_" + transport + ": evaluator refuses invalid nested value types");
+                var wrongDate = JsonNode.Parse(structured.GetRawText())!;
+                wrongDate["entries"]![0]!["receipt"]!["updatedAt"] = "11/08/2026 12:00:00+00:00";
+                check(!PublishedOutputSchema.Matches(outputSchema, JsonSerializer.SerializeToElement(wrongDate), out string dateFailure) &&
+                    dateFailure.Contains("updatedAt: format date-time", StringComparison.Ordinal),
+                    "INBOX_SCHEMA_DATE_CONTROL_" + transport + ": evaluator refuses locale dates that are not RFC3339");
+                var unsupported = JsonNode.Parse(outputSchema.GetRawText())!;
+                unsupported["unimplementedValidationKeyword"] = false;
+                check(!PublishedOutputSchema.Matches(JsonSerializer.SerializeToElement(unsupported), structured, out string unsupportedFailure) &&
+                    unsupportedFailure.Contains("unsupported schema keyword", StringComparison.Ordinal),
+                    "INBOX_SCHEMA_VOCABULARY_CONTROL_" + transport + ": new validation vocabulary cannot silently pass");
                 check(body.GetProperty("pendingCount").GetInt32() == 1 && receipt.GetProperty("message").GetProperty("text").GetString() == text &&
                     receipt.GetProperty("message").GetProperty("id").GetGuid() == messageId && !body.GetProperty("hasMore").GetBoolean(),
                     "INBOX_NATIVE_BUSY_FETCH_" + transport + ": actual busy native address returns complete quoted data without another mailbox");
@@ -94,6 +127,8 @@ internal static class PendingInboxToolChecks
                 check(foreign.GetProperty("result").GetProperty("isError").GetBoolean(),
                     "INBOX_FOREIGN_SCOPE_" + transport + ": fetch refuses foreign broker address");
                 var acknowledged = await call("acknowledge_message", new { messageId, recipient = owner.Address, outcome = "Delivered" });
+                check(HasNonReplyNull(Body(acknowledged)),
+                    "INBOX_LEGACY_ACK_NULL_" + transport + ": the actual acknowledgement content includes replyTo:null for a non-reply message");
                 check(Hint(acknowledged).GetProperty("pendingCount").GetInt32() == 0 && worker.Runtime.Store.FindReceipt(messageId)?.Status == MessageStatus.Delivered,
                     "INBOX_ACK_HINT_" + transport + ": acknowledgement updates count and durable receipt");
                 var continued = await call("read_inbox_page", new { session = owner.Address, cursor = body.GetProperty("nextCursor").GetString() });
@@ -108,6 +143,9 @@ internal static class PendingInboxToolChecks
             CleanupScratch(scratch);
         }
     }
+    private static bool HasNonReplyNull(JsonElement receipt) => receipt.GetProperty("message").TryGetProperty("replyTo", out var value) && value.ValueKind == JsonValueKind.Null;
+    private static JsonElement Schema(JsonElement reply) => reply.GetProperty("result").GetProperty("tools").EnumerateArray()
+        .Single(tool => tool.GetProperty("name").GetString() == "read_inbox_page").GetProperty("outputSchema").Clone();
     private static void CleanupScratch(string scratch)
     {
         string allowed = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "scratch")) + Path.DirectorySeparatorChar;

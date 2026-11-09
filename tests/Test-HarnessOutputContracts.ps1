@@ -36,19 +36,39 @@ $floorNodes = @($syntax.FindAll({ param($node) $node -is [Management.Automation.
 Check ($errors.Count -eq 0 -and $floorNodes.Count -eq 1) 'BROKER_FLOORS_HAVE_ONE_AUTHORITY'
 $tables = @($floorNodes[0].Right.FindAll({ param($node) $node -is [Management.Automation.Language.HashtableAst] }, $true))
 $assertionFloors = $tables[0].SafeGetValue()
-Check ($assertionFloors.Count -eq 7 -and $assertionFloors.Core -eq 408 -and $assertionFloors.Relay -eq 40 -and
+Check ($assertionFloors.Count -eq 7 -and $assertionFloors.Core -eq 515 -and $assertionFloors.Relay -eq 40 -and
     $assertionFloors.Claude -eq 212 -and $assertionFloors.Desktop -eq 594 -and $assertionFloors.Adapter -eq 84 -and
-    $assertionFloors.Network -eq 250 -and $assertionFloors.Worker -eq 1613) 'BROKER_FINAL_INVENTORY_FLOORS'
+    $assertionFloors.Network -eq 250 -and $assertionFloors.Worker -eq 1901) 'BROKER_FINAL_INVENTORY_FLOORS'
 $calls = @($syntax.FindAll({ param($node)
     $node -is [Management.Automation.Language.AssignmentStatementAst] -and
     @($node.Right.FindAll({ param($inner) $inner -is [Management.Automation.Language.CommandAst] -and
         $inner.GetCommandName() -ceq 'Assert-HarnessSummary' }, $true)).Count -eq 1
 }, $true))
 Check ($calls.Count -eq 1 -and $calls[0].Parent.Parent -is [Management.Automation.Language.TryStatementAst]) 'BROKER_DIRECT_SUMMARY_GUARD_REQUIRED'
-$harness = [pscustomobject]@{ Name='Core'; Summary='^AgentBroker core smoke and regression: ([1-9][0-9]*) assertions passed\.$' }
-$output = @('AgentBroker core smoke and regression: 407 assertions passed.')
-$assertions = 0
-Refuses { . ([scriptblock]::Create($calls[0].Extent.Text)) } 'BROKER_ACTUAL_CALLER_REFUSES_REGISTRATION_LOSS'
+# Exercise the actual public caller for both measured inventories; retained old counts are rejection inputs.
+foreach ($harness in @(
+    [pscustomobject]@{ Name='Core'; Summary='^AgentBroker core smoke and regression: ([1-9][0-9]*) assertions passed\.$'; PreviousActual=488 },
+    [pscustomobject]@{ Name='Worker'; Summary='^RESULT=PASS assertions=([1-9][0-9]*)$'; PreviousActual=1624 }
+)) {
+    $floor = [int]$assertionFloors[$harness.Name]
+    foreach ($count in @($floor,($floor + 1))) {
+        if ($harness.Name -ceq 'Core') { $output = @("AgentBroker core smoke and regression: $count assertions passed.") }
+        else { $output = @("RESULT=PASS assertions=$count") }
+        $assertions = 0
+        . ([scriptblock]::Create($calls[0].Extent.Text))
+        Check ($assertions -eq $count) ('BROKER_ACTUAL_' + $harness.Name.ToUpperInvariant() + '_ACCEPTS_' + $count)
+    }
+    foreach ($count in @(($floor - 1),$harness.PreviousActual)) {
+        Check ($count -lt $floor) ('BROKER_' + $harness.Name.ToUpperInvariant() + '_OLD_OUTPUT_BELOW_FINAL_FLOOR')
+        if ($harness.Name -ceq 'Core') { $output = @("AgentBroker core smoke and regression: $count assertions passed.") }
+        else { $output = @("RESULT=PASS assertions=$count") }
+        $assertions = 0
+        $failure = ''
+        try { . ([scriptblock]::Create($calls[0].Extent.Text)) } catch { $failure = $_.Exception.Message }
+        $expected = 'HarnessOutput.ps1: ' + $harness.Name + ' assertion inventory fell below its recorded floor (' + $count + ' < ' + $floor + ').'
+        Check ($failure -ceq $expected) ('BROKER_ACTUAL_' + $harness.Name.ToUpperInvariant() + '_REFUSES_' + $count)
+    }
+}
 $moduleScript = Join-Path $PSScriptRoot 'Test-ModuleSelfTests.ps1'
 $moduleSyntax = [Management.Automation.Language.Parser]::ParseFile($moduleScript, [ref]$tokens, [ref]$errors)
 $moduleCalls = @($moduleSyntax.FindAll({ param($node)

@@ -257,6 +257,19 @@ internal static class FirstContactChecks
         var continued = fixture.Tools.Send(current.Recipient, current.Sender, Guid.NewGuid(), "Synthetic continuation.", conversationId: first).Message;
         check(continued.RemainingReplies == 8 && continued.ConversationId == first,
             "REPLY_BUDGET_CONTINUE: send with the same conversationId continues the conversation with a fresh budget");
+
+        // X4 (AgentBroker next campaign 2026-11-08): a delivery notice is acknowledged, never answered. Before, the budget check
+        // answered reply_budget_exhausted with advice to send, and that send to agentbroker:notices is refused reserved_session.
+        Guid noticeClient = Guid.NewGuid(), noticeIncarnation = Guid.NewGuid();
+        var noticed = fixture.Runtime.RegisterPollingAgent(noticeClient, noticeIncarnation, "Synthetic notice owner", false);
+        var lapsing = fixture.Tools.Send(noticed.Address, b.Address, Guid.NewGuid(), "Synthetic message left to expire.", ttlMinutes: 1).Message;
+        fixture.Clock.Advance(TimeSpan.FromMinutes(2));
+        fixture.Runtime.RegisterPollingAgent(noticeClient, noticeIncarnation, "Synthetic notice owner", false);
+        check(fixture.Store.FindReceipt(lapsing.Id)?.Status == MessageStatus.Expired, "WITNESS the unacknowledged message expires and owes a notice");
+        var notice = fixture.Store.Messages(noticed.Address).SingleOrDefault(r => r.Message.Sender.SessionId == BrokerStore.NoticeSessionId)?.Message;
+        check(notice is { RemainingReplies: 0 } &&
+            ToolFixture.Refused(() => fixture.Tools.ReplyToMessage(notice.Id, Guid.NewGuid(), "Synthetic answer to a notice."), "notice_reply_refused"),
+            "NOTICE_REPLY_REFUSED: replying to a delivery notice is refused as notice_reply_refused, not reply_budget_exhausted");
     }
 
     private static void EnvelopeChecks(Action<bool, string> check)

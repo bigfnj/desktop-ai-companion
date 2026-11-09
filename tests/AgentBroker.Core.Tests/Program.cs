@@ -38,6 +38,19 @@ BrokerMessage Message(BrokerSession from, BrokerSession to) => new(Guid.NewGuid(
 
 try
 {
+    if (args.Length > 0 && args[0] == "--uncertain-notices-only")
+    {
+        if (args.Length is not (1 or 3)) throw new ArgumentException("UNCERTAIN_NOTICE_LEGACY_ARGUMENTS: supply both the pinned baseline assembly path and its expected SHA-256, or neither.");
+        passed += UncertainNoticeChecks.Run(root, args.Length == 3 ? args[1] : null, args.Length == 3 ? args[2] : null);
+        Console.WriteLine($"AgentBroker uncertainty notice smoke: {passed} assertions passed.");
+        return 0;
+    }
+    if (args.SequenceEqual(["--notice-terminal-reuse-only"]))
+    {
+        passed += UncertainNoticeChecks.TerminalReuse(root);
+        Console.WriteLine($"AgentBroker terminal notice reuse smoke: {passed} assertions passed.");
+        return 0;
+    }
     if (args.SequenceEqual(["--availability-diagnostics-only"]))
     {
         passed += AvailabilityDiagnosticChecks.Run(root);
@@ -90,6 +103,18 @@ try
     {
         passed += SenderNoticeChecks.Run(root);
         Console.WriteLine($"AgentBroker sender notice smoke: {passed} assertions passed.");
+        return 0;
+    }
+    if (args.SequenceEqual(["--hygiene-only"]))
+    {
+        passed += HygieneChecks.Run(root);
+        Console.WriteLine($"AgentBroker hygiene smoke: {passed} assertions passed.");
+        return 0;
+    }
+    if (args.SequenceEqual(["--commit-timing-only"]))
+    {
+        passed += CommitTimingChecks.Run(root);
+        Console.WriteLine($"AgentBroker commit timing smoke: {passed} assertions passed.");
         return 0;
     }
     Guid identity;
@@ -191,8 +216,11 @@ try
     AuditAtomicReplyRetries();
     passed += ReplyLifetimeChecks.Run(root);
     passed += SenderNoticeChecks.Run(root);
+    passed += UncertainNoticeChecks.Run(root);
     passed += DeliveryOrderChecks.Run(root);
     passed += PeerReceiptChecks.Run(root);
+    passed += HygieneChecks.Run(root);
+    passed += CommitTimingChecks.Run(root);
     passed += AcceptedIncomingChecks.Run(root);
     passed += PendingInboxChecks.Run(root);
     passed += NativeRecoveryChecks.Run(root);
@@ -421,7 +449,8 @@ void AuditUnsubmittedClaims()
     Refuses("message_not_submitting", () => store.ReleaseUnsubmittedClaim(store.FindReceipt(message.Id)!));
     Check(store.BeginDelivery()?.Message.Id == later.Id, "The held successor follows once the earlier message has gone.");
     store.CompleteDelivery(store.FindReceipt(later.Id)!, MessageStatus.Delivered);
-    Check(store.BeginDelivery() is null, "An uncertain submission can never use the unsubmitted-release path.");
+    Check(ClaimPeerMessage(store) is null && store.FindReceipt(message.Id) is { Status: MessageStatus.Uncertain, Attempts: 1 },
+        "An uncertain submission can never use the unsubmitted-release path, after independently settling its advisory.");
     var submitted = Message(from, to); store.Accept(submitted, store.BrokerId); store.BeginDelivery();
     store.CompleteDelivery(store.FindReceipt(submitted.Id)!, MessageStatus.Submitted);
     Refuses("message_not_submitting", () => store.ReleaseUnsubmittedClaim(store.FindReceipt(submitted.Id)!));

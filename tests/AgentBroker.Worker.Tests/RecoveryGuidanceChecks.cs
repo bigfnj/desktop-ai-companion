@@ -85,6 +85,19 @@ internal static class RecoveryGuidanceChecks
             "RECOVERY_GUIDANCE_REPLACED: never-submitted refusal names discovery while Delivered invents no work outcome");
         check(BrokerRecoveryGuidance.ForError("recipient_mismatch")!.Advice.Contains("report-only", StringComparison.Ordinal),
             "RECOVERY_GUIDANCE_EXACT: recovery guidance grants no predecessor action rights");
+        check(BrokerRecoveryGuidance.ForError("wait_in_progress")!.Advice.Contains("wait_for_receipt has its own and may run beside them", StringComparison.Ordinal) &&
+            BrokerRecoveryGuidance.ForError("wait_capacity")!.Advice.Contains("share one wait per session", StringComparison.Ordinal),
+            "RECOVERY_GUIDANCE_WAIT_CLASSES: wait refusals explain the shared message/reply wait and the separate receipt wait");
+        // X3 (AgentBroker next campaign 2026-11-08): declaration and title refusals get fixed advice, never "wait for
+        // discovery", which cannot help a generic mailbox, an observation-only row or a codex: title.
+        string[] hintCodes = ["native_session_unverified", "invalid_session_declaration", "declaration_limit", "invalid_session_title", "session_title_limit"];
+        check(hintCodes.All(code => BrokerRecoveryGuidance.ForError(code) is { NextTool: "list_sessions" } hint &&
+                !hint.Advice.Contains("Wait for", StringComparison.OrdinalIgnoreCase)) &&
+            BrokerRecoveryGuidance.ForError("native_session_unverified")!.Advice.Contains("codex: title cannot set one", StringComparison.Ordinal),
+            "RECOVERY_GUIDANCE_HINT_CODES: every declaration and title refusal names list_sessions without promising that waiting helps");
+        check(BrokerRecoveryGuidance.ForError("notice_reply_refused") is { NextTool: "acknowledge_message" } noticeHint &&
+            noticeHint.Advice.Contains("cannot be answered", StringComparison.Ordinal),
+            "RECOVERY_GUIDANCE_NOTICE_REPLY: a refused reply to a notice points to acknowledge_message, not send");
 
         string scratch = Path.Combine(AppContext.BaseDirectory, "scratch", "recovery-guidance-" + Guid.NewGuid().ToString("N"));
         string? keyName = null;
@@ -121,6 +134,22 @@ internal static class RecoveryGuidanceChecks
                 actualGuidance.GetProperty("availability").GetProperty("cause").GetString() == "unknown" &&
                 actualGuidance.GetProperty("operation").GetString() == "wait_for_messages",
                 "AVAILABILITY_WIRE_SUBJECT: actual authenticated MCP preserves SDK text plus local subject and cause");
+            // X3 on the wire: a codex: row that discovery never observed cannot set a declaration, and the refusal carries guidance.
+            await File.WriteAllTextAsync(request, JsonSerializer.Serialize(new { tool = "set_session_declaration", arguments = new { session = missing, displayName = "Synthetic hint" } }), new UTF8Encoding(false));
+            using var hintOutput = new MemoryStream();
+            int hintCode = await McpCallClient.RunAsync(new(scratch, request, false), hintOutput);
+            using var hint = JsonDocument.Parse(hintOutput.ToArray());
+            var hintAdvisories = hint.RootElement.GetProperty("advisories").EnumerateArray().Select(value => value.GetString()!).ToArray();
+            bool hintGuided = hintAdvisories.Any(value =>
+            {
+                using var advisory = JsonDocument.Parse(value);
+                return advisory.RootElement.TryGetProperty("kind", out var kind) && kind.GetString() == "agentbroker.recovery_guidance" &&
+                    advisory.RootElement.GetProperty("guidance").GetProperty("code").GetString() == "native_session_unverified" &&
+                    advisory.RootElement.GetProperty("guidance").GetProperty("nextTool").GetString() == "list_sessions";
+            });
+            check(hintCode == 10 && hint.RootElement.GetProperty("result").GetString() == "An error occurred invoking 'set_session_declaration': native_session_unverified" &&
+                hintGuided,
+                "RECOVERY_GUIDANCE_WIRE_HINT_CODE: an unverified declaration refusal reaches the client with list_sessions guidance");
 
             var destination = adapter.Address(worker.Runtime.Store.BrokerId);
             await UntilAsync(() => worker.Runtime.Store.IsAddressable(destination));

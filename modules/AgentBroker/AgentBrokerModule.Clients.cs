@@ -54,12 +54,25 @@ public sealed partial class AgentBrokerModule
 
     private async Task<string> ConnectAndCheckAsync(string client)
     {
+        if (shutDown || !settings.Enabled || dataDirectory is null || run is null)
+            return "Enable AgentBroker before connecting a client.";
+        int current = generation;
+        CancellationToken token = run.Token;
         string result = await ConfigureClientAsync(client);
-        if (!shutDown && settings.Enabled && run is not null && !run.IsCancellationRequested) await CheckClientSetupAsync(client);
+        if (shutDown || generation != current || token.IsCancellationRequested)
+            return ObsoleteSetupResult(result);
+        await CheckClientSetupAsync(client);
+        if (shutDown || generation != current || token.IsCancellationRequested)
+            return ObsoleteSetupResult(result);
         clientSetupResults[client] = result;
         NotifyInfoChanged();
         return result;
     }
+
+    // ConfigureAsync returns application-owned guidance, never raw vendor diagnostics. Its completed or uncertain
+    // outcome still matters when a restart prevents publishing it into the new connection's cached status.
+    private static string ObsoleteSetupResult(string result) => result +
+        " The broker connection changed while this action was running. When AgentBroker is running, choose Check client setup before retrying.";
 
     private string ClientHeadline(string client)
     {

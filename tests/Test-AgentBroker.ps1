@@ -154,7 +154,7 @@ $harnesses = @(
 )
 $failures = New-Object 'Collections.Generic.List[string]'
 # Floors are the measured final 2026-11-08 integration inventories (3201 total). Intentional suite removal needs an explicit review.
-$assertionFloors = @{ Core = 408; Relay = 40; Claude = 212; Desktop = 594; Adapter = 84; Network = 250; Worker = 1613 }
+$assertionFloors = @{ Core = 515; Relay = 40; Claude = 212; Desktop = 594; Adapter = 84; Network = 250; Worker = 1901 }
 $assertions = 0
 foreach ($harness in $harnesses) {
     Write-Host ("=== AgentBroker " + $harness.Name + ' deterministic harness')

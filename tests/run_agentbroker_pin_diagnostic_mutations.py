@@ -65,6 +65,8 @@ SOURCES = {
     "claudeadapter": "tools/AgentBroker.Worker/Adapters/ClaudeNativeAdapter.cs",
     "claudetrust": "tools/AgentBroker.Worker/Adapters/WindowsClaudePublicImageTrust.cs",
     "workeroptions": "tools/AgentBroker.Worker/WorkerOptions.cs",
+    "recoveryguidance": "tools/AgentBroker.Worker/BrokerRecoveryGuidance.cs",
+    "toolfixture": "tests/AgentBroker.Worker.Tests/ToolFixture.cs",
 }
 PROJECTS = {
     "worker": "tests/AgentBroker.Worker.Tests/AgentBroker.Worker.Tests.csproj",
@@ -105,6 +107,8 @@ def require_rebuilt_artifacts(before: dict, after: dict, started_ns: int) -> Non
 
 def mutation_artifact(source: str) -> str:
     relative = SOURCES[source]
+    if relative.startswith("tests/AgentBroker.Worker.Tests/"):
+        return "AgentBroker.Worker.Tests.dll"
     if relative.startswith("src/AgentBroker.Core/"):
         return "AgentBroker.Core.dll"
     if relative.startswith(("tools/AgentBroker.CodexDesktopAdapter/", "tools/AgentBroker.Pins/")):
@@ -122,9 +126,9 @@ def mutation_artifact(source: str) -> str:
 # lifecycle checks (N-agentbroker-native-flicker-01). Worker 213 and focused 81 after the review fixes: three more lifecycle
 # checks (adapter failure recorded, owner_discovery_rejected per row), and owner_discovery_rejected during owner
 # resolution now checked as a skipped row (two checks) instead of a failed pass (three).
-# Worker re-measured at 516 on the final 2026-11-07 claim/renewal integration, with 516 independent PASS labels and
-# in-process product/test hashes matching the fresh restored build. The older fixed 234 blocked a healthy baseline.
-EXISTING_COUNTS = {"worker": 516, "desktop": 157}
+# Worker re-measured at 696 in the final 2026-11-08 seven-harness run; the complete Worker inventory was 1901.
+# That captured run identifies its product/test hashes. The older fixed 234 blocked a healthy baseline.
+EXISTING_COUNTS = {"worker": 696, "desktop": 157}
 FOCUSED_COUNTS = {"worker": 92, "desktop": 23}  # desktop 15 -> 23: installed-version image-mismatch witnesses and layout controls
 CLAUDE_SCENARIOS = ("early-reject", "unsupported-version", "hash-mismatch", "mixed", "recovery", "bounded-snapshot")
 
@@ -168,6 +172,10 @@ WITNESSES = (
         'publishedBindings = new Dictionary<SessionAddress, BindingObservation>(); '
         'throw new AdapterDiscoveryException(new("native_discovery_failed", "Native Codex directory is unavailable."), error); }',
     ),), failure_check="Codex unsupported_desktop_version survives the real adapter catch during directory observation"),
+    Witness("codex-discovery-unreached-starved", "codex", "worker", ("--codex-discovery-fairness-only",), "CodexDiscoveryFairnessChecks.cs", ((
+        ".ThenBy(r => orderIndex.GetValueOrDefault(r.ConversationId, int.MaxValue)).ToArray();",
+        ".ThenBy(r => orderIndex.GetValueOrDefault(r.ConversationId, int.MaxValue) * 0).ToArray();",
+    ),), failure_check="CODEX_FAIR_BUDGET_TAIL_REACHED: a successful prefix cannot consume every later pass while a valid unreached tail is never attempted"),
     Witness("codex-profile-reporting", "provider", "worker", ("--codex-provider-diagnostics-only",), "CodexProviderDiagnosticChecks.cs", (
         ('                diagnostics.Add(profilePinDiagnostic);', "                _ = error;"),
         ('                diagnostics.Add(new("vscode_profile_unavailable",\n'
@@ -212,7 +220,7 @@ WITNESSES = (
     Witness("bus-signal-never-completed", "store", "worker", ("--wait-tools-only",), "WaitToolChecks.cs", ((
         "Interlocked.Exchange(ref changeSignal, NewSignal()).TrySetResult();",
         "Interlocked.Exchange(ref changeSignal, NewSignal());",
-    ),)),
+    ),), failure_check="wait_for_messages returns within two seconds of an arrival"),
     Witness("bus-send-compares-createdat", "store", "worker", ("--send-only",), "SendToolChecks.cs", ((
         "return Accept(sent, authenticatedBroker);",
         "return Accept(sent with { CreatedAt = Now }, authenticatedBroker);",
@@ -223,10 +231,100 @@ WITNESSES = (
         "            return state.Messages.Where(r => r.Message.Recipient == recipient && r.Status == MessageStatus.Accepted)",
         "            return state.Messages.Where(r => r.Message.Recipient == recipient)",
     ),)),
+    # Re-pointed by lane feature/agentbroker-wait-classes (2026-11-08): the slot key is now (session, class); same intent.
     Witness("bus-wait-per-session-unbounded", "runtime", "worker", ("--wait-tools-only",), "WaitToolChecks.cs", ((
-        'if (!waits.TryAdd(session, 0)) throw new BrokerException("wait_in_progress", "This session already has an active wait.");',
-        "waits.TryAdd(session, 0);",
-    ),)),
+        'if (!waits.TryAdd(slot, 0)) throw new BrokerException("wait_in_progress", "This session already has an active wait of this class.");',
+        "waits.TryAdd(slot, 0);",
+    ),), failure_check="a second concurrent wait for one session is refused as wait_in_progress"),
+    # ---- lane feature/agentbroker-wait-classes (AgentBroker next campaign, 2026-11-08) ----
+    # Each mutant breaks one rule of the two wait classes or the listening count; failure_check names the one check it
+    # must fail first. These checks remain after the --existing-tests-only cut-off; its final measured pin is 696.
+    Witness("wait-class-receipt-joins-incoming", "tools", "worker", ("--receipt-wait-only",), "ReceiptWaitChecks.cs", ((
+        "var answered = await WaitAsync(original.Sender, WaitClass.Receipt, timeoutSeconds, () =>",
+        "var answered = await WaitAsync(original.Sender, WaitClass.Incoming, timeoutSeconds, () =>",
+    ),), failure_check="RECEIPT_WAIT_BESIDE_INCOMING: a receipt wait runs beside the same sender's wait_for_messages"),
+    Witness("wait-class-reply-leaves-incoming", "tools", "worker", ("--receipt-wait-only",), "ReceiptWaitChecks.cs", ((
+        "return WaitAsync(sender, WaitClass.Incoming, timeoutSeconds, () => runtime.Store.Messages(sender)",
+        "return WaitAsync(sender, WaitClass.Receipt, timeoutSeconds, () => runtime.Store.Messages(sender)",
+    ),), failure_check="REPLY_WAIT_SHARES_INCOMING: a reply wait beside the same sender's wait_for_messages is wait_in_progress"),
+    Witness("wait-listening-count-as-set", "store", "worker", ("--wait-tools-only",), "WaitToolChecks.cs", ((
+        """            if (count > 1) listening[address] = count - 1;
+            else listening.Remove(address);""",
+        "            listening.Remove(address);",
+    ),), failure_check="LISTENING_REFCOUNT: the mailbox stays Idle while its incoming wait continues after its receipt wait ends"),
+    Witness("wait-listening-before-admission", "runtime", "worker", ("--wait-tools-only",), "WaitToolChecks.cs", (
+        ("""        var slot = (session, waitClass);
+""", """        var slot = (session, waitClass);
+        store.EnterListening(session);
+"""),
+        ("""        store.EnterListening(session);
+        return new WaitSlot(this, slot);""", "        return new WaitSlot(this, slot);"),
+    ), failure_check="WAIT_REFUSED_IN_PROGRESS_NO_LEAK: after the first wait ends, the refused one has left nothing listening"),
+    Witness("wait-refusal-clears-listening", "runtime", "worker", ("--wait-tools-only",), "WaitToolChecks.cs", ((
+        'if (!waits.TryAdd(slot, 0)) throw new BrokerException("wait_in_progress", "This session already has an active wait of this class.");',
+        'if (!waits.TryAdd(slot, 0)) { store.LeaveListening(session); '
+        'throw new BrokerException("wait_in_progress", "This session already has an active wait of this class."); }',
+    ),), failure_check="WAIT_REFUSED_IN_PROGRESS_KEEPS_FIRST: a refused second wait leaves the first wait's mailbox Idle"),
+    Witness("wait-capacity-ignores-receipt", "runtime", "worker", ("--wait-tools-only",), "WaitToolChecks.cs", ((
+        "        if (Interlocked.Increment(ref activeWaits) > MaximumConcurrentWaits)",
+        "        if (waitClass == WaitClass.Incoming && Interlocked.Increment(ref activeWaits) > MaximumConcurrentWaits)",
+    ),), failure_check="WAIT_CAPACITY_COUNTS_RECEIPT: sixteen receipt waits fill the capacity an incoming wait is then refused by"),
+    # Lifecycle port atop the two-class lane. Root runs these serially in its reserved host build window.
+    Witness("wait-request-context-shared", "toolfixture", "worker", ("--wait-lifecycle-core-only",), "WaitLifecycleChecks.cs", ((
+        "var context = new DefaultHttpContext();", "var context = Context;",
+    ),), failure_check="WAIT_REQUEST_SCOPES_DISTINCT: requests own distinct contexts and metadata dictionaries and copy only transport identity"),
+    Witness("wait-request-accessor-ambient", "toolfixture", "worker", ("--wait-lifecycle-core-only",), "WaitLifecycleChecks.cs", ((
+        "return (context, new BrokerTools(Runtime, new FixedHttpContextAccessor { HttpContext = context }));",
+        "return (context, new BrokerTools(Runtime, new HttpContextAccessor { HttpContext = context }));",
+    ),), failure_check="WAIT_REQUEST_SCOPES_IDENTITY: changing one request's identity cannot change another request's caller or ambient holder"),
+    Witness("wait-lifecycle-stop-omitted", "runtime", "worker", ("--wait-lifecycle-core-only",), "WaitLifecycleChecks.cs", ((
+        "try { StopWaits(); }", "try { _ = waits; }",
+    ),), failure_check="WAIT_LIFECYCLE_SHUTDOWN: runtime disposal ends both tool waits with broker_stopping and clears listening"),
+    Witness("wait-lifecycle-stop-unlinked", "tools", "worker", ("--wait-lifecycle-core-only",), "WaitLifecycleChecks.cs", ((
+        "CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, runtime.WaitStopping)",
+        "CancellationTokenSource.CreateLinkedTokenSource(cancellationToken)",
+    ),), failure_check="WAIT_LIFECYCLE_SHUTDOWN: runtime disposal ends both tool waits with broker_stopping and clears listening"),
+    Witness("wait-lifecycle-quiet-disconnect", "store", "worker", ("--wait-lifecycle-core-only",), "WaitLifecycleChecks.cs", ((
+        "if (removed) SignalChange();", "_ = removed;",
+    ),), failure_check="WAIT_LIFECYCLE_DISCONNECT: quiet address loss promptly releases both twenty-second waits"),
+    Witness("wait-lifecycle-release-unlocked", "runtime", "worker", ("--wait-lifecycle-core-only",), "WaitLifecycleChecks.cs", ((
+        "lock (owner.waitGate)", "if (true)",
+    ),), failure_check="WAIT_LIFECYCLE_RELEASE_SERIALIZED: a release blocked at its listening decrement holds the admission gate"),
+    Witness("wait-lifecycle-release-repeated", "runtime", "worker", ("--wait-lifecycle-core-only",), "WaitLifecycleChecks.cs", ((
+        "if (Interlocked.Exchange(ref released, 1) != 0) return;", "_ = Interlocked.Exchange(ref released, 1);",
+    ),), failure_check="WAIT_LIFECYCLE_IDEMPOTENT_RELEASE: disposing an old slot again cannot remove its replacement"),
+    Witness("wait-lifecycle-admission-reopened", "runtime", "worker", ("--wait-lifecycle-core-only",), "WaitLifecycleChecks.cs", ((
+        'if (waitsClosed) throw new BrokerException("broker_stopping", "Broker waits are stopping.");',
+        'if (waitsClosed && activeWaits > MaximumConcurrentWaits) throw new BrokerException("broker_stopping", "Broker waits are stopping.");',
+    ),), failure_check="WAIT_LIFECYCLE_SHUTDOWN_FINAL: admission itself refuses broker_stopping before later tools can link a cached cancelled token"),
+    Witness("wait-lifecycle-stop-release-omitted", "runtime", "worker", ("--wait-lifecycle-registry-only",), "WaitLifecycleChecks.cs", ((
+        "foreach (var slot in waits.Keys) store.LeaveListening(slot.Session);", "_ = waits.Keys;",
+    ),), failure_check="WAIT_LIFECYCLE_REGISTRY_DISPOSE: runtime disposal itself releases direct slots before callers dispose their handles"),
+    Witness("wait-lifecycle-pending-polls", "tools", "worker", ("--wait-lifecycle-core-only",), "WaitLifecycleChecks.cs", ((
+        "long sleep = wakeWithin?.Invoke() is TimeSpan wake ? Math.Min(remaining, Math.Max(1, (long)Math.Ceiling(wake.TotalMilliseconds))) : remaining;",
+        "long sleep = wakeWithin?.Invoke() is TimeSpan wake ? Math.Min(remaining, Math.Max(1, (long)Math.Ceiling(wake.TotalMilliseconds))) : remaining;\n                sleep = Math.Min(sleep, 3000);",
+    ),), failure_check="WAIT_LIFECYCLE_QUIET_NO_POLL: a complete quiet four-second wait reads pending exactly twice and releases both bounded maps"),
+    Witness("wait-lifecycle-address-deadline-omitted", "tools", "worker", ("--wait-lifecycle-core-only",), "WaitLifecycleChecks.cs", ((
+        "var unavailableIn = runtime.Store.TimeUntilAddressUnavailable(session);", "var unavailableIn = TimeSpan.FromDays(1);",
+    ),), failure_check="WAIT_LIFECYCLE_ADDRESS_DEADLINE: a quiet exact native lease boundary ends its wait without periodic pending scans or another mutation"),
+    Witness("wait-host-stop-registration-omitted", "workerapp", "worker", ("--wait-host-stop-only",), "WaitHostShutdownChecks.cs", ((
+        "waitStopping = application.Lifetime.ApplicationStopping.Register(static state => ((BrokerRuntime)state!).StopWaits(), runtime);",
+        "waitStopping = default;",
+    ),), failure_check="WAIT_HOST_STOP_BEFORE_DRAIN: the actual lifetime exits below four seconds and the draining HTTP client receives broker_stopping"),
+    Witness("wait-host-stopping-code-omitted", "recoveryguidance", "worker", ("--wait-host-stop-only",), "WaitHostShutdownChecks.cs", ((
+        '"broker_stopping" => new(code, "list_sessions",', '"never_broker_stopping" => new(code, "list_sessions",',
+    ),), failure_check="WAIT_HOST_STOP_BEFORE_DRAIN: the actual lifetime exits below four seconds and the draining HTTP client receives broker_stopping"),
+    Witness("receipt-deadline-wake-omitted", "tools", "worker", ("--receipt-wait-only",), "ReceiptWaitChecks.cs", ((
+        "long sleep = wakeWithin?.Invoke() is TimeSpan wake ? Math.Min(remaining, Math.Max(1, (long)Math.Ceiling(wake.TotalMilliseconds))) : remaining;",
+        "long sleep = remaining;",
+    ),), failure_check="RECEIPT_WAKES_AT_DEADLINE: a waiting wait_for_receipt wakes at the message's own deadline"),
+    Witness("receipt-deadline-reread-omitted", "tools", "worker", ("--receipt-wait-only",), "ReceiptWaitChecks.cs", ((
+        "if (!rereadAfterDeadline) return null;", "if (!rereadAfterDeadline || original.ExpiresAt <= runtime.StoreNow) return null;",
+    ),), failure_check="RECEIPT_WAKE_STRADDLE: a deadline passing between the reread and the wake calculation ends the wait at once"),
+    Witness("receipt-expiry-signal-omitted", "store", "worker", ("--receipt-wait-only",), "ReceiptWaitChecks.cs", ((
+        "// Continuations run asynchronously, so completing under gate never runs a waiter here.\n            SignalChange();",
+        "// Continuations run asynchronously, so completing under gate never runs a waiter here.\n            if (!state.Messages.Any(receipt => receipt.Status == MessageStatus.Expired)) SignalChange();",
+    ),), failure_check="RECEIPT_WAIT_EXPIRED: an expiry during the wait ends it with Expired"),
     Witness("bus-instructions-removed", "workerapp", "worker", ("--instructions-only",), "InstructionsChecks.cs", ((
         "AddMcpServer(server => server.ServerInstructions = BrokerInstructions.Text)",
         "AddMcpServer()",
@@ -426,11 +524,11 @@ WITNESSES = (
         "return knownName && (host.Port ?? 80) == listenerPort;", "return knownName;",
     ),)),
     Witness("broker-d-wait-returns-unaddressable", "tools", "worker", ("--wait-tools-only",), "WaitToolChecks.cs", ((
-        '            Run(() => { runtime.Store.RequireAddressable(session, availabilitySubject); return true; });\n'
-        "            var result = pending();\n",
-        "            var result = pending();\n"
-        '            if (result.Length == 0) Run(() => { runtime.Store.RequireAddressable(session, availabilitySubject); return true; });\n',
-    ),)),
+        '                Run(() => { runtime.Store.RequireAddressable(session, availabilitySubject); return true; });\n'
+        "                var result = pending();\n",
+        "                var result = pending();\n"
+        '                if (result.Length == 0) Run(() => { runtime.Store.RequireAddressable(session, availabilitySubject); return true; });\n',
+    ),), failure_check="WAIT_PENDING_ADDRESS_LOSS: an in-flight wait refuses its disconnected address before returning the newly pending message"),
     # ---- lane feature/agentbroker-backlog-e ----
     # Tombstone on acknowledgement (N-broker-a-02, owner decision 2026-10-27), the rollback to 1.0.4 and the unchanged
     # federation wire. Each witness runs one TombstoneChecks group; the checks run after the --existing-tests-only
@@ -1129,6 +1227,8 @@ def main() -> int:
         print(json.dumps({"mode": "plan_only", "buildsStarted": False, "sourcesChanged": False,
                           "selectedFamilies": families, "expectedFailureExitCode": 1,
                           "witnesses": [{"name": item.name, "source": SOURCES[item.source],
+                                         "testArgs": item.test_args, "replacements": item.replacements,
+                                         "replacementCounts": item.replacement_counts,
                                          "classification": item.kind, "newFailureFile": item.failure_file,
                                          "expectedFailureCheck": item.failure_check,
                                          "existingAssertions": EXISTING_COUNTS[item.family] if item.kind == "reporting" else None,

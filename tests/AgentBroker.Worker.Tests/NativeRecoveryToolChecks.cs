@@ -56,6 +56,11 @@ internal static class NativeRecoveryToolChecks
             {
                 Task<JsonElement> Call(string name, object arguments) => rpc("tools/call", new { name, arguments });
                 var tools = (await rpc("tools/list", new { })).GetProperty("result").GetProperty("tools").EnumerateArray().ToArray();
+                check(HasSchemaFixtureCoverage(tools),
+                    "RECOVERY_OUTPUT_SCHEMA_COVERAGE_" + transport + ": every published outputSchema has exactly one named contract fixture");
+                var uncovered = JsonSerializer.SerializeToElement(new { name = "uncovered_query", outputSchema = new { type = "object" } });
+                check(!HasSchemaFixtureCoverage(tools.Append(uncovered)),
+                    "RECOVERY_SCHEMA_UNCOVERED_CONTROL_" + transport + ": a third tool publishing an outputSchema cannot escape contract coverage");
                 check(tools.Length == 16 && new[] { "read_inbox_page", "read_native_recovery" }.All(name => tools.Any(tool =>
                         tool.GetProperty("name").GetString() == name && tool.TryGetProperty("outputSchema", out var schema) && schema.ValueKind == JsonValueKind.Object)) &&
                     tools.All(tool => tool.GetProperty("name").GetString() is not ("acknowledge_recovered_message" or "reply_to_recovered_message")),
@@ -71,6 +76,15 @@ internal static class NativeRecoveryToolChecks
                     IsError(await Call("read_native_recovery", new { session = seed.Old }), "native_recovery_unverified"),
                     "RECOVERY_DISCOVERY_AUTHORITY_" + transport + ": labels, native-looking registrations and predecessors cannot borrow discovery proof");
                 var recovered = await Call("read_native_recovery", new { session = seed.Current }); var page = Body(recovered);
+                var outputSchema = tools.Single(tool => tool.GetProperty("name").GetString() == "read_native_recovery").GetProperty("outputSchema");
+                check(PublishedOutputSchema.Matches(outputSchema, recovered.GetProperty("result").GetProperty("structuredContent"), out string schemaFailure) &&
+                    PublishedOutputSchema.Matches(outputSchema, page, out schemaFailure),
+                    "RECOVERY_OUTPUT_SCHEMA_" + transport + ": actual non-reply and unblocked entries follow tools/list schema; " + schemaFailure);
+                var missingBlock = JsonNode.Parse(page.GetRawText())!;
+                missingBlock["entries"]![0]!.AsObject().Remove("blockReason");
+                check(!PublishedOutputSchema.Matches(outputSchema, JsonSerializer.SerializeToElement(missingBlock), out string missingFailure) &&
+                    missingFailure.Contains("blockReason: required", StringComparison.Ordinal),
+                    "RECOVERY_SCHEMA_MISSING_CONTROL_" + transport + ": evaluator refuses the omitted nullable block reason");
                 var entries = page.GetProperty("entries").EnumerateArray().ToArray();
                 var ids = entries.Select(entry => entry.GetProperty("receipt").GetProperty("message").GetProperty("id").GetGuid()).ToHashSet();
                 check(ids.SetEquals([seed.Incoming.Message.Id, seed.Outgoing.Message.Id, seed.Reply.Message.Id]) &&
@@ -117,6 +131,13 @@ internal static class NativeRecoveryToolChecks
             CleanupScratch(scratch);
         }
     }
+    // Match the actual tools/list schema inventory, including any existing tool that later enables structured content.
+    // These names identify the contract fixtures here and in PendingInboxToolChecks, not a subset guessed from the result.
+    private static bool HasSchemaFixtureCoverage(IEnumerable<JsonElement> tools) => tools
+        .Where(tool => tool.TryGetProperty("outputSchema", out _))
+        .Select(tool => tool.GetProperty("name").GetString() ?? "")
+        .Order(StringComparer.Ordinal).SequenceEqual(new[] { "read_inbox_page", "read_native_recovery" });
+
     private sealed record RecoverySeed(SessionAddress Current, SessionAddress Old, SessionAddress Peer,
         MessageReceipt Incoming, MessageReceipt Outgoing, MessageReceipt Reply);
     private static RecoverySeed Seed(WorkerApplication worker, NativeAdapter adapter)

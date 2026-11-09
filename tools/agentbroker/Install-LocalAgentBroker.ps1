@@ -9,8 +9,9 @@
     the host's staged-update mechanism, preserving all existing module data and settings. It never changes client MCP
     configuration, enables native delivery, changes firewall rules, or restarts an editor.
     HostRuntimeDirectory optionally upgrades only the canonical public host runtime after graceful
-    shutdown, retaining rollback files. ArchivePreviousCopy explicitly retains an older replaced
-    module under a unique name so the host can retain the newly replaced copy too.
+    shutdown, retaining host runtime rollback files. ArchivePreviousCopy archives an already
+    existing replaced-module remnant before the update. The host deletes the newly replaced module
+    after a successful swap; module rollback requires a separately verified known-good ZIP.
     Before actual installation, run scripts-utilities/scripts/test-host-projection.ps1 and use
     an unprojected shell if that check reports projection.
 .EXAMPLE

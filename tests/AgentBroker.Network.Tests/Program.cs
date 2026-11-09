@@ -146,7 +146,7 @@ try
             (await runtimeA.DirectoryAsync(false, default)).SingleOrDefault(s => s.Address == remoteMailbox.Address)?.Activity);
         Check(await Seen() == (SessionActivity.Unknown, SessionActivity.Unknown),
             "MAILBOX_PEER_UNKNOWN: a paired broker sees a mailbox nobody waits on as Unknown, in the served directory and its own list");
-        using (runtimeB.BeginWait(remoteMailbox.Address))
+        using (runtimeB.BeginWait(remoteMailbox.Address, WaitClass.Incoming))
             Check(await Seen() == (SessionActivity.Idle, SessionActivity.Idle),
                 "MAILBOX_PEER_IDLE_WHILE_WAITING: a paired broker sees the mailbox as Idle while its owner is inside a wait");
         Check(await Seen() == (SessionActivity.Unknown, SessionActivity.Unknown),
