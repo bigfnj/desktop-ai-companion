@@ -75,11 +75,18 @@
          The SDK adds it by default, and its record inside the embedded PDB maps the checkout folder, by absolute
          path and outside PathMap's reach, to a raw URL carrying the commit, so every workstation build named the
          folder it was built in; ModuleKit's copy in every modules-dist zip did. A CI build maps that folder to /_/
-         and its record was clean, so the cost is automatic source fetch for an author stepping into this assembly
-         from a published package; the document names stay the repository-relative /_/src/.... Not
-         DeterministicSourcePaths on every build, which also gives a clean record (measured): that record still
-         carries the commit, so two commits with identical code build different bytes, the converter's reason.
-         CoreTests ("ModuleKit shipped symbols") fails on any Source Link record in this dll or ModuleKit's. -->
+         and its record is clean (measured with CI=true: one /_/* key), so what OFF costs is automatic source fetch
+         for an author stepping into this assembly from a published package, which release.yml packs in CI; the
+         document names stay the repository-relative /_/src/....
+         The alternative (its reasoning corrected by N-bd-w13-review-01) is DeterministicSourcePaths on every build,
+         which keeps that fetch and gives a workstation build the same clean record (measured). The commit in that
+         record's URL is no objection here, although it was the converter's: the converter's dll carries no version
+         stamp (GenerateAssemblyInfo false), but this library and ModuleKit already carry the full commit in AssemblyInformationalVersion and again
+         in the version resource's ProductVersion (the version, a plus sign and the commit, read back from Release
+         builds on SDK 10.0.302), so two commits with identical code build different bytes either way. What the
+         alternative does run into is the check: CoreTests ("ModuleKit shipped symbols") fails on ANY Source Link
+         record in this dll or ModuleKit's, mapped or not, so a mapped record would still be refused, and taking the
+         alternative means narrowing that check to accept a record whose only key is /_/. -->
     <EnableSourceLink>false</EnableSourceLink>
   </PropertyGroup>
 
