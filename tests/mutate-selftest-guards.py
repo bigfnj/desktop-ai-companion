@@ -25393,6 +25393,29 @@ CASES = (
      rb'@"[A-Za-z]:[\\/]|',
      SHIMEJI_CSPROJ, os.path.join(os.path.dirname(SHIMEJI_ENGINE_DLL), 'ShimejiConvert.dll'), SHIMEJI, 'cli-roundtrip',
      "CLI_SYMBOLS_RECORD_TEST_WITNESS: the compilation-options test reads a mapped root or a URL"),
+    # ---- burndown/w14-tests-scripts-1 ----
+    # N-bd-w13-review-06, graded through PRIVACY: during an unresolved merge the default mode reads theirs (stage 3) only,
+    # keeps the stages by path so the last one listed (theirs) replaces the others, or skips the merge base (stage 1). Each
+    # passed every conflict check while only theirs.txt and both.txt carried the identifier. "bd-w14-tests-scripts-1:" for
+    # one --only.
+    ("bd-w14-tests-scripts-1: the default mode reads only theirs of an unmerged file (N-bd-w13-review-06)",
+     PRIVACY_PS1,
+     b"elseif ($entry[0].StartsWith('100') -and -not (Get-ProtectedPattern $path)) {",
+     b"elseif ($entry[0].StartsWith('100') -and $entry[2] -ceq '3' -and -not (Get-ProtectedPattern $path)) {",
+     None, None, PRIVACY, None,
+     "an unmerged file whose identifier only ours (stage 2) carries was not reported"),
+    ("bd-w14-tests-scripts-1: the default mode keeps the unmerged stages by path (N-bd-w13-review-06)",
+     PRIVACY_PS1,
+     b"elseif ($entry[0].StartsWith('100') -and -not (Get-ProtectedPattern $path)) { $stages[':' + $entry[2] + ':' + $path]",
+     b"elseif ($entry[0].StartsWith('100') -and -not (Get-ProtectedPattern $path)) { $stages[':3:' + $path]",
+     None, None, PRIVACY, None,
+     "an unmerged file whose identifier only ours (stage 2) carries was not reported"),
+    ("bd-w14-tests-scripts-1: the default mode skips the merge base of an unmerged file (N-bd-w13-review-06)",
+     PRIVACY_PS1,
+     b"elseif ($entry[0].StartsWith('100') -and -not (Get-ProtectedPattern $path)) {",
+     b"elseif ($entry[0].StartsWith('100') -and $entry[2] -cne '1' -and -not (Get-ProtectedPattern $path)) {",
+     None, None, PRIVACY, None,
+     "an unmerged file whose identifier only the merge base (stage 1) carries was not reported"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

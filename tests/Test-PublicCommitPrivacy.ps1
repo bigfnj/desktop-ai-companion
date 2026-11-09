@@ -963,17 +963,20 @@ if ($SelfTest) {
         # The default mode during an unresolved merge (N-bd-w12-review-05). git grep --cached skips every stage of a
         # conflicted path, so these stages were never read and the check passed, and git ls-files names a path once per
         # stage, so the conflicted key was refused three times. Every file but resolved.txt changes on both sides of a
-        # merge left unresolved: only theirs (stage 3) carries the identifier in theirs.txt, both sides do in both.txt
-        # and neither does in clean.txt. blob.bin's stage 3 carries it after a NUL byte, so git grep -I calls that stage
-        # binary, as it would the same file resolved (the WITNESS that git still picks the text files), and site.pem has
-        # a protected shape. resolved.txt changes on one side only, so it merges cleanly, at stage 0.
+        # merge left unresolved: only theirs (stage 3) carries the identifier in theirs.txt, only ours (stage 2) in
+        # ours.txt, only the merge base (stage 1) in base.txt, both sides do in both.txt and neither does in clean.txt.
+        # Each stage alone carries it in one file (N-bd-w13-review-06): with theirs.txt and both.txt alone, a reader of
+        # stage 3 only, or one that kept the stages by path so the last one listed replaced the others, passed every check
+        # here. blob.bin's stage 3 carries it after a NUL byte, so git grep -I calls that stage binary, as it would the
+        # same file resolved (the WITNESS that git still picks the text files), and site.pem has a protected shape.
+        # resolved.txt changes on one side only, so it merges cleanly, at stage 0.
         $conflictRepo = Join-Path $fixtureRoot 'conflict'
         [void][IO.Directory]::CreateDirectory($conflictRepo)
-        $conflictFiles = @('theirs.txt', 'both.txt', 'clean.txt', 'blob.bin', 'site.pem')
+        $conflictFiles = @('theirs.txt', 'ours.txt', 'base.txt', 'both.txt', 'clean.txt', 'blob.bin', 'site.pem')
         $conflictSides = @(
-            @('shared line', 'shared line', 'shared line', "shared`0", 'shared line'),
-            @('trunk wording', 'trunk wording for CONTOSO', 'trunk wording', "trunk`0", 'trunk wording'),
-            @('side wording for Contoso', 'side wording for Contoso', 'side wording', "side`0 for Contoso", 'side for Contoso'))
+            @('shared line', 'shared line', 'shared line for Contoso', 'shared line', 'shared line', "shared`0", 'shared line'),
+            @('trunk wording', 'trunk wording for Contoso', 'trunk wording', 'trunk wording for CONTOSO', 'trunk wording', "trunk`0", 'trunk wording'),
+            @('side wording for Contoso', 'side wording', 'side wording', 'side wording for Contoso', 'side wording', "side`0 for Contoso", 'side for Contoso'))
         function Save-ConflictSide([int]$Side, [string]$Message) {
             for ($i = 0; $i -lt $conflictFiles.Count; $i++) {
                 [IO.File]::WriteAllText((Join-Path $conflictRepo $conflictFiles[$i]), $conflictSides[$Side][$i] + "`n")
@@ -1007,13 +1010,19 @@ if ($SelfTest) {
         if (@($conflictGrep.Offenders) -ccontains 'site.pem') {
             throw 'Public privacy index self-test failed: an unmerged stage of a protected path was read.'
         }
-        if (-not $conflictGrep.Matched -or $conflictSeen -cne 'both.txt|resolved.txt|theirs.txt') {
+        if (-not (@($conflictGrep.Offenders) -ccontains 'ours.txt')) {
+            throw 'Public privacy index self-test failed: an unmerged file whose identifier only ours (stage 2) carries was not reported.'
+        }
+        if (-not (@($conflictGrep.Offenders) -ccontains 'base.txt')) {
+            throw 'Public privacy index self-test failed: an unmerged file whose identifier only the merge base (stage 1) carries was not reported.'
+        }
+        if (-not $conflictGrep.Matched -or $conflictSeen -cne 'base.txt|both.txt|ours.txt|resolved.txt|theirs.txt') {
             throw ('Public privacy index self-test failed: the unmerged text files were not each reported once from their stages: ' + $conflictSeen)
         }
         $count++
         [void](Step @('rm', '-q', '--cached', '--', 'site.pem') $conflictRepo)
         $conflictScan = Get-IndexPrivacyFindings $needles $conflictRepo
-        if (-not $conflictScan.Scanned -or ((@($conflictScan.Offenders)) -join '|') -cne 'both.txt|resolved.txt|theirs.txt') {
+        if (-not $conflictScan.Scanned -or ((@($conflictScan.Offenders)) -join '|') -cne 'base.txt|both.txt|ours.txt|resolved.txt|theirs.txt') {
             throw 'Public privacy index self-test failed: the default mode did not read the unmerged stages once nothing protected was indexed.'
         }
         $count++
