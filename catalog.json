@@ -2369,10 +2369,10 @@
       "id": "agentbroker",
       "name": "AgentBroker",
       "desc": "Local MCP messaging with discovery, mutual LAN pairing, and opt-in native agent adapters.",
-      "version": "1.9.1",
+      "version": "1.10.0",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/agentbroker.zip",
-      "sha256": "1c98fb2bb9bf22d69e6b999ae403a8a620c561e58b01891be8b44d0d726a23b6",
-      "bytes": 51467892,
+      "sha256": "811a39c4ef5666cc4b2229c69f91dbbab7a4f48b64d116281b1600cae6935eb0",
+      "bytes": 51486871,
       "permissions": "Network, Storage, LaunchProcess, AgentTranscripts",
       "minHostVersion": "1.6.1"
     }
