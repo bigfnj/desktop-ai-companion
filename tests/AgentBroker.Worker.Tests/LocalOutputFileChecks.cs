@@ -522,7 +522,8 @@ internal static class LocalOutputFileChecks
         try
         {
             var start = new ProcessStartInfo("fsutil.exe") { UseShellExecute = false, CreateNoWindow = true,
-                RedirectStandardOutput = true, RedirectStandardError = true };
+                RedirectStandardOutput = true, RedirectStandardError = true,
+                StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8 };
             foreach (string argument in new[] { "file", "setCaseSensitiveInfo", directory, enable ? "enable" : "disable" }) start.ArgumentList.Add(argument);
             using var process = Process.Start(start);
             if (process is null) return false;
