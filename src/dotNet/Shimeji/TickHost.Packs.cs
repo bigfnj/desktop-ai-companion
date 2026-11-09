@@ -86,6 +86,29 @@ namespace DesktopAICompanion.Shimeji
             }
         }
 
+        /// <summary>
+        /// Take every type <paramref name="ofType"/> selects out of the world's lookups (its name and its pack reference), so
+        /// nothing new resolves it: the app's uninstall, whose type's folder is about to go (N-bd-w12-review-01). Without it
+        /// the type stayed in the reference index until its registry entry was disposed, and that waits for the step's
+        /// UpdateHolds to release the holds of the births the uninstall dropped and the windows it closed; a kept companion
+        /// of another type whose Breed or Transform named the type at that step resolved it straight from the index, and
+        /// its child's hold kept the entry alive, so the step after opened a window for the uninstalled type. A later
+        /// reference now asks the stager, which finds the member gone from the pack index and falls back to the referring
+        /// type, as for any member that is not installed. Only lookups change, as in ForgetSprites: the host's own maps keep
+        /// the type, so a companion still running or drawing it keeps its sprites until its window closes and the entry's
+        /// disposal forgets the rest. Marking the registry entry retired was the rejected alternative: the world's index
+        /// answers before the stager or OpenBornTickPet is asked, so the type had to leave the index whatever else knew.
+        /// The count of host types retired.
+        /// </summary>
+        public int RetireTypes(Func<TickHostType, bool> ofType)
+        {
+            if (ofType == null) return 0;
+            var retired = new List<TickHostType>();
+            foreach (TickHostType t in _byType.Values) if (ofType(t)) retired.Add(t);
+            foreach (TickHostType t in retired) _world.RemoveType(t.Type);
+            return retired.Count;
+        }
+
         /// <summary>The types a companion holds now: what it runs as, and what it shows (self-test).</summary>
         public TickHostType[] HeldBy(TickMascot mascot)
         {

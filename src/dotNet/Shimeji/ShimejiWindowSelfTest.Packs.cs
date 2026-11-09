@@ -208,6 +208,13 @@ namespace DesktopAICompanion.Shimeji
         /// binding, in the uninstall's order (StartUp.RemoveEveryPetOfType): StartUp.RemovePendingBirthsOfInstalledType first,
         /// then the type's windows close. Alpha (installed, kept) breeds a Ball; Ball's type is the one uninstalled, and a
         /// second Ball the app spawned is pending in its own window at the same moment.
+        ///
+        /// Then a birth queued AFTER the drop (N-bd-w12-review-01): a second kept Alpha, pending in its own window at the
+        /// drop, enters Toss (a one-tick Breed of a Ball) at the very next step. The dropped birth's and the closed window's
+        /// holds are released only by that step's UpdateHolds, so the type was still in the world's reference index when
+        /// Toss resolved it, its birth held the entry alive, and the step after opened a Ball window from the type whose
+        /// folder had just been deleted. The pane deletes the folder right after the drop (CompanionsPaneControl), so the
+        /// reader and the pack index lose Ball here too, before any step runs.
         /// </summary>
         private static void CheckUninstallPendingBirth(Action<bool, string> check, StringBuilder log, string scratch)
         {
@@ -215,7 +222,7 @@ namespace DesktopAICompanion.Shimeji
             var lines = new List<string>();
             var docs = new Dictionary<string, string>(StringComparer.Ordinal)
             {
-                { "sp-alpha", Serialize(AlphaDoc(), Color.Red, Color.DarkRed) },
+                { "sp-alpha", Serialize(AlphaTossDoc(), Color.Red, Color.DarkRed) },
                 { "sp-ball", Serialize(BallDoc(), Color.Blue) },
             };
             var sizes = new LocalData(new AppSettingsStore(Path.Combine(scratch, "uninstall-birth-sizes.json"), null));
@@ -235,12 +242,15 @@ namespace DesktopAICompanion.Shimeji
             var forms = new List<FormCompanion>();
             CompanionTypeRegistry.Entry alphaEntry = null;
             int windowsOpened = 0;
+            // The registry id of the type each birth's window was opened for, in order.
+            var openedFor = new List<string>();
             try
             {
                 host = new TickHost(t =>
                     {
                         // As StartUp.OpenBornTickPet: a birth's window, counted.
                         windowsOpened++;
+                        openedFor.Add(t.Id);
                         var form = new FormCompanion(t.Animations, t.Sprites);
                         form.OpenHiddenForTick(t.Type.CellWidth, t.Type.CellHeight);
                         forms.Add(form);
@@ -284,21 +294,40 @@ namespace DesktopAICompanion.Shimeji
                 forms.Add(ballWindow);
                 TickMascot spawnedBall = host.Spawn(child.Type.Name, new TickPoint(work.Left + work.Width / 3, work.Bottom), false, "Morph", ballWindow);
 
+                // A second kept Alpha the app spawned, pending in its own window: its first step is Toss, which breeds a Ball.
+                var tosserWindow = new FormCompanion(alphaEntry.Animations, alphaEntry.Xml);
+                tosserWindow.OpenHiddenForTick(64, 64);
+                forms.Add(tosserWindow);
+                TickMascot tosser = host.Spawn(alpha.Name, new TickPoint(work.Left + work.Width / 4, work.Bottom), false, "Toss", tosserWindow);
+
                 // WITNESS: another type's uninstall leaves the birth queued.
                 int other = StartUp.RemovePendingBirthsOfInstalledType(host, tickEntries, "sp-alpha");
-                check(other == 0 && child.InManager && spawnedBall != null && spawnedBall.InManager,
+                check(other == 0 && child.InManager && spawnedBall != null && spawnedBall.InManager && tosser != null && tosser.InManager,
                     "uninstall: WITNESS a birth queued for the next step is found, and removing another type leaves it pending (dropped " + other + ")");
 
                 // Ball is uninstalled: its births still queued go first, then its windows close (the id in another case).
                 int dropped = StartUp.RemovePendingBirthsOfInstalledType(host, tickEntries, "SP-Ball");
                 check(dropped == 1 && !child.InManager && spawnedBall != null && spawnedBall.InManager,
                     "uninstall: a birth of the type still queued is dropped, and one the app spawned in its own window is left to that window (dropped " + dropped + ")");
+                // The pane deletes the folder next: the reader and the pack index no longer have Ball.
+                docs.Remove("sp-ball");
+                index = CompanionPackIndex.Build(new[] { IndexEntry("sp-alpha", "Alpha", "main", false) });
                 ballWindow.Kill();
                 int windowsBefore = windowsOpened;
                 host.Step();
                 check(!child.InManager && host.FormOf(child) == null && windowsOpened == windowsBefore && ballEntry.RefCount == 0 && ballEntry.Xml == null,
                     "uninstall: a dropped birth never activates or opens a window, and the type's registry entry goes with its last window (windows "
                     + (windowsOpened - windowsBefore) + ", refs " + ballEntry.RefCount + ")");
+
+                // N-bd-w12-review-01: Toss bred at that step; its child activates at this one and takes a window.
+                host.Step();
+                List<string> afterDrop = openedFor.GetRange(windowsBefore, openedFor.Count - windowsBefore);
+                check(afterDrop.Count == 1,
+                    "uninstall: WITNESS the kept companion bred at the step after the drop, and its child took a window (windows " + afterDrop.Count + ")");
+                int ofUninstalled = afterDrop.FindAll(id => string.Equals(id, "sp-ball", StringComparison.OrdinalIgnoreCase)).Count;
+                check(afterDrop.Count == 1 && ofUninstalled == 0 && ballEntry.RefCount == 0 && ballEntry.Xml == null,
+                    "uninstall: a kept companion breeding the uninstalled type at the step after the drop gets no window of it, its birth falls back to its own type ("
+                    + string.Join(", ", afterDrop) + "; refs " + ballEntry.RefCount + ")");
             }
             catch (Exception e)
             {
@@ -841,6 +870,24 @@ namespace DesktopAICompanion.Shimeji
                 PackAct(21, "Throw", "Breed", new[] { PackParam("BornX", "80"), PackParam("BornMascot", "Ball"), PackParam("BornBehavior", "Morph") },
                     new XmlData.PoseNode { Frame = 0, Ticks = 1 }, new XmlData.PoseNode { Frame = 0, Ticks = 1 }),
             });
+        }
+
+        /// <summary>Alpha with Toss beside Throw: a Breed of one Ball whose action is one tick long, so a companion entering
+        /// it breeds at its first step (Breed fires on the action's last tick). The child enters Morph, which this Alpha has
+        /// too (a still pose), so a birth that falls back to the parent's type, as one of a member that is not installed
+        /// does, still gets a window. The route chooses neither.</summary>
+        private static XmlData.RootNode AlphaTossDoc()
+        {
+            XmlData.RootNode doc = AlphaDoc();
+            var nodes = new List<XmlData.AnimationNode>(doc.Animations.Animation);
+            nodes[0] = PackRoute(1, 0, 0, 0);
+            nodes.Add(PackBehaviour(12, "Toss"));
+            nodes.Add(PackBehaviour(13, "Morph"));
+            nodes.Add(PackAct(22, "Toss", "Breed", new[] { PackParam("BornX", "80"), PackParam("BornMascot", "Ball"), PackParam("BornBehavior", "Morph") },
+                new XmlData.PoseNode { Frame = 0, Ticks = 1 }));
+            nodes.Add(PackAct(23, "Morph", null, new[] { PackParam("Duration", "500") }, new XmlData.PoseNode { Frame = 0, Ticks = 1 }));
+            doc.Animations.Animation = nodes.ToArray();
+            return doc;
         }
 
         /// <summary>Egg: Laid (yellow, then gold) hatches into Alpha, entering Throw.</summary>

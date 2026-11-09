@@ -7006,6 +7006,23 @@ Assert-True ($w12Every.Length -gt 0 -and $w12Born.Length -gt 0 -and $w12Born -cm
 Assert-True ($w12Every -cmatch '^internal int RemoveEveryPetOfType\(string id\)\s*\{\s*RemovePendingBirthsOfInstalledType\(tickHost, tickEntries, id\);\s*int removed = 0;') (
     'w12-host-1: an uninstall first drops the births of the type still queued in the app''s tick host, through the entries OpenBornTickPet reads')
 
+# ---- burndown/w13-shimeji-host-1 ----
+# A DEGRADED LEG IS SAID ON THE CONSOLE (N-bd-w12-review-02). A self-test that cannot exercise a leg on this machine writes
+# a DEGRADED line into its marker; Invoke-SelfTests.ps1 deletes the marker after a green run and CI prints only the
+# runner's console, so a degraded run read exactly as a full one. Comment-stripped and in ORDER: the runner reads the
+# marker for DEGRADED lines after it grades FAIL/EXC under a green exit, names them in a verdict conditioned on finding one,
+# and only then prints the plain ok. WITNESS: the runner was read, still grades FAIL/EXC, and still prints a plain ok.
+$w13Runner = Remove-PsLineComments $selfTestsSource
+$w13Unfolded = $w13Runner.IndexOf('$unfolded = @(Select-String -LiteralPath $markerPath', [StringComparison]::Ordinal)
+$w13Scan = $w13Runner.IndexOf('$degraded = @(Select-String -LiteralPath $markerPath -Pattern ''^\s*(\[[^\]]*\]\s*)?(NOTE:\s*)?DEGRADED:'')', [StringComparison]::Ordinal)
+$w13Said = $w13Runner.IndexOf('if ($degraded.Count -gt 0) {', [StringComparison]::Ordinal)
+$w13Verdict = $w13Runner.IndexOf('Write-Host (''  ok    {0} -- DEGRADED ({1} leg(s) not exercised here)'' -f $flag, $degraded.Count)', [StringComparison]::Ordinal)
+$w13Plain = $w13Runner.IndexOf('Write-Host (''  ok    {0}'' -f $flag) -ForegroundColor DarkGray', [StringComparison]::Ordinal)
+Assert-True ($w13Runner.Length -gt 0 -and $w13Unfolded -ge 0 -and $w13Plain -ge 0) (
+    'w13-shimeji-host-1: WITNESS Invoke-SelfTests.ps1 was read, grades a FAIL/EXC line under a green exit and prints a plain ok')
+Assert-True ($w13Scan -gt $w13Unfolded -and $w13Said -gt $w13Scan -and $w13Verdict -gt $w13Said -and $w13Plain -gt $w13Verdict) (
+    'w13-shimeji-host-1: the self-test runner reads DEGRADED lines from a green marker and names them beside the verdict, before any plain ok (N-bd-w12-review-02)')
+
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever

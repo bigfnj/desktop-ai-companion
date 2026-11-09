@@ -40,7 +40,8 @@ namespace DesktopAICompanion.Shimeji
         /// <summary>
         /// N-bd-parity-host-1-03: build.commit is the full source revision the project file stamped into its own metadata
         /// value, never the informational (product) version and never a placeholder, and the command refuses a build
-        /// without one before it reads anything or opens a trace. This build's own stamp is required: the window self-test
+        /// without one before it opens a trace or reads anything but the scenario (read first, since the trace path is
+        /// compared with the pack it names). This build's own stamp is required: the window self-test
         /// runs from a git checkout (the gate, CI, the mutation harness), and a build with none could not run the parity
         /// tooling at all.
         /// </summary>
@@ -72,13 +73,16 @@ namespace DesktopAICompanion.Shimeji
                 "parity run: a placeholder, a version, the all-zero id, upper case, 39 or 41 characters are no source revision;"
                 + " 40 lowercase hex is (" + string.Join(", ", accepted) + ")");
 
-            // The command itself: exit 2, its line, and no trace, before the scenario (which does not exist) is read.
+            // The command itself: exit 2, its line, and no trace, ahead of any refusal of the scenario (which does not
+            // exist). The pets and converter arguments are folders the trace is not in: a trace path inside an input is
+            // refused before this refusal (ParityRun.TraceClaim), and with both set to root, as they were, it was.
             string trace = Path.Combine(root, "refused.jsonl");
             var log = new StringWriter();
             int exit;
             try
             {
-                exit = ParityRunCommand.Execute(new[] { ParityRunCommand.Flag, Path.Combine(root, "absent.json"), root, trace, root }, 0, log, unstamped);
+                exit = ParityRunCommand.Execute(new[] { ParityRunCommand.Flag, Path.Combine(root, "absent.json"), Path.Combine(root, "absent-pets"), trace,
+                    Path.Combine(root, "absent-converter") }, 0, log, unstamped);
             }
             catch (Exception e)
             {
@@ -503,8 +507,10 @@ namespace DesktopAICompanion.Shimeji
             };
             string link = Path.Combine(pack, "link"), outside = Path.Combine(root, "outside");
             Directory.CreateDirectory(outside);
+            // DEGRADED, not NOTE (N-bd-w12-review-02): tests/Invoke-SelfTests.ps1 prints a DEGRADED line beside the flag's
+            // verdict on every run, and deletes the marker a NOTE was buried in.
             if (!TryMakeDirectoryLink(link, outside))
-                log.AppendLine("NOTE: parity run: the linked-pack refusal is not exercised (no symlink or junction could be made here)");
+                log.AppendLine("DEGRADED: parity run: the linked-pack refusal is not exercised (no symlink or junction could be made here)");
             else
             {
                 string[] linked;
@@ -522,6 +528,27 @@ namespace DesktopAICompanion.Shimeji
                   && packless[2].Contains("pack-invalid: the pack " + Path.GetFullPath(Path.Combine(root, "no-such-pack")) + " is not a folder"),
                 "parity run: a pack that is not a folder is refused before the trace is opened, with exit 2 and no trace file (exit "
                 + packless[0] + ", trace " + (packless[1] == null ? "none" : "left with " + packless[1].Length + " chars") + ", " + packless[2].Trim() + ")");
+
+            // N-bd-w12-shimeji-host-1-02: a pack string no path can be made of (a NUL, written in the scenario as JSON's
+            // escape, char 92 then u0000) is refused by name as the unreadable argument it is, with exit 2, its line and no
+            // trace, and not as scenario-invalid, which CONTRACT section 1 does not make it. It threw ArgumentException out
+            // of the command, an unhandled exception's exit.
+            packName = "pack" + (char)92 + "u0000x";
+            string[] nulPack = goCaught();
+            packName = "pack";
+            check(nulPack[0] == "2" && nulPack[1] == null
+                  && nulPack[2].Contains("refused " + Path.Combine(root, "S-host-" + run + ".json") + ": the pack ")
+                  && nulPack[2].Contains(" cannot be read: ") && !nulPack[2].Contains("scenario-invalid"),
+                "parity run: a pack with a NUL in it is refused by name as an unreadable pack, not scenario-invalid, with exit 2 and no trace file (exit "
+                + nulPack[0] + ", trace " + (nulPack[1] == null ? "none" : "left") + ", " + nulPack[2].Trim() + ")");
+            // A pack whose contents cannot be read (here a file this process holds open with no sharing) is refused by name
+            // too; its IOException left the command unhandled.
+            string[] lockedPack;
+            using (new FileStream(Path.Combine(pack, "readme.txt"), FileMode.Open, FileAccess.Read, FileShare.None))
+                lockedPack = goCaught();
+            check(lockedPack[0] == "2" && lockedPack[1] == null && lockedPack[2].Contains("refused " + Path.GetFullPath(pack) + ": the pack cannot be read: "),
+                "parity run: a pack whose files cannot be read is refused by name, with exit 2 and no trace file (exit "
+                + lockedPack[0] + ", trace " + (lockedPack[1] == null ? "none" : "left") + ", " + lockedPack[2].Trim() + ")");
 
             // N-bd-w10-shimeji-host-1-01: a scenario that breaks CONTRACT section 1 is scenario-invalid, refused by name with
             // exit 2, its line and no trace file, before the pets or the pack are read, as the oracle refuses it before it
@@ -609,28 +636,354 @@ namespace DesktopAICompanion.Shimeji
             check(noFolder.Length == 0 && !Directory.Exists(absentFolder),
                 "parity run: a trace path in a folder that does not exist is refused by name, with exit 2, the folder not made ("
                 + (noFolder.Length == 0 ? "refused" : noFolder) + ")");
-            // The converter is the command's own argument, hashed for the build witness before the run, so it is driven
-            // through the command. The command refuses before that read outside a test data root, so this leg needs one
-            // and says so when it has none (the gate and CI run this self-test without it).
+            // N-bd-w12-review-02: IsArgumentFault's other two kinds get a leg each, so narrowing it to IOException fails a
+            // check: every leg above throws an IOException. A scenario path that is a folder throws UnauthorizedAccessException
+            // here; an empty converter path, below, throws ArgumentException.
+            string folderScenario = Path.Combine(root, "scenario-is-a-folder");
+            Directory.CreateDirectory(folderScenario);
+            string asFolder = argument(folderScenario, goodPets, Path.Combine(root, "trace-folder-scenario.jsonl"),
+                "refused " + folderScenario + ": the scenario cannot be read: ");
+            check(asFolder.Length == 0,
+                "parity run: a scenario path that is a folder (UnauthorizedAccessException) is refused by name, with exit 2 and no trace file ("
+                + (asFolder.Length == 0 ? "refused" : asFolder) + ")");
+
+            // The converter is the command's own argument, hashed for the build witness before the run, so its legs go
+            // through the command. They come after the command's test-data-root gate, so they pass isolated: true and run on
+            // every run (N-bd-w12-review-02). They used to need a data root, and without one (CI, run-gate.ps1 from an
+            // unisolated shell; tests/Invoke-IsolatedGate.ps1 sets one) said so only in the marker, under a plain 'ok'.
+            Func<string, string, string[]> command = (traceArg, converterArg) =>
+            {
+                var commandLog = new StringWriter();
+                int commandExit;
+                try
+                {
+                    commandExit = ParityRunCommand.Execute(new[] { ParityRunCommand.Flag, goodScenario, goodPets, traceArg, converterArg }, 0, commandLog,
+                        typeof(ParityRun).Assembly, true);
+                }
+                catch (Exception e)
+                {
+                    commandExit = -1;
+                    commandLog.Write("threw " + e.GetType().Name + ": " + e.Message);
+                }
+                return new[] { commandExit.ToString(CultureInfo.InvariantCulture), File.Exists(traceArg) ? "left" : "none", commandLog.ToString().Trim() };
+            };
             string absentConverter = Path.Combine(root, "absent-converter"), converterTrace = Path.Combine(root, "trace-absent-converter.jsonl");
-            var commandLog = new StringWriter();
-            int commandExit;
+            string[] noConverter = command(converterTrace, absentConverter);
+            check(noConverter[0] == "2" && noConverter[1] == "none" && noConverter[2].Contains("refused " + absentConverter + ": the converter cannot be read: "),
+                "parity run: a converter that does not exist is refused by name, with exit 2 and no trace file (exit " + noConverter[0] + ", " + noConverter[2] + ")");
+            string[] emptyConverter = command(Path.Combine(root, "trace-empty-converter.jsonl"), "");
+            check(emptyConverter[0] == "2" && emptyConverter[1] == "none" && emptyConverter[2].Contains("refused : the converter cannot be read: "),
+                "parity run: an empty converter path (ArgumentException) is refused by name, with exit 2 and no trace file (exit "
+                + emptyConverter[0] + ", " + emptyConverter[2] + ")");
+            // N-bd-w12-shimeji-host-1-03: a converter folder with no *.dll hashes to an empty manifest, a well-formed value
+            // that binds no code, so it is refused by name. WITNESS: the same folder with an assembly in it runs to a trace.
+            string codeless = Path.Combine(root, "converter-no-dll");
+            Directory.CreateDirectory(codeless);
+            File.WriteAllText(Path.Combine(codeless, "readme.txt"), "no code here\n", new UTF8Encoding(false));
+            string[] noCode = command(Path.Combine(root, "trace-no-dll.jsonl"), codeless);
+            check(noCode[0] == "2" && noCode[1] == "none" && noCode[2].Contains("refused " + codeless + ": the converter folder holds no *.dll"),
+                "parity run: a converter folder with no *.dll is refused by name, since its hash would bind no code, with exit 2 and no trace file (exit "
+                + noCode[0] + ", " + noCode[2] + ")");
+            File.WriteAllBytes(Path.Combine(codeless, "stand-in.dll"), new byte[] { 0x4D, 0x5A });
+            string[] withCode = command(Path.Combine(root, "trace-dll.jsonl"), codeless);
+            check(withCode[0] == "0" && withCode[1] == "left",
+                "parity run: WITNESS a converter folder holding a *.dll is hashed and the command runs to a complete trace (exit " + withCode[0] + ", trace " + withCode[1] + ")");
+            // N-bd-w12-review-03, as the coordinator decided after two follow-ups that released (deleted) an earlier file at
+            // the trace path and were each refuted by a spelling of an input the comparison missed: anything already at the
+            // trace path (a file, a folder, a link, dangling or not) is refused by name with exit 2 BEFORE every other
+            // refusal, and left as it was (ParityRun.TraceClaim). Each kind runs on an input set that completes (the WITNESS
+            // after them shows it does) and on sets refused later: by the run (no pets folder), and by the command's own
+            // refusals after the claim (the test-data-root gate, the build-identity gate). The refusal must be the log's
+            // first and only line, so a leg fails when another refusal comes first or the command goes on after it.
+            const string earlier = "an earlier run's trace\n";
+            System.Reflection.Assembly stampedBuild = typeof(ParityRun).Assembly;
+            Func<string, Func<string>, string, string> occupied = (traceArg, snapshot, kind) =>
+            {
+                string want = "refused " + traceArg + ": " + kind + " is already there and a parity run never replaces one;";
+                string before = snapshot(), failed = "";
+                foreach (string leg in new[] { "run complete", "run refused later", "command complete", "command refused later", "command unisolated", "command unstamped" })
+                {
+                    var legLog = new StringWriter();
+                    string legExit;
+                    try
+                    {
+                        string petsArg = leg.EndsWith("refused later", StringComparison.Ordinal) ? absentPets : goodPets;
+                        legExit = (leg.StartsWith("run", StringComparison.Ordinal) ? ParityRun.Run(goodScenario, petsArg, traceArg, build, legLog)
+                            : ParityRunCommand.Execute(new[] { ParityRunCommand.Flag, goodScenario, petsArg, traceArg, codeless }, 0, legLog,
+                                leg == "command unstamped" ? typeof(object).Assembly : stampedBuild, leg != "command unisolated"))
+                            .ToString(CultureInfo.InvariantCulture);
+                    }
+                    catch (Exception e)
+                    {
+                        legExit = "threw";
+                        legLog.Write(e.GetType().Name + ": " + e.Message);
+                    }
+                    string after = snapshot();
+                    string text = legLog.ToString().TrimEnd();
+                    if (legExit == "2" && after == before && text.StartsWith(want, StringComparison.Ordinal) && text.IndexOf('\n') < 0) continue;
+                    failed += leg + ": exit " + legExit + ", " + (after == before ? "kept" : "changed to " + after) + ", " + legLog.ToString().Trim() + "; ";
+                    if (after != before) break;
+                }
+                return failed;
+            };
+            string occupiedFile = Path.Combine(root, "trace-occupied-file.jsonl");
+            File.WriteAllText(occupiedFile, earlier, new UTF8Encoding(false));
+            string asFile = occupied(occupiedFile, () => File.Exists(occupiedFile) ? "file " + Convert.ToBase64String(File.ReadAllBytes(occupiedFile))
+                : Directory.Exists(occupiedFile) ? "a folder" : "nothing", "a file");
+            check(asFile.Length == 0,
+                "parity run: a file already at the trace path is refused by name before any other refusal and left byte for byte, so an earlier trace is never taken for this run's (exit 2, "
+                + (asFile.Length == 0 ? "run and command, complete and refused later" : asFile.Trim()) + ")");
+            string occupiedFolder = Path.Combine(root, "trace-occupied-folder"), occupiedInside = Path.Combine(occupiedFolder, "inside.txt");
+            Directory.CreateDirectory(occupiedFolder);
+            File.WriteAllText(occupiedInside, earlier, new UTF8Encoding(false));
+            string asOccupiedFolder = occupied(occupiedFolder, () => !Directory.Exists(occupiedFolder) ? (File.Exists(occupiedFolder) ? "a file" : "nothing")
+                : "folder " + string.Join("|", Directory.GetFileSystemEntries(occupiedFolder)) + " " + (File.Exists(occupiedInside) ? File.ReadAllText(occupiedInside) : "none"), "a folder");
+            check(asOccupiedFolder.Length == 0,
+                "parity run: a folder already at the trace path is refused by name before any other refusal and left as it was (exit 2, "
+                + (asOccupiedFolder.Length == 0 ? "run and command, complete and refused later" : asOccupiedFolder.Trim()) + ")");
+            // A junction whose target is gone: File.Exists says no and Directory.Exists says yes, so only reading the entry
+            // itself sees it. Made here and removed by name afterwards, never by a recursive delete through it.
+            string dangling = Path.Combine(root, "trace-dangling"), danglingTarget = Path.Combine(root, "trace-dangling-target");
+            Directory.CreateDirectory(danglingTarget);
+            bool danglingMade = TryMakeDirectoryLink(dangling, danglingTarget);
+            if (danglingMade) Directory.Delete(danglingTarget);
             try
             {
-                commandExit = ParityRunCommand.Execute(new[] { ParityRunCommand.Flag, goodScenario, goodPets, converterTrace, absentConverter }, 0, commandLog);
+                if (!danglingMade)
+                    log.AppendLine("DEGRADED: parity run: the dangling link legs are not exercised (no symlink or junction could be made here)");
+                else
+                {
+                    Func<string> linkState = () =>
+                    {
+                        if (!Directory.Exists(dangling) && !File.Exists(dangling)) return "nothing";
+                        var info = new DirectoryInfo(dangling);
+                        return info.Attributes + " to " + info.LinkTarget + ", target " + (Directory.Exists(danglingTarget) || File.Exists(danglingTarget) ? "made" : "absent");
+                    };
+                    string asLink = occupied(dangling, linkState, "a link");
+                    check(asLink.Length == 0,
+                        "parity run: a dangling junction at the trace path is refused by name as a link before any other refusal and left as it was (exit 2, "
+                        + (asLink.Length == 0 ? "run and command, complete and refused later" : asLink.Trim()) + ")");
+                    // The claim's comparison resolves the existing part of each path through a handle; a dangling link has
+                    // none, so the comparison ran on the spelling only, and the log says so on every run (DEGRADED), never
+                    // in silence. The trace path under it is then refused at the open, as an unwritable one always was.
+                    string under = Path.Combine(dangling, "new-trace.jsonl");
+                    var underLog = new StringWriter();
+                    int underExit;
+                    try { underExit = ParityRun.Run(goodScenario, goodPets, under, build, underLog); }
+                    catch (Exception e)
+                    {
+                        underExit = -1;
+                        underLog.Write("threw " + e.GetType().Name + ": " + e.Message);
+                    }
+                    check(underExit == 2 && underLog.ToString().Contains("DEGRADED: parity run: " + dangling + " (Win32 error ")
+                          && underLog.ToString().Contains("refused " + under + ": the trace cannot be written: ") && linkState().EndsWith("target absent", StringComparison.Ordinal),
+                        "parity run: a trace path under a link no handle resolves says DEGRADED on the run's log, naming the link, and is refused unwritten (exit "
+                        + underExit + ", " + underLog.ToString().Trim() + ")");
+                }
             }
+            finally
+            {
+                if (danglingMade) try { Directory.Delete(dangling); } catch { }
+            }
+            // The open is the last line of defence: a file that appears at the trace path after the claim (another run, the
+            // caller) is refused by the same line, never truncated (FileMode.CreateNew, never Create). Claimed and run on
+            // the run's own two steps, with the file written between them.
+            string raceTrace = Path.Combine(root, "trace-race.jsonl");
+            var raceLog = new StringWriter();
+            ParityRun.ScenarioFile raceScenario = ParityRun.ScenarioFile.Read(goodScenario);
+            bool raceClaimed = ParityRun.TraceClaim.Claim(raceScenario, goodPets, raceTrace, null, raceLog) != null;
+            File.WriteAllText(raceTrace, earlier, new UTF8Encoding(false));
+            int raceExit;
+            try { raceExit = ParityRun.Run(raceScenario, goodPets, raceTrace, build, raceLog, false); }
             catch (Exception e)
             {
-                commandExit = -1;
-                commandLog.Write("threw " + e.GetType().Name + ": " + e.Message);
+                raceExit = -1;
+                raceLog.Write("threw " + e.GetType().Name + ": " + e.Message);
             }
-            if (!AppPaths.IsDataRootOverridden)
-                log.AppendLine("NOTE: parity run: the absent-converter refusal is not exercised (no test data root, so the command refuses"
-                    + " before it reads the converter: exit " + commandExit + ", " + commandLog.ToString().Trim() + ")");
+            string raceLeft = File.Exists(raceTrace) ? (File.ReadAllText(raceTrace) == earlier ? "kept" : "overwritten") : "deleted";
+            check(raceClaimed && raceExit == 2 && raceLeft == "kept"
+                  && raceLog.ToString().Contains("refused " + raceTrace + ": a file is already there and a parity run never replaces one;"),
+                "parity run: a file that appears at the trace path after the claim is refused at the open by name and never overwritten (claimed "
+                + raceClaimed + ", exit " + raceExit + ", file " + raceLeft + ", " + raceLog.ToString().Trim() + ")");
+            // WITNESS: the occupied legs' complete input set, at a fresh path, runs to a new trace through the run and the
+            // command, so their exit 2 is the occupied path's and nothing else's.
+            string freshRun = Path.Combine(root, "trace-fresh-run.jsonl"), freshCommand = Path.Combine(root, "trace-fresh-command.jsonl");
+            int freshRunExit = ParityRun.Run(goodScenario, goodPets, freshRun, build, new StringWriter());
+            int freshCommandExit = ParityRunCommand.Execute(new[] { ParityRunCommand.Flag, goodScenario, goodPets, freshCommand, codeless }, 0, new StringWriter(), stampedBuild, true);
+            check(freshRunExit == 0 && File.Exists(freshRun) && freshCommandExit == 0 && File.Exists(freshCommand),
+                "parity run: WITNESS the occupied legs' complete input set runs to a new trace at a fresh path (run exit " + freshRunExit
+                + ", command exit " + freshCommandExit + ")");
+
+            // The claim's other half, kept as defence in depth for NEW files only: a trace path inside an input folder is
+            // refused by name with exit 2 and nothing is written there. One check per folder kind, each through the run and,
+            // where the run has that input, the command, with the trace spelled otherwise than the folder (case, "..",
+            // "/", a trailing separator on the folder). A leg that wrote a file into an input folder takes it back out
+            // (it made that file; nothing was there), so the checks after it read what they always read. No leg here may
+            // say DEGRADED: every path in them resolves.
+            Func<string, string, string, string, string> fresh = (petsArg, traceArg, converterArg, want) =>
+            {
+                var legLog = new StringWriter();
+                string legExit;
+                try
+                {
+                    legExit = (converterArg == null ? ParityRun.Run(goodScenario, petsArg, traceArg, build, legLog)
+                        : ParityRunCommand.Execute(new[] { ParityRunCommand.Flag, goodScenario, petsArg, traceArg, converterArg }, 0, legLog, stampedBuild, true))
+                        .ToString(CultureInfo.InvariantCulture);
+                }
+                catch (Exception e)
+                {
+                    legExit = "threw";
+                    legLog.Write(e.GetType().Name + ": " + e.Message);
+                }
+                bool made = File.Exists(traceArg);
+                if (made) File.Delete(traceArg);
+                if (legExit == "2" && !made && legLog.ToString().Contains(want) && !legLog.ToString().Contains("DEGRADED")) return "";
+                return (converterArg == null ? "run" : "command") + ": exit " + legExit + ", trace " + (made ? "written (taken out again)" : "none") + ", " + legLog.ToString().Trim() + "; ";
+            };
+            const string intoInputs = "; a parity run never writes into its inputs";
+            string petsTrace = Path.Combine(goodPets, "Par", "..", "Par", "new-trace.jsonl"), petsSlash = goodPets + Path.DirectorySeparatorChar;
+            string petsWant = "refused " + petsTrace + ": the trace path is inside the pets folder " + petsSlash + intoInputs;
+            string inPets = fresh(petsSlash, petsTrace, null, petsWant) + fresh(petsSlash, petsTrace, codeless, petsWant);
+            check(inPets.Length == 0,
+                "parity run: a new trace path inside the pets folder is refused by name and nothing is written there (exit 2, "
+                + (inPets.Length == 0 ? "run and command" : inPets.Trim()) + ")");
+            string packTrace = Path.Combine(root, "PACK") + Path.AltDirectorySeparatorChar + "new-trace.jsonl";
+            string packWant = "refused " + packTrace + ": the trace path is inside the scenario's pack folder " + Path.GetFullPath(pack) + intoInputs;
+            string inPack = fresh(goodPets, packTrace, null, packWant) + fresh(goodPets, packTrace, codeless, packWant);
+            check(inPack.Length == 0,
+                "parity run: a new trace path inside the scenario's pack folder is refused by name and nothing is written there (exit 2, "
+                + (inPack.Length == 0 ? "run and command" : inPack.Trim()) + ")");
+            // WITNESS: a trace beside the pets folder whose name only starts like it is no input, and the run completes.
+            string besidePets = goodPets + "-beside.jsonl";
+            int besideExit = ParityRun.Run(goodScenario, goodPets, besidePets, build, new StringWriter());
+            check(besideExit == 0 && File.Exists(besidePets),
+                "parity run: WITNESS a trace path beside the pets folder, its name starting like the folder's, is no input and runs to a trace (exit "
+                + besideExit + ", trace " + (File.Exists(besidePets) ? "written" : "none") + ")");
+            string converterTraceNew = Path.Combine(codeless.ToUpperInvariant(), "new-trace.dll");
+            string inConverter = fresh(goodPets, converterTraceNew, codeless, "refused " + converterTraceNew + ": the trace path is inside the converter " + codeless + intoInputs);
+            check(inConverter.Length == 0,
+                "parity run: a new trace path inside the converter folder is refused by name and nothing is written there (exit 2, "
+                + (inConverter.Length == 0 ? "command" : inConverter.Trim()) + ")");
+
+            // Follow-up 2 (the wave 13 review): a link INSIDE an input folder. LoadPets reads a pet folder that is a junction
+            // through it, so a new trace spelled through the junction is inside the pets folder (as written), and one
+            // spelled as the folder the junction leads to is inside that pet folder (as the pet folder resolves, on its
+            // own). The links are made here (TryMakeDirectoryLink: a symbolic link where this account may make one, else
+            // mklink /J) and removed by name afterwards, never by a recursive delete through them; a box that can make
+            // neither says DEGRADED.
+            string linkedPets = Path.Combine(root, "pets-linked"), linkedTarget = Path.Combine(root, "pets-linked-target");
+            string linkedPet = Path.Combine(linkedPets, "Ball");
+            Directory.CreateDirectory(linkedPets);
+            Directory.CreateDirectory(linkedTarget);
+            File.Copy(Path.Combine(goodPets, "Par", "animations.xml"), Path.Combine(linkedTarget, "animations.xml"), true);
+            File.Copy(Path.Combine(goodPets, "Par", "parity-map.json"), Path.Combine(linkedTarget, "parity-map.json"), true);
+            if (!TryMakeDirectoryLink(linkedPet, linkedTarget))
+                log.AppendLine("DEGRADED: parity run: the linked pet folder legs are not exercised (no symlink or junction could be made here)");
             else
-                check(commandExit == 2 && !File.Exists(converterTrace) && commandLog.ToString().Contains("refused " + absentConverter + ": the converter cannot be read: "),
-                    "parity run: a converter that does not exist is refused by name, with exit 2 and no trace file (exit " + commandExit + ", "
-                    + commandLog.ToString().Trim() + ")");
+            {
+                string throughLink, asLinkTarget;
+                try
+                {
+                    string throughTrace = Path.Combine(linkedPet, "new-trace.jsonl");
+                    string throughWant = "refused " + throughTrace + ": the trace path is inside the pets folder " + linkedPets + intoInputs;
+                    throughLink = fresh(linkedPets, throughTrace, null, throughWant) + fresh(linkedPets, throughTrace, codeless, throughWant);
+                    string targetTrace = Path.Combine(linkedTarget, "new-trace.jsonl");
+                    string targetWant = "refused " + targetTrace + ": the trace path is inside the pet folder " + linkedPet + intoInputs;
+                    asLinkTarget = fresh(linkedPets, targetTrace, null, targetWant) + fresh(linkedPets, targetTrace, codeless, targetWant);
+                }
+                finally
+                {
+                    try { Directory.Delete(linkedPet); } catch { }
+                }
+                check(throughLink.Length == 0,
+                    "parity run: a new trace path spelled through a pet folder that is a junction is refused by name as inside the pets folder (exit 2, "
+                    + (throughLink.Length == 0 ? "run and command" : throughLink.Trim()) + ")");
+                check(asLinkTarget.Length == 0,
+                    "parity run: a new trace path in the folder a junction pet folder leads to is refused by name as inside that pet folder (exit 2, "
+                    + (asLinkTarget.Length == 0 ? "run and command" : asLinkTarget.Trim()) + ")");
+            }
+
+            // The wave 13 fix-2 review: past 260 characters CreateFileW refused the resolution's plain path (this process is
+            // not longPathAware), and the comparison fell back to the spelling in silence, so a pet folder that is a
+            // junction at a long path no longer protected the folder it leads to. The pets folder here sits past 260
+            // characters in the scratch root; its Ball is a junction (made at a short name and moved there, since mklink
+            // is not long-path aware) to a short folder, and the trace is spelled in that short folder. It must be refused
+            // as inside the long pet folder, with no DEGRADED note: the resolution ran. WITNESS: the same long pets folder
+            // runs to a trace at a fresh path, so the run itself reads through it.
+            string longPets = Path.Combine(root, "long-" + new string('l', 120), new string('m', 120), "pets");
+            string longPet = Path.Combine(longPets, "Ball"), longTarget = Path.Combine(root, "long-pet-target"), shortLink = Path.Combine(root, "long-pet-link");
+            Directory.CreateDirectory(longPets);
+            Directory.CreateDirectory(longTarget);
+            File.Copy(Path.Combine(goodPets, "Par", "animations.xml"), Path.Combine(longTarget, "animations.xml"), true);
+            File.Copy(Path.Combine(goodPets, "Par", "parity-map.json"), Path.Combine(longTarget, "parity-map.json"), true);
+            bool longMade = false;
+            try
+            {
+                if (TryMakeDirectoryLink(shortLink, longTarget))
+                {
+                    try
+                    {
+                        Directory.Move(shortLink, longPet);
+                        longMade = (File.GetAttributes(longPet) & FileAttributes.ReparsePoint) != 0;
+                    }
+                    catch (Exception e)
+                    {
+                        log.AppendLine("LOG: parity run: the long pet folder link could not be moved into place: " + e.GetType().Name + ": " + e.Message);
+                    }
+                }
+                if (!longMade)
+                    log.AppendLine("DEGRADED: parity run: the long-path legs are not exercised (no junction could be made at a path past 260 characters here)");
+                else
+                {
+                    string longTrace = Path.Combine(longTarget, "new-trace.jsonl");
+                    string longWant = "refused " + longTrace + ": the trace path is inside the pet folder " + longPet + intoInputs;
+                    string pastMaxPath = fresh(longPets, longTrace, null, longWant) + fresh(longPets, longTrace, codeless, longWant);
+                    check(longPet.Length > 260 && pastMaxPath.Length == 0,
+                        "parity run: a new trace path in the folder a junction pet folder past 260 characters leads to is refused by name, with no DEGRADED note (exit 2, "
+                        + longPet.Length + " characters, " + (pastMaxPath.Length == 0 ? "run and command" : pastMaxPath.Trim()) + ")");
+                    string longWitness = Path.Combine(root, "trace-long-witness.jsonl");
+                    int longWitnessExit = ParityRun.Run(goodScenario, longPets, longWitness, build, new StringWriter());
+                    check(longWitnessExit == 0 && File.Exists(longWitness),
+                        "parity run: WITNESS the pets folder past 260 characters, its pet folder a junction, runs to a trace at a fresh path (exit " + longWitnessExit + ")");
+                }
+            }
+            finally
+            {
+                // By name and not recursive: the link goes and its target stays.
+                if (longMade) try { Directory.Delete(longPet); } catch { }
+                try { if (Directory.Exists(shortLink)) Directory.Delete(shortLink); } catch { }
+            }
+
+            // The converter's half. The converter is given through a junction to its folder (converter-linked to
+            // converter-linked-real), and that folder holds a junction the run never reads (sub, to
+            // converter-linked-outside): a new trace path spelled inside the converter folder, as the argument names it or
+            // as it resolves, is refused whatever sub links to, and nothing is written behind sub. Compared only as
+            // resolved, the trace followed sub out of the folder.
+            string convReal = Path.Combine(root, "converter-linked-real"), convLink = Path.Combine(root, "converter-linked");
+            string convOutside = Path.Combine(root, "converter-linked-outside"), convSub = Path.Combine(convReal, "sub");
+            Directory.CreateDirectory(convReal);
+            Directory.CreateDirectory(convOutside);
+            File.WriteAllBytes(Path.Combine(convReal, "stand-in.dll"), new byte[] { 0x4D, 0x5A });
+            try
+            {
+                if (!TryMakeDirectoryLink(convLink, convReal) || !TryMakeDirectoryLink(convSub, convOutside))
+                    log.AppendLine("DEGRADED: parity run: the linked converter folder legs are not exercised (no symlink or junction could be made here)");
+                else
+                {
+                    string asNamed = Path.Combine(convLink, "sub", "new-trace.dll"), asResolved = Path.Combine(convReal, "sub", "new-trace.dll");
+                    string inLinkedConverter = fresh(goodPets, asNamed, convLink, "refused " + asNamed + ": the trace path is inside the converter " + convLink + intoInputs)
+                        + fresh(goodPets, asResolved, convLink, "refused " + asResolved + ": the trace path is inside the converter " + convLink + intoInputs);
+                    check(inLinkedConverter.Length == 0,
+                        "parity run: a new trace path spelled inside a converter folder given through a junction is refused by name, whatever a junction in it links to (exit 2, "
+                        + (inLinkedConverter.Length == 0 ? "as named and as resolved" : inLinkedConverter.Trim()) + ")");
+                }
+            }
+            finally
+            {
+                // By name and not recursive: a link goes and its target stays, and a real folder with files is refused.
+                try { Directory.Delete(convSub); } catch { }
+                try { Directory.Delete(convLink); } catch { }
+            }
 
             // CONTRACT v1.1 section 1: a left-button edge for a companion not active at dispatch is scenario-invalid.
             string[] absent = go(goodMap, ",{\"tick\":2,\"sid\":\"m1.b1\",\"press\":\"left\"}", xml, false);
