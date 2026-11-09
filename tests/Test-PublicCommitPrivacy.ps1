@@ -4,9 +4,10 @@
     Check indexed text, or a commit range, for workstation-specific identifiers before a public push.
 .DESCRIPTION
     Refuses protected paths before reading any contents. Git grep, which chooses the indexed
-    text files to read, also receives explicit case-insensitive exclusions. Both modes compare
-    with one matcher, case-insensitively in every script. Only offending file paths, commits
-    and counts are printed, never the matched text.
+    text files to read, also receives explicit case-insensitive exclusions. During an unresolved
+    merge every stage of a conflicted text file (base, ours and theirs) is read too. Both modes
+    compare with one matcher, case-insensitively in every script. Only offending file paths,
+    commits and counts are printed, never the matched text.
 
     Identifiers come from the run, never from this file: -Identifier and -EmployerName, plus
     the business OneDrive folder and the employer it names when OneDriveCommercial is set.
@@ -263,13 +264,16 @@ function Get-RangePrivacyFindings([string]$Range, [psobject]$Needles, [string]$R
 
 # The default mode reads the index. Listing names does not open their contents, so protected paths are
 # refused first, even when one was already tracked before this change, rather than silently declared safe.
+# During an unresolved merge git ls-files --cached names a conflicted path once per stage, so a conflicted key was
+# listed and counted up to three times (N-bd-w12-review-05); the listing goes through the ordinal de-duplication the
+# range mode uses, which keeps two paths that differ only in case or in normalization apart.
 function Get-IndexedProtectedPaths([string]$Repository = $repoRoot) {
     $listed = Invoke-IndexedGit @('ls-files', '--cached', '-z') $Repository
     if ($listed.ExitCode -ne 0) { throw 'Could not enumerate indexed paths. No indexed contents were scanned.' }
+    $indexedNames = @($listed.Output.Split([char]0, [StringSplitOptions]::RemoveEmptyEntries) | Where-Object { Get-ProtectedPattern $_ })
     $protected = @()
-    foreach ($path in $listed.Output.Split([char]0, [StringSplitOptions]::RemoveEmptyEntries)) {
-        $pattern = Get-ProtectedPattern $path
-        if ($pattern) { $protected += [pscustomobject]@{ Path = $path; Pattern = $pattern } }
+    foreach ($path in (Select-UniquePrivacyPath $indexedNames)) {
+        $protected += [pscustomobject]@{ Path = $path; Pattern = (Get-ProtectedPattern $path) }
     }
     return ,$protected
 }
@@ -280,6 +284,10 @@ function Get-IndexedProtectedPaths([string]$Repository = $repoRoot) {
 # regex has no Unicode classes). git chooses WHICH files: every indexed text file (-I; the empty pattern matches any
 # line), names only, NUL-separated, with every protected shape excluded again as a second line behind the refusal
 # above. One git cat-file then reads exactly those blobs, and only the offending paths leave this function.
+# git grep --cached reads resolved (stage 0) entries only and skips every stage of an unmerged path, so during an
+# unresolved merge a conflicted file was never read and the check passed whatever its stages held (N-bd-w12-review-05).
+# Those stages are read too: git grep picks the text ones (Select-IndexedTextStages), the same cat-file reads them, and
+# a conflicted path is one offender however many of its stages match.
 function Get-IndexedPrivacyOffenders([psobject]$Needles, [string]$Repository = $repoRoot) {
     $arguments = @('grep', '--cached', '--no-textconv', '-I', '-l', '-z', '-e', '', '--', '.')
     foreach ($glob in @('*.env', '.env.*', '.npmrc', '*.pem', '*.key', '*.p12', '*.pfx',
@@ -291,27 +299,37 @@ function Get-IndexedPrivacyOffenders([psobject]$Needles, [string]$Repository = $
     if ($listed.ExitCode -gt 1) { throw 'Indexed git grep failed. No matching contents were printed.' }
     $paths = @($listed.Output.Split([char]0, [StringSplitOptions]::RemoveEmptyEntries))
     $offenders = New-Object 'Collections.Generic.List[string]'
-    if ($paths.Count -gt 0) {
-        $staged = Invoke-IndexedGit @('ls-files', '--cached', '-s', '-z') $Repository
-        if ($staged.ExitCode -ne 0) { throw 'Could not enumerate indexed paths. No indexed contents were scanned.' }
-        # Ordinal keys (N-audit-infra-01): two indexed paths differing only in case are two files. An unmerged path has
-        # one entry per stage, and every one is read.
-        $blobsByPath = [Collections.Generic.Dictionary[string, Collections.Generic.List[string]]]::new([StringComparer]::Ordinal)
-        foreach ($record in $staged.Output.Split([char]0, [StringSplitOptions]::RemoveEmptyEntries)) {
-            $tab = $record.IndexOf("`t")
-            $path = $record.Substring($tab + 1)
-            if (-not $blobsByPath.ContainsKey($path)) { $blobsByPath[$path] = [Collections.Generic.List[string]]::new() }
-            $blobsByPath[$path].Add($record.Substring(0, $tab).Split(' ')[1])
-        }
+    $staged = Invoke-IndexedGit @('ls-files', '--cached', '-s', '-z') $Repository
+    if ($staged.ExitCode -ne 0) { throw 'Could not enumerate indexed paths. No indexed contents were scanned.' }
+    # Ordinal keys (N-audit-infra-01): two indexed paths differing only in case are two files. Each record is
+    # "<mode> <blob> <stage>" TAB path. A resolved path has its one stage-0 entry, which the grep above may name. An
+    # unmerged path has one entry per stage (1 base, 2 ours, 3 theirs) and no stage 0; each stage of a regular file is
+    # named to git grep as :<stage>:<path>, unless the path has a protected shape, which the grep's own exclusions do not
+    # reach in that form (the refusal before this function already stops a protected path, unmerged or not).
+    $resolved = [Collections.Generic.Dictionary[string, string]]::new([StringComparer]::Ordinal)
+    $stages = [Collections.Generic.Dictionary[string, string[]]]::new([StringComparer]::Ordinal)
+    foreach ($record in $staged.Output.Split([char]0, [StringSplitOptions]::RemoveEmptyEntries)) {
+        $tab = $record.IndexOf("`t")
+        $entry = $record.Substring(0, $tab).Split(' ')
+        $path = $record.Substring($tab + 1)
+        if ($entry[2] -ceq '0') { $resolved[$path] = $entry[1] }
+        elseif ($entry[0].StartsWith('100') -and -not (Get-ProtectedPattern $path)) { $stages[':' + $entry[2] + ':' + $path] = @($path, $entry[1]) }
+    }
+    # (path, blob) pairs to read: the resolved text files the grep named, then the unmerged stages it calls text.
+    $candidates = New-Object 'Collections.Generic.List[string[]]'
+    foreach ($path in $paths) {
+        if (-not $resolved.ContainsKey($path)) { throw 'An indexed text file had no index entry. No matching contents were printed.' }
+        $candidates.Add(@($path, $resolved[$path]))
+    }
+    foreach ($name in (Select-IndexedTextStages ([string[]]@($stages.Keys)) $Repository)) {
+        if (-not $stages.ContainsKey($name)) { throw 'An unmerged text stage had no index entry. No matching contents were printed.' }
+        $candidates.Add($stages[$name])
+    }
+    if ($candidates.Count -gt 0) {
         $blobs = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
-        foreach ($path in $paths) {
-            if (-not $blobsByPath.ContainsKey($path)) { throw 'An indexed text file had no index entry. No matching contents were printed.' }
-            foreach ($blob in $blobsByPath[$path]) { [void]$blobs.Add($blob) }
-        }
+        foreach ($candidate in $candidates) { [void]$blobs.Add($candidate[1]) }
         $matched = Get-MatchingIndexedBlobs ([string[]]@($blobs)) $Needles $Repository
-        foreach ($path in $paths) {
-            foreach ($blob in $blobsByPath[$path]) { if ($matched.Contains($blob)) { $offenders.Add($path); break } }
-        }
+        foreach ($candidate in $candidates) { if ($matched.Contains($candidate[1])) { $offenders.Add($candidate[0]) } }
     }
     # Ordinal, as in the range mode (N-audit-infra-01, N-bd-w11-tests-scripts-1-02): two indexed paths differing only in
     # case, or only in Unicode normalization, are two offenders.
@@ -319,6 +337,28 @@ function Get-IndexedPrivacyOffenders([psobject]$Needles, [string]$Repository = $
         Matched = ($offenders.Count -gt 0)
         Offenders = @(Select-UniquePrivacyPath $offenders)
     }
+}
+
+# The unmerged stages, named :<stage>:<path>, that git grep -I calls text (N-bd-w12-review-05). Given such a name, git
+# grep reads that stage as a blob under its path, so it applies the rule it applies to a resolved file (the path's diff
+# attributes, then a NUL byte near the start) and the two cannot disagree about which files are text. Names go in
+# batches, as one command line cannot hold every stage of a large merge.
+function Select-IndexedTextStages([string[]]$Names, [string]$Repository) {
+    $text = New-Object 'Collections.Generic.List[string]'
+    $next = 0
+    while ($next -lt $Names.Count) {
+        $batch = New-Object 'Collections.Generic.List[string]'
+        $length = 0
+        while ($next -lt $Names.Count -and ($batch.Count -eq 0 -or $length + $Names[$next].Length -lt 16000)) {
+            $batch.Add($Names[$next])
+            $length += $Names[$next].Length + 3
+            $next++
+        }
+        $listed = Invoke-IndexedGit (@('grep', '--no-textconv', '-I', '-l', '-z', '-e', '', '--end-of-options') + $batch) $Repository
+        if ($listed.ExitCode -gt 1) { throw 'Indexed git grep failed on the unmerged stages. No matching contents were printed.' }
+        $text.AddRange([string[]]$listed.Output.Split([char]0, [StringSplitOptions]::RemoveEmptyEntries))
+    }
+    return ,$text.ToArray()
 }
 
 # Read the named blobs with one git cat-file --batch and return the ones Test-PrivacyText matches. Each blob is
@@ -387,26 +427,83 @@ function Get-IndexPrivacyFindings([psobject]$Needles, [string]$Repository = $rep
     return [pscustomobject]@{ Protected = @(); Scanned = $true; Matched = $grep.Matched; Offenders = $grep.Offenders }
 }
 
-# The self-test's fixture root under Parent, with every folder this run had to create for it, deepest first
-# (N-bd-w11-tests-scripts-1-03). The root is new on every run; its build\privacy-selftest parent, and build itself, may
-# already be there. The record is taken before anything is created, so Remove-PrivacyFixtureRoot takes back exactly what
-# this run made and never a folder that was already there.
+# Every fixture root holds this marker file, which only this script writes (N-bd-w12-review-06). The run that made the
+# root keeps it open, shared for deletion alone, until the root is gone; a later run removes a root that holds the marker
+# once it can open the marker the same way, which the open claim of a live run refuses (and a run that was killed, or a
+# mutant of this script that skipped its removal, releases with its process). A root without the marker is never removed.
+$script:PrivacyFixtureMarker = '.privacy-selftest-fixture'
+
+# The self-test's fixture root under Parent, claimed by its marker, with every folder this run had to create for it,
+# deepest first (N-bd-w11-tests-scripts-1-03). The root is new on every run; its build\privacy-selftest parent, and build
+# itself, may already be there. What earlier runs left under Parent is cleared first (N-bd-w12-review-06), here rather
+# than at the call site, so the synthetic cases below run the same path as the real fixture. The record is taken before
+# anything is created, so Remove-PrivacyFixtureRoot never takes a folder above the parent that was already there.
 function New-PrivacyFixtureRoot([string]$Parent) {
+    Clear-StalePrivacyFixtures $Parent
     $root = Join-Path $Parent ([Guid]::NewGuid().ToString('N'))
     $created = New-Object 'Collections.Generic.List[string]'
     for ($dir = $root; $dir -and -not [IO.Directory]::Exists($dir); $dir = [IO.Path]::GetDirectoryName($dir)) { $created.Add($dir) }
     [void][IO.Directory]::CreateDirectory($root)
-    return [pscustomobject]@{ Root = $root; Created = $created.ToArray(); Removed = $false }
+    $claim = [IO.FileStream]::new((Join-Path $root $script:PrivacyFixtureMarker), [IO.FileMode]::CreateNew, [IO.FileAccess]::ReadWrite, [IO.FileShare]::Delete)
+    $note = [Text.Encoding]::ASCII.GetBytes("A fixture root of tests/Test-PublicCommitPrivacy.ps1 -SelfTest. A later run removes it once no run holds this file open.`n")
+    $claim.Write($note, 0, $note.Length)
+    $claim.Flush()
+    return [pscustomobject]@{ Root = $root; Parent = [IO.Path]::GetDirectoryName($root); Created = $created.ToArray(); Claim = $claim; Removed = $false }
 }
 
-# Removes the fixture root, then each folder above it that this run created, deepest first, once it is empty. The old
-# removal took the root alone and left the emptied build\privacy-selftest parent behind after every run. The delete is
-# not recursive, so a parent that another run's fixture is still inside refuses it and stays, with everything above it;
-# testing for emptiness first instead would race that run between the test and the delete.
+# Removes everything inside Path, deepest first, except the top-level entry named Keep. A reparse point is removed as a
+# link and never entered, so a junction or symbolic link inside a fixture root cannot take what it points at. Anything
+# else is made writable first, as git writes its objects read-only.
+function Remove-PrivacyFixtureContents([string]$Path, [string]$Keep = '') {
+    foreach ($entry in [IO.DirectoryInfo]::new($Path).GetFileSystemInfos()) {
+        if ($entry.Name -ceq $Keep) { continue }
+        if (-not ($entry.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            if ($entry.Attributes -band [IO.FileAttributes]::ReadOnly) { $entry.Attributes = $entry.Attributes -bxor [IO.FileAttributes]::ReadOnly }
+            if ($entry -is [IO.DirectoryInfo]) { Remove-PrivacyFixtureContents $entry.FullName }
+        }
+        $entry.Delete()
+    }
+}
+
+# Removes a fixture root whose marker the caller holds open as Claim: the contents, then the marker, then the root. The
+# marker is deleted while the claim is still open (it is shared for deletion), so no other run can claim the root between
+# this run's last use of it and its removal.
+function Remove-ClaimedPrivacyFixture([string]$Root, [IO.FileStream]$Claim) {
+    try {
+        Remove-PrivacyFixtureContents $Root $script:PrivacyFixtureMarker
+        [IO.File]::Delete($Claim.Name)
+    } finally { $Claim.Dispose() }
+    [IO.Directory]::Delete($Root, $false)
+}
+
+# Removes the fixture roots earlier runs left under Parent (N-bd-w12-review-06): a run that was killed, or a firing mutant
+# that skipped the removal, left its whole root there, one more per harness run, and no later run took any back. A folder
+# goes only when it is no reparse point, holds the marker, and that marker can be claimed; a live run's root, a folder
+# without the marker and a link stay, and so does a root whose removal fails here (it is counted in the line after the
+# summary). New-PrivacyFixtureRoot runs it before it makes its own root.
+function Clear-StalePrivacyFixtures([string]$Parent) {
+    if (-not [IO.Directory]::Exists($Parent)) { return }
+    foreach ($dir in [IO.DirectoryInfo]::new($Parent).GetDirectories()) {
+        if ($dir.Attributes -band [IO.FileAttributes]::ReparsePoint) { continue }
+        $marker = Join-Path $dir.FullName $script:PrivacyFixtureMarker
+        if (-not [IO.File]::Exists($marker)) { continue }
+        try { $claim = [IO.FileStream]::new($marker, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Delete) }
+        catch [IO.IOException], [UnauthorizedAccessException] { continue }
+        try { Remove-ClaimedPrivacyFixture $dir.FullName $claim } catch [IO.IOException], [UnauthorizedAccessException] { continue }
+    }
+}
+
+# Removes the fixture root, then its build\privacy-selftest parent once that is empty, whoever made it, since that folder
+# is this script's alone (N-bd-w12-review-06: one that was already there used to stay, so a leftover never cleared), then
+# each folder above the parent that this run created, deepest first, once it is empty; a folder above it that was
+# already there stays. Each delete is not recursive, so a parent that another run's fixture is still inside refuses it
+# and stays, with everything above it; testing for emptiness first instead would race that run between the test and the
+# delete.
 function Remove-PrivacyFixtureRoot([psobject]$Fixture) {
-    if ([IO.Directory]::Exists($Fixture.Root)) { Remove-Item -LiteralPath $Fixture.Root -Recurse -Force }
+    if ([IO.Directory]::Exists($Fixture.Root)) { Remove-ClaimedPrivacyFixture $Fixture.Root $Fixture.Claim } else { $Fixture.Claim.Dispose() }
     $Fixture.Removed = $true
-    foreach ($dir in $Fixture.Created) {
+    $above = @($Fixture.Created | Where-Object { $_.Length -lt $Fixture.Parent.Length })
+    foreach ($dir in @($Fixture.Parent) + $above) {
         if (-not [IO.Directory]::Exists($dir)) { continue }
         try { [IO.Directory]::Delete($dir, $false) } catch [IO.IOException], [UnauthorizedAccessException] { return }
     }
@@ -505,7 +602,8 @@ if ($SelfTest) {
         $count++
     }
     # Range mode, then the default index mode, each on a synthetic repository this self-test creates under
-    # build\privacy-selftest\ and removes again, with every folder above it that the run created.
+    # build\privacy-selftest\ and removes again, with that folder once it is empty and every folder above it that the run
+    # created. What earlier runs left there goes first, when it is theirs and they are over (N-bd-w12-review-06).
     $fixture = New-PrivacyFixtureRoot (Join-Path $repoRoot 'build\privacy-selftest')
     $fixtureRoot = $fixture.Root
     $synthetic = Join-Path $fixtureRoot 'range'
@@ -513,15 +611,19 @@ if ($SelfTest) {
     [void][IO.Directory]::CreateDirectory($synthetic)
     [void][IO.Directory]::CreateDirectory($indexRepo)
     try {
-        # The fixture's own removal (N-bd-w11-tests-scripts-1-03), on synthetic folders inside this run's root: a parent
-        # that was already there stays, even empty; one this run created goes once it is empty, with build above it; and
-        # one that another run's fixture is still inside stays, with that fixture untouched.
+        # The fixture's own removal (N-bd-w11-tests-scripts-1-03, N-bd-w12-review-06), on synthetic folders inside this
+        # run's root: the build\privacy-selftest parent goes once it is empty, even when it was already there, and a folder
+        # above it that was already there stays; one this run created goes once it is empty, with build above it; and one
+        # that another run's fixture is still inside stays, with that fixture untouched, until the last of them goes.
         $cleanup = Join-Path $fixtureRoot 'cleanup'
         $kept = Join-Path $cleanup 'kept\build\privacy-selftest'
         [void][IO.Directory]::CreateDirectory($kept)
         Remove-PrivacyFixtureRoot (New-PrivacyFixtureRoot $kept)
-        if (-not [IO.Directory]::Exists($kept) -or @([IO.Directory]::GetFileSystemEntries($kept)).Count -ne 0) {
-            throw 'Public privacy fixture self-test failed: a parent folder the run did not create was removed, or its root was not.'
+        if ([IO.Directory]::Exists($kept)) {
+            throw 'Public privacy fixture self-test failed: an emptied build\privacy-selftest folder stayed because it was there before the run.'
+        }
+        if (-not [IO.Directory]::Exists((Split-Path $kept -Parent))) {
+            throw 'Public privacy fixture self-test failed: a folder above build\privacy-selftest that the run did not create was removed.'
         }
         $count++
         $fresh = Join-Path $cleanup 'fresh'
@@ -535,10 +637,63 @@ if ($SelfTest) {
         $first = New-PrivacyFixtureRoot $shared
         $second = New-PrivacyFixtureRoot $shared
         Remove-PrivacyFixtureRoot $first
-        if ([IO.Directory]::Exists($first.Root) -or -not [IO.Directory]::Exists($second.Root)) {
+        if ([IO.Directory]::Exists($first.Root) -or -not [IO.File]::Exists((Join-Path $second.Root $script:PrivacyFixtureMarker))) {
             throw 'Public privacy fixture self-test failed: removing a fixture took the fixture of another run still inside its parent.'
         }
         Remove-PrivacyFixtureRoot $second
+        if ([IO.Directory]::Exists($shared)) {
+            throw 'Public privacy fixture self-test failed: the build\privacy-selftest folder stayed after the last of two overlapping runs left it empty.'
+        }
+        $count++
+        # What earlier runs left (N-bd-w12-review-06), on a synthetic parent, cleared as each new fixture is made there. A
+        # root whose run is over (its claim released, as a killed run's is) goes, with a read-only file and a junction
+        # inside it, and the junction's target is never entered. A root a live run still claims stays, and so do a folder
+        # without the marker and a junction under the parent whose target holds one.
+        $sweep = Join-Path $cleanup 'sweep\build\privacy-selftest'
+        $outsideInner = Join-Path $cleanup 'outside-inner'
+        $outsideLinked = Join-Path $cleanup 'outside-linked'
+        foreach ($dir in @($outsideInner, $outsideLinked)) {
+            [void][IO.Directory]::CreateDirectory($dir)
+            [IO.File]::WriteAllText((Join-Path $dir $script:PrivacyFixtureMarker), "synthetic`n")
+        }
+        $stale = New-PrivacyFixtureRoot $sweep
+        $readOnly = Join-Path $stale.Root 'object'
+        [IO.File]::WriteAllText($readOnly, "synthetic`n")
+        [IO.File]::SetAttributes($readOnly, [IO.FileAttributes]::ReadOnly)
+        [void](New-Item -ItemType Junction -Path (Join-Path $stale.Root 'link') -Target $outsideInner)
+        $stale.Claim.Dispose()
+        $live = New-PrivacyFixtureRoot $sweep
+        $unmarked = Join-Path $sweep 'unmarked'
+        [void][IO.Directory]::CreateDirectory($unmarked)
+        $linked = Join-Path $sweep 'linked'
+        [void](New-Item -ItemType Junction -Path $linked -Target $outsideLinked)
+        $later = New-PrivacyFixtureRoot $sweep
+        # Observed first, and the junction under the parent removed as a link before any verdict: a failing case throws,
+        # and the removal in the finally below must not meet a junction that a defect left dangling, whose error would
+        # replace the verdict.
+        $innerKept = [IO.File]::Exists((Join-Path $outsideInner $script:PrivacyFixtureMarker))
+        $linkedKept = [IO.File]::Exists((Join-Path $outsideLinked $script:PrivacyFixtureMarker))
+        $staleLeft = [IO.Directory]::Exists($stale.Root)
+        $liveKept = [IO.File]::Exists((Join-Path $live.Root $script:PrivacyFixtureMarker))
+        $othersKept = [IO.Directory]::Exists($unmarked) -and [IO.Directory]::Exists($linked)
+        Remove-PrivacyFixtureRoot $later
+        Remove-PrivacyFixtureRoot $live
+        if ([IO.Directory]::Exists($linked)) { [IO.Directory]::Delete($linked, $false) }
+        if (-not $innerKept) {
+            throw 'Public privacy fixture self-test failed: removing a finished run''s fixture went through a junction inside it.'
+        }
+        if (-not $linkedKept) {
+            throw 'Public privacy fixture self-test failed: the sweep removed a fixture through a junction.'
+        }
+        if ($staleLeft) {
+            throw 'Public privacy fixture self-test failed: a fixture root a finished run left was not removed.'
+        }
+        if (-not $liveKept) {
+            throw 'Public privacy fixture self-test failed: the sweep removed the fixture of a run still holding it.'
+        }
+        if (-not $othersKept) {
+            throw 'Public privacy fixture self-test failed: the sweep removed a folder without the fixture marker, or a junction.'
+        }
         $count++
         function Step([string[]]$Arguments, [string]$Repository = $synthetic) {
             $done = Invoke-IndexedGit $Arguments $Repository
@@ -805,21 +960,79 @@ if ($SelfTest) {
             }
             $count++
         }
+        # The default mode during an unresolved merge (N-bd-w12-review-05). git grep --cached skips every stage of a
+        # conflicted path, so these stages were never read and the check passed, and git ls-files names a path once per
+        # stage, so the conflicted key was refused three times. Every file but resolved.txt changes on both sides of a
+        # merge left unresolved: only theirs (stage 3) carries the identifier in theirs.txt, both sides do in both.txt
+        # and neither does in clean.txt. blob.bin's stage 3 carries it after a NUL byte, so git grep -I calls that stage
+        # binary, as it would the same file resolved (the WITNESS that git still picks the text files), and site.pem has
+        # a protected shape. resolved.txt changes on one side only, so it merges cleanly, at stage 0.
+        $conflictRepo = Join-Path $fixtureRoot 'conflict'
+        [void][IO.Directory]::CreateDirectory($conflictRepo)
+        $conflictFiles = @('theirs.txt', 'both.txt', 'clean.txt', 'blob.bin', 'site.pem')
+        $conflictSides = @(
+            @('shared line', 'shared line', 'shared line', "shared`0", 'shared line'),
+            @('trunk wording', 'trunk wording for CONTOSO', 'trunk wording', "trunk`0", 'trunk wording'),
+            @('side wording for Contoso', 'side wording for Contoso', 'side wording', "side`0 for Contoso", 'side for Contoso'))
+        function Save-ConflictSide([int]$Side, [string]$Message) {
+            for ($i = 0; $i -lt $conflictFiles.Count; $i++) {
+                [IO.File]::WriteAllText((Join-Path $conflictRepo $conflictFiles[$i]), $conflictSides[$Side][$i] + "`n")
+            }
+            [void](Step (@('add', '-f', '--') + $conflictFiles + @('resolved.txt')) $conflictRepo)
+            [void](Step ($identity + @('commit', '-q', '-m', $Message)) $conflictRepo)
+        }
+        [void](Step @('init', '-q') $conflictRepo)
+        [IO.File]::WriteAllText((Join-Path $conflictRepo 'resolved.txt'), "shared line`n")
+        Save-ConflictSide 0 'base'
+        $conflictTrunk = Step @('symbolic-ref', '--short', 'HEAD') $conflictRepo
+        [void](Step @('checkout', '-q', '-b', 'side') $conflictRepo)
+        [IO.File]::WriteAllText((Join-Path $conflictRepo 'resolved.txt'), "shared line`nresolved for Contoso`n")
+        Save-ConflictSide 2 'side edit'
+        [void](Step @('checkout', '-q', $conflictTrunk) $conflictRepo)
+        Save-ConflictSide 1 'trunk edit'
+        if ((Invoke-IndexedGit ($identity + @('merge', '-q', '--no-edit', 'side')) $conflictRepo).ExitCode -eq 0 -or
+            @((Step @('ls-files', '-u') $conflictRepo).Split("`n")).Count -ne 3 * $conflictFiles.Count) {
+            throw 'Synthetic repository step failed: the merge did not leave every conflicting file unmerged at three stages.'
+        }
+        $conflictBlocked = Get-IndexPrivacyFindings $needles $conflictRepo
+        if ($conflictBlocked.Scanned -or @($conflictBlocked.Protected).Count -ne 1 -or $conflictBlocked.Protected[0].Path -cne 'site.pem') {
+            throw ('Public privacy index self-test failed: an unmerged protected path was not refused exactly once: ' + @($conflictBlocked.Protected).Count)
+        }
+        $count++
+        $conflictGrep = Get-IndexedPrivacyOffenders $needles $conflictRepo
+        $conflictSeen = (@($conflictGrep.Offenders)) -join '|'
+        if (@($conflictGrep.Offenders) -ccontains 'blob.bin') {
+            throw 'Public privacy index self-test failed: an unmerged stage git calls binary was read as text.'
+        }
+        if (@($conflictGrep.Offenders) -ccontains 'site.pem') {
+            throw 'Public privacy index self-test failed: an unmerged stage of a protected path was read.'
+        }
+        if (-not $conflictGrep.Matched -or $conflictSeen -cne 'both.txt|resolved.txt|theirs.txt') {
+            throw ('Public privacy index self-test failed: the unmerged text files were not each reported once from their stages: ' + $conflictSeen)
+        }
+        $count++
+        [void](Step @('rm', '-q', '--cached', '--', 'site.pem') $conflictRepo)
+        $conflictScan = Get-IndexPrivacyFindings $needles $conflictRepo
+        if (-not $conflictScan.Scanned -or ((@($conflictScan.Offenders)) -join '|') -cne 'both.txt|resolved.txt|theirs.txt') {
+            throw 'Public privacy index self-test failed: the default mode did not read the unmerged stages once nothing protected was indexed.'
+        }
+        $count++
     } finally {
         Remove-PrivacyFixtureRoot $fixture
     }
-    # The real fixture went through that removal, and what this run created is gone (N-bd-w11-tests-scripts-1-03): the
-    # root, and each folder above it that the run made, unless another run's fixture is inside it now. Read after the
-    # finally, so it sees what the finally left. When the parent was already there, the run made only the root, and the
-    # line after the summary says that the parent's removal was checked on the synthetic folders alone.
+    # The real fixture went through that removal, and what this run made is gone (N-bd-w11-tests-scripts-1-03,
+    # N-bd-w12-review-06): the root, the build\privacy-selftest parent once it is empty, whoever made it, and each folder
+    # above it that the run made, unless another run's fixture is inside now. Read after the finally, so it sees what the
+    # finally left. When the parent stays, the line after the summary says how much is inside it.
     if (-not $fixture.Removed) { throw 'Public privacy fixture self-test failed: the real fixture was not removed by Remove-PrivacyFixtureRoot.' }
-    $leftBehind = @($fixture.Created | Where-Object { [IO.Directory]::Exists($_) -and @([IO.Directory]::GetFileSystemEntries($_)).Count -eq 0 })
+    $leftBehind = @(@($fixture.Parent) + @($fixture.Created) | Where-Object { [IO.Directory]::Exists($_) -and @([IO.Directory]::GetFileSystemEntries($_)).Count -eq 0 })
     if ([IO.Directory]::Exists($fixture.Root) -or $leftBehind.Count -gt 0) {
-        throw 'Public privacy fixture self-test failed: the run left a folder it created behind.'
+        throw 'Public privacy fixture self-test failed: the run left its fixture root, or an emptied folder it owns, behind.'
     }
     Write-Host "Public privacy self-test passed: $count cases (path policy, matchers, range mode with merges and the default index mode on synthetic repositories, removed again)."
-    if ($fixture.Created.Count -lt 2) {
-        Write-Host 'Its build\privacy-selftest folder was there before this run, so the run left it in place; removing a parent folder the run created was checked on synthetic folders only.'
+    if ([IO.Directory]::Exists($fixture.Parent)) {
+        Write-Host ('Its build\privacy-selftest folder stays: it holds ' + @([IO.Directory]::GetFileSystemEntries($fixture.Parent)).Count +
+            ' item(s) this run did not remove (a fixture another run still holds, anything without the fixture marker, or a fixture whose removal failed).')
     }
     exit 0
 }
