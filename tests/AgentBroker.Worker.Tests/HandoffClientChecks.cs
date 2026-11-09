@@ -72,10 +72,16 @@ internal static class HandoffClientChecks
             (Without("summary", false), "missing-root-field"),
             (Without("role", true), "missing-artifact-field"),
             (valid.Replace("review-42", string.Concat((char)92, "uD800"), StringComparison.Ordinal), "unpaired-surrogate"),
+            // A lone surrogate in a property NAME (root and nested), not only in a value: names transcode lazily (1.10.1).
+            ("{\"" + string.Concat((char)92, "uD800") + "\":1," + valid[1..], "name-surrogate"),
+            (valid.Replace("\"bytes\":0", "\"bytes\":0,\"" + string.Concat((char)92, "uD800") + "\":1", StringComparison.Ordinal), "nested-name-surrogate"),
             ("[]", "array-root"), ("{}", "empty-root"), ("null", "null-root"), (valid + "x", "trailing-data"),
         })
             check(Rejected(() => HandoffPacket.Parse(Encoding.UTF8.GetBytes(bad))),
                 "HANDOFF_STRICT_" + name.ToUpperInvariant() + ": malformed metadata is refused");
+        byte[] rawName = [.. Encoding.UTF8.GetBytes("{\""), 0xFF, .. Encoding.UTF8.GetBytes("\":1," + valid[1..])];
+        check(Rejected(() => HandoffPacket.Parse(rawName)),
+            "HANDOFF_STRICT_NAME_INVALID_UTF8: a property name that is not UTF-8 is refused as invalid metadata");
         foreach (var (bad, name) in new[]
         {
             (packet with { TaskId = new string('x', 129) }, "TASK_BOUND"),
@@ -137,7 +143,8 @@ internal static class HandoffClientChecks
         string request = Path.Combine(scratch.Root, "packet.json"), retained = Path.Combine(scratch.Root, "packet.txt");
         await File.WriteAllTextAsync(request, valid, new UTF8Encoding(false));
         var child = await ChildAsync(check, "--handoff-prepare", "--request-file", request, "--output-file", retained);
-        byte[] saved = await File.ReadAllBytesAsync(retained);
+        // Guarded read: a failed publication fails the named check below, not an unqualified FileNotFoundException.
+        byte[] saved = File.Exists(retained) ? await File.ReadAllBytesAsync(retained) : [];
         check(child.Code == 0 && child.Value.GetProperty("status").GetString() == "ok" &&
             child.Value.GetProperty("dispatchState").GetString() == "not_dispatched" &&
             child.Value.GetProperty("text").GetString() == text && Encoding.UTF8.GetString(saved) == text,
@@ -176,6 +183,39 @@ internal static class HandoffClientChecks
         var arguments = await ChildAsync(check, "--handoff-prepare", "--request-file", "relative.json");
         check(arguments.Code == 2 && arguments.Value.GetProperty("status").GetString() == "invalid_arguments",
             "HANDOFF_PROCESS_ARGUMENTS: a relative request is rejected before file access");
+
+        // 1.10.1: a bad property NAME is a coded refusal (it crashed with exit 1 and no JSON at 1.10.0).
+        await File.WriteAllTextAsync(request, "{\"" + string.Concat((char)92, "uD800") + "\":1," + valid[1..], new UTF8Encoding(false));
+        var badName = await ChildAsync(check, "--handoff-prepare", "--request-file", request);
+        check(badName.Code == 2 && badName.Value.GetProperty("status").GetString() == "invalid_handoff" &&
+            badName.Value.GetProperty("dispatchState").GetString() == "not_dispatched",
+            "HANDOFF_PROCESS_INVALID_NAME: a lone surrogate in a property name returns the public invalid-handoff contract");
+        // 1.10.1: one UTF-8 signature (Windows PowerShell 5.1 writes it) is an encoding mark, not JSON; a second one is not.
+        await File.WriteAllTextAsync(request, valid, new UTF8Encoding(true));
+        var signed = await ChildAsync(check, "--handoff-prepare", "--request-file", request);
+        check(signed.Code == 0 && signed.Value.GetProperty("text").GetString() == text,
+            "HANDOFF_PROCESS_UTF8_SIGNATURE: a request file that starts with one UTF-8 signature is prepared normally");
+        await File.WriteAllBytesAsync(request, [0xEF, 0xBB, 0xBF, 0xEF, 0xBB, 0xBF, .. Encoding.UTF8.GetBytes(valid)]);
+        var doubleSigned = await ChildAsync(check, "--handoff-prepare", "--request-file", request);
+        check(doubleSigned.Code == 2 && doubleSigned.Value.GetProperty("status").GetString() == "invalid_handoff",
+            "HANDOFF_PROCESS_UTF8_SIGNATURE_ONCE: only one leading signature is dropped; a second remains invalid JSON");
+        // The request-path guards (HandoffPrepareClient): the .json extension and the reparse-free directory chain.
+        string wrongExtension = Path.Combine(scratch.Root, "packet-request.txt");
+        await File.WriteAllTextAsync(wrongExtension, valid, new UTF8Encoding(false));
+        var extension = await ChildAsync(check, "--handoff-prepare", "--request-file", wrongExtension);
+        check(extension.Code == 2 && extension.Value.GetProperty("status").GetString() == "invalid_arguments",
+            "HANDOFF_PROCESS_REQUEST_EXTENSION: a request file without the .json extension is refused before it is read");
+        string requestTarget = Path.Combine(scratch.Root, "request-target"), requestJunction = Path.Combine(scratch.Root, "request-junction");
+        Directory.CreateDirectory(requestTarget);
+        await File.WriteAllTextAsync(Path.Combine(requestTarget, "packet.json"), valid, new UTF8Encoding(false));
+        CreateJunction(requestJunction, requestTarget);
+        try
+        {
+            var throughJunction = await ChildAsync(check, "--handoff-prepare", "--request-file", Path.Combine(requestJunction, "packet.json"));
+            check(throughJunction.Code == 2 && throughJunction.Value.GetProperty("status").GetString() == "invalid_handoff",
+                "HANDOFF_PROCESS_REQUEST_REPARSE: a request read through a junction is refused");
+        }
+        finally { Directory.Delete(requestJunction); }
 
         OutputPublicationChecks(check, scratch.Root, "HANDOFF_OUTPUT");
         check(!Directory.EnumerateFiles(scratch.Root, ".agentbroker-output-*.tmp", SearchOption.AllDirectories).Any() &&
@@ -236,41 +276,15 @@ internal static class HandoffClientChecks
         }
         finally { Directory.Delete(junction); }
 
-        string parent = Path.Combine(directory, "parent"), moved = Path.Combine(directory, "moved-parent");
-        Directory.CreateDirectory(parent);
-        string? relocatedTemporary = null, shadowTemporary = null;
-        bool postFlushRefused = false, targetUnwritten = false, redirected = false, shadowPreserved = false;
-        try
-        {
-            postFlushRefused = Rejected(() => LocalOutputFile.Save(Path.Combine(parent, "output.json"), "original payload"u8.ToArray(), () =>
-            {
-                string temporary = Directory.GetFiles(parent, ".agentbroker-output-*.tmp").Single();
-                relocatedTemporary = Path.Combine(moved, Path.GetFileName(temporary));
-                Directory.Move(parent, moved);
-                CreateJunction(parent, target);
-                // A plain file at the redirected source keeps the subsequent temporary-file check from masking the parent guard.
-                shadowTemporary = Path.Combine(target, Path.GetFileName(temporary));
-                File.WriteAllText(shadowTemporary, "substituted payload", new UTF8Encoding(false));
-                redirected = true;
-            }));
-            targetUnwritten = !File.Exists(Path.Combine(target, "output.json"));
-            shadowPreserved = shadowTemporary is not null && File.Exists(shadowTemporary) && File.ReadAllText(shadowTemporary) == "substituted payload";
-        }
-        finally
-        {
-            if (Directory.Exists(parent) && (File.GetAttributes(parent) & FileAttributes.ReparsePoint) != 0) Directory.Delete(parent);
-            if (relocatedTemporary is not null) File.Delete(relocatedTemporary);
-            if (Directory.Exists(moved)) Directory.Delete(moved);
-            if (shadowTemporary is not null) File.Delete(shadowTemporary);
-            File.Delete(Path.Combine(target, "output.json"));
-        }
-        check(postFlushRefused && targetUnwritten && redirected,
-            prefix + "_POSTFLUSH_PARENT: a parent replaced by a junction after flush cannot redirect publication");
-        check(shadowPreserved,
-            prefix + "_POSTFLUSH_CLEANUP_SCOPE: refusal never follows the redirected parent to delete a foreign temporary");
+        // RETIRED-REPLACED (1.10.1, LocalOutputFile design v2.1): _POSTFLUSH_PARENT and _POSTFLUSH_CLEANUP_SCOPE renamed the
+        // output parent during publication and replaced it with a junction. The held parent handle (FILE_TRAVERSE, no
+        // FILE_SHARE_DELETE) and NTFS's open-file rule (MS-FSA 2.1.4.2) now make the file system refuse that premise, so the
+        // fixture can no longer run. They are replaced by LOCAL_OUTPUT_HELD_DENIES_DELETE, LOCAL_OUTPUT_FINAL_PATH_MISMATCH,
+        // LOCAL_OUTPUT_TEMP_OUTSIDE_HELD and LOCAL_OUTPUT_SOURCE_NO_PATH_DESTRUCTION (--local-output-only). No equivalence is
+        // claimed: the new checks prove the new mechanism, and none renames, moves or swaps a directory.
     }
 
-    private static void CreateJunction(string junction, string target)
+    internal static void CreateJunction(string junction, string target)
     {
         var start = new ProcessStartInfo("cmd.exe") { UseShellExecute = false, CreateNoWindow = true,
             RedirectStandardOutput = true, RedirectStandardError = true,

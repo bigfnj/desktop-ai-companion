@@ -149,6 +149,13 @@ internal static class McpCallClientChecks
             var childFailure = await Child("--mcp-call", "--data", scratch, "--request-file", request);
             check(childFailure.Code == 10 && childFailure.Value.GetProperty("status").GetString() == "tool_error",
                 "MCP_CALL_PROCESS_FAILURE: actual process exit code reflects MCP tool failure");
+            // 1.10.1: one leading UTF-8 signature (Windows PowerShell 5.1 writes it) is an encoding mark: the same request
+            // still reaches the tool, so it gets the same tool_error as above instead of invalid_request.
+            await File.WriteAllTextAsync(request, JsonSerializer.Serialize(new { tool = "wait_for_messages", arguments = new
+            { session = new SessionAddress(worker.Runtime.Store.BrokerId, "mcp:" + Guid.NewGuid(), Guid.NewGuid()), timeoutSeconds = 0 } }), new UTF8Encoding(true));
+            var signed = await Child("--mcp-call", "--data", scratch, "--request-file", request);
+            check(signed.Code == 10 && signed.Value.GetProperty("status").GetString() == "tool_error",
+                "MCP_CALL_REQUEST_UTF8_SIGNATURE: a request file with one leading UTF-8 signature is parsed and dispatched");
             var childArguments = await Child("--mcp-call");
             check(childArguments.Code == 2 && childArguments.Value.GetProperty("dispatchState").GetString() == "not_dispatched",
                 "MCP_CALL_PROCESS_ARGUMENTS: actual malformed invocation returns JSON and exit two");
@@ -157,6 +164,43 @@ internal static class McpCallClientChecks
             check(malformed.Code == 2 && malformed.Value.GetProperty("status").GetString() == "invalid_request" &&
                 malformed.Value.GetProperty("dispatchState").GetString() == "not_dispatched",
                 "MCP_CALL_JSON_SYNTAX: invalid JSON is a request failure before any connection or dispatch");
+            // 1.10.1: a bad property NAME is a coded refusal (it crashed with exit 1 and no JSON at 1.10.0). Checked in process
+            // first, so a missing guard fails here by name instead of at the child's generic one-JSON-line frame check.
+            await File.WriteAllTextAsync(request, "{\"" + string.Concat((char)92, "uD800") + "\":1,\"tool\":\"list_sessions\"}", new UTF8Encoding(false));
+            int nameCode = -1; string? nameStatus = null;
+            try
+            {
+                using var output = new MemoryStream();
+                nameCode = await McpCallClient.RunAsync(new(scratch, request, false), output);
+                using var result = JsonDocument.Parse(output.ToArray());
+                nameStatus = result.RootElement.GetProperty("status").GetString();
+            }
+            catch (Exception) { /* An escaped exception is exactly the defect: the check below reports it by name. */ }
+            check(nameCode == 2 && nameStatus == "invalid_request",
+                "MCP_CALL_REQUEST_NAME_UNICODE_IN_PROCESS: a lone surrogate in a request property name returns invalid_request instead of escaping");
+            var badName = await Child("--mcp-call", "--data", scratch, "--request-file", request);
+            check(badName.Code == 2 && badName.Value.GetProperty("status").GetString() == "invalid_request" &&
+                badName.Value.GetProperty("dispatchState").GetString() == "not_dispatched",
+                "MCP_CALL_REQUEST_NAME_UNICODE: a lone surrogate in a request property name is a request failure before dispatch");
+            // The request-path guards (McpCallClient.ReadRequestAsync): the .json extension and the reparse-free directory chain.
+            // Each request is otherwise a valid list_sessions call, so a missing guard dispatches it and exits zero.
+            string requestDirectory = Path.GetDirectoryName(request)!;
+            string wrongExtension = Path.Combine(requestDirectory, "list-request.txt");
+            await File.WriteAllTextAsync(wrongExtension, "{\"tool\":\"list_sessions\",\"arguments\":{}}", new UTF8Encoding(false));
+            var extension = await Child("--mcp-call", "--data", scratch, "--request-file", wrongExtension);
+            check(extension.Code == 2 && extension.Value.GetProperty("dispatchState").GetString() == "not_dispatched",
+                "MCP_CALL_REQUEST_EXTENSION: a request file without the .json extension is refused before dispatch");
+            string requestTarget = Path.Combine(requestDirectory, "request-target"), requestJunction = Path.Combine(requestDirectory, "request-junction");
+            Directory.CreateDirectory(requestTarget);
+            await File.WriteAllTextAsync(Path.Combine(requestTarget, "list.json"), "{\"tool\":\"list_sessions\",\"arguments\":{}}", new UTF8Encoding(false));
+            HandoffClientChecks.CreateJunction(requestJunction, requestTarget);
+            try
+            {
+                var throughJunction = await Child("--mcp-call", "--data", scratch, "--request-file", Path.Combine(requestJunction, "list.json"));
+                check(throughJunction.Code == 2 && throughJunction.Value.GetProperty("dispatchState").GetString() == "not_dispatched",
+                    "MCP_CALL_REQUEST_REPARSE: a request read through a junction is refused before dispatch");
+            }
+            finally { Directory.Delete(requestJunction); }
             await File.WriteAllTextAsync(request, "{\"tool\":\"list_sessions\",\"arguments\":{\"limit\":1,\"limit\":2}}", new UTF8Encoding(false));
             using (var output = new MemoryStream())
             {
@@ -191,13 +235,15 @@ internal static class McpCallClientChecks
             Guid id = Guid.NewGuid();
             await File.WriteAllTextAsync(wire.RequestFile, JsonSerializer.Serialize(new { tool = "send", arguments = new { messageId = id, text } }), new UTF8Encoding(false));
             var child = await RunWireChildAsync(wire.Root, wire.RequestFile, mode == WireMode.Discovery, check, destination);
+            const string originalResult = "MCP_OUTPUT_ORIGINAL_RESULT: local retention contains the original decoded response without synthesized replacement";
+            // Guarded reads: a failed publication fails this named check, not an unqualified FileNotFoundException.
+            if (!File.Exists(destination) || !child.Value.TryGetProperty("retention", out var retained)) { check(false, originalResult); return; }
             byte[] bytes = await File.ReadAllBytesAsync(destination);
             using var saved = JsonDocument.Parse(bytes);
-            var retained = child.Value.GetProperty("retention");
             check(saved.RootElement.EnumerateObject().All(property => child.Value.TryGetProperty(property.Name, out var value) &&
                     JsonElement.DeepEquals(property.Value, value)) && !saved.RootElement.TryGetProperty("retention", out _) &&
                 saved.RootElement.EnumerateObject().Count() + 1 == child.Value.EnumerateObject().Count(),
-                "MCP_OUTPUT_ORIGINAL_RESULT: local retention contains the original decoded response without synthesized replacement");
+                originalResult);
             check(retained.GetProperty("path").GetString() == destination && retained.GetProperty("bytes").GetInt64() == bytes.LongLength &&
                 retained.GetProperty("sha256").GetString() == Convert.ToHexString(SHA256.HashData(bytes)),
                 "MCP_OUTPUT_HASH_BYTES: the explicit file matches its retention identity and length");
@@ -239,11 +285,13 @@ internal static class McpCallClientChecks
         string malformedPath = Path.Combine(wire.Root, "invalid-request-result.json");
         await File.WriteAllTextAsync(wire.RequestFile, "{", new UTF8Encoding(false));
         var invalidRequest = await RunWireChildAsync(wire.Root, wire.RequestFile, false, check, malformedPath);
+        const string invalidRequestRetained = "MCP_OUTPUT_INVALID_REQUEST: malformed request errors can be retained without any broker connection";
+        if (!File.Exists(malformedPath)) check(false, invalidRequestRetained); // guarded read
         using (var malformedResult = JsonDocument.Parse(await File.ReadAllBytesAsync(malformedPath)))
             check(invalidRequest.Code == 2 && wire.Methods.Count == 0 &&
                 malformedResult.RootElement.GetProperty("status").GetString() == "invalid_request" &&
                 malformedResult.RootElement.GetProperty("dispatchState").GetString() == "not_dispatched",
-                "MCP_OUTPUT_INVALID_REQUEST: malformed request errors can be retained without any broker connection");
+                invalidRequestRetained);
         string invalidArgumentsPath = Path.Combine(wire.Root, "invalid-arguments.json");
         var invalidArguments = await HandoffClientChecks.ChildAsync(check, "--mcp-call", "--output-file", invalidArgumentsPath);
         check(invalidArguments.Code == 2 && invalidArguments.Value.GetProperty("status").GetString() == "invalid_arguments" &&
@@ -425,13 +473,16 @@ internal static class McpCallClientChecks
         {
             string destination = Path.Combine(wire.Root, "cancelled-publication.json");
             int code = await McpCallClient.RunAsync(new(wire.Root, wire.RequestFile, false, destination), output, caller.Token);
-            using var saved = JsonDocument.Parse(await File.ReadAllBytesAsync(destination));
+            const string cancelRetained = "MCP_PUBLICATION_CANCEL_RETAINED: cancellation while printing cannot corrupt or downgrade the retained confirmed response";
+            if (!File.Exists(destination)) check(false, cancelRetained); // guarded reads
+            byte[] retainedBytes = await File.ReadAllBytesAsync(destination);
+            using var saved = JsonDocument.Parse(retainedBytes);
             using var printed = JsonDocument.Parse(output.ToArray());
             check(code == 0 && caller.IsCancellationRequested && wire.ToolCalls == 1 &&
                 saved.RootElement.GetProperty("dispatchState").GetString() == "confirmed" &&
                 printed.RootElement.GetProperty("dispatchState").GetString() == "confirmed" &&
-                printed.RootElement.GetProperty("retention").GetProperty("sha256").GetString() == Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(destination))),
-                "MCP_PUBLICATION_CANCEL_RETAINED: cancellation while printing cannot corrupt or downgrade the retained confirmed response");
+                printed.RootElement.GetProperty("retention").GetProperty("sha256").GetString() == Convert.ToHexString(SHA256.HashData(retainedBytes)),
+                cancelRetained);
         }
         wire.Begin(WireMode.Json);
         using (var output = new FailAfterWriteStream())

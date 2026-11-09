@@ -77,8 +77,10 @@ internal static class InstructionsChecks
                 check(await bridge.WaitAsync(TimeSpan.FromSeconds(5)) == 0, "the instructions stdio bridge shuts down cleanly at EOF");
             }
 
-            var tools = (await Rpc(client, "tools/list", new { })).GetProperty("result").GetProperty("tools").EnumerateArray()
-                .ToDictionary(tool => tool.GetProperty("name").GetString()!, tool => tool.GetProperty("inputSchema").Clone());
+            var listed = (await Rpc(client, "tools/list", new { })).GetProperty("result").GetProperty("tools").EnumerateArray()
+                .Select(tool => tool.Clone()).ToArray();
+            var tools = listed.ToDictionary(tool => tool.GetProperty("name").GetString()!, tool => tool.GetProperty("inputSchema").Clone());
+            var descriptions = listed.ToDictionary(tool => tool.GetProperty("name").GetString()!, tool => tool.GetProperty("description").GetString() ?? "");
             static (string[] Properties, string[] Required) Shape(JsonElement schema) => (
                 schema.GetProperty("properties").EnumerateObject().Select(property => property.Name).Order(StringComparer.Ordinal).ToArray(),
                 schema.TryGetProperty("required", out var required)
@@ -95,6 +97,16 @@ internal static class InstructionsChecks
                 inbox.Properties.SequenceEqual(new[] { "cursor", "limit", "session" }) && inbox.Required.SequenceEqual(new[] { "session" }) &&
                 replyShape.Properties.SequenceEqual(new[] { "messageId", "timeoutSeconds", "unacknowledgedOnly" }) && replyShape.Required.SequenceEqual(new[] { "messageId" }),
                 "the send and wait tool schemas publish exactly their parameters and required fields");
+            // 1.10.1 (post-push audit of e398eba2): the per-tool copies that tools/list serves to every client match the card
+            // (CARD_WAIT_CLASSES) and the recovery guidance (RECOVERY_GUIDANCE_WAIT_CLASSES); before this, no check read them.
+            check(descriptions["wait_for_receipt"].Contains("one receipt wait (wait_in_progress), which may run beside its incoming wait", StringComparison.Ordinal) &&
+                !descriptions["wait_for_receipt"].Contains("one active wait", StringComparison.Ordinal) &&
+                descriptions["wait_for_messages"].Contains("One incoming wait per session, shared with wait_for_reply (wait_in_progress); a wait_for_receipt may run beside it", StringComparison.Ordinal) &&
+                descriptions["wait_for_reply"].Contains("shares the sender's one incoming wait with wait_for_messages (wait_in_progress)", StringComparison.Ordinal),
+                "TOOL_DESCRIPTION_WAIT_CLASSES: tools/list describes the shared incoming wait and the separate receipt wait");
+            check(descriptions["send"].Contains("its ID stays reserved while the terminal notice about it is retained (message_id_collision)", StringComparison.Ordinal) &&
+                !descriptions["send"].Contains("delayed terminal notice", StringComparison.Ordinal),
+                "TOOL_DESCRIPTION_ID_RESERVATION: send states the general rule that a retained terminal notice reserves its source ID");
         }
         finally
         {

@@ -127,18 +127,25 @@ internal static class ReceiptWaitChecks
 
         // The wait wakes at the message's own deadline. This fixture never starts the delivery loops and nothing else reads
         // or commits, which is the state Codex 01a18357 reproduced with all four loops busy; only the wake can end the wait.
-        await using (var real = new ToolFixture("receipt-wait-real-clock", clock: TimeProvider.System))
+        // The clock holds still through the durable Accept and starts only once the wait is admitted on a still-Accepted
+        // receipt, so a slow setup commit cannot expire the message first and let the check pass without ever blocking.
+        var deadlineClock = new SetupFrozenClock();
+        await using (var real = new ToolFixture("receipt-wait-real-clock", clock: deadlineClock))
         {
             var from = real.Register("Synthetic real-clock sender"); var to = real.Register("Synthetic real-clock recipient");
-            var now = DateTimeOffset.UtcNow;
+            var now = deadlineClock.GetUtcNow();
             var brief = new BrokerMessage(Guid.NewGuid(), Guid.NewGuid(), null, from.Address, to.Address,
                 "Synthetic message that expires during the wait.", now, now.AddMilliseconds(1500));
             real.Store.Accept(brief, real.Store.BrokerId);
-            elapsed.Restart();
-            var woke = await real.NewRequest().Tools.WaitForReceipt(brief.Id, default, timeoutSeconds: 10);
-            elapsed.Stop();
-            Console.WriteLine($"NOTE RECEIPT_WAKES_AT_DEADLINE elapsedSeconds={elapsed.Elapsed.TotalSeconds:F2}; deadlineSeconds=1.5; timeoutSeconds=10");
-            check(woke.Status == MessageStatus.Expired && elapsed.Elapsed < TimeSpan.FromSeconds(4),
+            var deadlineWait = real.NewRequest().Tools.WaitForReceipt(brief.Id, default, timeoutSeconds: 10);
+            bool admitted = await SetupFrozenClock.AdmittedAsync(real, deadlineWait) &&
+                real.Store.FindReceipt(brief.Id)?.Status == MessageStatus.Accepted;
+            deadlineClock.Start();
+            var woke = await deadlineWait.WaitAsync(TimeSpan.FromSeconds(15));
+            var sinceStart = deadlineClock.ElapsedSinceStart;
+            Console.WriteLine($"NOTE RECEIPT_WAKES_AT_DEADLINE elapsedSeconds={sinceStart.TotalSeconds:F2}; deadlineSeconds=1.5; timeoutSeconds=10; admitted={admitted}");
+            check(admitted, "WITNESS RECEIPT_WAKES_AT_DEADLINE: the wait was admitted on an Accepted receipt before its deadline clock started");
+            check(woke.Status == MessageStatus.Expired && sinceStart >= TimeSpan.FromSeconds(1.3) && sinceStart < TimeSpan.FromSeconds(4),
                 "RECEIPT_WAKES_AT_DEADLINE: a waiting wait_for_receipt wakes at the message's own deadline");
         }
 
@@ -209,25 +216,33 @@ internal static class ReceiptWaitChecks
                 "RECEIPT_WAIT_HELD_AT_ONCE: a Held receipt is an answer and ends the wait at once");
         }
 
-        // A real clock, because only the message's own deadline can end this wait: the record is Submitted and nothing else commits.
-        await using (var real = new ToolFixture("receipt-answer-real-clock", clock: TimeProvider.System))
+        // A deadline clock, because only the message's own deadline can end this wait: the record is Submitted and nothing
+        // else commits. It holds still through Accept, BeginDelivery and CompleteDelivery, so a slow setup commit can neither
+        // age the record nor lose the claim, and starts only once the wait is admitted on a still-Submitted receipt.
+        var agingClock = new SetupFrozenClock();
+        await using (var real = new ToolFixture("receipt-answer-real-clock", clock: agingClock))
         {
             var from = real.Register("Synthetic aging sender");
             var native = new BrokerSession(new(real.Store.BrokerId, "codex:receipt-answer-aging", Guid.NewGuid()), "Synthetic aging native", "codex",
-                SessionCapabilities.Receive | SessionCapabilities.WakeIdle | SessionCapabilities.Reply, SessionActivity.Idle, DateTimeOffset.UtcNow.AddMinutes(1));
+                SessionCapabilities.Receive | SessionCapabilities.WakeIdle | SessionCapabilities.Reply, SessionActivity.Idle, agingClock.GetUtcNow().AddMinutes(1));
             real.Store.Register(native);
-            var now = DateTimeOffset.UtcNow;
+            var now = agingClock.GetUtcNow();
             var brief = new BrokerMessage(Guid.NewGuid(), Guid.NewGuid(), null, from.Address, native.Address,
                 "Synthetic submitted message whose deadline passes unacknowledged.", now, now.AddMilliseconds(1500));
             real.Store.Accept(brief, real.Store.BrokerId);
             var claim = real.Store.BeginDelivery();
             if (claim?.Message.Id != brief.Id) throw new InvalidOperationException("Synthetic aging message was not claimed.");
             real.Store.CompleteDelivery(claim, MessageStatus.Submitted, "synthetic_admission");
-            var elapsed = Stopwatch.StartNew();
-            var aged = await real.NewRequest().Tools.WaitForReceipt(brief.Id, default, timeoutSeconds: 10).WaitAsync(TimeSpan.FromSeconds(15));
-            elapsed.Stop();
-            Console.WriteLine($"NOTE RECEIPT_WAIT_SUBMITTED_AGES_UNCERTAIN elapsed {elapsed.Elapsed.TotalSeconds:F2} s for a 1.5 s deadline");
-            check(aged.Status == MessageStatus.Uncertain && aged.Reason == "receipt_unconfirmed" && elapsed.Elapsed < TimeSpan.FromSeconds(4),
+            var aging = real.NewRequest().Tools.WaitForReceipt(brief.Id, default, timeoutSeconds: 10);
+            bool admitted = await SetupFrozenClock.AdmittedAsync(real, aging) &&
+                real.Store.FindReceipt(brief.Id)?.Status == MessageStatus.Submitted;
+            agingClock.Start();
+            var aged = await aging.WaitAsync(TimeSpan.FromSeconds(15));
+            var sinceStart = agingClock.ElapsedSinceStart;
+            Console.WriteLine($"NOTE RECEIPT_WAIT_SUBMITTED_AGES_UNCERTAIN elapsed {sinceStart.TotalSeconds:F2} s for a 1.5 s deadline; admitted={admitted}");
+            check(admitted, "WITNESS RECEIPT_WAIT_SUBMITTED_AGES_UNCERTAIN: the wait was admitted on a Submitted receipt before its deadline clock started");
+            check(aged.Status == MessageStatus.Uncertain && aged.Reason == "receipt_unconfirmed" &&
+                sinceStart >= TimeSpan.FromSeconds(1.3) && sinceStart < TimeSpan.FromSeconds(4),
                 "RECEIPT_WAIT_SUBMITTED_AGES_UNCERTAIN: a Submitted message's deadline ends the wait with Uncertain, receipt_unconfirmed");
         }
     }

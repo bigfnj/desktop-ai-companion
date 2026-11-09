@@ -67,6 +67,11 @@ SOURCES = {
     "workeroptions": "tools/AgentBroker.Worker/WorkerOptions.cs",
     "recoveryguidance": "tools/AgentBroker.Worker/BrokerRecoveryGuidance.cs",
     "toolfixture": "tests/AgentBroker.Worker.Tests/ToolFixture.cs",
+    # 1.10.1 client hardening (post-push audit of e398eba2): request readers and the handoff codec.
+    "handoffpacket": "tools/AgentBroker.Worker/HandoffPacket.cs",
+    "handoffprepare": "tools/AgentBroker.Worker/HandoffPrepareClient.cs",
+    "mcpcall": "tools/AgentBroker.Worker/McpCallClient.cs",
+    "stdiobridge": "tools/AgentBroker.Worker/McpStdioBridge.cs",
 }
 PROJECTS = {
     "worker": "tests/AgentBroker.Worker.Tests/AgentBroker.Worker.Tests.csproj",
@@ -128,7 +133,17 @@ def mutation_artifact(source: str) -> str:
 # resolution now checked as a skipped row (two checks) instead of a failed pass (three).
 # Worker re-measured at 696 in the final 2026-11-08 seven-harness run; the complete Worker inventory was 1901.
 # That captured run identifies its product/test hashes. The older fixed 234 blocked a healthy baseline.
-EXISTING_COUNTS = {"worker": 696, "desktop": 157}
+# 696 -> 718 (2026-11-09, 1.10.1 client hardening): McpCallClientChecks and HandoffClientChecks run before the cut-off and
+# gained 13 named checks (request name, UTF-8 signature, request path: 8 handoff, 5 mcp-call including the in-process name
+# check) plus 9 FRAME checks, one per new child-process call (HANDOFF_PROCESS_FRAME x5, MCP_CALL_PROCESS_FRAME x4).
+# 717 was measured by diffing healthy existing runs, then +1 for MCP_CALL_REQUEST_NAME_UNICODE_IN_PROCESS.
+# This is the harness pin only; the public floors are set once by the final integrated run.
+# 718 -> 750 (2026-11-09, 1.10.1 LocalOutputFile v2.1, measured): LocalOutputFileChecks (--local-output-only, 36 checks)
+# runs before McpCallClientChecks, so before the cut-off; HandoffClientChecks.OutputPublicationChecks retired its two
+# POSTFLUSH checks under each prefix (HANDOFF_OUTPUT_ and MCP_OUTPUT_, 4 in all, RETIRED-REPLACED). 718 - 4 + 36 = 750.
+# 750 -> 755 (2026-11-09, LocalOutputFile review round 1, measured): --local-output-only 36 -> 41 (CASE_SENSITIVE_ANCESTOR,
+# HANDOFF_CLI_CLEANUP, MCP_CLI_CLEANUP, POST_CREATE_CHAIN, POST_CREATE_CASE), all before the cut-off.
+EXISTING_COUNTS = {"worker": 755, "desktop": 157}
 FOCUSED_COUNTS = {"worker": 92, "desktop": 23}  # desktop 15 -> 23: installed-version image-mismatch witnesses and layout controls
 CLAUDE_SCENARIOS = ("early-reject", "unsupported-version", "hash-mismatch", "mixed", "recovery", "bounded-snapshot")
 
@@ -172,10 +187,16 @@ WITNESSES = (
         'publishedBindings = new Dictionary<SessionAddress, BindingObservation>(); '
         'throw new AdapterDiscoveryException(new("native_discovery_failed", "Native Codex directory is unavailable."), error); }',
     ),), failure_check="Codex unsupported_desktop_version survives the real adapter catch during directory observation"),
+    # The same mutant also breaks the EXISTING check CODEX_SLOW_ROW_LAST (RuntimeLifecycleChecks, before the cut-off), whose
+    # expected order the 1.10.0 delta rewrote to [T2,T0,T1]; without naming it, every default --apply aborted at this witness
+    # and never reached the wait witnesses below (post-push audit of e398eba2, 2026-11-09). Its label embeds Ids(second),
+    # which is "0,2" both healthy and mutated: the mutant changes the order, not which conversations renew.
     Witness("codex-discovery-unreached-starved", "codex", "worker", ("--codex-discovery-fairness-only",), "CodexDiscoveryFairnessChecks.cs", ((
         ".ThenBy(r => orderIndex.GetValueOrDefault(r.ConversationId, int.MaxValue)).ToArray();",
         ".ThenBy(r => orderIndex.GetValueOrDefault(r.ConversationId, int.MaxValue) * 0).ToArray();",
-    ),), failure_check="CODEX_FAIR_BUDGET_TAIL_REACHED: a successful prefix cannot consume every later pass while a valid unreached tail is never attempted"),
+    ),), allowed_existing_failures=(
+        "CODEX_SLOW_ROW_LAST: the unreached healthy conversation goes first and the slow conversation last, so every other one is renewed (0,2)",
+    ), failure_check="CODEX_FAIR_BUDGET_TAIL_REACHED: a successful prefix cannot consume every later pass while a valid unreached tail is never attempted"),
     Witness("codex-profile-reporting", "provider", "worker", ("--codex-provider-diagnostics-only",), "CodexProviderDiagnosticChecks.cs", (
         ('                diagnostics.Add(profilePinDiagnostic);', "                _ = error;"),
         ('                diagnostics.Add(new("vscode_profile_unavailable",\n'
@@ -238,7 +259,8 @@ WITNESSES = (
     ),), failure_check="a second concurrent wait for one session is refused as wait_in_progress"),
     # ---- lane feature/agentbroker-wait-classes (AgentBroker next campaign, 2026-11-08) ----
     # Each mutant breaks one rule of the two wait classes or the listening count; failure_check names the one check it
-    # must fail first. These checks remain after the --existing-tests-only cut-off; its final measured pin is 696.
+    # must fail first. These checks remain after the --existing-tests-only cut-off; its measured pin is now 755
+    # (EXISTING_COUNTS above, with each step from 696).
     Witness("wait-class-receipt-joins-incoming", "tools", "worker", ("--receipt-wait-only",), "ReceiptWaitChecks.cs", ((
         "var answered = await WaitAsync(original.Sender, WaitClass.Receipt, timeoutSeconds, () =>",
         "var answered = await WaitAsync(original.Sender, WaitClass.Incoming, timeoutSeconds, () =>",
@@ -325,6 +347,52 @@ WITNESSES = (
         "// Continuations run asynchronously, so completing under gate never runs a waiter here.\n            SignalChange();",
         "// Continuations run asynchronously, so completing under gate never runs a waiter here.\n            if (!state.Messages.Any(receipt => receipt.Status == MessageStatus.Expired)) SignalChange();",
     ),), failure_check="RECEIPT_WAIT_EXPIRED: an expiry during the wait ends it with Expired"),
+    # ---- 1.10.1 client hardening (post-push audit of e398eba2, 2026-11-09) ----
+    # McpCallClientChecks and HandoffClientChecks run before the --existing-tests-only cut-off, so each mutant also stops
+    # the existing suite at the same new check, named in allowed_existing_failures.
+    Witness("handoff-name-guard-omitted", "handoffpacket", "worker", ("--handoff-client-only",), "HandoffClientChecks.cs", ((
+        "            try { name = property.Name; }\n            catch (InvalidOperationException) { throw Invalid(); }",
+        "            name = property.Name;",
+    ),), allowed_existing_failures=("HANDOFF_STRICT_NAME-SURROGATE: malformed metadata is refused",),
+        failure_check="HANDOFF_STRICT_NAME-SURROGATE: malformed metadata is refused"),
+    Witness("mcpcall-name-guard-omitted", "mcpcall", "worker", ("--mcp-call-client-only",), "McpCallClientChecks.cs", ((
+        'catch (InvalidOperationException) { throw new InvalidDataException("invalid_request"); }',
+        "catch (InvalidOperationException) { throw; }",
+    # The child process would crash first at its generic one-JSON-line FRAME check, so the in-process check names the defect.
+    ),), allowed_existing_failures=("MCP_CALL_REQUEST_NAME_UNICODE_IN_PROCESS: a lone surrogate in a request property name returns invalid_request instead of escaping",),
+        failure_check="MCP_CALL_REQUEST_NAME_UNICODE_IN_PROCESS: a lone surrogate in a request property name returns invalid_request instead of escaping"),
+    Witness("handoff-signature-bypassed", "handoffprepare", "worker", ("--handoff-client-only",), "HandoffClientChecks.cs", ((
+        "HandoffPacket.Parse(McpStdioBridge.WithoutUtf8Signature(bytes).ToArray())", "HandoffPacket.Parse(bytes)",
+    ),), allowed_existing_failures=("HANDOFF_PROCESS_UTF8_SIGNATURE: a request file that starts with one UTF-8 signature is prepared normally",),
+        failure_check="HANDOFF_PROCESS_UTF8_SIGNATURE: a request file that starts with one UTF-8 signature is prepared normally"),
+    Witness("mcpcall-signature-bypassed", "mcpcall", "worker", ("--mcp-call-client-only",), "McpCallClientChecks.cs", ((
+        "JsonDocument.Parse(McpStdioBridge.WithoutUtf8Signature(bytes), new JsonDocumentOptions { MaxDepth = 32 })",
+        "JsonDocument.Parse(bytes, new JsonDocumentOptions { MaxDepth = 32 })",
+    ),), allowed_existing_failures=("MCP_CALL_REQUEST_UTF8_SIGNATURE: a request file with one leading UTF-8 signature is parsed and dispatched",),
+        failure_check="MCP_CALL_REQUEST_UTF8_SIGNATURE: a request file with one leading UTF-8 signature is parsed and dispatched"),
+    Witness("signature-dropped-repeatedly", "stdiobridge", "worker", ("--handoff-client-only",), "HandoffClientChecks.cs", ((
+        "? bytes.AsMemory(3) : bytes;",
+        "? (bytes.AsSpan(3).StartsWith((ReadOnlySpan<byte>)[0xEF, 0xBB, 0xBF]) ? bytes.AsMemory(6) : bytes.AsMemory(3)) : bytes;",
+    ),), allowed_existing_failures=("HANDOFF_PROCESS_UTF8_SIGNATURE_ONCE: only one leading signature is dropped; a second remains invalid JSON",),
+        failure_check="HANDOFF_PROCESS_UTF8_SIGNATURE_ONCE: only one leading signature is dropped; a second remains invalid JSON"),
+    Witness("handoff-request-extension-omitted", "handoffprepare", "worker", ("--handoff-client-only",), "HandoffClientChecks.cs", ((
+        '!Path.GetExtension(request).Equals(".json", StringComparison.OrdinalIgnoreCase) ||', "false ||",
+    ),), allowed_existing_failures=("HANDOFF_PROCESS_REQUEST_EXTENSION: a request file without the .json extension is refused before it is read",),
+        failure_check="HANDOFF_PROCESS_REQUEST_EXTENSION: a request file without the .json extension is refused before it is read"),
+    Witness("handoff-request-reparse-omitted", "handoffprepare", "worker", ("--handoff-client-only",), "HandoffClientChecks.cs", ((
+        'if ((File.GetAttributes(component) & FileAttributes.ReparsePoint) != 0) throw new InvalidDataException("invalid_handoff");',
+        "_ = component;",
+    ),), allowed_existing_failures=("HANDOFF_PROCESS_REQUEST_REPARSE: a request read through a junction is refused",),
+        failure_check="HANDOFF_PROCESS_REQUEST_REPARSE: a request read through a junction is refused"),
+    Witness("mcpcall-request-extension-omitted", "mcpcall", "worker", ("--mcp-call-client-only",), "McpCallClientChecks.cs", ((
+        ' || !Path.GetExtension(path).Equals(".json", StringComparison.OrdinalIgnoreCase))', ")",
+    ),), allowed_existing_failures=("MCP_CALL_REQUEST_EXTENSION: a request file without the .json extension is refused before dispatch",),
+        failure_check="MCP_CALL_REQUEST_EXTENSION: a request file without the .json extension is refused before dispatch"),
+    Witness("mcpcall-request-reparse-omitted", "mcpcall", "worker", ("--mcp-call-client-only",), "McpCallClientChecks.cs", ((
+        'if ((File.GetAttributes(component) & FileAttributes.ReparsePoint) != 0) throw new InvalidDataException("invalid_request");',
+        "_ = component;",
+    ),), allowed_existing_failures=("MCP_CALL_REQUEST_REPARSE: a request read through a junction is refused before dispatch",),
+        failure_check="MCP_CALL_REQUEST_REPARSE: a request read through a junction is refused before dispatch"),
     Witness("bus-instructions-removed", "workerapp", "worker", ("--instructions-only",), "InstructionsChecks.cs", ((
         "AddMcpServer(server => server.ServerInstructions = BrokerInstructions.Text)",
         "AddMcpServer()",

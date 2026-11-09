@@ -83,16 +83,22 @@ internal static class WaitLifecycleChecks
             }
             finally { cancel.Cancel(); await DrainAsync(waiting); }
         }
-        await using (var fixture = new ToolFixture("wait-lifecycle-address-deadline", clock: TimeProvider.System))
+        // The lease clock holds still through Register and the wait's admission, so a delayed call cannot reach an already
+        // expired lease and pass on the initial addressability refusal; it starts only once the wait is admitted and listening.
+        var leaseClock = new SetupFrozenClock();
+        await using (var fixture = new ToolFixture("wait-lifecycle-address-deadline", clock: leaseClock))
         {
             var native = new BrokerSession(new(fixture.Store.BrokerId, "codex:quiet-lease", Guid.NewGuid()), "Synthetic short lease", "synthetic-native",
-                SessionCapabilities.Receive | SessionCapabilities.WakeIdle | SessionCapabilities.Reply, SessionActivity.Idle, DateTimeOffset.UtcNow.AddMilliseconds(400));
+                SessionCapabilities.Receive | SessionCapabilities.WakeIdle | SessionCapabilities.Reply, SessionActivity.Idle, leaseClock.GetUtcNow().AddMilliseconds(400));
             fixture.Store.Register(native);
             using var cancel = new CancellationTokenSource();
             var waiting = fixture.NewRequest().Tools.WaitForMessages(native.Address, cancel.Token, timeoutSeconds: 20);
             try
             {
+                bool admitted = await SetupFrozenClock.AdmittedAsync(fixture, waiting) && ListeningCount(fixture.Store) == 1;
+                leaseClock.Start();
                 await Task.WhenAny(waiting, Task.Delay(2500));
+                check(admitted, "WITNESS WAIT_LIFECYCLE_ADDRESS_DEADLINE: the wait was admitted and listening before its lease clock started");
                 check(waiting.IsFaulted && waiting.Exception!.InnerException is McpException { Message: "session_unavailable" } &&
                     fixture.Runtime.ActiveWaitCount == 0 && ListeningCount(fixture.Store) == 0,
                     "WAIT_LIFECYCLE_ADDRESS_DEADLINE: a quiet exact native lease boundary ends its wait without periodic pending scans or another mutation");

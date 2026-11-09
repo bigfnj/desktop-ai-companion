@@ -10,7 +10,13 @@ public static class HandoffPrepareClient
     public const string Command = "--handoff-prepare";
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { MaxDepth = 16 };
 
-    public static async Task<int> RunCommandAsync(string[] arguments, Stream output, CancellationToken cancellation = default)
+    public static Task<int> RunCommandAsync(string[] arguments, Stream output, CancellationToken cancellation = default) =>
+        RunCommandAsync(arguments, output, null, cancellation);
+
+    // The same command with LocalOutputFile test seams, passed per call so the exit-74 path through this catch site is
+    // reachable in process. Production passes null.
+    internal static async Task<int> RunCommandAsync(string[] arguments, Stream output, LocalOutputFile.Seams? seams,
+        CancellationToken cancellation = default)
     {
         string? request = null, destination = null;
         try
@@ -40,7 +46,7 @@ public static class HandoffPrepareClient
                 if ((File.GetAttributes(component) & FileAttributes.ReparsePoint) != 0) throw new InvalidDataException("invalid_handoff");
             await using var input = new FileStream(full, FileMode.Open, FileAccess.Read, FileShare.Read, 8192, useAsync: true);
             byte[] bytes = await McpStdioBridge.ReadBoundedAsync(input, HandoffPacket.MaximumInputBytes, cancellation);
-            text = HandoffPacket.Parse(bytes).ToText();
+            text = HandoffPacket.Parse(McpStdioBridge.WithoutUtf8Signature(bytes).ToArray()).ToText();
         }
         catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException or JsonException or
             ArgumentException or OperationCanceledException or NotSupportedException or System.Security.SecurityException)
@@ -52,12 +58,11 @@ public static class HandoffPrepareClient
         LocalOutputFile.Retention? retention = null;
         if (destination is not null)
         {
-            try { retention = LocalOutputFile.Save(destination, payload); }
+            try { retention = LocalOutputFile.Save(destination, payload, seams: seams); }
             catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException or
                 NotSupportedException or System.Security.SecurityException)
             {
-                return await WriteAsync(new { status = "output_error", dispatchState = "not_dispatched", retained = false,
-                    code = "output_unavailable", nextAction = "Choose a new local file in an existing plain directory; no broker was contacted." }, 74);
+                return await WriteAsync(OutputError(error), 74);
             }
         }
         return await WriteAsync(new { status = "ok", dispatchState = "not_dispatched", text, textBytes = payload.Length,
@@ -72,4 +77,12 @@ public static class HandoffPrepareClient
             return exitCode;
         }
     }
+
+    // The exit-74 body. A temporary this call could not remove through its own handle is reported, never hidden; otherwise
+    // the body is byte-identical to the 1.10.0 one (no null member).
+    internal static object OutputError(Exception error) => LocalOutputFile.CleanupReport(error) is { } cleanup
+        ? new { status = "output_error", dispatchState = "not_dispatched", retained = false, code = "output_unavailable", cleanup,
+            nextAction = "Choose a new local file in an existing plain directory; no broker was contacted." }
+        : new { status = "output_error", dispatchState = "not_dispatched", retained = false, code = "output_unavailable",
+            nextAction = "Choose a new local file in an existing plain directory; no broker was contacted." };
 }

@@ -7280,9 +7280,10 @@ Native directory `Activity` retains existing federation semantics; this is not a
 Off-pin Codex Desktop publisher-trust/update-tolerant delivery already existed and is separately CLOSED-VERIFIED in the ledger.
 Signature trust does not remove the opt-in, capability checks, native idle guard or exact-owner verification.
 
-Two owner questions remain unanswered and remain in [BACKLOG.md](../BACKLOG.md): whether aggregate visible approval status
-completes the request for a recipient-specific approval signal, and whether manual Desktop reopening/vendor limits complete
-the original automatic-wake priority. No answer is inferred from an installed query, URI support or a synthetic test.
+The owner resolved these two historical questions on 2026-11-07: aggregate visible approval status plus explicit
+declarations completes the approval-signal design item, and supported manual Desktop opening with the vendor limitation
+recorded completes that reopening research item. The [validation record](agentbroker-180-validation.md) preserves both
+ACCEPTED-RECORDED decisions. These decisions do not establish automatic GUI wake or close separate later research.
 
 #### feature/reminder-zoom-slot
 
@@ -8027,4 +8028,4 @@ Explicit output retention flushes a new local temporary and publishes without re
 
 Uncertain delivery creates a historical advisory independently of a later terminal notice. Its ID includes the source lifetime, so acknowledged advisories and restarts do not repeat it. An unadmitted advisory is cancelled when the source resolves. Restart-interrupted submissions remain included because they may have reached input. Advisory and terminal text never proves work completion or authorizes automatic resend. Legacy terminal notice IDs remain stable; a retained terminal notice reserves a pruned source UUID until ordinary notice retention ends, returning `message_id_collision` even for a retry whose source is no longer retained. Retained-source retries still return their original receipts (`BrokerStore.WithSenderNotices`, `RebuildOwed`, `SenderNoticeId`, `Accept`).
 
-Actual legacy-reader compatibility is a separately identified opt-in run using a hash-verified assembly built from pinned source. Ordinary checks visibly report that compatibility was not run. A passing ordinary inventory is not a legacy-reader result (`UncertainNoticeChecks.cs`).
+Actual legacy-reader compatibility is a separately identified opt-in run. The harness verifies the supplied assembly against an expected SHA-256 supplied by the caller; it does not derive or authenticate the source revision at runtime. The [campaign ledger](agentbroker-next-validation-20261108.md) records the actual reader source commit, expected assembly hash and retained two-phase execution provenance. Ordinary checks visibly report that compatibility was not run. A passing ordinary inventory is not a legacy-reader result (`UncertainNoticeChecks.cs`).

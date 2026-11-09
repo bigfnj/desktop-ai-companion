@@ -94,6 +94,11 @@ if (args.Length == 1 && args[0] == "--adapter-safety-only")
     try { await AdapterSafetyChecks.RunAsync(Check); Console.WriteLine($"RESULT=PASS assertions={assertions}"); return 0; }
     catch (Exception error) { Console.Error.WriteLine(error); Console.WriteLine("RESULT=FAIL"); return 1; }
 }
+if (args.Length == 1 && args[0] == "--local-output-only")
+{
+    try { LocalOutputFileChecks.Run(Check); Console.WriteLine($"RESULT=PASS assertions={assertions}"); return 0; }
+    catch (Exception error) { Console.Error.WriteLine(error); Console.WriteLine("RESULT=FAIL"); return 1; }
+}
 if (args.Length == 1 && args[0] is "--handoff-client-only" or "--mcp-output-only" or "--mcp-publication-only")
 {
     try
@@ -464,6 +469,8 @@ try
     await RuntimeLifecycleChecks.RunAsync(Check);
     await DurableFailureChecks.RunAsync(Check);
     await PeerDiagnosticsChecks.RunAsync(Check);
+    // LocalOutputFile handle-owned publication, in process: a defect is named here before any CLI symptom below.
+    LocalOutputFileChecks.Run(Check);
     await McpCallClientChecks.RunAsync(Check);
     await HandoffClientChecks.RunAsync(Check);
     await ClaudeTitleHookChecks.RunAsync(Check);

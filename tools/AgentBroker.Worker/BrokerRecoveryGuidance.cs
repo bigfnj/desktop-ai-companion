@@ -40,7 +40,10 @@ internal static class BrokerRecoveryGuidance
         "reply_budget_exhausted" => new(code, "send",
             "If another response is authorized, send with a fresh message ID and the same conversationId. Keep the exchange bounded and preserve peer permissions."),
         "message_id_collision" => new(code, "get_message_receipt",
-            "Inspect the existing ID. Retries reuse identical content and addresses; use a fresh ID only for a deliberately new message."),
+            "Inspect the existing ID with get_message_receipt. If it finds nothing, the ID is still reserved by a retained delivery notice about its earlier message. A retry reuses the identical ID, content and addresses; choose a fresh ID only for deliberately new work, never to replay uncertain work blindly."),
+        // 1.10.1 (post-push audit of e398eba2): a late acknowledgement has two causes, so the advice branches on the receipt.
+        "message_expired" => new(code, "get_message_receipt",
+            "The message's deadline has passed and Held cannot extend it. Check its receipt: Expired means nothing remains to acknowledge; Submitted or Uncertain means acknowledge Delivered if you received it, or Refused if you will not act on it, which still settles the sender's receipt."),
         "unpaired_peer" or "private_session" or "recipient_cannot_receive" => new(code, "list_sessions",
             "Delivery is not authorized or the recipient cannot receive. Preserve that boundary; do not route through another session to bypass it."),
         "recipient_queue_full" or "message_limit" => new(code, "get_message_receipt",

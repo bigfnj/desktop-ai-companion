@@ -54,7 +54,13 @@ public static class McpCallClient
 
     // Credentials come from the existing verified control pipe, remain in memory, and are never output.
     // Business message IDs come from the request unchanged. No submitted operation is retried.
-    public static async Task<int> RunAsync(Options options, Stream output, CancellationToken cancellation = default)
+    public static Task<int> RunAsync(Options options, Stream output, CancellationToken cancellation = default) =>
+        RunAsync(options, output, null, cancellation);
+
+    // The same call with LocalOutputFile test seams, passed per call so the exit-74 path through this catch site is
+    // reachable in process. Production passes null.
+    internal static async Task<int> RunAsync(Options options, Stream output, LocalOutputFile.Seams? seams,
+        CancellationToken cancellation = default)
     {
         if (options.OutputFile is null) return await RunCoreAsync(options, output, null, cancellation);
         try { LocalOutputFile.Validate(options.OutputFile); }
@@ -71,16 +77,13 @@ public static class McpCallClient
         LocalOutputFile.Retention retention;
         try
         {
-            retention = LocalOutputFile.Save(options.OutputFile, bytes);
+            retention = LocalOutputFile.Save(options.OutputFile, bytes, seams: seams);
         }
         catch (Exception error) when (OutputFailure(error))
         {
             // The broker response is known even if the file could not be retained. Never turn a confirmed send into
             // transport uncertainty or replay it because its output path raced, filled up, or became unwritable.
-            return await WriteAsync(output, new { status = "output_error",
-                dispatchState = document.RootElement.GetProperty("dispatchState").GetString(), retained = false,
-                code = "output_unavailable", response = document.RootElement,
-                nextAction = "Retain this response using a new local file. Do not repeat a confirmed operation because retention failed." }, 74, CancellationToken.None);
+            return await WriteAsync(output, OutputError(error, document.RootElement), 74, CancellationToken.None);
         }
         var response = document.RootElement.EnumerateObject().ToDictionary(property => property.Name, property => property.Value.Clone());
         response.Add("retention", JsonSerializer.SerializeToElement(retention, Json));
@@ -89,6 +92,16 @@ public static class McpCallClient
 
     private static bool OutputFailure(Exception error) => error is IOException or InvalidDataException or UnauthorizedAccessException or
         ArgumentException or NotSupportedException or System.Security.SecurityException;
+
+    // The post-dispatch exit-74 body. A temporary this call could not remove through its own handle is reported, never
+    // hidden; otherwise the body is byte-identical to the 1.10.0 one (no null member).
+    internal static object OutputError(Exception error, JsonElement response) => LocalOutputFile.CleanupReport(error) is { } cleanup
+        ? new { status = "output_error", dispatchState = response.GetProperty("dispatchState").GetString(), retained = false,
+            code = "output_unavailable", cleanup, response,
+            nextAction = "Retain this response using a new local file. Do not repeat a confirmed operation because retention failed." }
+        : new { status = "output_error", dispatchState = response.GetProperty("dispatchState").GetString(), retained = false,
+            code = "output_unavailable", response,
+            nextAction = "Retain this response using a new local file. Do not repeat a confirmed operation because retention failed." };
 
     // Purpose-scoped local integrations reuse exactly the authenticated transport and result/exit contract, without
     // writing request files. This is internal and exposes no extra CLI operation or credential path.
@@ -221,7 +234,7 @@ public static class McpCallClient
             if ((File.GetAttributes(component) & FileAttributes.ReparsePoint) != 0) throw new InvalidDataException("invalid_request");
         await using var stream = new FileStream(full, FileMode.Open, FileAccess.Read, FileShare.Read, 8192, useAsync: true);
         var bytes = await McpStdioBridge.ReadBoundedAsync(stream, MaximumRequestBytes, token);
-        var document = JsonDocument.Parse(bytes, new JsonDocumentOptions { MaxDepth = 32 });
+        var document = JsonDocument.Parse(McpStdioBridge.WithoutUtf8Signature(bytes), new JsonDocumentOptions { MaxDepth = 32 });
         try
         {
             var pending = new Stack<JsonElement>();
@@ -236,7 +249,11 @@ public static class McpCallClient
                     var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                     foreach (var property in element.EnumerateObject())
                     {
-                        if (!names.Add(property.Name)) throw new InvalidDataException("invalid_request");
+                        // A property NAME is transcoded lazily: invalid UTF-8 or an escaped lone surrogate throws here.
+                        string name;
+                        try { name = property.Name; }
+                        catch (InvalidOperationException) { throw new InvalidDataException("invalid_request"); }
+                        if (!names.Add(name)) throw new InvalidDataException("invalid_request");
                         pending.Push(property.Value);
                     }
                 }

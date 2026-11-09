@@ -61,6 +61,238 @@ X2_BRANCH = """            : m.Recipient.BrokerId != state.BrokerId
                 ? $"was refused by the recipient's paired broker {m.Recipient.BrokerId} before delivery ({ended.Reason ?? "refused"})."
 """
 TIMINGS = "src/AgentBroker.Core/BrokerStore.CommitTimings.cs"
+
+# ---- 1.10.1 LocalOutputFile handle-owned publication (design v2 section 9, re-pinned to the implemented v2.1 file) ----
+# Labels were first reasoned against LocalOutputFileChecks.cs, which stops at its first failure, then measured:
+# all 46 FIRED at their labels in hygiene-mutations-localoutput2-20261109 (2026-11-09, sourcesRestored true).
+# The failed first run is retained. Pre-screening corrected the first label for temp-proof-skipped and made
+# handoff-null-cleanup-member compile before the authoritative run. Frozen recipes reproduce all recorded variants.
+# Re-run the witnesses a new change can reach, selected with --case. Review the current session's test-tier
+# authorization before repeating the full catalog; the prior result is not a reason to replay unaffected controls.
+# Equivalent in bounds under v2.1, so deliberately not witnesses:
+# - v2 W11/W12 (the held handle's reparse or directory attribute unchecked): step 2e re-walks canon from the held
+#   component itself and refuses the same shapes with the same code.
+# - 2e walking the typed parent instead of canon: the pin makes them differ in case only; when they differ, 2f either
+#   refuses (a case-sensitive component) or proves every lookup in the chain case-insensitive, so both walks see the
+#   same entries. LOCAL_OUTPUT_CANON_CHAIN_PLAIN therefore uses the ParentFinalPath seam, and its witness removes 2e.
+# - RootDirectory left NULL with the bare leaf: MS-FSA 2.1.5.15.12 renames inside the temporary's own directory, which
+#   the step-3 proof already pinned to the held one.
+# - The STATUS_PENDING retention (`if (!pending) Marshal.FreeHGlobal(ioStatus);` made unconditional): no in-bounds input
+#   makes a synchronous handle's rename return STATUS_PENDING, and RENAME_PENDING_REFUSED transforms the status AFTER a
+#   real completed call, where freeing is correct. The decision itself reads only the returned NTSTATUS (v2.1 D2
+#   correction), so there is no IO_STATUS_BLOCK clause left to mutate.
+# - The temporary created at the DOS path instead of the volume GUID path: the same file on a frozen NTFS chain.
+# - DangerousAddRef removed, FILE_FLAG_WRITE_THROUGH or FlushFileBuffers dropped, the IntPtr.Size guard, the outer
+#   TypeLoadException conversion, the \\?\ prefix on long paths (LongPathsEnabled=1 here): not observable in bounds.
+LOCAL = "tools/AgentBroker.Worker/LocalOutputFile.cs"
+LOCAL_GROUP = ("--local-output-only",)
+LOCAL_CHECKS = {
+    "CANON_PIN_CASE": "LOCAL_OUTPUT_CANON_PIN_CASE: the held directory's final path pins the validated parent whatever case the user typed",
+    "CANON_PIN_SHORT_NAME": "LOCAL_OUTPUT_CANON_PIN_SHORT_NAME: a final path that differs from the validated parent beyond case is refused",
+    "CANON_PIN_PREFIX": "LOCAL_OUTPUT_CANON_PIN_PREFIX: only a long-path drive-letter final path can pin the parent",
+    "FINAL_LEAF_CASE": "LOCAL_OUTPUT_FINAL_LEAF_CASE: a published leaf that differs only in case never matches, so a tunnel-cache rename is a safe refusal",
+    "FINAL_LONGER_LEAF": "LOCAL_OUTPUT_FINAL_LONGER_LEAF: a longer final name never matches a shorter leaf",
+    "FINAL_ROOT": "LOCAL_OUTPUT_FINAL_ROOT: an exact final path matches, directly under a volume root without a doubled separator too",
+    "HELD_PLAIN": "LOCAL_OUTPUT_HELD_PLAIN: an owned plain directory opens as the held directory, proves local and pins its own path",
+    "HELD_ANCESTOR_REPARSE": "LOCAL_OUTPUT_HELD_ANCESTOR_REPARSE: a held directory reached through an ancestor junction fails the pin",
+    "ANCESTOR_REPARSE": "LOCAL_OUTPUT_ANCESTOR_REPARSE: a junction above the parent is refused invalid_output_path by Validate and Save and its target is untouched",
+    "LOCAL_PROOF_UNAVAILABLE": "LOCAL_OUTPUT_LOCAL_PROOF_UNAVAILABLE: a held directory with no volume GUID path is refused invalid_output_path and nothing is created",
+    "NOT_NTFS": "LOCAL_OUTPUT_NOT_NTFS: a held directory whose file system is not NTFS is refused invalid_output_path and nothing is created",
+    "CANON_CHAIN_PLAIN": "LOCAL_OUTPUT_CANON_CHAIN_PLAIN: the canonical-chain re-walk refuses a reparse component above the held directory",
+    "PUBLISH": "LOCAL_OUTPUT_PUBLISH: exact bytes, retention and listing after a handle-owned publication; the file reopens exclusively",
+    "PUBLISH_BOUND": "LOCAL_OUTPUT_PUBLISH_BOUND: the temporary and the published file are proven at the held directory's volume GUID path plus their exact leaves",
+    "HELD_DENIES_DELETE": "LOCAL_OUTPUT_HELD_DENIES_DELETE: while publishing, a delete-access open of the parent is a sharing violation; after return it succeeds",
+    "CASE_VARIANT_PUBLISH": "LOCAL_OUTPUT_CASE_VARIANT_PUBLISH: a parent typed in another case over an all-insensitive canonical chain publishes",
+    "CASE_SENSITIVE_REFUSED": "LOCAL_OUTPUT_CASE_SENSITIVE_REFUSED: a case-sensitive directory reached through a case-variant typed path is refused invalid_output_path and nothing is created",
+    "CASE_SENSITIVE_EXACT": "LOCAL_OUTPUT_CASE_SENSITIVE_EXACT: the same case-sensitive directory typed exactly publishes",
+    "CASE_SENSITIVE_ANCESTOR": "LOCAL_OUTPUT_CASE_SENSITIVE_ANCESTOR: a case-sensitive ancestor above an insensitive held directory typed in another case is refused invalid_output_path and nothing is created",
+    "EXISTING_REFUSED": "LOCAL_OUTPUT_EXISTING_REFUSED: an existing destination is refused output_exists before any temporary is chosen",
+    "TEMP_NAME_TAKEN": "LOCAL_OUTPUT_TEMP_NAME_TAKEN: a file already at the temporary name is refused and left byte-identical",
+    "BEFORE_PUBLISH_FAILURE": "LOCAL_OUTPUT_BEFORE_PUBLISH_FAILURE: a failure before publication surfaces unchanged and the temporary is removed by POSIX delete through its handle",
+    "CLEANUP_REPORTED": "LOCAL_OUTPUT_CLEANUP_REPORTED: a refused discard leaves the primary exception unchanged, reports temporary_not_removed and both exit-74 bodies carry it",
+    "ERROR_BODY_UNCHANGED": "LOCAL_OUTPUT_ERROR_BODY_UNCHANGED: without a cleanup report both exit-74 bodies are byte-identical to 1.10.0, with no null member",
+    "HANDOFF_CLI_CLEANUP": "LOCAL_OUTPUT_HANDOFF_CLI_CLEANUP: --handoff-prepare reports a refused discard as cleanup temporary_not_removed in its exit-74 JSON",
+    "MCP_CLI_CLEANUP": "LOCAL_OUTPUT_MCP_CLI_CLEANUP: --mcp-call reports a refused discard as cleanup temporary_not_removed in its exit-74 JSON with the known response",
+    "ATOMIC_NO_REPLACE": "LOCAL_OUTPUT_ATOMIC_NO_REPLACE: a destination created after flush wins, the refusal is output_exists and no temporary remains",
+    "RENAME_FAILURE_TYPED": "LOCAL_OUTPUT_RENAME_FAILURE_TYPED: a non-collision rename status is IOException output_unavailable carrying the status and leaves nothing",
+    "RENAME_PENDING_REFUSED": "LOCAL_OUTPUT_RENAME_PENDING_REFUSED: a STATUS_PENDING rename result is output_unavailable, never success, and leaves nothing",
+    "FINAL_PATH_MISMATCH": "LOCAL_OUTPUT_FINAL_PATH_MISMATCH: a published file whose final path disagrees is removed by its own handle and a planted decoy is untouched",
+    "TEMP_OUTSIDE_HELD": "LOCAL_OUTPUT_TEMP_OUTSIDE_HELD: a temporary not proven at the held directory is removed by its own handle and a planted decoy is untouched",
+    "POST_CREATE_CHAIN": "LOCAL_OUTPUT_POST_CREATE_CHAIN: the definitive canonical-chain check runs once the owned temporary exists and before any payload byte, and its refusal leaves nothing",
+    "POST_CREATE_CASE": "LOCAL_OUTPUT_POST_CREATE_CASE: the definitive case-sensitivity check runs once the owned temporary exists and before any payload byte, and its refusal leaves nothing",
+    "SOURCE_NO_PATH_DESTRUCTION": "LOCAL_OUTPUT_SOURCE_NO_PATH_DESTRUCTION: LocalOutputFile.cs contains no path-based delete, move or replace call",
+}
+LOCAL_DISCARD = ("                DiscardOutcome outcome = Discard(temp, seams);\n                seams?.Discarded?.Invoke(outcome);\n"
+                 "                if (outcome == DiscardOutcome.NotDeleted) error.Data[CleanupDataKey] = TemporaryNotRemoved;\n                throw;")
+LOCAL_FINAL_PROOF = 'if (!IsFinalPathOf(published, volume, leaf)) throw new IOException("output_unavailable");'
+LOCAL_PIN_EQUALS = "string.Equals(finalPath[4..], parent, StringComparison.OrdinalIgnoreCase) ? finalPath[4..] : null;"
+LOCAL_CASE_STEP = "if (!string.Equals(canon, parent, StringComparison.Ordinal)) RequireCaseInsensitiveChain(canon, seams);"
+LOCAL_DEFINITIVE = "RequireChain(canon, parent, seams); // step 3b, definitive: our entry now makes the held directory non-empty"
+HANDOFF = "tools/AgentBroker.Worker/HandoffPrepareClient.cs"
+MCP_CALL = "tools/AgentBroker.Worker/McpCallClient.cs"
+
+
+def local_witness(name: str, replacements, check: str, source: str = LOCAL) -> "Witness":
+    return Witness(name, source, "worker", LOCAL_GROUP, tuple(replacements), LOCAL_CHECKS[check])
+
+
+LOCAL_OUTPUT_WITNESSES = (
+    local_witness("local-output-final-proof-skipped", ((LOCAL_FINAL_PROOF, "", 1),), "FINAL_PATH_MISMATCH"),
+    # First failure measured by the 2026-11-09 pre-screen (kill_check.py on a scratch copy): HANDOFF_CLI_CLEANUP (#32) forces
+    # its refusal through this same step-3 proof and runs before TEMP_OUTSIDE_HELD (#38). The group stops at its first
+    # failure, so #38 catching this mutant too is reasoned, not measured. Fired at #32 in hygiene-mutations-localoutput2-20261109.
+    local_witness("local-output-temp-proof-skipped",
+                  (('if (!IsFinalPathOf(created, volume, tempLeaf)) throw new IOException("output_unavailable");', "", 1),), "HANDOFF_CLI_CLEANUP"),
+    local_witness("local-output-replace-if-exists",
+                  (("info[0] = 0; // ReplaceIfExists = FALSE", "info[0] = 1; // ReplaceIfExists = FALSE", 1),), "ATOMIC_NO_REPLACE"),
+    # A path delete after closing: the temporary does go, but never through its handle, so Discarded is not observed.
+    local_witness("local-output-cleanup-close-then-path",
+                  ((LOCAL_DISCARD, "                temp.Dispose(); File.Delete(Join(volume, tempLeaf)); _ = error;\n                throw;", 1),),
+                  "BEFORE_PUBLISH_FAILURE"),
+    # Share mode 0 refuses the path delete, and the throwing catch replaces the caller's exception.
+    local_witness("local-output-cleanup-path-open-handle",
+                  ((LOCAL_DISCARD, "                File.Delete(Join(volume, tempLeaf)); _ = error;\n                throw;", 1),),
+                  "BEFORE_PUBLISH_FAILURE"),
+    local_witness("local-output-cleanup-skipped", ((LOCAL_DISCARD, "                _ = error;\n                throw;", 1),),
+                  "BEFORE_PUBLISH_FAILURE"),
+    local_witness("local-output-mismatch-deletes-observed-path",
+                  ((LOCAL_FINAL_PROOF, 'if (!IsFinalPathOf(published, volume, leaf)) { if (published is not null) File.Delete(published); '
+                    'throw new IOException("output_unavailable"); }', 1),), "FINAL_PATH_MISMATCH"),
+    # FileNameLength in characters: the kernel sees half the name ("out."), and step 7 discards the misnamed file.
+    local_witness("local-output-rename-length-chars",
+                  (("BinaryPrimitives.WriteUInt32LittleEndian(info.AsSpan(16), (uint)name.Length);",
+                    "BinaryPrimitives.WriteUInt32LittleEndian(info.AsSpan(16), (uint)leaf.Length);", 1),), "PUBLISH"),
+    local_witness("local-output-ansi-marshalling",
+                  (('[DllImport("kernel32.dll", CharSet = CharSet.Unicode, ExactSpelling = true, SetLastError = true)]\n'
+                    "    private static extern SafeFileHandle CreateFileW(",
+                    '[DllImport("kernel32.dll", CharSet = CharSet.Ansi, ExactSpelling = true, SetLastError = true)]\n'
+                    "    private static extern SafeFileHandle CreateFileW(", 1),), "HELD_PLAIN"),
+    # Falling back to the typed DOS path when no volume GUID path exists: the temporary lands in owned scratch, the GUID
+    # proof then refuses output_unavailable, and the check requires invalid_output_path with nothing created.
+    local_witness("local-output-local-proof-dropped",
+                  (('if (guid is null) throw new InvalidDataException("invalid_output_path");',
+                    r'if (guid is null) guid = @"\\?\" + parent;', 1),), "LOCAL_PROOF_UNAVAILABLE"),
+    local_witness("local-output-pin-dropped",
+                  (('canon = CanonicalDirectory(dos, parent) ?? throw new InvalidDataException("invalid_output_path");',
+                    'canon = dos?[4..] ?? throw new InvalidDataException("invalid_output_path");', 1),), "HELD_ANCESTOR_REPARSE"),
+    # Also valid against e398eba2, where the only junction fixtures were depth 1.
+    local_witness("local-output-ancestor-walk-truncated",
+                  (("for (string? component = directory; component is not null; component = Path.GetDirectoryName(component))",
+                    "for (string? component = directory; component is not null; component = null)", 1),), "ANCESTOR_REPARSE"),
+    local_witness("local-output-collision-uncoded",
+                  (("bool exists = status == StatusObjectNameCollision;", "bool exists = false;", 1),), "ATOMIC_NO_REPLACE"),
+    # The bare Win32Exception is converted to output_unavailable by the outer catch, so the collision loses output_exists.
+    local_witness("local-output-rename-error-untyped",
+                  (("if (status != 0) throw RenameFailure(status);", "if (status != 0) throw new Win32Exception(status);", 1),),
+                  "ATOMIC_NO_REPLACE"),
+    local_witness("local-output-ntstatus-dropped", (("        inner.Data[NtStatusDataKey] = text;\n", "", 1),), "RENAME_FAILURE_TYPED"),
+    local_witness("local-output-rename-pending-accepted",
+                  (("if (status != 0) throw RenameFailure(status);", "if (status < 0) throw RenameFailure(status);", 1),),
+                  "RENAME_PENDING_REFUSED"),
+    local_witness("local-output-temp-create-always",
+                  (("TempAccess, 0, IntPtr.Zero, CreateNew,", "TempAccess, 0, IntPtr.Zero, 2u,", 1),), "TEMP_NAME_TAKEN"),
+    local_witness("local-output-final-compare-ignore-case",
+                  (("finalPath is not null && string.Equals(finalPath, Join(directory, leaf), StringComparison.Ordinal);",
+                    "finalPath is not null && string.Equals(finalPath, Join(directory, leaf), StringComparison.OrdinalIgnoreCase);", 1),),
+                  "FINAL_LEAF_CASE"),
+    local_witness("local-output-final-compare-prefix",
+                  (("finalPath is not null && string.Equals(finalPath, Join(directory, leaf), StringComparison.Ordinal);",
+                    "finalPath is not null && finalPath.StartsWith(Join(directory, leaf), StringComparison.Ordinal);", 1),),
+                  "FINAL_LONGER_LEAF"),
+    local_witness("local-output-pin-ordinal",
+                  ((LOCAL_PIN_EQUALS, "string.Equals(finalPath[4..], parent, StringComparison.Ordinal) ? finalPath[4..] : null;", 1),),
+                  "CANON_PIN_CASE"),
+    local_witness("local-output-pin-always", ((LOCAL_PIN_EQUALS, "true ? finalPath[4..] : null;", 1),), "CANON_PIN_SHORT_NAME"),
+    local_witness("local-output-pin-prefix-dropped",
+                  ((r'finalPath is not null && finalPath.StartsWith(@"\\?\", StringComparison.Ordinal) &&', "finalPath is not null &&", 1),),
+                  "CANON_PIN_PREFIX"),
+    local_witness("local-output-join-naive",
+                  (("directory.EndsWith(Path.DirectorySeparatorChar) ? directory + name : directory + Path.DirectorySeparatorChar + name;",
+                    "directory + Path.DirectorySeparatorChar + name;", 1),), "FINAL_ROOT"),
+    # Without FILE_TRAVERSE the held handle takes no part in sharing (MS-FSA 2.1.5.1.2.2). If the run instead fails
+    # PUBLISH, the relative rename needs traverse on the root handle: record that, it is still a kill.
+    local_witness("local-output-traverse-dropped",
+                  (("HeldAccess = FileTraverse | FileReadAttributes | Synchronize;", "HeldAccess = FileReadAttributes | Synchronize;", 1),),
+                  "HELD_DENIES_DELETE"),
+    local_witness("local-output-share-delete-added",
+                  (("FileShareRead | FileShareWrite, IntPtr.Zero,", "FileShareRead | FileShareWrite | FileShareDelete, IntPtr.Zero,", 1),),
+                  "HELD_DENIES_DELETE"),
+    # Unreachable by construction; an unreachable path delete still violates the rule the source check states.
+    local_witness("local-output-source-path-delete",
+                  (("            string full = Validate(destination);\n",
+                    "            string full = Validate(destination);\n            if (bytes.Length < 0) File.Delete(full);\n", 1),),
+                  "SOURCE_NO_PATH_DESTRUCTION"),
+    # Classic semantics keeps the name visible while the check's own attribute-only observer handle is open.
+    local_witness("local-output-posix-flag-dropped",
+                  (("WriteUInt32LittleEndian(posix, DispositionDelete | DispositionPosixSemantics | DispositionIgnoreReadOnly);",
+                    "WriteUInt32LittleEndian(posix, DispositionDelete | DispositionIgnoreReadOnly);", 1),), "BEFORE_PUBLISH_FAILURE"),
+    local_witness("local-output-precheck-removed",
+                  (('try { _ = File.GetAttributes(full); throw new IOException("output_exists"); }', "try { }", 1),), "EXISTING_REFUSED"),
+    # ---- v2.1 additions ----
+    local_witness("local-output-ntfs-unchecked",
+                  (('            if (!string.Equals(fileSystem, "NTFS", StringComparison.Ordinal)) throw new InvalidDataException("invalid_output_path");\n',
+                    "", 1),), "NOT_NTFS"),
+    # 2e removed from RequireChain, so from the preflight and the definitive position alike.
+    local_witness("local-output-canon-chain-skipped", (("        RequireCanonicalChain(canon, seams);\n", "", 1),), "CANON_CHAIN_PLAIN"),
+    local_witness("local-output-case-sensitive-accepted",
+                  (("if ((observed & CaseSensitiveDirectory) != 0) throw new InvalidDataException(\"invalid_output_path\");", "_ = observed;", 1),),
+                  "CASE_SENSITIVE_REFUSED"),
+    local_witness("local-output-case-step-skipped", ((LOCAL_CASE_STEP, "_ = canon;", 1),), "CASE_SENSITIVE_REFUSED"),
+    local_witness("local-output-case-step-always", ((LOCAL_CASE_STEP, "RequireCaseInsensitiveChain(canon, seams);", 1),), "CASE_SENSITIVE_EXACT"),
+    # Review round 1: 2f walking the held directory only. The held directory's own flag governs only the leaf lookup, so
+    # CASE_SENSITIVE_REFUSED (whose flagged component IS the held directory) still refuses; the flagged ancestor does not.
+    local_witness("local-output-case-ancestors-unchecked",
+                  (("for (string? current = canon; current is not null; current = Path.GetDirectoryName(current))",
+                    "for (string? current = canon; current is not null; current = null)", 1),), "CASE_SENSITIVE_ANCESTOR"),
+    # Review round 1, design v2.1 D5. The preflight alone: CANON_CHAIN_PLAIN holds the directory without saving.
+    local_witness("local-output-preflight-skipped",
+                  (("            RequireChain(canon, parent, seams); // preflight (design v2.1 D5); Save repeats it once the temporary exists\n", "", 1),),
+                  "CANON_CHAIN_PLAIN"),
+    # The definitive position removed, moved after the payload write, or with its 2f half disabled (canon passed as parent).
+    local_witness("local-output-definitive-skipped", (("                " + LOCAL_DEFINITIVE + "\n", "", 1),), "POST_CREATE_CHAIN"),
+    local_witness("local-output-definitive-after-write",
+                  ((LOCAL_DEFINITIVE + "\n                Write(temp, bytes);", "Write(temp, bytes);\n                " + LOCAL_DEFINITIVE, 1),),
+                  "POST_CREATE_CHAIN"),
+    local_witness("local-output-definitive-case-skipped",
+                  ((LOCAL_DEFINITIVE, LOCAL_DEFINITIVE.replace("RequireChain(canon, parent, seams);", "RequireChain(canon, canon, seams);"), 1),),
+                  "POST_CREATE_CASE"),
+    # NOTE: LOCAL_OUTPUT_ROOT_SPELLING=exact in the healthy run, so no earlier check types a case variant.
+    local_witness("local-output-case-variant-refused",
+                  ((LOCAL_CASE_STEP, 'if (!string.Equals(canon, parent, StringComparison.Ordinal)) throw new InvalidDataException("invalid_output_path");', 1),),
+                  "CASE_VARIANT_PUBLISH"),
+    local_witness("local-output-cleanup-unreported",
+                  (("if (outcome == DiscardOutcome.NotDeleted) error.Data[CleanupDataKey] = TemporaryNotRemoved;", "_ = error;", 1),),
+                  "CLEANUP_REPORTED"),
+    local_witness("local-output-handoff-cleanup-unlisted",
+                  (('code = "output_unavailable", cleanup,\n', 'code = "output_unavailable", cleanupReport = cleanup,\n', 1),),
+                  "CLEANUP_REPORTED", "tools/AgentBroker.Worker/HandoffPrepareClient.cs"),
+    local_witness("local-output-mcp-cleanup-unlisted",
+                  (('code = "output_unavailable", cleanup, response,', 'code = "output_unavailable", cleanupReport = cleanup, response,', 1),),
+                  "CLEANUP_REPORTED", "tools/AgentBroker.Worker/McpCallClient.cs"),
+    local_witness("local-output-handoff-null-cleanup-member",
+                  (('retained = false, code = "output_unavailable",\n',
+                    'retained = false, code = "output_unavailable", cleanup = (string)null!,\n', 1),),  # (string?)null failed CS8619 under -warnaserror
+                  "ERROR_BODY_UNCHANGED", "tools/AgentBroker.Worker/HandoffPrepareClient.cs"),
+    # Review round 1: each CLI catch site reverted to its 1.10.0 inline body. CLEANUP_REPORTED and ERROR_BODY_UNCHANGED
+    # call OutputError directly and still pass; only the in-process CLI run through the catch site sees the dropped member.
+    local_witness("local-output-handoff-catch-inline",
+                  (("return await WriteAsync(OutputError(error), 74);",
+                    'return await WriteAsync(new { status = "output_error", dispatchState = "not_dispatched", retained = false, '
+                    'code = "output_unavailable", nextAction = "Choose a new local file in an existing plain directory; no broker was contacted." }, 74);', 1),),
+                  "HANDOFF_CLI_CLEANUP", HANDOFF),
+    local_witness("local-output-mcp-catch-inline",
+                  (("return await WriteAsync(output, OutputError(error, document.RootElement), 74, CancellationToken.None);",
+                    'return await WriteAsync(output, new { status = "output_error", dispatchState = document.RootElement.GetProperty("dispatchState").GetString(), '
+                    'retained = false, code = "output_unavailable", response = document.RootElement, nextAction = "Retain this response using a new local '
+                    'file. Do not repeat a confirmed operation because retention failed." }, 74, CancellationToken.None);', 1),),
+                  "MCP_CLI_CLEANUP", MCP_CALL),
+    # Step 7 regressed to the DOS final path: PUBLISH still passes (the DOS path matches), PUBLISH_BOUND does not.
+    local_witness("local-output-proof-dos-final-path",
+                  (("string? published = FinalPath(temp, VolumeNameGuid);", "string? published = FinalPath(temp, VolumeNameDos);", 1),
+                   ("if (!IsFinalPathOf(published, volume, leaf))", r'if (!IsFinalPathOf(published, @"\\?\" + canon, leaf))', 1)),
+                  "PUBLISH_BOUND"),
+)
+
 WITNESSES = (
     Witness("hygiene-late-held-allowed", STORE, "core", ("--hygiene-only",), ((X1_GUARD, "", 1),),
             "LATE_HELD_REFUSED: a local Held after the deadline is refused message_expired and the record stays Uncertain"),
@@ -163,7 +395,34 @@ WITNESSES = (
             (('new BrokerRuntime(store, federation, nativeAdapters, new SessionPreferences(options.DataDirectory), clock);', 'new BrokerRuntime(store, federation, nativeAdapters, new SessionPreferences(options.DataDirectory), TimeProvider.System);', 1),), 'REPLY_HTTP_RUNTIME_CLOCK: the HTTP fixture runtime uses the controlled clock before any registration'),
     Witness('reply-http-explicit-late-boundary-omitted', 'tests/AgentBroker.Worker.Tests/ReplyToolChecks.cs', 'worker', ('--reply-only',),
             (('        clock.Advance(TimeSpan.FromSeconds(2));', '        // Negative control: the parent deadline has not passed.', 1),), "REPLY_HTTP_AFTER_DEADLINE: the actual HTTP late reply runs only after its delivered parent's original deadline"),
-)
+) + (
+    # 1.10.1 (post-push audit of e398eba2): restore the 1.10.0 order, rebuilding owed notices AFTER the constructor's
+    # recovery commit. A source recovered past its retention is then dropped twice in one store opening.
+    Witness("store-owed-rebuilt-after-recovery", STORE, "core", ("--uncertain-notices-only",),
+            (("            owed = RebuildOwed();\n            if (!existed || upgraded", "            if (!existed || upgraded", 1),
+             ("            (inboxSequences, inboxHighWater) = PrepareInboxSequences(state.Messages);\n",
+              "            (inboxSequences, inboxHighWater) = PrepareInboxSequences(state.Messages);\n            owed = RebuildOwed();\n", 1)),
+            "UNCERTAIN_NOTICE_REOPEN_PAST_RETENTION: a source recovered after its retention ended drops its advisory once, not again on the next pass"),
+    # 1.10.1 item 5 (post-push audit of e398eba2): recovery guidance for both message_expired causes and the retained-notice
+    # ID reservation, the per-tool description copies that tools/list serves, and the late-Accepted branch the guidance cites.
+    Witness("guidance-expired-unmapped", "tools/AgentBroker.Worker/BrokerRecoveryGuidance.cs", "worker", ("--recovery-guidance-only",),
+            (('"message_expired" => new(code, "get_message_receipt",', '"message_expired_unmapped" => new(code, "get_message_receipt",', 1),),
+            "RECOVERY_GUIDANCE_MESSAGE_EXPIRED: a late acknowledgement is told how to read its receipt for both causes"),
+    Witness("guidance-reservation-unexplained", "tools/AgentBroker.Worker/BrokerRecoveryGuidance.cs", "worker", ("--recovery-guidance-only",),
+            (("If it finds nothing, the ID is still reserved by a retained delivery notice about its earlier message. ", "", 1),),
+            "RECOVERY_GUIDANCE_ID_RESERVED: an ID reserved by a retained notice is explained, and a fresh ID is only for deliberately new work"),
+    Witness("description-receipt-wait-reverted", TOOLS, "worker", ("--instructions-only",),
+            (("This uses the sender's one receipt wait (wait_in_progress), which may run beside its incoming wait, and renews it.",
+              "This uses the sender's one active wait (wait_in_progress) and renews it.", 1),),
+            "TOOL_DESCRIPTION_WAIT_CLASSES: tools/list describes the shared incoming wait and the separate receipt wait"),
+    Witness("description-reservation-delayed", TOOLS, "worker", ("--instructions-only",),
+            (("its ID stays reserved while the terminal notice about it is retained (message_id_collision); choose a fresh ID only for deliberately new work.",
+              "its ID also remains reserved while its delayed terminal notice is retained (message_id_collision); choose a fresh ID for new work.", 1),),
+            "TOOL_DESCRIPTION_ID_RESERVATION: send states the general rule that a retained terminal notice reserves its source ID"),
+    Witness("store-late-accepted-allowed", STORE, "core", ("--hygiene-only",),
+            (('            if (previous.Status == MessageStatus.Accepted && previous.Message.ExpiresAt <= Now) Fail("message_expired");', "            _ = previous;", 1),),
+            "LATE_ACCEPTED_EXPIRED: a never-submitted message past its deadline refuses Delivered as message_expired and reads Expired"),
+) + LOCAL_OUTPUT_WITNESSES
 
 
 def sha256(data: bytes) -> str:
@@ -185,14 +444,31 @@ PROOF_FIELDS = {
     "worker": ("WITNESS: POSTPUSH_WORKER_EXECUTED", {"WORKER_PRODUCT_SHA256": "AgentBroker.Worker.dll", "WORKER_CORE_SHA256": "AgentBroker.Core.dll", "WORKER_HARNESS_SHA256": "AgentBroker.Worker.Tests.dll"}),
 }
 # Measured by the composed focused smoke; every mutation run checks its own real baseline against these pins.
-EXPECTED_COUNTS = {("core", ("--hygiene-only",)): 12, ("core", ("--peer-receipt-only",)): 22,
-                   ("core", ("--commit-timing-only",)): 9, ("worker", ("--receipt-wait-only",)): 22,
-                   ("worker", ("--instructions-only",)): 12, ("worker", ("--recovery-guidance-only",)): 28,
+# --receipt-wait-only 22 -> 24 (2026-11-09, test-only): the SetupFrozenClock repair adds the admission witnesses
+# WITNESS RECEIPT_WAKES_AT_DEADLINE and WITNESS RECEIPT_WAIT_SUBMITTED_AGES_UNCERTAIN.
+# 1.10.1 item 5: core --hygiene-only 12 -> 13 (LATE_ACCEPTED_EXPIRED), worker --instructions-only 12 -> 14
+# (TOOL_DESCRIPTION_WAIT_CLASSES, TOOL_DESCRIPTION_ID_RESERVATION), --recovery-guidance-only 28 -> 30
+# (RECOVERY_GUIDANCE_MESSAGE_EXPIRED, RECOVERY_GUIDANCE_ID_RESERVED). Each measured on the fixed source.
+# R wire acceptance: --recovery-guidance-only measured 30 -> 38 on fixture F79B28B7, host baseline 9a3e7a6b.
+# RECOVERY_GUIDANCE_WIRE_RESERVED_SETUP, RECOVERY_GUIDANCE_WIRE_LATE_SETUP,
+# RECOVERY_GUIDANCE_WIRE_LATE_HELD_DELIVERED, RECOVERY_GUIDANCE_WIRE_LATE_SETTLED_DELIVERED,
+# RECOVERY_GUIDANCE_WIRE_LATE_HELD_REFUSED, RECOVERY_GUIDANCE_WIRE_LATE_SETTLED_REFUSED,
+# RECOVERY_GUIDANCE_WIRE_RESERVED_SOURCE_ABSENT, RECOVERY_GUIDANCE_WIRE_RESERVED_ID.
+EXPECTED_COUNTS = {("core", ("--hygiene-only",)): 13, ("core", ("--peer-receipt-only",)): 22,
+                   ("core", ("--commit-timing-only",)): 9, ("worker", ("--receipt-wait-only",)): 24,
+                   ("worker", ("--instructions-only",)): 14, ("worker", ("--recovery-guidance-only",)): 38,
                    ("worker", ("--first-contact-only",)): 43,
                    ("worker", ("--directory-stop-core-only",)): 3, ("worker", ("--directory-host-stop-only",)): 3,
-                   ("worker", ("--directory-stop-only",)): 6, ("worker", ("--reply-only",)): 13}
+                   ("worker", ("--directory-stop-only",)): 6, ("worker", ("--reply-only",)): 13,
+                   # 1.10.1: 80 at e398eba2 plus UNCERTAIN_NOTICE_REOPEN_PAST_RETENTION (measured 81 on the fixed source).
+                   ("core", ("--uncertain-notices-only",)): 81,
+                   # 1.10.1 LocalOutputFile v2.1: the new group, measured 36 on its first healthy focused runs (2026-11-09).
+                   # 36 -> 41 (review round 1, measured): CASE_SENSITIVE_ANCESTOR, HANDOFF_CLI_CLEANUP, MCP_CLI_CLEANUP,
+                   # POST_CREATE_CHAIN and POST_CREATE_CASE.
+                   ("worker", ("--local-output-only",)): 41}
 CORE_SUMMARIES = {("--hygiene-only",): "AgentBroker hygiene smoke", ("--peer-receipt-only",): "AgentBroker peer receipt smoke",
-                  ("--commit-timing-only",): "AgentBroker commit timing smoke"}
+                  ("--commit-timing-only",): "AgentBroker commit timing smoke",
+                  ("--uncertain-notices-only",): "AgentBroker uncertainty notice smoke"}
 
 
 def group_key(project: str, args: tuple[str, ...]) -> str:

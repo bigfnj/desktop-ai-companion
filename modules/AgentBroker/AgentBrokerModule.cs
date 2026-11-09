@@ -41,7 +41,8 @@ public sealed partial class AgentBrokerModule : IModule
     {
         Id = "agentbroker",
         Name = "AgentBroker",
-        Version = "1.10.0",  // Collaboration handoffs, retained client output and delivery advisories.
+        Version = "1.10.1",  // Verified client HTTP setup and a single cancellation outcome.
+                             // 1.10.0: collaboration handoffs, retained client output and delivery advisories.
                              // 1.9.0: authenticated certificate renewal and post-push reliability repairs.
                              //        Exact-incarnation delivery and the host ABI floor are unchanged.
                              // 1.8.0: arrival-cursor inbox reads, report-only native recovery, exact-address declarations,
@@ -631,21 +632,24 @@ public sealed partial class AgentBrokerModule : IModule
     private static string Safe(string? value, int limit) => new((value ?? "").Where(c => !char.IsControl(c) && c != '&')
         .Take(limit).ToArray());
 
-    private async Task<string> ConfigureClientAsync(string client)
+    private async Task<ClientSetupOutcome> ConfigureClientAsync(string client)
     {
         if (shutDown || !settings.Enabled || dataDirectory is null || run is null)
-            return "Enable AgentBroker before connecting a client.";
+            return new("Enable AgentBroker before connecting a client.", false);
         int current = generation;
         string directory = dataDirectory;
         CancellationToken token = run.Token;
-        ControlResponse? connection = client == "claude" ? await SendAsync(new("connection")) : null;
+        ControlResponse? connection = await SendAsync(new("connection"));
         if (shutDown || generation != current || token.IsCancellationRequested)
-            return "Client setup was cancelled because the broker connection changed.";
+            return new(ClientSetupCancelledBeforeCommand, false);
         if (client == "claude" && !AgentClientSetup.HasVerifiedConnection(connection))
-            return "Could not verify the broker connection. Refresh status, then try Connect Claude MCP again.";
-        string? endpoint = client == "claude" ? AgentClientSetup.EndpointFromConnection(connection) : null;
+            return new("Could not verify the broker connection. Refresh status, then try Connect Claude MCP again.", false);
+        string? endpoint = UsableClientHttpEndpoint(connection);
         string worker = Path.Combine(Path.GetDirectoryName(typeof(AgentBrokerModule).Assembly.Location)!, "worker", "AgentBroker.Worker.exe");
-        return await ClientSetup.ConfigureAsync(client, worker, directory, token, endpoint,
-            inspectionMcpEndpoint: client == "codex" ? LoopbackMcpEndpoint() : null);
+        // This records entry to the configuration helper, not proof that a vendor command completed or was submitted.
+        return new(await ClientSetup.ConfigureAsync(client, worker, directory, token,
+            loopbackMcpEndpoint: client == "claude" ? endpoint : null,
+            inspectionMcpEndpoint: client == "codex" ? endpoint : null,
+            httpConnectionVerified: AgentClientSetup.HasVerifiedConnection(connection)), true);
     }
 }

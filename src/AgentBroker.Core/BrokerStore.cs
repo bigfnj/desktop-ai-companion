@@ -134,10 +134,14 @@ public sealed partial class BrokerStore : IDisposable
             // A state an older worker wrote (1.0.4, or this one during a rollback) still holds acknowledged messages
             // with their text. The commit below moves them to tombstones before anything else can read them.
             bool upgraded = recovered.Any(Tombstoned);
+            // Owed notices are rebuilt from the state as loaded, BEFORE the recovery commit, so that commit settles the
+            // whole set once: a recovered source past its retention is dropped once there and published as no longer
+            // owed. Rebuilding after the commit re-owed it (its record is still retained until the first Expire prunes
+            // it), so the first delivery pass dropped the same advisory a second time (post-push audit of e398eba2, 1.10.1).
+            owed = RebuildOwed();
             if (!existed || upgraded || !recovered.SequenceEqual(state.Messages)) Commit(state with { Messages = recovered });
             // An inbox cursor belongs to this store opening. Retained full records already preserve acceptance order.
             (inboxSequences, inboxHighWater) = PrepareInboxSequences(state.Messages);
-            owed = RebuildOwed();
         }
         catch (JsonException ex) { ownership.Dispose(); throw new InvalidDataException("Broker state is malformed. It was preserved for recovery.", ex); }
         catch { ownership.Dispose(); throw; }

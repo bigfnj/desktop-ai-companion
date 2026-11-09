@@ -36,9 +36,9 @@ $floorNodes = @($syntax.FindAll({ param($node) $node -is [Management.Automation.
 Check ($errors.Count -eq 0 -and $floorNodes.Count -eq 1) 'BROKER_FLOORS_HAVE_ONE_AUTHORITY'
 $tables = @($floorNodes[0].Right.FindAll({ param($node) $node -is [Management.Automation.Language.HashtableAst] }, $true))
 $assertionFloors = $tables[0].SafeGetValue()
-Check ($assertionFloors.Count -eq 7 -and $assertionFloors.Core -eq 515 -and $assertionFloors.Relay -eq 40 -and
+Check ($assertionFloors.Count -eq 7 -and $assertionFloors.Core -eq 517 -and $assertionFloors.Relay -eq 40 -and
     $assertionFloors.Claude -eq 212 -and $assertionFloors.Desktop -eq 594 -and $assertionFloors.Adapter -eq 84 -and
-    $assertionFloors.Network -eq 250 -and $assertionFloors.Worker -eq 1901) 'BROKER_FINAL_INVENTORY_FLOORS'
+    $assertionFloors.Network -eq 250 -and $assertionFloors.Worker -eq 1975) 'BROKER_FINAL_INVENTORY_FLOORS'
 $calls = @($syntax.FindAll({ param($node)
     $node -is [Management.Automation.Language.AssignmentStatementAst] -and
     @($node.Right.FindAll({ param($inner) $inner -is [Management.Automation.Language.CommandAst] -and

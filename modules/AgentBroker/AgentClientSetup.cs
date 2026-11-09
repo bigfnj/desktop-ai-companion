@@ -7,7 +7,7 @@ using AgentBroker.Protocol;
 namespace DesktopAICompanion.AgentBroker;
 
 internal sealed record ClientCommandResult(int ExitCode, string Output, string Error);
-internal enum ClientConfiguration { CliMissing, Absent, Configured, DifferentEntry, Disabled, PolicyBlocked, Unrecognized, Failed, Cancelled }
+internal enum ClientConfiguration { CliMissing, Absent, Configured, DifferentEntry, ConnectionUnverified, Disabled, PolicyBlocked, Unrecognized, Failed, Cancelled }
 // Fixed codes only. Scope: user, project, local, managed, "" (the client reports none) or unrecognized.
 // Transport: http, stdio or other. Health is Claude's own connection check: connected, tools_unavailable,
 // needs_authentication, failed, connection_error, pending_approval, rejected, disabled, timed_out or unknown.
@@ -22,7 +22,7 @@ internal sealed class AgentClientSetup(IAgentClientCommand command)
 {
     internal const string ServerName = "desktop-ai-companion-agentbroker";
     public async Task<string> ConfigureAsync(string client, string worker, string directory, CancellationToken token,
-        string? loopbackMcpEndpoint = null, string? inspectionMcpEndpoint = null)
+        string? loopbackMcpEndpoint = null, string? inspectionMcpEndpoint = null, bool httpConnectionVerified = true)
     {
         if (loopbackMcpEndpoint is not null && (client != "claude" || !IsLiteralLoopbackEndpoint(loopbackMcpEndpoint)))
             return "The broker returned an invalid local MCP endpoint. Refresh its status before connecting Claude Code.";
@@ -42,6 +42,9 @@ internal sealed class AgentClientSetup(IAgentClientCommand command)
                 var inspection = client == "codex"
                     ? InspectCodex(existing.Output, worker, directory, inspectionMcpEndpoint ?? "", DateTimeOffset.UtcNow)
                     : InspectClaude(existing.Output, worker, directory, loopbackMcpEndpoint ?? "", DateTimeOffset.UtcNow);
+                inspection = WithConnectionVerification(inspection, httpConnectionVerified);
+                if (inspection.State == ClientConfiguration.ConnectionUnverified)
+                    return "Could not verify this HTTP entry because the broker connection is unavailable. Refresh status, then choose Check client setup again. No configuration was changed.";
                 if (client == "codex" && inspection.State == ClientConfiguration.PolicyBlocked)
                     return "Codex reports this AgentBroker entry disabled by requirements. Ask the policy owner to permit this exact local server, then start a fresh chat. No configuration was changed.";
                 if (client == "codex" && inspection.State == ClientConfiguration.Disabled)
@@ -101,7 +104,7 @@ internal sealed class AgentClientSetup(IAgentClientCommand command)
     /// detection observes reachability directly.
     /// </summary>
     public async Task<ClientInspection> InspectAsync(string client, string worker, string directory, string loopbackMcpEndpoint,
-        DateTimeOffset now, CancellationToken token)
+        DateTimeOffset now, CancellationToken token, bool httpConnectionVerified = true)
     {
         if (client is not ("codex" or "claude")) throw new ArgumentOutOfRangeException(nameof(client));
         string[] get = client == "codex" ? ["mcp", "get", ServerName, "--json"] : ["mcp", "get", ServerName];
@@ -130,10 +133,17 @@ internal sealed class AgentClientSetup(IAgentClientCommand command)
                 return new(ClientConfiguration.Absent, ExitCode: result.ExitCode, CheckedUtc: now);
             return new(ClientConfiguration.Failed, ExitCode: result.ExitCode, CheckedUtc: now);
         }
-        return client == "claude"
+        var inspection = client == "claude"
             ? InspectClaude(result.Output, worker, directory, loopbackMcpEndpoint, now)
             : InspectCodex(result.Output, worker, directory, loopbackMcpEndpoint, now);
+        return WithConnectionVerification(inspection, httpConnectionVerified);
     }
+
+    // An unavailable broker probe cannot establish an HTTP mismatch. Stdio identity is independently
+    // verified from the exact worker and data arguments; a verified bearer-only connection still rules HTTP out.
+    private static ClientInspection WithConnectionVerification(ClientInspection inspection, bool httpConnectionVerified) =>
+        !httpConnectionVerified && inspection is { State: ClientConfiguration.DifferentEntry, Transport: "http" }
+            ? inspection with { State = ClientConfiguration.ConnectionUnverified } : inspection;
 
     // The labels the reviewed public mcpGetHandler prints (Connect-ClaudeMcpEntry.mjs connectionFields). A
     // block that does not have exactly one of each label it needs is Unrecognized, never Configured.

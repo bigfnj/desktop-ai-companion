@@ -75,6 +75,18 @@ internal static class HygieneChecks
                 Refusal(() => store.RecordRecipientReceipt(exactHeld.Id, recipient.Address, store.BrokerId, MessageStatus.Held)) == "message_expired" &&
                 store.FindReceipt(exactHeld.Id) is { Status: MessageStatus.Uncertain, Reason: "receipt_unconfirmed" },
                 "LATE_HELD_EXACT_DEADLINE: a local Held exactly at ExpiresAt is refused and remains Uncertain");
+
+            // 1.10.1: the other message_expired cause, last so the late-receipt witnesses above stay first failures. A message
+            // never submitted (still Accepted) past its deadline refuses every new outcome and then reads Expired, which is
+            // the branch the message_expired recovery guidance tells the recipient to check for.
+            var unread = new BrokerMessage(Guid.NewGuid(), Guid.NewGuid(), null, sender.Address, recipient.Address,
+                "Synthetic message never submitted before its deadline.", clock.GetUtcNow(), clock.GetUtcNow().AddMinutes(1));
+            store.Accept(unread, store.BrokerId);
+            clock.Advance(TimeSpan.FromMinutes(2));
+            Renew();
+            Check(Refusal(() => store.RecordRecipientReceipt(unread.Id, recipient.Address, store.BrokerId, MessageStatus.Delivered)) == "message_expired" &&
+                store.FindReceipt(unread.Id)?.Status == MessageStatus.Expired,
+                "LATE_ACCEPTED_EXPIRED: a never-submitted message past its deadline refuses Delivered as message_expired and reads Expired");
         }
 
         // X1, paired control: a paired broker's Held for a forwarded message keeps its own path, deadline or not.

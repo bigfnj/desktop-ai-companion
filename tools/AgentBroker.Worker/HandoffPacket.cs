@@ -58,8 +58,13 @@ public sealed record HandoffPacket(string Kind, string TaskId, string State, str
         if (element.ValueKind != JsonValueKind.Object) throw Invalid();
         var fields = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
         foreach (var property in element.EnumerateObject())
-            if (!expected.Contains(property.Name, StringComparer.Ordinal) ||
-                !fields.TryAdd(property.Name, property.Value)) throw Invalid();
+        {
+            // A property NAME is transcoded lazily: invalid UTF-8 or an escaped lone surrogate throws here, not at Parse.
+            string name;
+            try { name = property.Name; }
+            catch (InvalidOperationException) { throw Invalid(); }
+            if (!expected.Contains(name, StringComparer.Ordinal) || !fields.TryAdd(name, property.Value)) throw Invalid();
+        }
         if (fields.Count != expected.Length) throw Invalid();
         return fields;
     }

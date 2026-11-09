@@ -15,6 +15,10 @@ public sealed partial class AgentBrokerModule
     private ClientInspection? claudeInspection, codexInspection;
     private bool clientCheckOpen;
     private readonly Dictionary<string, string> clientSetupResults = new(StringComparer.Ordinal);
+    private sealed record ClientSetupOutcome(string Text, bool ConfigurationInvoked);
+    private const string ClientSetupCancelledBeforeCommand =
+        "Client setup was cancelled because the broker connection changed before a client command started. " +
+        "When AgentBroker is running, choose Check client setup before retrying.";
 
     private static string ClientName(string client) => client == "claude" ? "Claude Code" : "Codex";
     private ClientInspection? Inspection(string client) => client == "claude" ? claudeInspection : codexInspection;
@@ -22,6 +26,8 @@ public sealed partial class AgentBrokerModule
         Path.Combine(Path.GetDirectoryName(typeof(AgentBrokerModule).Assembly.Location)!, "worker", "AgentBroker.Worker.exe");
     private string LoopbackMcpEndpoint() =>
         "http://127.0.0.1:" + settings.LoopbackPort.ToString(CultureInfo.InvariantCulture) + "/mcp";
+    private static string? UsableClientHttpEndpoint(ControlResponse? connection) =>
+        AgentClientSetup.HasVerifiedConnection(connection) ? AgentClientSetup.EndpointFromConnection(connection) : null;
 
     /// <summary>On demand only (the pane action, the tray item, after a Connect action). The status poll
     /// never launches a vendor CLI: a check spawns the client's CLI, and Claude's get also runs its own
@@ -34,12 +40,17 @@ public sealed partial class AgentBrokerModule
         clientCheckOpen = true;
         int current = generation;
         CancellationToken token = run.Token;
-        string directory = dataDirectory, worker = WorkerExecutable(), endpoint = LoopbackMcpEndpoint();
+        string directory = dataDirectory, worker = WorkerExecutable();
         try
         {
+            ControlResponse? connection = await SendAsync(new("connection"));
+            if (shutDown || generation != current || token.IsCancellationRequested)
+                return "The client setup check was cancelled because the broker connection changed.";
+            string endpoint = UsableClientHttpEndpoint(connection) ?? "";
             foreach (string client in only is null ? new[] { "claude", "codex" } : new[] { only })
             {
-                ClientInspection inspection = await ClientSetup.InspectAsync(client, worker, directory, endpoint, McpNow(), token);
+                ClientInspection inspection = await ClientSetup.InspectAsync(client, worker, directory, endpoint, McpNow(), token,
+                    httpConnectionVerified: AgentClientSetup.HasVerifiedConnection(connection));
                 if (shutDown || generation != current || token.IsCancellationRequested)
                     return "The client setup check was cancelled because the broker connection changed.";
                 if (client == "claude") claudeInspection = inspection; else codexInspection = inspection;
@@ -58,15 +69,26 @@ public sealed partial class AgentBrokerModule
             return "Enable AgentBroker before connecting a client.";
         int current = generation;
         CancellationToken token = run.Token;
-        string result = await ConfigureClientAsync(client);
+        ClientSetupOutcome result = await ConfigureClientAsync(client);
+        // The module can finish before entering client setup, including cancellation during the control probe.
+        // That typed outcome already describes the action; do not append an obsolete-vendor-operation suffix.
+        if (!result.ConfigurationInvoked)
+        {
+            if (!shutDown && generation == current && !token.IsCancellationRequested)
+            {
+                clientSetupResults[client] = result.Text;
+                NotifyInfoChanged();
+            }
+            return result.Text;
+        }
         if (shutDown || generation != current || token.IsCancellationRequested)
-            return ObsoleteSetupResult(result);
+            return ObsoleteSetupResult(result.Text);
         await CheckClientSetupAsync(client);
         if (shutDown || generation != current || token.IsCancellationRequested)
-            return ObsoleteSetupResult(result);
-        clientSetupResults[client] = result;
+            return ObsoleteSetupResult(result.Text);
+        clientSetupResults[client] = result.Text;
         NotifyInfoChanged();
-        return result;
+        return result.Text;
     }
 
     // ConfigureAsync returns application-owned guidance, never raw vendor diagnostics. Its completed or uncertain
@@ -84,7 +106,8 @@ public sealed partial class AgentBrokerModule
             ClientConfiguration.CliMissing => "CLI not found.",
             ClientConfiguration.PolicyBlocked => "blocked by managed policy.",
             ClientConfiguration.Absent => "not configured.",
-            ClientConfiguration.DifferentEntry => "an entry with AgentBroker's name points elsewhere.",
+            ClientConfiguration.DifferentEntry => "an entry with AgentBroker's name needs review.",
+            ClientConfiguration.ConnectionUnverified => "HTTP entry not verified; the broker connection is unavailable.",
             ClientConfiguration.Disabled => "configured but disabled.",
             ClientConfiguration.Unrecognized => "configuration not recognized (unsupported CLI output).",
             ClientConfiguration.Configured => InboxCounts(client).Attributed > 0
@@ -124,7 +147,8 @@ public sealed partial class AgentBrokerModule
                 : "\u2717 Configuration: blocked by managed policy (" + exit + "). Ask the policy owner to approve this exact local server.",
             ClientConfiguration.Absent => "\u2717 Configuration: absent. Use Connect " + (client == "claude" ? "Claude" : "Codex") + " MCP to add it for this user.",
             ClientConfiguration.DifferentEntry => "\u2717 Configuration: an entry named " + AgentClientSetup.ServerName +
-                " exists but does not point at this broker. Review it in " + name + "'s MCP settings; AgentBroker never replaces it.",
+                " exists but does not match this broker's supported connection. Review it in " + name + "'s MCP settings; AgentBroker never replaces it.",
+            ClientConfiguration.ConnectionUnverified => "\u26A0 Configuration: HTTP entry not verified because the broker connection is unavailable. Refresh status, then check client setup again.",
             ClientConfiguration.Disabled => client == "claude"
                 ? "\u2717 Configuration: this broker's entry exists, but Claude Code reports it rejected or disabled in its settings."
                 : inspection.Health == "disabled_reason_reported"
@@ -141,7 +165,9 @@ public sealed partial class AgentBrokerModule
         var mcp = snapshot?.Mcp;
         if (mcp is null) yield return "\u26A0 Endpoint: status unknown.";
         else if (!mcp.EndpointReady) yield return "\u2717 Endpoint: the broker's MCP endpoint is not accepting connections.";
-        else if (inspection?.State == ClientConfiguration.DifferentEntry) yield return "\u2717 Endpoint: ready, but the configured entry does not reach it.";
+        else if (inspection?.State == ClientConfiguration.ConnectionUnverified)
+            yield return "\u26A0 Endpoint: the broker last reported ready, but this HTTP entry could not be verified. Refresh status, then check client setup again.";
+        else if (inspection?.State == ClientConfiguration.DifferentEntry) yield return "\u2717 Endpoint: ready, but this client's entry is not verified for this connection.";
         else if (client == "claude" && inspection?.State == ClientConfiguration.Configured && inspection!.Health != "unknown")
             yield return inspection.Health == "connected"
                 ? "\u2713 Endpoint: reachable; the Claude CLI connected and listed tools during the check."

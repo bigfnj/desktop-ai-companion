@@ -44,11 +44,17 @@ separately from the configured rule. See `AgentBrokerModule.Clients.cs` and
 `tools/AgentBroker.Worker/LanProfile.cs`.
 
 Connect preserves an existing entry and reports disabled, policy-blocked or mismatched
-Codex configuration without replacing it. Existing local HTTP entries use the current
-broker endpoint for matching; new Codex entries still use stdio. Restart, shutdown and
-cancellation prevent stale completions from changing the new connection's status.
-The pane preserves a sanitized action result and asks for another setup check (`AgentClientSetup.cs`,
-`AgentBrokerModule.Clients.cs`).
+Codex configuration without replacing it. Existing Codex HTTP entries match only a verified
+live, token-free broker connection. Token-required HTTP entries are preserved for connection
+review. An unavailable or unverified live control connection instead leaves a recognized HTTP
+entry not verified: refresh status, then choose Check client setup again. New Codex entries
+use stdio; no temporary broker token is saved. A current Connect Claude MCP failure at
+connection verification appears as Last setup action without starting a vendor CLI. Restart,
+shutdown and cancellation prevent stale completions from changing the new connection's status.
+A settings change outside the pane can leave the sanitized action result and recheck prompt
+visible. Apply rebuilds the pane and discards an in-flight action's row and result. Run
+**Check client setup** before retrying (`AgentClientSetup.cs`, `AgentBrokerModule.Clients.cs`,
+`src/Portable/Wpf/OptionsWindow.cs`).
 
 The packaged worker also supports a [one-request client](../../docs/agentbroker-client.md)
 with explicit retained output and bounded typed handoff text. Blocking waits allow one
@@ -59,5 +65,8 @@ resend a message. See the [broker guide](../../docs/agentbroker.md).
 Build: dotnet build modules/AgentBroker/AgentBroker.csproj -c Release
 
 The public SelfTest(out string detail) exercises real Init, Options, tray controls, pairing scope,
-parent binding, cancellation and shutdown with injected fake transports and supervisor. It launches
-no worker, connects no socket and reads no live agent credentials or conversations.
+parent binding, cancellation and shutdown with injected fake transports and supervisor. It requires
+`worker/AgentBroker.Worker.exe` beside the module but launches no worker, connects no socket and
+reads no live agent credentials or conversations. The host's convention-loader harness additionally
+requires the adjacent Worker DLL and hashes the whole worker payload. The normal module build
+publishes that payload automatically; a copied module without it cannot pass these checks.

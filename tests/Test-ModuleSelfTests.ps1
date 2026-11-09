@@ -94,7 +94,7 @@ $Covered = @('agentbroker', 'agentflow', 'aibrain', 'blinkingled', 'fortunes', '
 # before it times out. A caller's larger -TimeoutSeconds still wins (Get-ModuleTimeoutSeconds), so this can only lengthen
 # a module's limit, never shorten it below what the caller asked for.
 $ModuleTimeoutSeconds = @{ 'fortunes' = 300 }
-$moduleAssertionFloors = @{ 'agentbroker' = 408 }
+$moduleAssertionFloors = @{ 'agentbroker' = 484 }
 
 # The EXACT set of failures each uncovered module is expected to report -- not merely "it failed",
 # and not just its first failure. The first draft of this file matched the first FAIL line only, and
@@ -191,6 +191,59 @@ if ($Only.Count -gt 0) {
 function Get-ModuleTimeoutSeconds([string]$Id) {
     if ($ModuleTimeoutSeconds.ContainsKey($Id)) { return [Math]::Max([int]$ModuleTimeoutSeconds[$Id], $TimeoutSeconds) }
     return $TimeoutSeconds
+}
+
+function Get-AgentBrokerArtifactSnapshot([string]$ModulesRoot) {
+    $moduleRoot = Join-Path $ModulesRoot 'agentbroker'
+    $assembly = Join-Path $moduleRoot 'AgentBroker.dll'
+    $workerRoot = Join-Path $moduleRoot 'worker'
+    if (-not [IO.File]::Exists($assembly) -or
+        -not [IO.File]::Exists((Join-Path $workerRoot 'AgentBroker.Worker.exe')) -or
+        -not [IO.File]::Exists((Join-Path $workerRoot 'AgentBroker.Worker.dll'))) {
+        throw 'Test-ModuleSelfTests.ps1: MODULE_ARTIFACT_INPUT_MISSING: AgentBroker and its complete Worker payload must be built.'
+    }
+    # Match ModuleConventionSelfTest.WorkerPayloadSha256 exactly. This binds the copied payload witness,
+    # not Worker execution: ordinal full-path order, relative slash path, NUL, uppercase file SHA, LF, UTF-8.
+    $prefix = [IO.Path]::GetFullPath($workerRoot).TrimEnd([char[]]@([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)) + [IO.Path]::DirectorySeparatorChar
+    [string[]]$files = [IO.Directory]::GetFiles($prefix, '*', [IO.SearchOption]::AllDirectories)
+    [Array]::Sort($files, [StringComparer]::Ordinal)
+    $manifest = New-Object Text.StringBuilder
+    foreach ($file in $files) {
+        $relative = $file.Substring($prefix.Length).Replace([IO.Path]::DirectorySeparatorChar, [char]'/')
+        [void]$manifest.Append($relative).Append([char]0).Append((Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash).Append([char]10)
+    }
+    $hash = [Security.Cryptography.SHA256]::Create()
+    try { $payloadHash = [BitConverter]::ToString($hash.ComputeHash([Text.Encoding]::UTF8.GetBytes($manifest.ToString()))).Replace('-', '') }
+    finally { $hash.Dispose() }
+    return [pscustomobject]@{ LOADED = (Get-FileHash -LiteralPath $assembly -Algorithm SHA256).Hash; WORKER_PAYLOAD = $payloadHash }
+}
+
+function Get-ModuleArtifactWitnessLines([string]$Id, [string]$Result, [string[]]$Lines, $Expected) {
+    # A module that already failed keeps its original failure. Other module IDs have no new witness contract.
+    if ($Id -cne 'agentbroker' -or $Result -cne 'PASS') { return }
+    foreach ($kind in @('LOADED', 'WORKER_PAYLOAD')) {
+        $prefix = 'WITNESS: MODULE_SELFTEST_' + $kind + '_SHA256'
+        $rows = @($Lines | Where-Object { $_.StartsWith($prefix, [StringComparison]::Ordinal) })
+        if ($rows.Count -ne 1) {
+            throw ('Test-ModuleSelfTests.ps1: MODULE_ARTIFACT_WITNESS_' + $kind + '_COUNT: expected exactly one artifact witness.')
+        }
+        $parsed = [regex]::Match($rows[0], ('^' + [regex]::Escape($prefix) + ' agentbroker ([A-F0-9]{64})\z'), [Text.RegularExpressions.RegexOptions]::CultureInvariant)
+        if (-not $parsed.Success) {
+            throw ('Test-ModuleSelfTests.ps1: MODULE_ARTIFACT_WITNESS_' + $kind + '_FORMAT: expected the exact AgentBroker SHA-256 witness.')
+        }
+        if ($parsed.Groups[1].Value -cne $Expected.$kind) {
+            throw ('Test-ModuleSelfTests.ps1: MODULE_ARTIFACT_WITNESS_' + $kind + '_MISMATCH: the self-test did not identify the expected built artifact.')
+        }
+        Write-Output $rows[0]
+    }
+}
+
+function Assert-ModuleArtifactsUnchanged($Before, $After) {
+    foreach ($kind in @('LOADED', 'WORKER_PAYLOAD')) {
+        if ($Before.$kind -cne $After.$kind) {
+            throw ('Test-ModuleSelfTests.ps1: MODULE_ARTIFACT_INPUT_CHANGED: ' + $kind + ' changed while the self-test ran.')
+        }
+    }
 }
 
 # Each module's wall time and limit, by id, for its OK line and for environment.txt on a failure.
@@ -661,10 +714,20 @@ try {
         if ($watchParent -and $realRemembranceWatched -contains $id) { $documentsWatch = Start-DocumentsWatch $watchParent $watchName }
         $r = $null
         try {
+            $artifactBefore = $null
+            if ($id -ceq 'agentbroker') { $artifactBefore = Get-AgentBrokerArtifactSnapshot $modulesRoot }
             $r = Invoke-ModuleSelfTest $id
-            foreach ($line in $r.Lines) {
-                if ($line -cmatch '^WITNESS: MODULE_SELFTEST_(?:LOADED|WORKER_PAYLOAD)_SHA256 agentbroker [A-F0-9]{64}$') { Write-Host $line }
+            if ($id -ceq 'agentbroker' -and $r.Result -ceq 'PASS') {
+                Assert-ModuleArtifactsUnchanged $artifactBefore (Get-AgentBrokerArtifactSnapshot $modulesRoot)
             }
+            $artifactWitnessLines = @(Get-ModuleArtifactWitnessLines $id $r.Result $r.Lines $artifactBefore)
+            foreach ($line in $artifactWitnessLines) { Write-Host $line }
+        }
+        catch {
+            if (-not $_.Exception.Message.StartsWith('Test-ModuleSelfTests.ps1: MODULE_ARTIFACT_', [StringComparison]::Ordinal)) { throw }
+            # Keep this module's artifact failure gradable and let the remaining modules run.
+            $problems += "$id : $($_.Exception.Message)"
+            continue
         }
         finally {
             # Graded whatever the module's verdict, like the real-input rules below: it is about the owner's files, not the suite.

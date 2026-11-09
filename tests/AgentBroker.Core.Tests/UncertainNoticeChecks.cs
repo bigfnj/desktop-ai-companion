@@ -141,6 +141,30 @@ internal static class UncertainNoticeChecks
             }
         }
         {
+            // A source in flight at a stop and reopened after its retention ended (post-push audit of e398eba2, 1.10.1): the
+            // recovery commit drops its owed advisory once (sender_unavailable), and the next delivery pass, which prunes the
+            // record, must not re-owe and drop the same advisory again.
+            var clock = new Clock(); string path = Path.Combine(root, "notice-uncertain-reopen-past-retention");
+            BrokerSession sender, recipient;
+            using (var store = new BrokerStore(path, clock: clock))
+            {
+                sender = Mailbox(store, clock, "sender"); recipient = Native(store, clock, "recipient");
+                store.Register(sender); store.Register(recipient);
+                store.Accept(Message(sender, recipient, clock), store.BrokerId); store.BeginDelivery();
+            }
+            clock.Advance(TimeSpan.FromHours(49));
+            using (var store = new BrokerStore(path, clock: clock))
+            {
+                var recovered = store.DroppedNotices();
+                store.BeginDelivery(); store.BeginDelivery();
+                var drops = store.DroppedNotices();
+                Console.WriteLine($"NOTE UNCERTAIN_NOTICE_REOPEN_PAST_RETENTION recoveredDrops={recovered.Total} afterPasses={drops.Total}");
+                Check(recovered.SenderUnavailable == 1 && drops.SenderUnavailable == 1 && drops.Total == 1 &&
+                    Notices(store, sender.Address).Count == 0,
+                    "UNCERTAIN_NOTICE_REOPEN_PAST_RETENTION: a source recovered after its retention ended drops its advisory once, not again on the next pass");
+            }
+        }
+        {
             var clock = new Clock();
             using var store = new BrokerStore(Path.Combine(root, "notice-uncertain-deadline"), clock: clock);
             var sender = Mailbox(store, clock, "sender"); var recipient = Native(store, clock, "recipient");

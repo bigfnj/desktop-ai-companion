@@ -20,6 +20,11 @@ The request is a UTF-8 JSON file with a tool name and an arguments object:
 {"tool":"list_sessions","arguments":{"limit":16}}
 ```
 
+Both `--mcp-call` and `--handoff-prepare` accept one leading UTF-8 byte order mark
+in a request file. A second is invalid JSON. Invalid Unicode in a top-level request
+field name returns exit 2 before dispatch: `invalid_request` for `--mcp-call`, or
+`invalid_handoff` for `--handoff-prepare`.
+
 Use the tool schemas returned by `--list-tools` for other operations. Sending,
 reading and acknowledging still use complete addresses. A client mode does not
 establish which Codex chat owns a shared host process; find this conversation's
@@ -52,25 +57,41 @@ only with the identical stable message ID and payload when appropriate.
 
 With `--output-file`, the client saves the unchanged decoded response before adding
 `retention.path`, `retention.sha256` and `retention.bytes` to stdout. The destination
-must be a new absolute local file in an existing directory, without reparse points.
-Original path components ending in a dot or space are refused before path
-normalization. Exact `.` and `..` navigation components remain supported.
-The client flushes an owned temporary file and publishes it without replacing an
-existing destination. This is flushed local retention, not a guarantee against
-every storage or power failure.
+must be a new absolute drive-letter path in an existing directory on a local NTFS
+volume, without reparse points. UNC and device paths, alternate data streams and
+control characters are refused, as are the reserved names CON, PRN, AUX, NUL,
+COM1-9 and LPT1-9. Use the exact directory capitalization when a case-sensitive
+folder occurs in the path. Original path components ending in a dot or space are
+refused before path normalization. Exact `.` and `..` navigation components remain
+supported. The client flushes an owned temporary file and publishes it without
+replacing an existing destination. Flushing is not a guarantee against every
+storage or power failure.
 
+A relative `--output-file` is an argument error (`invalid_arguments`, exit 2).
 A destination rejected by output preflight returns `output_error`, exit
-74 and `dispatchState: not_dispatched`. If publication fails after the call, the
-output retains the known dispatch state and includes the original result under
-`response`. Keep that response using a new file. Do not repeat a confirmed
-operation because its output file could not be saved. Retention does not
-acknowledge messages: retain the content you need before explicitly acknowledging
-its actual receipt.
+74 and `dispatchState: not_dispatched`. The local-volume, NTFS and directory-case
+checks occur when saving the client response. By then, the broker operation may
+already have completed. If publication fails after the call, the
+output retains the known dispatch state and includes the complete original client
+response under `response`, including its `status` and either its `result` or error
+fields. The process exits 74 for this retention failure, replacing the operation's
+original exit code. Inspect `response.status` and `response.dispatchState` for
+that operation's outcome; the copied dispatch state can remain `unknown`. Keep
+that response using a new file. Do not repeat a confirmed operation because its
+output file could not be saved. Retention does not acknowledge messages: retain
+the content you need before explicitly acknowledging its actual receipt.
+
+If removal of the owned output file fails during error handling, the error JSON
+also includes `"cleanup":"temporary_not_removed"`. Inspect the output directory
+for a remaining file. The original response and dispatch state still determine
+whether the broker operation acted.
 
 ## Typed handoff text
 
 `--handoff-prepare` validates a local handoff packet and emits ordinary text for
 the existing `send` or `reply_to_message` operation. It does not contact the broker.
+Use a UTF-8 `.json` request file at an absolute path; the extension match is
+case-insensitive. The file and its parent directories must not be reparse points.
 
 ```powershell
 AgentBroker.Worker.exe --handoff-prepare --request-file C:\Work\packet.json --output-file C:\Work\packet.txt
@@ -98,15 +119,32 @@ artifact. Preparation validates metadata without opening artifact paths. A
 recipient must independently decide whether it is authorized to inspect an
 artifact and whether its bytes match those claims.
 
-The output contains `text`, its UTF-8 `textBytes`, and its `sha256`. With an output
-file, that file contains exactly the prepared message text. Put that text in an
-ordinary broker message. Task IDs, summaries, artifact roles and states remain
+Successful preparation returns `status: ok`, `dispatchState: not_dispatched`,
+`text`, its UTF-8 `textBytes`, and its `sha256`. The `retention` member is null
+without `--output-file`; otherwise it contains `path`, `sha256` and `bytes`, and
+that file contains exactly the prepared message text. Put that text in an ordinary
+broker message. Task IDs, summaries, artifact roles and states remain
 self-declared peer data and do not establish identity or task completion.
+The output destination follows the same path and cleanup rules as `--mcp-call`.
+
+| Exit | Status | Meaning |
+|---|---|---|
+| 0 | `ok` | Message text was prepared; no broker was contacted |
+| 2 | `invalid_arguments` | The command arguments, request path or extension are invalid |
+| 2 | `invalid_handoff` | The request could not be read or validated, including a reparse-point path |
+| 74 | `output_error` | The requested output file could not be retained |
+
+Every handoff result has `dispatchState: not_dispatched`. Its exit 0 means local
+preparation succeeded, rather than that a broker returned a response.
 
 States are `request`, `progress`, `result` and `cannot_do`. An empty artifact list
 is valid. Input is bounded to 128 KiB and depth 8, with at most 16 artifacts; the
-normalized message must fit the broker's 16 KiB text limit. Unknown or duplicate
-fields, malformed hashes, negative byte counts and invalid Unicode are refused.
+normalized message must fit the broker's 16 KiB text limit. Every top-level and
+artifact field shown in the example is required, and string values must be
+non-blank. Unknown or duplicate fields, malformed hashes, negative byte counts
+and invalid Unicode are refused. Control characters are refused except for CR,
+LF and tab in the summary. Prepared artifact `sha256` values use uppercase hex;
+compare hash values without depending on letter case.
 These packets add no fields to the federation protocol.
 
 The task ID is bounded to 128 UTF-16 code units, the summary to 8192, each artifact

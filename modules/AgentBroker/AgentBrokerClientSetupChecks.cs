@@ -89,8 +89,141 @@ public sealed partial class AgentBrokerModule
         CompletionCase(false, "shutdown", "CLIENT_SETUP_STALE_CONFIGURE_SHUTDOWN");
         CompletionCase(false, "cancel", "CLIENT_SETUP_CANCELLED_TOKEN");
         CompletionCase(true, "none", "CLIENT_SETUP_CURRENT_COMPLETION");
+        RunClientConnectionCancellationChecks(check, dispatcher);
         RunClientAddCompletionChecks(check, dispatcher);
         RunClientHttpSetupChecks(check, dispatcher);
+        RunClientHttpConnectionChecks(check, dispatcher);
+        RunClientUnavailableConnectionChecks(check, dispatcher);
+        RunClientPreHelperOutcomeChecks(check, dispatcher);
+        RunClientLiveEndpointChecks(check, dispatcher);
+    }
+
+    private static void RunClientLiveEndpointChecks(Action<bool, string> check, TestDispatcher dispatcher)
+    {
+        const string live = "http://127.0.0.1:7432/mcp";
+        const string stale = "http://127.0.0.1:17432/mcp";
+        string directory = Path.Combine(Path.GetTempPath(), "agentbroker-client-live-port-synthetic");
+        foreach (bool matchesLive in new[] { true, false })
+        {
+            string url = matchesLive ? live : stale;
+            var command = new HttpSetupCommand { Existing = "{\"enabled\":true,\"transport\":{\"type\":\"streamable_http\",\"url\":\"" + url + "\"}}" };
+            var host = new TestHost();
+            host.UseStorage(Id, new TestStorage(directory)); host.SettingsFor(Id).Set("enabled", "true");
+            host.SettingsFor(Id).Set("loopbackPort", "17432");
+            var view = new BrokerSnapshot(Guid.NewGuid(), "Synthetic", "http://127.0.0.1:7432", null,
+                [], [], [], [], new Dictionary<string, string>());
+            var control = new StatusControl { Response = new(true, "ok", Connection: new(live, null)) };
+            var module = new AgentBrokerModule(control, new StatusSupervisor(view)) { ClientSetup = new(command) };
+            try
+            {
+                module.Init(host); Pump(() => module.snapshot is not null, dispatcher);
+                var expected = matchesLive ? ClientConfiguration.Configured : ClientConfiguration.DifferentEntry;
+                string suffix = matchesLive ? "LIVE" : "STALE_SETTINGS";
+                Task<string> action = module.CheckClientSetupAsync("codex"); Pump(() => action.IsCompleted, dispatcher);
+                string inspected = action.GetAwaiter().GetResult();
+                check(module.settings.LoopbackPort == 17432 && module.codexInspection?.State == expected &&
+                    inspected.Contains(matchesLive ? "configured" : "needs review", StringComparison.Ordinal) &&
+                    command.Calls.Count == 1 && command.Calls[0][1] == "get" &&
+                    control.Requests.Count(item => item == "connection") == 1,
+                    "CLIENT_HTTP_LIVE_PORT_CHECK_" + suffix + ": inspection uses the verified live port when stored settings differ");
+                command.Calls.Clear(); control.Requests.Clear();
+                action = module.ConnectAndCheckAsync("codex"); Pump(() => action.IsCompleted, dispatcher);
+                string connected = action.GetAwaiter().GetResult();
+                check(connected.Contains(matchesLive ? "already configured" : "Review it", StringComparison.Ordinal) &&
+                    module.codexInspection?.State == expected && command.Calls.Count == 2 &&
+                    command.Calls.All(call => call[1] == "get") && control.Requests.Count(item => item == "connection") == 2,
+                    "CLIENT_HTTP_LIVE_PORT_CONNECT_" + suffix + ": Connect compares existing HTTP entries with the verified live port without replacing them");
+            }
+            finally { module.Shutdown(); Pump(() => module.pending.IsCompleted, dispatcher); }
+        }
+
+        var absent = new HttpSetupCommand();
+        var addHost = new TestHost();
+        addHost.UseStorage(Id, new TestStorage(directory)); addHost.SettingsFor(Id).Set("enabled", "true");
+        addHost.SettingsFor(Id).Set("loopbackPort", "17432");
+        var addView = new BrokerSnapshot(Guid.NewGuid(), "Synthetic", "http://127.0.0.1:7432", null,
+            [], [], [], [], new Dictionary<string, string>());
+        var addModule = new AgentBrokerModule(new StatusControl { Response = new(true, "ok", Connection: new(live, null)) },
+            new StatusSupervisor(addView)) { ClientSetup = new(absent) };
+        try
+        {
+            addModule.Init(addHost); Pump(() => addModule.snapshot is not null, dispatcher);
+            Task<string> action = addModule.ConnectAndCheckAsync("claude"); Pump(() => action.IsCompleted, dispatcher);
+            string result = action.GetAwaiter().GetResult();
+            string[][] additions = absent.Calls.Where(call => call[1] == "add").ToArray();
+            check(result.Contains("was added", StringComparison.Ordinal) && additions.Length == 1 &&
+                additions[0][^1] == live && !additions[0].Contains(stale) && addModule.settings.LoopbackPort == 17432,
+                "CLIENT_HTTP_LIVE_PORT_CLAUDE_ADD: an absent Claude entry is added with the verified live URL rather than stale stored settings");
+        }
+        finally { addModule.Shutdown(); Pump(() => addModule.pending.IsCompleted, dispatcher); }
+    }
+
+    private static void RunClientConnectionCancellationChecks(Action<bool, string> check, TestDispatcher dispatcher)
+    {
+        const string endpoint = "http://127.0.0.1:7432/mcp";
+        const string privateDiagnostic = "SYNTHETIC_CONNECTION_CANCELLATION_PRIVATE_VALUE";
+        foreach (string client in new[] { "claude", "codex" })
+        foreach (string change in new[] { "restart", "shutdown", "cancel" })
+        foreach (bool cancelledReply in new[] { false, true })
+        {
+            var view = new BrokerSnapshot(Guid.NewGuid(), "Synthetic", "http://127.0.0.1:7432", null,
+                [], [], [], [], new Dictionary<string, string>());
+            var host = new TestHost();
+            host.UseStorage(Id, new TestStorage(Path.Combine(Path.GetTempPath(), "agentbroker-client-connection-synthetic")));
+            host.SettingsFor(Id).Set("enabled", "true");
+            var control = new ClientConnectionControl(new(true, "ok", Connection: new(endpoint, null)));
+            var command = new ClientSetupCommand(new(0, privateDiagnostic, privateDiagnostic));
+            var module = new AgentBrokerModule(control, new StatusSupervisor(view)) { ClientSetup = new(command) };
+            Task<string>? action = null;
+            try
+            {
+                module.Init(host); Pump(() => module.snapshot is not null, dispatcher);
+                int notifications = 0;
+                host.OptionsPanes.Single().InfoChanged += () => notifications++;
+                action = module.ConnectAndCheckAsync(client);
+                Pump(() => control.Requests.Contains("connection"), dispatcher);
+                if (change == "restart")
+                {
+                    if (!host.OptionsPanes.Single().Save(new Dictionary<string, string> { ["loopbackPort"] = "17432" }))
+                        throw new InvalidOperationException("Synthetic connection-probe settings change was not applied.");
+                    Pump(() => module.snapshot is not null, dispatcher);
+                }
+                else if (change == "shutdown") module.Shutdown();
+                else module.run!.Cancel();
+                int beforeCompletion = notifications;
+                if (cancelledReply) control.Completion.SetException(new OperationCanceledException(privateDiagnostic));
+                else control.Completion.SetResult(control.Response);
+                Pump(() => action.IsCompleted, dispatcher);
+                string result = action.GetAwaiter().GetResult();
+                check(result.Split("broker connection changed", StringSplitOptions.None).Length == 2 &&
+                    result.Contains("before a client command started", StringComparison.Ordinal) &&
+                    result.Contains("Check client setup before retrying", StringComparison.Ordinal) &&
+                    !result.Contains(privateDiagnostic, StringComparison.Ordinal) && command.Calls == 0 &&
+                    module.clientSetupResults.Count == 0 && module.claudeInspection is null && module.codexInspection is null &&
+                    notifications == beforeCompletion,
+                    "CLIENT_SETUP_CONNECTION_CANCELLED_" + client.ToUpperInvariant() + "_" + change.ToUpperInvariant() +
+                    (cancelledReply ? "_CANCELLED_REPLY" : "_LATE_REPLY") +
+                    ": cancellation before client setup gives one connection-change explanation, no vendor call and no cached client state");
+            }
+            finally
+            {
+                control.Completion.TrySetCanceled();
+                if (action is not null) Pump(() => action.IsCompleted, dispatcher);
+                module.Shutdown(); Pump(() => module.pending.IsCompleted, dispatcher);
+            }
+        }
+    }
+
+    private sealed class ClientConnectionControl(ControlResponse response) : IBrokerControlClient
+    {
+        internal ControlResponse Response { get; } = response;
+        internal List<string> Requests { get; } = [];
+        internal TaskCompletionSource<ControlResponse> Completion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public Task<ControlResponse> SendAsync(string directory, ControlRequest request, CancellationToken token, int? requiredServerPid = null)
+        {
+            token.ThrowIfCancellationRequested(); Requests.Add(request.Operation);
+            return request.Operation == "connection" ? Completion.Task : Task.FromResult(Response);
+        }
     }
 
     private static void RunClientAddCompletionChecks(Action<bool, string> check, TestDispatcher dispatcher)
@@ -186,7 +319,8 @@ public sealed partial class AgentBrokerModule
             host.SettingsFor(Id).Set("loopbackPort", sample.Port.ToString(System.Globalization.CultureInfo.InvariantCulture));
             var view = new BrokerSnapshot(Guid.NewGuid(), "Synthetic", "http://127.0.0.1:" + sample.Port, null,
                 [], [], [], [], new Dictionary<string, string>());
-            var module = new AgentBrokerModule(new StatusControl { Response = new(true, "ok", view) }, new StatusSupervisor(view))
+            var module = new AgentBrokerModule(new StatusControl { Response = new(true, "ok", view,
+                Connection: new("http://127.0.0.1:" + sample.Port + "/mcp", null)) }, new StatusSupervisor(view))
                 { ClientSetup = new(command) };
             try
             {
@@ -215,6 +349,186 @@ public sealed partial class AgentBrokerModule
                 inspectionMcpEndpoint: invalid.Url).GetAwaiter().GetResult();
             check(result.Contains("invalid inspection MCP endpoint", StringComparison.Ordinal) && invalidCommand.Calls.Count == 0,
                 invalid.Label + ": an untrusted inspection endpoint cannot bless an existing entry or invoke the CLI");
+        }
+    }
+
+    private static void RunClientHttpConnectionChecks(Action<bool, string> check, TestDispatcher dispatcher)
+    {
+        const string endpoint = "http://127.0.0.1:7432/mcp";
+        const string privateToken = "SYNTHETIC_HTTP_CONNECTION_PRIVATE_TOKEN";
+        foreach (var sample in new[]
+        {
+            (NoAuth: true, Connection: new LocalConnection(endpoint, null), Url: endpoint, State: ClientConfiguration.Configured, Expected: "already configured", Label: "TOKEN_FREE"),
+            (NoAuth: false, Connection: new LocalConnection(endpoint, privateToken), Url: endpoint, State: ClientConfiguration.DifferentEntry, Expected: "Review it", Label: "TOKEN_REQUIRED"),
+            (NoAuth: true, Connection: new LocalConnection(endpoint, privateToken), Url: endpoint, State: ClientConfiguration.DifferentEntry, Expected: "Review it", Label: "ACTUAL_TOKEN_REQUIRED"),
+            (NoAuth: true, Connection: new LocalConnection("http://192.0.2.10:7432/mcp", null), Url: "http://192.0.2.10:7432/mcp", State: ClientConfiguration.ConnectionUnverified, Expected: "Could not verify this HTTP entry", Label: "UNVERIFIED_CONNECTION")
+        })
+        {
+            string existing = "{\"enabled\":true,\"transport\":{\"type\":\"streamable_http\",\"url\":" +
+                System.Text.Json.JsonSerializer.Serialize(sample.Url) + "}}";
+            var command = new HttpSetupCommand { Existing = existing };
+            var host = new TestHost();
+            host.UseStorage(Id, new TestStorage(Path.Combine(Path.GetTempPath(), "agentbroker-client-http-connection-synthetic")));
+            host.SettingsFor(Id).Set("enabled", "true");
+            host.SettingsFor(Id).Set("noAuthLoopback", sample.NoAuth ? "true" : "false");
+            var view = new BrokerSnapshot(Guid.NewGuid(), "Synthetic", "http://127.0.0.1:7432", null,
+                [], [], [], [], new Dictionary<string, string>(), Mcp: new(true, null, null, []));
+            var control = new StatusControl { Response = new(true, "ok", Connection: sample.Connection) };
+            var module = new AgentBrokerModule(control, new StatusSupervisor(view)) { ClientSetup = new(command) };
+            try
+            {
+                module.Init(host); Pump(() => module.snapshot is not null, dispatcher);
+                Task<string> inspection = module.CheckClientSetupAsync("codex");
+                Pump(() => inspection.IsCompleted, dispatcher);
+                string inspected = inspection.GetAwaiter().GetResult();
+                check(module.codexInspection?.State == sample.State && command.Calls.Count == 1 &&
+                    command.Calls[0][1] == "get" && control.Requests.Count(item => item == "connection") == 1 &&
+                    !inspected.Contains(privateToken, StringComparison.Ordinal),
+                    "CLIENT_HTTP_CHECK_" + sample.Label + ": inspection recognizes HTTP only from a verified token-free live connection");
+                if (sample.State == ClientConfiguration.DifferentEntry)
+                {
+                    string display = module.ClientDisplay("codex");
+                    string[] trayLines = module.ClientStateLines("codex").ToArray();
+                    check(inspected.Contains("needs review", StringComparison.Ordinal) &&
+                        display.Contains("does not match this broker's supported connection", StringComparison.Ordinal) &&
+                        trayLines.Any(line => line.Contains("not verified for this connection", StringComparison.Ordinal)) &&
+                        !display.Contains("points elsewhere", StringComparison.Ordinal) &&
+                        !display.Contains("does not point at this broker", StringComparison.Ordinal),
+                        "CLIENT_HTTP_CHECK_" + sample.Label + "_WORDING: an incompatible entry needs review without falsely claiming its URL points elsewhere");
+                }
+                command.Calls.Clear(); control.Requests.Clear();
+                Task<string> action = module.ConnectAndCheckAsync("codex");
+                Pump(() => action.IsCompleted, dispatcher);
+                string result = action.GetAwaiter().GetResult();
+                check(result.Contains(sample.Expected, StringComparison.Ordinal) && module.codexInspection?.State == sample.State &&
+                    command.Calls.Count == 2 && command.Calls.All(call => call[1] == "get") &&
+                    control.Requests.Count(item => item == "connection") == 2 &&
+                    !result.Contains(privateToken, StringComparison.Ordinal),
+                    "CLIENT_HTTP_CONNECT_" + sample.Label + ": Connect preserves token-incompatible or unverified existing entries without claiming configured");
+            }
+            finally { module.Shutdown(); Pump(() => module.pending.IsCompleted, dispatcher); }
+        }
+    }
+
+    private static void RunClientUnavailableConnectionChecks(Action<bool, string> check, TestDispatcher dispatcher)
+    {
+        const string endpoint = "http://127.0.0.1:7432/mcp";
+        const string privateDiagnostic = "SYNTHETIC_UNAVAILABLE_CONNECTION_PRIVATE_VALUE";
+        string directory = Path.Combine(Path.GetTempPath(), "agentbroker-client-unavailable-synthetic");
+        foreach (string client in new[] { "claude", "codex" })
+        foreach (string transport in new[] { "http", "stdio" })
+        foreach (string failure in new[] { "FAULT", "NEGATIVE", "MISSING", "INVALID" })
+        {
+            string worker = WorkerExecutable();
+            string existing = client == "claude"
+                ? AgentClientSetup.ServerName + ":\n  Scope: User config\n  Status: √ Connected\n  Type: " + transport + "\n" +
+                    (transport == "http" ? "  URL: " + endpoint + "\n" : "  Command: " + worker + "\n  Args: --mcp-stdio --data " + directory + "\n")
+                : "{\"enabled\":true,\"transport\":" + (transport == "http"
+                    ? "{\"type\":\"streamable_http\",\"url\":\"" + endpoint + "\"}}"
+                    : "{\"type\":\"stdio\",\"command\":" + System.Text.Json.JsonSerializer.Serialize(worker) +
+                        ",\"args\":[\"--mcp-stdio\",\"--data\"," + System.Text.Json.JsonSerializer.Serialize(directory) + "]}}");
+            var command = new HttpSetupCommand { Existing = existing };
+            var host = new TestHost();
+            host.UseStorage(Id, new TestStorage(directory)); host.SettingsFor(Id).Set("enabled", "true");
+            var view = new BrokerSnapshot(Guid.NewGuid(), "Synthetic", "http://127.0.0.1:7432", null,
+                [], [], [], [], new Dictionary<string, string>(), Mcp: new(true, null, null, []));
+            var control = new StatusControl
+            {
+                Failure = failure == "FAULT" ? new IOException(privateDiagnostic) : null,
+                Response = failure switch
+                {
+                    "NEGATIVE" => new(false, privateDiagnostic, Connection: new(endpoint, null)),
+                    "INVALID" => new(true, "ok", Connection: new("http://192.0.2.10:7432/mcp", null)),
+                    _ => new(true, "ok")
+                }
+            };
+            var module = new AgentBrokerModule(control, new StatusSupervisor(view)) { ClientSetup = new(command) };
+            try
+            {
+                module.Init(host); Pump(() => module.snapshot is not null, dispatcher);
+                Task<string> action = module.CheckClientSetupAsync(client);
+                Pump(() => action.IsCompleted, dispatcher);
+                string result = action.GetAwaiter().GetResult();
+                string display = module.ClientDisplay(client);
+                var tray = module.ClientTrayItems().Single(item => item.Label.StartsWith(ClientName(client) + ":", StringComparison.Ordinal));
+                var expected = transport == "http" ? ClientConfiguration.ConnectionUnverified : ClientConfiguration.Configured;
+                check(module.Inspection(client)?.State == expected && command.Calls.Count == 1 && command.Calls[0][1] == "get" &&
+                    control.Requests.Count(item => item == "connection") == 1 &&
+                    !display.Contains(privateDiagnostic, StringComparison.Ordinal) &&
+                    (transport != "http" || result.Contains("HTTP entry not verified", StringComparison.Ordinal) &&
+                        display.Contains("could not be verified", StringComparison.Ordinal) &&
+                        !display.Contains("does not match", StringComparison.Ordinal) && !display.Contains("needs review", StringComparison.Ordinal) &&
+                        tray.BuildChildren!().Any(item => item.Label.Contains("HTTP entry not verified", StringComparison.Ordinal))),
+                    "CLIENT_CONNECTION_UNAVAILABLE_" + client.ToUpperInvariant() + "_" + transport.ToUpperInvariant() + "_" + failure +
+                    ": an unavailable broker probe leaves HTTP unverified while exact stdio stays configured in pane and tray");
+                if (client == "codex" && transport == "http")
+                {
+                    command.Calls.Clear(); control.Requests.Clear();
+                    action = module.ConnectAndCheckAsync(client); Pump(() => action.IsCompleted, dispatcher);
+                    string connected = action.GetAwaiter().GetResult();
+                    check(connected.StartsWith("Could not verify this HTTP entry", StringComparison.Ordinal) &&
+                        module.codexInspection?.State == ClientConfiguration.ConnectionUnverified && command.Calls.Count == 2 &&
+                        command.Calls.All(call => call[1] == "get") && !connected.Contains(privateDiagnostic, StringComparison.Ordinal),
+                        "CLIENT_CONNECTION_UNAVAILABLE_CODEX_CONNECT_" + failure + ": Connect preserves an existing HTTP entry with unverified guidance");
+                }
+                control.Failure = null; control.Response = new(true, "ok", Connection: new(endpoint, null));
+                action = module.CheckClientSetupAsync(client); Pump(() => action.IsCompleted, dispatcher);
+                check(module.Inspection(client)?.State == ClientConfiguration.Configured &&
+                    !module.ClientDisplay(client).Contains("HTTP entry not verified", StringComparison.Ordinal),
+                    "CLIENT_CONNECTION_AVAILABLE_AGAIN_" + client.ToUpperInvariant() + "_" + transport.ToUpperInvariant() + "_" + failure +
+                    ": a fresh verified check replaces an unavailable result without a module restart");
+            }
+            finally { module.Shutdown(); Pump(() => module.pending.IsCompleted, dispatcher); }
+        }
+    }
+
+    private static void RunClientPreHelperOutcomeChecks(Action<bool, string> check, TestDispatcher dispatcher)
+    {
+        const string endpoint = "http://127.0.0.1:7432/mcp";
+        const string privateDiagnostic = "SYNTHETIC_PREHELPER_CONNECTION_PRIVATE_VALUE";
+        foreach (string failure in new[] { "NEGATIVE", "FAULT", "MISSING", "INVALID" })
+        {
+            var host = new TestHost();
+            host.UseStorage(Id, new TestStorage(Path.Combine(Path.GetTempPath(), "agentbroker-client-prehelper-synthetic")));
+            host.SettingsFor(Id).Set("enabled", "true");
+            var view = new BrokerSnapshot(Guid.NewGuid(), "Synthetic", "http://127.0.0.1:7432", null,
+                [], [], [], [], new Dictionary<string, string>());
+            var control = new StatusControl { Response = new(true, "ok", Connection: new(endpoint, null)) };
+            var command = new HttpSetupCommand();
+            var module = new AgentBrokerModule(control, new StatusSupervisor(view)) { ClientSetup = new(command) };
+            try
+            {
+                module.Init(host); Pump(() => module.snapshot is not null, dispatcher);
+                Task<string> inspection = module.CheckClientSetupAsync("claude"); Pump(() => inspection.IsCompleted, dispatcher);
+                if (module.claudeInspection?.State != ClientConfiguration.Absent) throw new InvalidOperationException("Synthetic tray Connect action was not exposed.");
+                module.clientSetupResults["claude"] = "Earlier setup guidance.";
+                command.Calls.Clear(); control.Requests.Clear();
+                control.Failure = failure == "FAULT" ? new IOException(privateDiagnostic) : null;
+                control.Response = failure switch
+                {
+                    "NEGATIVE" => new(false, privateDiagnostic, Connection: new(endpoint, null)),
+                    "INVALID" => new(true, "ok", Connection: new("http://192.0.2.10:7432/mcp", null)),
+                    _ => new(true, "ok")
+                };
+                int outcomeNotifications = 0;
+                host.OptionsPanes.Single().InfoChanged += () =>
+                {
+                    if (module.clientSetupResults.TryGetValue("claude", out string? published) &&
+                        published.StartsWith("Could not verify the broker connection.", StringComparison.Ordinal)) outcomeNotifications++;
+                };
+                var tray = module.ClientTrayItems().Single(item => item.Label.StartsWith("Claude Code:", StringComparison.Ordinal));
+                // These already-completed fake responses finish the async action before Click returns.
+                tray.BuildChildren!().Single(item => item.Label == "Connect Claude MCP").Click!.Invoke();
+                check(module.clientSetupResults.TryGetValue("claude", out string? result) &&
+                    result.StartsWith("Could not verify the broker connection.", StringComparison.Ordinal) &&
+                    !result.Contains("broker connection changed", StringComparison.Ordinal) && !result.Contains(privateDiagnostic, StringComparison.Ordinal) &&
+                    module.ClientDisplay("claude").Contains("Last setup action: " + result, StringComparison.Ordinal) &&
+                    tray.BuildChildren!().Any(item => item.Label.StartsWith("Last setup action: Could not verify", StringComparison.Ordinal)) &&
+                    outcomeNotifications == 1 && command.Calls.Count == 0 && control.Requests.SequenceEqual(new[] { "connection" }) &&
+                    module.claudeInspection.State == ClientConfiguration.Absent,
+                    "CLIENT_SETUP_PREHELPER_CURRENT_" + failure + ": a tray Connect failure replaces stale guidance and notifies without any vendor command");
+            }
+            finally { module.Shutdown(); Pump(() => module.pending.IsCompleted, dispatcher); }
         }
     }
 

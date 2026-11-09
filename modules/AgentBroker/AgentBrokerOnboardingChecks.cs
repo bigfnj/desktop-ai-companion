@@ -99,7 +99,7 @@ public sealed partial class AgentBrokerModule
             [], [], [], [native], new Dictionary<string, string>(), Mcp: empty);
         var host = new TestHost();
         host.UseStorage(Id, new TestStorage(Path.Combine(Path.GetTempPath(), "agentbroker-onboarding-synthetic")));
-        var control = new StatusControl { Response = new(true, "ok", view) };
+        var control = new StatusControl { Response = new(true, "ok", Connection: new(endpoint, null)) };
         var module = new AgentBrokerModule(control, new StatusSupervisor(view)) { McpNow = () => now, ClientSetup = setup };
         try
         {
@@ -269,6 +269,60 @@ public sealed partial class AgentBrokerModule
         }
 
         RunLanProfileDisplayChecks(check, dispatcher, now);
+        RunClientUnavailableForeignChecks(check, dispatcher);
+    }
+
+    private static void RunClientUnavailableForeignChecks(Action<bool, string> check, TestDispatcher dispatcher)
+    {
+        const string privateDiagnostic = "SYNTHETIC_FOREIGN_CONNECTION_PRIVATE_VALUE";
+        string directory = Path.Combine(Path.GetTempPath(), "agentbroker-client-foreign-synthetic");
+        foreach (string client in new[] { "claude", "codex" })
+        foreach (string kind in new[] { "STDIO_WORKER", "STDIO_DATA", "OTHER" })
+        {
+            string worker = kind == "STDIO_WORKER" ? Path.Combine(directory, "foreign-worker.exe") : WorkerExecutable();
+            string data = kind == "STDIO_DATA" ? Path.Combine(directory, "foreign-data") : directory;
+            string transport = kind == "OTHER" ? "other" : "stdio";
+            string existing = client == "claude"
+                ? AgentClientSetup.ServerName + ":\n  Scope: User config\n  Status: √ Connected\n  Type: " +
+                    (kind == "OTHER" ? "sse" : "stdio") + "\n  Command: " + worker + "\n  Args: --mcp-stdio --data " + data + "\n"
+                : "{\"enabled\":true,\"transport\":{\"type\":\"" + (kind == "OTHER" ? "synthetic" : "stdio") +
+                    "\",\"command\":" + System.Text.Json.JsonSerializer.Serialize(worker) +
+                    ",\"args\":[\"--mcp-stdio\",\"--data\"," + System.Text.Json.JsonSerializer.Serialize(data) + "]}}";
+            var command = new HttpSetupCommand { Existing = existing };
+            var host = new TestHost();
+            host.UseStorage(Id, new TestStorage(directory)); host.SettingsFor(Id).Set("enabled", "true");
+            var view = new BrokerSnapshot(Guid.NewGuid(), "Synthetic", "http://127.0.0.1:7432", null,
+                [], [], [], [], new Dictionary<string, string>());
+            var control = new StatusControl { Failure = new IOException(privateDiagnostic) };
+            var module = new AgentBrokerModule(control, new StatusSupervisor(view)) { ClientSetup = new(command) };
+            try
+            {
+                module.Init(host); Pump(() => module.snapshot is not null, dispatcher);
+                Task<string> action = module.CheckClientSetupAsync(client); Pump(() => action.IsCompleted, dispatcher);
+                string result = action.GetAwaiter().GetResult();
+                string display = module.ClientDisplay(client);
+                var tray = module.ClientTrayItems().Single(item => item.Label.StartsWith(ClientName(client) + ":", StringComparison.Ordinal));
+                check(module.Inspection(client) is { State: ClientConfiguration.DifferentEntry } inspection && inspection.Transport == transport &&
+                    result.Contains("needs review", StringComparison.Ordinal) && display.Contains("does not match", StringComparison.Ordinal) &&
+                    tray.Label.Contains("needs review", StringComparison.Ordinal) &&
+                    !display.Contains("HTTP entry not verified", StringComparison.Ordinal) && !display.Contains(privateDiagnostic, StringComparison.Ordinal) &&
+                    command.Calls.Count == 1 && command.Calls[0][1] == "get" && control.Requests.Count(item => item == "connection") == 1,
+                    "CLIENT_CONNECTION_FOREIGN_" + client.ToUpperInvariant() + "_" + kind +
+                    ": an unavailable HTTP probe leaves a foreign stdio or unsupported entry needing review in pane and tray");
+                if (client == "codex")
+                {
+                    command.Calls.Clear(); control.Requests.Clear();
+                    action = module.ConnectAndCheckAsync(client); Pump(() => action.IsCompleted, dispatcher);
+                    string connected = action.GetAwaiter().GetResult();
+                    check(connected.Contains("Review it", StringComparison.Ordinal) &&
+                        !connected.Contains("Could not verify this HTTP entry", StringComparison.Ordinal) &&
+                        module.codexInspection?.State == ClientConfiguration.DifferentEntry && command.Calls.Count == 2 &&
+                        command.Calls.All(call => call[1] == "get"),
+                        "CLIENT_CONNECTION_FOREIGN_CODEX_CONNECT_" + kind + ": Connect preserves a foreign non-HTTP entry with review guidance and no add");
+                }
+            }
+            finally { module.Shutdown(); Pump(() => module.pending.IsCompleted, dispatcher); }
+        }
     }
 
     private static void RunLanProfileDisplayChecks(Action<bool, string> check, TestDispatcher dispatcher, DateTimeOffset now)

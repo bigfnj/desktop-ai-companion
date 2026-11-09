@@ -279,25 +279,25 @@ public sealed partial class AgentBrokerModule
             }
             module.ClientSetup = setup;
             control.Connection = new("http://localhost:7432/mcp", null); setupCommand.Calls.Clear();
-            setupResult = module.ConfigureClientAsync("claude").GetAwaiter().GetResult();
+            setupResult = module.ConfigureClientAsync("claude").GetAwaiter().GetResult().Text;
             Check(control.Requests.Last().Operation == "connection" && setupCommand.Calls.Count == 0 &&
                 setupResult.Contains("Refresh status", StringComparison.Ordinal),
                 "module client action gets the live user-only control connection and rejects its invalid URL before CLI work");
             control.Success = false; control.Connection = new(httpEndpoint, null); setupCommand.Calls.Clear();
-            setupResult = module.ConfigureClientAsync("claude").GetAwaiter().GetResult();
+            setupResult = module.ConfigureClientAsync("claude").GetAwaiter().GetResult().Text;
             Check(setupCommand.Calls.Count == 0 && setupResult.Contains("Refresh status", StringComparison.Ordinal),
                 "refused connection-info response performs no client command or transport fallback");
             control.Success = true; control.Connection = null; setupCommand.Calls.Clear();
-            setupResult = module.ConfigureClientAsync("claude").GetAwaiter().GetResult();
+            setupResult = module.ConfigureClientAsync("claude").GetAwaiter().GetResult().Text;
             Check(setupCommand.Calls.Count == 0 && setupResult.Contains("Refresh status", StringComparison.Ordinal),
                 "successful response without connection-info performs no client command");
             control.FailTransport = true; setupCommand.Calls.Clear();
-            setupResult = module.ConfigureClientAsync("claude").GetAwaiter().GetResult();
+            setupResult = module.ConfigureClientAsync("claude").GetAwaiter().GetResult().Text;
             Check(setupCommand.Calls.Count == 0 && setupResult.Contains("Refresh status", StringComparison.Ordinal) &&
                 !setupResult.Contains(privateDiagnostic, StringComparison.Ordinal),
                 "failed connection-info transport returns fixed refresh guidance without client work or private errors");
             control.FailTransport = false; control.Connection = new(httpEndpoint, privateDiagnostic); setupCommand.Calls.Clear();
-            setupResult = module.ConfigureClientAsync("claude").GetAwaiter().GetResult();
+            setupResult = module.ConfigureClientAsync("claude").GetAwaiter().GetResult().Text;
             Check(setupResult.Contains("added", StringComparison.Ordinal) && setupCommand.Calls.Count == 2 &&
                 setupCommand.Calls[1].Arguments.Contains("stdio") && setupCommand.Calls[1].Arguments.Contains("--mcp-stdio") &&
                 !setupCommand.Calls[1].Arguments.Contains(httpEndpoint) && !setupCommand.Calls[1].Arguments.Contains(privateDiagnostic),
