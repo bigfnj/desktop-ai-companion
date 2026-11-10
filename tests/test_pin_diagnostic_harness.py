@@ -22,8 +22,11 @@ class PinDiagnosticHarnessTests(unittest.TestCase):
         instance = object.__new__(self.harness.Runner)
         instance.build = lambda *args: None
         calls = []
-        named = '\n'.join('PASS: ' + label for witness in self.harness.WITNESSES
-                          for label in witness.allowed_existing_failures if witness.family == 'worker')
+        # A real existing run prints each check once, however many witnesses name it as their allowed failure (1.10.3: three
+        # mcpcall envelope witnesses share MCP_CALL_ENVELOPE_BODY_BOUND), so each distinct label passes exactly once here too.
+        named = '\n'.join('PASS: ' + label for label in dict.fromkeys(
+            label for witness in self.harness.WITNESSES
+            for label in witness.allowed_existing_failures if witness.family == 'worker'))
 
         def test(family, label, args=(), **kwargs):
             calls.append((family, args))
