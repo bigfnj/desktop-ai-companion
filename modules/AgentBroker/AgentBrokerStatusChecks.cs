@@ -112,11 +112,14 @@ public sealed partial class AgentBrokerModule
         internal Exception? Failure;
         internal TaskCompletionSource<ControlResponse>? Pending;
         internal List<string> Requests { get; } = [];
+        // Runs inside a request, before it answers, with the operation name: lets a check change module state mid-request.
+        internal Action<string>? OnRequest;
         public Task<ControlResponse> SendAsync(string directory, ControlRequest request,
             CancellationToken token, int? requiredServerPid = null)
         {
             token.ThrowIfCancellationRequested();
             Requests.Add(request.Operation);
+            OnRequest?.Invoke(request.Operation);
             if (Failure is not null) return Task.FromException<ControlResponse>(Failure);
             return Pending?.Task ?? Task.FromResult(Response);
         }

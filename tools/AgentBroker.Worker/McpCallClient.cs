@@ -63,7 +63,7 @@ public static class McpCallClient
         CancellationToken cancellation = default)
     {
         if (options.OutputFile is null) return await RunCoreAsync(options, output, null, cancellation);
-        try { LocalOutputFile.Validate(options.OutputFile); }
+        try { LocalOutputFile.Validate(options.OutputFile, seams); }
         catch (Exception error) when (OutputFailure(error))
         {
             return await WriteAsync(output, new { status = "output_error", dispatchState = "not_dispatched",
@@ -259,6 +259,13 @@ public static class McpCallClient
                 }
                 else if (element.ValueKind == JsonValueKind.Array)
                     foreach (var value in element.EnumerateArray()) pending.Push(value);
+                else if (element.ValueKind == JsonValueKind.String)
+                {
+                    // String values decode lazily too. Refuse malformed tool or nested argument text at this bounded
+                    // local input boundary, before connection/dispatch or later JsonElement serialization.
+                    try { _ = element.GetString(); }
+                    catch (InvalidOperationException error) { throw new InvalidDataException("invalid_request", error); }
+                }
             }
             return document;
         }

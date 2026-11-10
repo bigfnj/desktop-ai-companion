@@ -121,15 +121,18 @@ LOCAL_CHECKS = {
     "POST_CREATE_CHAIN": "LOCAL_OUTPUT_POST_CREATE_CHAIN: the definitive canonical-chain check runs once the owned temporary exists and before any payload byte, and its refusal leaves nothing",
     "POST_CREATE_CASE": "LOCAL_OUTPUT_POST_CREATE_CASE: the definitive case-sensitivity check runs once the owned temporary exists and before any payload byte, and its refusal leaves nothing",
     "SOURCE_NO_PATH_DESTRUCTION": "LOCAL_OUTPUT_SOURCE_NO_PATH_DESTRUCTION: LocalOutputFile.cs contains no path-based delete, move or replace call",
+    "PREFLIGHT_PIN": "LOCAL_OUTPUT_PREFLIGHT_PIN: Validate makes the held-directory proofs, so a parent whose final path names another volume is refused before any output exists",
+    "MCP_PREFLIGHT_PIN": "LOCAL_OUTPUT_MCP_PREFLIGHT_PIN: --mcp-call refuses a parent that fails the pin in its preflight, before dispatch, not after it at Save",
 }
 LOCAL_DISCARD = ("                DiscardOutcome outcome = Discard(temp, seams);\n                seams?.Discarded?.Invoke(outcome);\n"
                  "                if (outcome == DiscardOutcome.NotDeleted) error.Data[CleanupDataKey] = TemporaryNotRemoved;\n                throw;")
 LOCAL_FINAL_PROOF = 'if (!IsFinalPathOf(published, volume, leaf)) throw new IOException("output_unavailable");'
 LOCAL_PIN_EQUALS = "string.Equals(finalPath[4..], parent, StringComparison.OrdinalIgnoreCase) ? finalPath[4..] : null;"
 LOCAL_CASE_STEP = "if (!string.Equals(canon, parent, StringComparison.Ordinal)) RequireCaseInsensitiveChain(canon, seams);"
-LOCAL_DEFINITIVE = "RequireChain(canon, parent, seams); // step 3b, definitive: our entry now makes the held directory non-empty"
+LOCAL_DEFINITIVE = "RequireChain(canon, parent, seams); // step 3b, post-create: our entry exists; last proof before any payload byte"
 HANDOFF = "tools/AgentBroker.Worker/HandoffPrepareClient.cs"
 MCP_CALL = "tools/AgentBroker.Worker/McpCallClient.cs"
+SAVE_VALIDATE = "            string full = ValidatePath(destination); // step 2 below makes the held-directory proofs on the handle it keeps\n"
 
 
 def local_witness(name: str, replacements, check: str, source: str = LOCAL) -> "Witness":
@@ -143,6 +146,11 @@ LOCAL_OUTPUT_WITNESSES = (
     # failure, so #38 catching this mutant too is reasoned, not measured. Fired at #32 in hygiene-mutations-localoutput2-20261109.
     local_witness("local-output-temp-proof-skipped",
                   (('if (!IsFinalPathOf(created, volume, tempLeaf)) throw new IOException("output_unavailable");', "", 1),), "HANDOFF_CLI_CLEANUP"),
+    # Post-push audit of 7ad9d901 (U9): step 3 weakened to a presence check. The null-path CLI checks (#32/#33) still refuse,
+    # so only the non-null path moved into another directory (TEMP_OUTSIDE_HELD) catches it.
+    local_witness("local-output-temp-proof-presence-only",
+                  (('if (!IsFinalPathOf(created, volume, tempLeaf)) throw new IOException("output_unavailable");',
+                    'if (created is null) throw new IOException("output_unavailable");', 1),), "TEMP_OUTSIDE_HELD"),
     local_witness("local-output-replace-if-exists",
                   (("info[0] = 0; // ReplaceIfExists = FALSE", "info[0] = 1; // ReplaceIfExists = FALSE", 1),), "ATOMIC_NO_REPLACE"),
     # A path delete after closing: the temporary does go, but never through its handle, so Discarded is not observed.
@@ -219,9 +227,21 @@ LOCAL_OUTPUT_WITNESSES = (
                   "HELD_DENIES_DELETE"),
     # Unreachable by construction; an unreachable path delete still violates the rule the source check states.
     local_witness("local-output-source-path-delete",
-                  (("            string full = Validate(destination);\n",
-                    "            string full = Validate(destination);\n            if (bytes.Length < 0) File.Delete(full);\n", 1),),
+                  ((SAVE_VALIDATE,
+                    SAVE_VALIDATE + "            if (bytes.Length < 0) File.Delete(full);\n", 1),),
                   "SOURCE_NO_PATH_DESTRUCTION"),
+    # Post-push audit of 7ad9d901 (U10): the same dormant delete in its instance spelling.
+    local_witness("local-output-source-fileinfo-delete",
+                  ((SAVE_VALIDATE, SAVE_VALIDATE + "            if (bytes.Length < 0) new FileInfo(full).Delete();\n", 1),),
+                  "SOURCE_NO_PATH_DESTRUCTION"),
+    # Post-push audit of 7ad9d901 (C2): the preflight makes no held-directory proof, so a SUBST-like parent passes it.
+    local_witness("local-output-preflight-proof-removed",
+                  (("try { using (OpenHeldDirectory(Path.GetDirectoryName(full)!, seams, out _, out _)) { } }", "try { _ = seams; }", 1),),
+                  "PREFLIGHT_PIN"),
+    # C2 at the caller: --mcp-call drops its preflight, so the pin refusal arrives only from Save, after the call.
+    local_witness("local-output-mcp-preflight-removed",
+                  (("        try { LocalOutputFile.Validate(options.OutputFile, seams); }", "        try { }", 1),),
+                  "MCP_PREFLIGHT_PIN", MCP_CALL),
     # Classic semantics keeps the name visible while the check's own attribute-only observer handle is open.
     local_witness("local-output-posix-flag-dropped",
                   (("WriteUInt32LittleEndian(posix, DispositionDelete | DispositionPosixSemantics | DispositionIgnoreReadOnly);",
@@ -409,7 +429,7 @@ WITNESSES = (
             (('"message_expired" => new(code, "get_message_receipt",', '"message_expired_unmapped" => new(code, "get_message_receipt",', 1),),
             "RECOVERY_GUIDANCE_MESSAGE_EXPIRED: a late acknowledgement is told how to read its receipt for both causes"),
     Witness("guidance-reservation-unexplained", "tools/AgentBroker.Worker/BrokerRecoveryGuidance.cs", "worker", ("--recovery-guidance-only",),
-            (("If it finds nothing, the ID is still reserved by a retained delivery notice about its earlier message. ", "", 1),),
+            (("A missing receipt neither frees the ID nor explains the collision: the ID can remain reserved, for example by a retained delivery notice about its earlier message, or it may already have been released. ", "", 1),),
             "RECOVERY_GUIDANCE_ID_RESERVED: an ID reserved by a retained notice is explained, and a fresh ID is only for deliberately new work"),
     Witness("description-receipt-wait-reverted", TOOLS, "worker", ("--instructions-only",),
             (("This uses the sender's one receipt wait (wait_in_progress), which may run beside its incoming wait, and renews it.",
@@ -465,7 +485,7 @@ EXPECTED_COUNTS = {("core", ("--hygiene-only",)): 13, ("core", ("--peer-receipt-
                    # 1.10.1 LocalOutputFile v2.1: the new group, measured 36 on its first healthy focused runs (2026-11-09).
                    # 36 -> 41 (review round 1, measured): CASE_SENSITIVE_ANCESTOR, HANDOFF_CLI_CLEANUP, MCP_CLI_CLEANUP,
                    # POST_CREATE_CHAIN and POST_CREATE_CASE.
-                   ("worker", ("--local-output-only",)): 41}
+                   ("worker", ("--local-output-only",)): 43}
 CORE_SUMMARIES = {("--hygiene-only",): "AgentBroker hygiene smoke", ("--peer-receipt-only",): "AgentBroker peer receipt smoke",
                   ("--commit-timing-only",): "AgentBroker commit timing smoke",
                   ("--uncertain-notices-only",): "AgentBroker uncertainty notice smoke"}

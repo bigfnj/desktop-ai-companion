@@ -105,7 +105,10 @@ internal static class RecoveryGuidanceChecks
             expired.Advice.Contains("Expired means nothing remains to acknowledge", StringComparison.Ordinal) &&
             expired.Advice.Contains("Submitted or Uncertain means acknowledge Delivered", StringComparison.Ordinal),
             "RECOVERY_GUIDANCE_MESSAGE_EXPIRED: a late acknowledgement is told how to read its receipt for both causes");
-        check(BrokerRecoveryGuidance.ForError("message_id_collision")!.Advice.Contains("reserved by a retained delivery notice", StringComparison.Ordinal) &&
+        // Post-push audit of 7ad9d901 (C7): an empty get_message_receipt cannot tell a retained notice from a record that was
+        // past retention but not yet pruned, so the advice must not name a cause or imply the ID is now free.
+        check(BrokerRecoveryGuidance.ForError("message_id_collision")!.Advice.Contains("A missing receipt neither frees the ID nor explains the collision", StringComparison.Ordinal) &&
+            !BrokerRecoveryGuidance.ForError("message_id_collision")!.Advice.Contains("is still reserved", StringComparison.Ordinal) &&
             BrokerRecoveryGuidance.ForError("message_id_collision")!.Advice.Contains("never to replay uncertain work", StringComparison.Ordinal),
             "RECOVERY_GUIDANCE_ID_RESERVED: an ID reserved by a retained notice is explained, and a fresh ID is only for deliberately new work");
 
@@ -299,7 +302,7 @@ internal static class RecoveryGuidanceChecks
             check(collision.ExitCode == 10 && Confirmed(collisionReply.RootElement) &&
                 collisionReply.RootElement.GetProperty("result").GetString() == "An error occurred invoking 'send': message_id_collision" &&
                 HasGuidance(collisionReply.RootElement, "send", "message_id_collision", "get_message_receipt",
-                    "reserved by a retained delivery notice", "retry reuses the identical ID, content and addresses",
+                    "A missing receipt neither frees the ID nor explains the collision", "retry reuses the identical ID, content and addresses",
                     "fresh ID only for deliberately new work", "never to replay uncertain work") &&
                 store.FindReceipt(source.Message.Id) is null && store.FindReceipt(notice.Message.Id)?.Status == MessageStatus.Delivered,
                 "RECOVERY_GUIDANCE_WIRE_RESERVED_ID: retained-notice collision reaches authenticated MCP with fresh-ID guidance only for deliberately new work");

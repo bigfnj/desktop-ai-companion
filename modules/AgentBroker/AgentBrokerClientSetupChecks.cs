@@ -96,6 +96,160 @@ public sealed partial class AgentBrokerModule
         RunClientUnavailableConnectionChecks(check, dispatcher);
         RunClientPreHelperOutcomeChecks(check, dispatcher);
         RunClientLiveEndpointChecks(check, dispatcher);
+        RunClientVerdictInvalidationChecks(check, dispatcher);
+        RunClientConnectEpochChecks(check, dispatcher);
+    }
+
+    // Post-push audit U5 follow-up: Connect plans its vendor add from one connection probe. When the live worker moves to
+    // another port while that probe, the vendor get or a refused first add is outstanding, no add may follow: for Claude it
+    // would write the old address, and Codex's stdio add belongs to the old connection's setup. A move during a get
+    // that finds an existing entry, or during Connect's own follow-up check, must not publish the obsolete result either, and
+    // Check client setup stops at its probe the same way. Each hook runs inside the awaited call it names, so the order is
+    // fixed, not raced.
+    private static void RunClientConnectEpochChecks(Action<bool, string> check, TestDispatcher dispatcher)
+    {
+        const string live = "http://127.0.0.1:7432/mcp";
+        const string moved = "http://127.0.0.1:17432";
+        string existingHttp = "{\"enabled\":true,\"transport\":{\"type\":\"streamable_http\",\"url\":\"" + live + "\"}}";
+        foreach (var (client, boundary) in new[] { ("claude", "PROBE"), ("codex", "PROBE"), ("claude", "GET"), ("codex", "GET"),
+            ("claude", "RETRY"), ("codex", "RESULT"), ("codex", "FOLLOWUP"), ("codex", "CHECK") })
+        {
+            var command = new HttpSetupCommand { Existing = boundary == "RESULT" ? existingHttp : null };
+            var host = new TestHost();
+            host.UseStorage(Id, new TestStorage(Path.Combine(Path.GetTempPath(), "agentbroker-client-connect-epoch-synthetic")));
+            host.SettingsFor(Id).Set("enabled", "true");
+            var view = new BrokerSnapshot(Guid.NewGuid(), "Synthetic", "http://127.0.0.1:7432", null,
+                [], [], [], [], new Dictionary<string, string>());
+            var supervisor = new MutableSupervisor(new WorkerStatus(true, true, "running", view));
+            var control = new StatusControl { Response = new(true, "ok", Connection: new(live, null)) };
+            var module = new AgentBrokerModule(control, supervisor) { ClientSetup = new(command) };
+            try
+            {
+                module.Init(host); Pump(() => module.snapshot is not null, dispatcher);
+                void Move()
+                {
+                    var state = new WorkerStatus(true, true, "running", view with { LoopbackEndpoint = moved });
+                    supervisor.State = state; module.ApplyStatus(state);
+                }
+                int gets = 0;
+                switch (boundary)
+                {
+                    case "PROBE": case "CHECK": control.OnRequest = operation => { if (operation == "connection") Move(); }; break;
+                    case "GET": case "RESULT": command.OnGet = Move; break;
+                    case "FOLLOWUP": command.OnGet = () => { if (++gets == 2) Move(); }; break; // the follow-up check's own get
+                    default:
+                        command.AddResult = new(1, "", "Server URL " + live + " is not allowed by enterprise policy.");
+                        command.OnAdd = Move;
+                        break;
+                }
+                Task<string> action = boundary == "CHECK" ? module.CheckClientSetupAsync(client) : module.ConnectAndCheckAsync(client);
+                Pump(() => action.IsCompleted, dispatcher);
+                string result = action.GetAwaiter().GetResult();
+                string[] verbs = command.Calls.Select(call => call[1]).ToArray();
+                (string expected, string[] expectedVerbs, int probes, string purpose) = boundary switch
+                {
+                    "PROBE" => (ClientSetupCancelledBeforeCommand, Array.Empty<string>(), 1, "during its probe sends no add, runs no check and publishes nothing"),
+                    "GET" => (AgentClientSetup.StaleSetupStopped, new[] { "get" }, 1, "during its get sends no add, runs no check and publishes nothing"),
+                    "RETRY" => (AgentClientSetup.StaleRetryStopped, new[] { "get", "add" }, 1,
+                        "during a policy-refused first add sends no further add, runs no check and publishes nothing"),
+                    "RESULT" => (ObsoleteSetupResult("AgentBroker is already configured. Reconnect MCP or restart the client to load it."),
+                        new[] { "get" }, 1, "during a get that finds an existing entry marks that result obsolete, runs no check and publishes nothing"),
+                    "FOLLOWUP" => (ObsoleteSetupResult("AgentBroker MCP was added for this user. Reconnect MCP or restart the client to load its reply tools."),
+                        new[] { "get", "add", "get" }, 2, "during its own follow-up check marks the add result obsolete and publishes nothing"),
+                    _ => ("The client setup check was cancelled because the broker connection changed.", Array.Empty<string>(), 1,
+                        "during its probe runs no vendor command and stores no verdict"),
+                };
+                check(result == expected && verbs.SequenceEqual(expectedVerbs) && module.snapshot?.LoopbackEndpoint == moved &&
+                    control.Requests.Count(operation => operation == "connection") == probes && !module.clientSetupResults.ContainsKey(client) &&
+                    module.Inspection(client) is null,
+                    (boundary == "CHECK" ? "CLIENT_CHECK_EPOCH_PROBE_" : "CLIENT_CONNECT_EPOCH_" + boundary + "_") + client.ToUpperInvariant() +
+                    (boundary == "CHECK" ? ": a Check client setup whose live worker moves " : ": a Connect whose live worker moves ") + purpose);
+            }
+            finally { module.Shutdown(); Pump(() => module.pending.IsCompleted, dispatcher); }
+        }
+        // The stale-stop texts are the follow-up's user-facing claims, so their content is pinned, not only their identity:
+        // before the first add only a read-only get has run; after a refused first add only "no further add" is claimed, and
+        // no order between the refusal and the connection change is stated.
+        string setupStop = AgentClientSetup.StaleSetupStopped, retryStop = AgentClientSetup.StaleRetryStopped;
+        check(setupStop.Contains("No configuration was changed.", StringComparison.Ordinal) &&
+            setupStop.Contains("choose Check client setup before retrying", StringComparison.Ordinal) &&
+            retryStop.Contains("no further add was attempted", StringComparison.Ordinal) &&
+            retryStop.Contains("Review the client's MCP settings", StringComparison.Ordinal) &&
+            retryStop.Contains("choose Check client setup before retrying", StringComparison.Ordinal) &&
+            !retryStop.Contains("No configuration was changed", StringComparison.Ordinal) &&
+            !retryStop.Contains("after Claude Code refused", StringComparison.Ordinal),
+            "CLIENT_CONNECT_STALE_STOP_WORDING: a stop before the first add says nothing changed; a stop after a refused add claims only that no further add was attempted, in no order");
+    }
+
+    // Post-push audit U5: a client verdict is matched against the live worker's endpoint, so it must not survive that worker
+    // moving to another port or this companion's ownership changing, while the same endpoint seen again keeps it. The
+    // supervisor reports whatever state the check last applied, so the background poll agrees with every step and cannot
+    // clear a verdict on its own.
+    private static void RunClientVerdictInvalidationChecks(Action<bool, string> check, TestDispatcher dispatcher)
+    {
+        const string live = "http://127.0.0.1:7432/mcp";
+        var command = new HttpSetupCommand { Existing = "{\"enabled\":true,\"transport\":{\"type\":\"streamable_http\",\"url\":\"" + live + "\"}}" };
+        var host = new TestHost();
+        host.UseStorage(Id, new TestStorage(Path.Combine(Path.GetTempPath(), "agentbroker-client-verdict-synthetic")));
+        host.SettingsFor(Id).Set("enabled", "true");
+        var view = new BrokerSnapshot(Guid.NewGuid(), "Synthetic", "http://127.0.0.1:7432", null,
+            [], [], [], [], new Dictionary<string, string>());
+        var supervisor = new MutableSupervisor(new WorkerStatus(true, true, "running", view));
+        var control = new StatusControl { Response = new(true, "ok", Connection: new(live, null)) };
+        var module = new AgentBrokerModule(control, supervisor) { ClientSetup = new(command) };
+        try
+        {
+            module.Init(host); Pump(() => module.snapshot is not null, dispatcher);
+            void Apply(WorkerStatus state) { supervisor.State = state; module.ApplyStatus(state); }
+            void Inspect() { Task<string> action = module.CheckClientSetupAsync("codex"); Pump(() => action.IsCompleted, dispatcher); _ = action.GetAwaiter().GetResult(); }
+            // Both clients' verdicts and a stored setup result: ApplyStatus keeps or drops all three together.
+            bool Prime()
+            {
+                Task<string> action = module.CheckClientSetupAsync(); Pump(() => action.IsCompleted, dispatcher); _ = action.GetAwaiter().GetResult();
+                module.clientSetupResults["claude"] = "SYNTHETIC_PRIOR_SETUP_RESULT";
+                return module.codexInspection?.State == ClientConfiguration.Configured && module.claudeInspection is not null;
+            }
+            bool AllCleared() => module.codexInspection is null && module.claudeInspection is null && module.clientSetupResults.Count == 0;
+            bool primed = Prime();
+            Apply(new WorkerStatus(true, true, "running", view));
+            check(primed && module.codexInspection?.State == ClientConfiguration.Configured && module.claudeInspection is not null &&
+                module.clientSetupResults.ContainsKey("claude"),
+                "CLIENT_VERDICT_SAME_ENDPOINT_KEPT: the same live endpoint seen again keeps both client verdicts and the setup result");
+            Apply(new WorkerStatus(true, true, "running", view with { LoopbackEndpoint = "http://127.0.0.1:17432" }));
+            check(AllCleared(),
+                "CLIENT_VERDICT_ENDPOINT_CHANGE_CLEARED: a live endpoint on another port drops both client verdicts and the setup result");
+            bool reinspected = Prime();
+            Apply(new WorkerStatus(true, false, "attached_standby", view with { LoopbackEndpoint = "http://127.0.0.1:17432" }));
+            check(reinspected && AllCleared(),
+                "CLIENT_VERDICT_OWNERSHIP_CHANGE_CLEARED: a change of worker ownership on the same endpoint drops both client verdicts and the setup result");
+            // In flight: the live worker moves while the vendor CLI answers the get (the hook runs inside it, so this is a
+            // fixed order, not a race). The finished inspection belongs to the old worker and must not be stored.
+            Inspect();
+            bool freshVerdict = module.codexInspection?.State == ClientConfiguration.Configured;
+            command.OnGet = () => Apply(new WorkerStatus(true, false, "attached_standby", view with { LoopbackEndpoint = "http://127.0.0.1:27432" }));
+            Inspect();
+            command.OnGet = null;
+            check(freshVerdict && module.codexInspection is null,
+                "CLIENT_VERDICT_INFLIGHT_DROPPED: a check whose live worker changes while it runs stores no verdict");
+            // A status without a snapshot says nothing about the endpoint. On a standby, whose ownership it leaves unchanged, it
+            // keeps every verdict, and the endpoint seen before it stays the one a later status is compared with. (For an owning
+            // module a supervision retry reports OwnsWorker false, which the ownership clause treats as a change.)
+            bool primedForGap = Prime();
+            Apply(new WorkerStatus(false, false, "supervision_retry"));
+            bool keptAcrossGap = module.codexInspection is not null && module.claudeInspection is not null && module.clientSetupResults.Count == 1;
+            Apply(new WorkerStatus(true, false, "attached_standby", view with { LoopbackEndpoint = "http://127.0.0.1:37432" }));
+            check(primedForGap && keptAcrossGap && AllCleared(),
+                "CLIENT_VERDICT_ENDPOINT_CHANGE_ACROSS_GAP: on a standby, a status without a snapshot keeps the verdicts, and a later live endpoint on another port still drops them");
+        }
+        finally { module.Shutdown(); Pump(() => module.pending.IsCompleted, dispatcher); }
+    }
+
+    private sealed class MutableSupervisor(WorkerStatus initial) : IWorkerSupervisor
+    {
+        internal volatile WorkerStatus State = initial;
+        public Task<WorkerStatus> RefreshAsync(WorkerLaunch launch, CancellationToken token)
+        { token.ThrowIfCancellationRequested(); return Task.FromResult(State); }
+        public Task StopOwnedAsync(string directory, CancellationToken token) => Task.CompletedTask;
     }
 
     private static void RunClientLiveEndpointChecks(Action<bool, string> check, TestDispatcher dispatcher)
@@ -361,7 +515,10 @@ public sealed partial class AgentBrokerModule
             (NoAuth: true, Connection: new LocalConnection(endpoint, null), Url: endpoint, State: ClientConfiguration.Configured, Expected: "already configured", Label: "TOKEN_FREE"),
             (NoAuth: false, Connection: new LocalConnection(endpoint, privateToken), Url: endpoint, State: ClientConfiguration.DifferentEntry, Expected: "Review it", Label: "TOKEN_REQUIRED"),
             (NoAuth: true, Connection: new LocalConnection(endpoint, privateToken), Url: endpoint, State: ClientConfiguration.DifferentEntry, Expected: "Review it", Label: "ACTUAL_TOKEN_REQUIRED"),
-            (NoAuth: true, Connection: new LocalConnection("http://192.0.2.10:7432/mcp", null), Url: "http://192.0.2.10:7432/mcp", State: ClientConfiguration.ConnectionUnverified, Expected: "Could not verify this HTTP entry", Label: "UNVERIFIED_CONNECTION")
+            // An unverifiable connection leaves a LOOPBACK entry unverified (its port could be the worker's)...
+            (NoAuth: true, Connection: new LocalConnection("http://192.0.2.10:7432/mcp", null), Url: endpoint, State: ClientConfiguration.ConnectionUnverified, Expected: "Could not verify this HTTP entry", Label: "UNVERIFIED_CONNECTION"),
+            // ...but an entry whose URL could never be this broker's stays a different entry needing review (post-push audit U7).
+            (NoAuth: true, Connection: new LocalConnection("http://192.0.2.10:7432/mcp", null), Url: "http://192.0.2.10:7432/mcp", State: ClientConfiguration.DifferentEntry, Expected: "Review it", Label: "UNVERIFIED_CONNECTION_REMOTE_ENTRY")
         })
         {
             string existing = "{\"enabled\":true,\"transport\":{\"type\":\"streamable_http\",\"url\":" +
@@ -446,12 +603,20 @@ public sealed partial class AgentBrokerModule
             try
             {
                 module.Init(host); Pump(() => module.snapshot is not null, dispatcher);
+                string statusBefore = host.OptionsPanes.Single().Load()["status"];
                 Task<string> action = module.CheckClientSetupAsync(client);
                 Pump(() => action.IsCompleted, dispatcher);
                 string result = action.GetAwaiter().GetResult();
                 string display = module.ClientDisplay(client);
                 var tray = module.ClientTrayItems().Single(item => item.Label.StartsWith(ClientName(client) + ":", StringComparison.Ordinal));
                 var expected = transport == "http" ? ClientConfiguration.ConnectionUnverified : ClientConfiguration.Configured;
+                // Post-push audit U6: the read-only probe's own failure is reported in the action's result, never as a module
+                // status that says an action failed.
+                if (transport == "http" && failure == "FAULT")
+                    check(host.OptionsPanes.Single().Load()["status"] == statusBefore &&
+                        !statusBefore.Contains("could not apply", StringComparison.Ordinal),
+                        "CLIENT_CONNECTION_PROBE_STATUS_KEPT_" + client.ToUpperInvariant() +
+                        ": a failed connection probe from Check client setup leaves the module status unchanged");
                 check(module.Inspection(client)?.State == expected && command.Calls.Count == 1 && command.Calls[0][1] == "get" &&
                     control.Requests.Count(item => item == "connection") == 1 &&
                     !display.Contains(privateDiagnostic, StringComparison.Ordinal) &&
@@ -470,6 +635,9 @@ public sealed partial class AgentBrokerModule
                         module.codexInspection?.State == ClientConfiguration.ConnectionUnverified && command.Calls.Count == 2 &&
                         command.Calls.All(call => call[1] == "get") && !connected.Contains(privateDiagnostic, StringComparison.Ordinal),
                         "CLIENT_CONNECTION_UNAVAILABLE_CODEX_CONNECT_" + failure + ": Connect preserves an existing HTTP entry with unverified guidance");
+                    if (failure == "FAULT")
+                        check(host.OptionsPanes.Single().Load()["status"] == statusBefore,
+                            "CLIENT_CONNECTION_PROBE_STATUS_KEPT_CODEX_CONNECT: a failed connection probe from Connect leaves the module status unchanged");
                 }
                 control.Failure = null; control.Response = new(true, "ok", Connection: new(endpoint, null));
                 action = module.CheckClientSetupAsync(client); Pump(() => action.IsCompleted, dispatcher);
@@ -535,13 +703,19 @@ public sealed partial class AgentBrokerModule
     private sealed class HttpSetupCommand : IAgentClientCommand
     {
         internal string? Existing;
+        // Runs inside a "get" or an "add", before it answers: lets a check change module state while that command is in flight.
+        internal Action? OnGet, OnAdd;
+        // What every "add" answers; null is success.
+        internal ClientCommandResult? AddResult;
         internal List<string[]> Calls { get; } = [];
         public Task<ClientCommandResult> RunAsync(string executable, IReadOnlyList<string> arguments, CancellationToken token)
         {
             token.ThrowIfCancellationRequested(); Calls.Add(arguments.ToArray());
+            if (arguments[1] == "get") OnGet?.Invoke();
+            if (arguments[1] == "add") OnAdd?.Invoke();
             return Task.FromResult(arguments[1] == "get"
                 ? Existing is null ? new ClientCommandResult(1, "", "No MCP server named " + AgentClientSetup.ServerName + " found.") : new(0, Existing, "")
-                : new ClientCommandResult(0, "", ""));
+                : AddResult ?? new ClientCommandResult(0, "", ""));
         }
     }
 

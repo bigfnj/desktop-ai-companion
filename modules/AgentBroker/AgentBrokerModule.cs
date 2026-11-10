@@ -41,7 +41,8 @@ public sealed partial class AgentBrokerModule : IModule
     {
         Id = "agentbroker",
         Name = "AgentBroker",
-        Version = "1.10.1",  // Verified client HTTP setup and a single cancellation outcome.
+        Version = "1.10.2",  // Request values decoded before dispatch, output checks before dispatch, live endpoint display.
+                             // 1.10.1: verified client HTTP setup and a single cancellation outcome.
                              // 1.10.0: collaboration handoffs, retained client output and delivery advisories.
                              // 1.9.0: authenticated certificate renewal and post-push reliability repairs.
                              //        Exact-incarnation delivery and the host ABI floor are unchanged.
@@ -463,6 +464,15 @@ public sealed partial class AgentBrokerModule : IModule
     private bool ApplyStatus(WorkerStatus state, long observation)
     {
         if (!AcceptObservation(observation)) return false;
+        // A standby that takes over, or a worker that reappears on another port, makes every client verdict stale; Restart is
+        // not the only way that happens (post-push audit U5). The same endpoint seen again keeps them.
+        string? liveEndpoint = state.Snapshot?.LoopbackEndpoint;
+        if ((liveEndpoint is not null && verdictEndpoint is not null && liveEndpoint != verdictEndpoint) || state.OwnsWorker != ownsWorker)
+        {
+            claudeInspection = null; codexInspection = null; clientSetupResults.Clear();
+            clientEpoch++;
+        }
+        if (liveEndpoint is not null) verdictEndpoint = liveEndpoint;
         snapshot = state.Snapshot;
         ownsWorker = state.OwnsWorker;
         SetStatus(state.Connected ? (state.OwnsWorker ? "Running" : "Connected to the existing broker (standby)") +
@@ -622,7 +632,11 @@ public sealed partial class AgentBrokerModule : IModule
             snapshot = null;
             SetStatus("Worker unavailable. " + reason + " Retrying automatically.");
         }
-        else SetStatus("The broker could not apply that action.");
+        // The read-only "connection" probe (Check client setup, Connect) changes nothing, so its failure must not replace the
+        // module status (post-push audit U6). The callers report it where it decides their outcome: Connect Claude MCP stops
+        // with "Could not verify the broker connection", and an HTTP entry checks as not verified. Stdio setup and absent or
+        // stdio verdicts do not depend on the probe and do not mention it.
+        else if (request.Operation != "connection") SetStatus("The broker could not apply that action.");
     }
 
     private async Task<string> RefreshStatusAsync() => (await SendAsync(new("status"))) is
@@ -636,20 +650,26 @@ public sealed partial class AgentBrokerModule : IModule
     {
         if (shutDown || !settings.Enabled || dataDirectory is null || run is null)
             return new("Enable AgentBroker before connecting a client.", false);
-        int current = generation;
+        int current = generation, epoch = clientEpoch;
         string directory = dataDirectory;
         CancellationToken token = run.Token;
         ControlResponse? connection = await SendAsync(new("connection"));
-        if (shutDown || generation != current || token.IsCancellationRequested)
+        // Post-push audit U5 follow-up: a live endpoint or ownership change during the probe makes its answer obsolete.
+        if (shutDown || generation != current || clientEpoch != epoch || token.IsCancellationRequested)
             return new(ClientSetupCancelledBeforeCommand, false);
         if (client == "claude" && !AgentClientSetup.HasVerifiedConnection(connection))
             return new("Could not verify the broker connection. Refresh status, then try Connect Claude MCP again.", false);
         string? endpoint = UsableClientHttpEndpoint(connection);
         string worker = Path.Combine(Path.GetDirectoryName(typeof(AgentBrokerModule).Assembly.Location)!, "worker", "AgentBroker.Worker.exe");
-        // This records entry to the configuration helper, not proof that a vendor command completed or was submitted.
-        return new(await ClientSetup.ConfigureAsync(client, worker, directory, token,
+        // The helper re-checks currentness before each add, so a connection that moves during its get or a refused add sends no
+        // further add. Its result is not proof that a vendor command completed or was submitted.
+        string text = await ClientSetup.ConfigureAsync(client, worker, directory, token,
             loopbackMcpEndpoint: client == "claude" ? endpoint : null,
             inspectionMcpEndpoint: client == "codex" ? endpoint : null,
-            httpConnectionVerified: AgentClientSetup.HasVerifiedConnection(connection)), true);
+            httpConnectionVerified: AgentClientSetup.HasVerifiedConnection(connection),
+            stillCurrent: () => !shutDown && generation == current && clientEpoch == epoch && !token.IsCancellationRequested);
+        // A stale stop already says the connection changed and what was not attempted, so it is final as written:
+        // ConfigurationInvoked false means no obsolete-operation suffix and no follow-up check (see ConnectAndCheckAsync).
+        return new(text, !AgentClientSetup.IsStaleStop(text));
     }
 }

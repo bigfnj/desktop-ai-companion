@@ -11,8 +11,8 @@ namespace AgentBroker.Worker;
 // Explicit client output only. No peer-supplied path is passed to this class.
 // Handle-owned publication (LocalOutputFile design v2 as amended by v2.1): hold the validated parent directory, prove it
 // is a local NTFS directory whose canonical chain is plain and, when typed in another case, case-insensitive; create the
-// temporary at the held directory's volume GUID path; repeat the chain proofs definitively once that temporary exists
-// (D5); write and flush it by handle; publish it with NtSetInformationFile
+// temporary at the held directory's volume GUID path; repeat the chain proofs once that temporary exists (D5; the last
+// point-in-time proof before any payload byte, not a freeze); write and flush it by handle; publish it with NtSetInformationFile
 // relative to the held handle without replacing; prove the published GUID final path; and on every handled failure
 // discard the temporary through its own handle. No destructive operation ever takes a path.
 internal static class LocalOutputFile
@@ -43,7 +43,23 @@ internal static class LocalOutputFile
         internal Action<DiscardOutcome>? Discarded { get; init; }
     }
 
-    internal static string Validate(string destination)
+    // The caller's preflight, before any tool is dispatched: the path checks below plus every held-directory proof Save
+    // will make (step 2: tag, volume GUID path, DOS pin, NTFS, canonical chain, case), on a handle that is closed again at
+    // once. So a destination Save would refuse at step 2 is refused here, before dispatch: a SUBST drive (its DOS final
+    // path names the backing volume, so the pin fails), a network or FAT volume, a reparse point, a case-sensitive folder
+    // typed in another case. Save repeats every proof on its own held handle, so a change between this preflight and
+    // publication is still refused there, after dispatch, with the truthful exit 74.
+    internal static string Validate(string destination, Seams? seams = null)
+    {
+        string full = ValidatePath(destination);
+        try { using (OpenHeldDirectory(Path.GetDirectoryName(full)!, seams, out _, out _)) { } }
+        catch (Exception error) when (error is TypeLoadException or MarshalDirectiveException or ExternalException)
+        { throw new IOException("output_unavailable", error); }
+        return full;
+    }
+
+    // Path checks only: shape, names, plain typed directories, reserved names, and an existing destination.
+    private static string ValidatePath(string destination)
     {
         if (!Path.IsPathFullyQualified(destination) || destination.StartsWith("\\\\", StringComparison.Ordinal))
             throw new InvalidDataException("invalid_output_path");
@@ -98,7 +114,7 @@ internal static class LocalOutputFile
         try
         {
             if (IntPtr.Size != 8) throw new IOException("output_unavailable"); // the rename buffer layout is the 64-bit one
-            string full = Validate(destination);
+            string full = ValidatePath(destination); // step 2 below makes the held-directory proofs on the handle it keeps
             string parent = Path.GetDirectoryName(full)!, leaf = Path.GetFileName(full);
             var retention = new Retention(full, Convert.ToHexString(SHA256.HashData(bytes)), bytes.LongLength);
             using SafeFileHandle held = OpenHeldDirectory(parent, seams, out string canon, out string volume);
@@ -111,7 +127,7 @@ internal static class LocalOutputFile
                 string? created = FinalPath(temp, VolumeNameGuid);
                 if (seams?.TempFinalPath is { } observeCreated) created = observeCreated(created);
                 if (!IsFinalPathOf(created, volume, tempLeaf)) throw new IOException("output_unavailable");
-                RequireChain(canon, parent, seams); // step 3b, definitive: our entry now makes the held directory non-empty
+                RequireChain(canon, parent, seams); // step 3b, post-create: our entry exists; last proof before any payload byte
                 Write(temp, bytes);
                 beforePublish?.Invoke();
                 int status = Rename(temp, held, leaf);
@@ -181,12 +197,12 @@ internal static class LocalOutputFile
         finalPath is not null && finalPath.StartsWith(@"\\?\", StringComparison.Ordinal) &&
         string.Equals(finalPath[4..], parent, StringComparison.OrdinalIgnoreCase) ? finalPath[4..] : null;
 
-    // Steps 2e and 2f, run twice (design v2.1 D5). First as a preflight in OpenHeldDirectory, while the held directory may
-    // still be empty; then definitively in Save, after CREATE_NEW has made our owned entry and before any payload byte is
-    // written. The held handle already freezes the chain against renames, but an EMPTY directory can still gain a reparse
-    // point or change its case-sensitivity flag; a non-empty one can do neither (FSCTL_SET_REPARSE_POINT fails with
-    // STATUS_DIRECTORY_NOT_EMPTY, and the flag changes only on an empty directory). A definitive refusal is caught in Save,
-    // which discards only the owned temporary, by its handle.
+    // Steps 2e and 2f, run twice (design v2.1 D5). First as a preflight in OpenHeldDirectory; then again in Save, after
+    // CREATE_NEW has made our owned entry and before any payload byte is written. The held handle freezes the chain against
+    // renames, not against attribute changes: a directory, even a non-empty one, can still gain a reparse point whose tag
+    // has the directory bit (IsReparseTagDirectory, e.g. a cloud-files placeholder; never a name surrogate such as a
+    // junction), and its case-sensitivity flag can change. So the second run is the last point-in-time proof before any
+    // payload byte, not a freeze. A refusal there is caught in Save, which discards only the owned temporary, by its handle.
     private static void RequireChain(string canon, string parent, Seams? seams)
     {
         RequireCanonicalChain(canon, seams);

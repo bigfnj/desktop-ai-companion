@@ -143,7 +143,11 @@ def mutation_artifact(source: str) -> str:
 # POSTFLUSH checks under each prefix (HANDOFF_OUTPUT_ and MCP_OUTPUT_, 4 in all, RETIRED-REPLACED). 718 - 4 + 36 = 750.
 # 750 -> 755 (2026-11-09, LocalOutputFile review round 1, measured): --local-output-only 36 -> 41 (CASE_SENSITIVE_ANCESTOR,
 # HANDOFF_CLI_CLEANUP, MCP_CLI_CLEANUP, POST_CREATE_CHAIN, POST_CREATE_CASE), all before the cut-off.
-EXISTING_COUNTS = {"worker": 755, "desktop": 157}
+# 755 -> 757 (2026-11-09, post-push audit of 7ad9d901, C lane, measured): --local-output-only 41 -> 43 (PREFLIGHT_PIN,
+# MCP_PREFLIGHT_PIN), before the cut-off. Lane J's request-value group adds its own checks on top; re-measure when merged.
+# 757 -> 774 (2026-11-09, 1.10.2 integration, measured): McpCallClientChecks gains the request-value group (17: reader,
+# 3 ordinary, 6 malformed kinds x boundary + local command, fixture removal), which runs first in that group, before the cut-off.
+EXISTING_COUNTS = {"worker": 774, "desktop": 157}
 FOCUSED_COUNTS = {"worker": 92, "desktop": 23}  # desktop 15 -> 23: installed-version image-mismatch witnesses and layout controls
 CLAUDE_SCENARIOS = ("early-reject", "unsupported-version", "hash-mismatch", "mixed", "recovery", "bounded-snapshot")
 
@@ -158,7 +162,7 @@ class Witness:
     replacements: tuple[tuple[str, str], ...]
     replacement_counts: tuple[int, ...] = ()
     kind: str = "reporting"
-    # Existing checks this mutation necessarily breaks, by check text in suite order. Empty for every witness but one.
+    # Existing checks this mutation necessarily breaks, by check text in suite order. Empty for most witnesses.
     allowed_existing_failures: tuple[str, ...] = ()
     failure_check: str | None = None
 
@@ -259,7 +263,7 @@ WITNESSES = (
     ),), failure_check="a second concurrent wait for one session is refused as wait_in_progress"),
     # ---- lane feature/agentbroker-wait-classes (AgentBroker next campaign, 2026-11-08) ----
     # Each mutant breaks one rule of the two wait classes or the listening count; failure_check names the one check it
-    # must fail first. These checks remain after the --existing-tests-only cut-off; its measured pin is now 755
+    # must fail first. These checks remain after the --existing-tests-only cut-off; its measured pin is now 774
     # (EXISTING_COUNTS above, with each step from 696).
     Witness("wait-class-receipt-joins-incoming", "tools", "worker", ("--receipt-wait-only",), "ReceiptWaitChecks.cs", ((
         "var answered = await WaitAsync(original.Sender, WaitClass.Receipt, timeoutSeconds, () =>",
@@ -340,6 +344,13 @@ WITNESSES = (
         "long sleep = wakeWithin?.Invoke() is TimeSpan wake ? Math.Min(remaining, Math.Max(1, (long)Math.Ceiling(wake.TotalMilliseconds))) : remaining;",
         "long sleep = remaining;",
     ),), failure_check="RECEIPT_WAKES_AT_DEADLINE: a waiting wait_for_receipt wakes at the message's own deadline"),
+    # Post-push audit of 7ad9d901 (C6): a wait_for_receipt that is REFUSED must reach the deadline fixture's named WITNESS
+    # check, not abort the group with an unlabelled McpException. Only the two deadline fixtures use timeoutSeconds 10,
+    # so the refusal reaches exactly them; RECEIPT_WAKES_AT_DEADLINE's fixture runs first.
+    Witness("receipt-deadline-wait-refused", "tools", "worker", ("--receipt-wait-only",), "ReceiptWaitChecks.cs", ((
+        "        RequireLocal();\n        // Wake at the message's own deadline too",
+        "        RequireLocal();\n        if (timeoutSeconds == 10) throw new McpException(\"wait_in_progress\");\n        // Wake at the message's own deadline too",
+    ),), failure_check="WITNESS RECEIPT_WAKES_AT_DEADLINE: the wait was admitted on an Accepted receipt before its deadline clock started"),
     Witness("receipt-deadline-reread-omitted", "tools", "worker", ("--receipt-wait-only",), "ReceiptWaitChecks.cs", ((
         "if (!rereadAfterDeadline) return null;", "if (!rereadAfterDeadline || original.ExpiresAt <= runtime.StoreNow) return null;",
     ),), failure_check="RECEIPT_WAKE_STRADDLE: a deadline passing between the reread and the wake calculation ends the wait at once"),
@@ -361,6 +372,20 @@ WITNESSES = (
     # The child process would crash first at its generic one-JSON-line FRAME check, so the in-process check names the defect.
     ),), allowed_existing_failures=("MCP_CALL_REQUEST_NAME_UNICODE_IN_PROCESS: a lone surrogate in a request property name returns invalid_request instead of escaping",),
         failure_check="MCP_CALL_REQUEST_NAME_UNICODE_IN_PROCESS: a lone surrogate in a request property name returns invalid_request instead of escaping"),
+    # 1.10.2 (post-push audit of 7ad9d901, C1/J): request STRING VALUES are decoded inside the bounded walk. Removing that
+    # decode lets the first malformed value through the local reader.
+    Witness("mcpcall-value-decode-omitted", "mcpcall", "worker", ("--mcp-call-client-only",), "McpCallClientChecks.cs", ((
+        "                    try { _ = element.GetString(); }\n                    catch (InvalidOperationException error) { throw new InvalidDataException(\"invalid_request\", error); }",
+        "                    _ = element;",
+    ),), allowed_existing_failures=("MCP_CALL_REQUEST_VALUE_BOUNDARY_TOOL_HIGH: malformed text is refused by the actual local reader",),
+        failure_check="MCP_CALL_REQUEST_VALUE_BOUNDARY_TOOL_HIGH: malformed text is refused by the actual local reader"),
+    # J3: a catch narrowed to the surrogate case (no inner exception) still refuses escaped surrogates, but raw invalid
+    # UTF-8, which System.Text.Json reports with an inner DecoderFallbackException, escapes the reader.
+    Witness("mcpcall-value-catch-narrowed", "mcpcall", "worker", ("--mcp-call-client-only",), "McpCallClientChecks.cs", ((
+        "catch (InvalidOperationException error) { throw new InvalidDataException(\"invalid_request\", error); }",
+        "catch (InvalidOperationException error) when (error.InnerException is null) { throw new InvalidDataException(\"invalid_request\", error); }",
+    ),), allowed_existing_failures=("MCP_CALL_REQUEST_VALUE_BOUNDARY_TOOL_RAW: malformed text is refused by the actual local reader",),
+        failure_check="MCP_CALL_REQUEST_VALUE_BOUNDARY_TOOL_RAW: malformed text is refused by the actual local reader"),
     Witness("handoff-signature-bypassed", "handoffprepare", "worker", ("--handoff-client-only",), "HandoffClientChecks.cs", ((
         "HandoffPacket.Parse(McpStdioBridge.WithoutUtf8Signature(bytes).ToArray())", "HandoffPacket.Parse(bytes)",
     ),), allowed_existing_failures=("HANDOFF_PROCESS_UTF8_SIGNATURE: a request file that starts with one UTF-8 signature is prepared normally",),

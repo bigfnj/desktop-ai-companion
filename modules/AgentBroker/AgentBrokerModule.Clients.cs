@@ -15,6 +15,12 @@ public sealed partial class AgentBrokerModule
     private ClientInspection? claudeInspection, codexInspection;
     private bool clientCheckOpen;
     private readonly Dictionary<string, string> clientSetupResults = new(StringComparer.Ordinal);
+    // Post-push audit U5: client verdicts are matched against the live worker's endpoint, so ApplyStatus drops them (and bumps
+    // clientEpoch, which an in-flight check compares) when that endpoint or this companion's worker ownership changes.
+    private string? verdictEndpoint;
+    private int clientEpoch;
+    // ConfigurationInvoked false: the outcome is final as written (the module stopped before the helper, or the helper stopped
+    // itself on a connection change), so ConnectAndCheckAsync adds no obsolete-operation suffix and runs no follow-up check.
     private sealed record ClientSetupOutcome(string Text, bool ConfigurationInvoked);
     private const string ClientSetupCancelledBeforeCommand =
         "Client setup was cancelled because the broker connection changed before a client command started. " +
@@ -24,8 +30,12 @@ public sealed partial class AgentBrokerModule
     private ClientInspection? Inspection(string client) => client == "claude" ? claudeInspection : codexInspection;
     private static string WorkerExecutable() =>
         Path.Combine(Path.GetDirectoryName(typeof(AgentBrokerModule).Assembly.Location)!, "worker", "AgentBroker.Worker.exe");
-    private string LoopbackMcpEndpoint() =>
-        "http://127.0.0.1:" + settings.LoopbackPort.ToString(CultureInfo.InvariantCulture) + "/mcp";
+    private static string? SnapshotMcpEndpoint(BrokerSnapshot? view)
+    {
+        if (view?.LoopbackEndpoint is not { } endpoint) return null;
+        string candidate = endpoint + "/mcp";
+        return AgentClientSetup.IsCanonicalLoopbackEndpoint(candidate) ? candidate : null;
+    }
     private static string? UsableClientHttpEndpoint(ControlResponse? connection) =>
         AgentClientSetup.HasVerifiedConnection(connection) ? AgentClientSetup.EndpointFromConnection(connection) : null;
 
@@ -38,20 +48,20 @@ public sealed partial class AgentBrokerModule
             return "Enable AgentBroker before checking client setup.";
         if (clientCheckOpen) return "A client setup check is already running.";
         clientCheckOpen = true;
-        int current = generation;
+        int current = generation, epoch = clientEpoch;
         CancellationToken token = run.Token;
         string directory = dataDirectory, worker = WorkerExecutable();
         try
         {
             ControlResponse? connection = await SendAsync(new("connection"));
-            if (shutDown || generation != current || token.IsCancellationRequested)
+            if (shutDown || generation != current || clientEpoch != epoch || token.IsCancellationRequested)
                 return "The client setup check was cancelled because the broker connection changed.";
             string endpoint = UsableClientHttpEndpoint(connection) ?? "";
             foreach (string client in only is null ? new[] { "claude", "codex" } : new[] { only })
             {
                 ClientInspection inspection = await ClientSetup.InspectAsync(client, worker, directory, endpoint, McpNow(), token,
                     httpConnectionVerified: AgentClientSetup.HasVerifiedConnection(connection));
-                if (shutDown || generation != current || token.IsCancellationRequested)
+                if (shutDown || generation != current || clientEpoch != epoch || token.IsCancellationRequested)
                     return "The client setup check was cancelled because the broker connection changed.";
                 if (client == "claude") claudeInspection = inspection; else codexInspection = inspection;
                 NotifyInfoChanged();
@@ -67,24 +77,25 @@ public sealed partial class AgentBrokerModule
     {
         if (shutDown || !settings.Enabled || dataDirectory is null || run is null)
             return "Enable AgentBroker before connecting a client.";
-        int current = generation;
+        int current = generation, epoch = clientEpoch;
         CancellationToken token = run.Token;
         ClientSetupOutcome result = await ConfigureClientAsync(client);
-        // The module can finish before entering client setup, including cancellation during the control probe.
-        // That typed outcome already describes the action; do not append an obsolete-vendor-operation suffix.
+        // The module can finish before entering client setup, including cancellation during the control probe, and the helper
+        // can stop itself before an add when the connection changes. That outcome already describes the action; do not
+        // append an obsolete-vendor-operation suffix.
         if (!result.ConfigurationInvoked)
         {
-            if (!shutDown && generation == current && !token.IsCancellationRequested)
+            if (!shutDown && generation == current && clientEpoch == epoch && !token.IsCancellationRequested)
             {
                 clientSetupResults[client] = result.Text;
                 NotifyInfoChanged();
             }
             return result.Text;
         }
-        if (shutDown || generation != current || token.IsCancellationRequested)
+        if (shutDown || generation != current || clientEpoch != epoch || token.IsCancellationRequested)
             return ObsoleteSetupResult(result.Text);
         await CheckClientSetupAsync(client);
-        if (shutDown || generation != current || token.IsCancellationRequested)
+        if (shutDown || generation != current || clientEpoch != epoch || token.IsCancellationRequested)
             return ObsoleteSetupResult(result.Text);
         clientSetupResults[client] = result.Text;
         NotifyInfoChanged();
@@ -172,7 +183,9 @@ public sealed partial class AgentBrokerModule
             yield return inspection.Health == "connected"
                 ? "\u2713 Endpoint: reachable; the Claude CLI connected and listed tools during the check."
                 : "\u2717 Endpoint: ready, but the Claude CLI reported " + HealthText(inspection.Health) + " during the check.";
-        else yield return "\u2713 Endpoint: ready at " + LoopbackMcpEndpoint() + ".";
+        else if (SnapshotMcpEndpoint(snapshot) is { } endpoint)
+            yield return "\u2713 Endpoint: ready at " + endpoint + ".";
+        else yield return "\u26A0 Endpoint: ready; its address is not verified.";
 
         // Tools available: only traffic this client identified itself in, never another client's.
         yield return ToolsLine(mcp, client == "claude" ? McpClientFamily.Claude : McpClientFamily.Codex);

@@ -256,10 +256,15 @@ public sealed partial class AgentBrokerModule
                 "CODEX_TOLERANT_TRAY_NOTE_WHOLE: actual Codex tray children preserve both build names and the complete signature sentence in bounded continuation items");
             module.ApplyStatus(new(true, true, "running", view));
 
-            // A settings change restarts the worker; a check made against the old settings no longer applies.
+            // A settings change restarts the worker; a check made against the old settings no longer applies. Restart drops it at
+            // once. The first status after a restart can drop it too (Restart resets ownership, so an owned worker reads as a
+            // change, post-push audit U5), so the pane is read both right after the save and once the worker runs again.
+            const string notChecked = "Claude Code: configuration not checked yet.";
+            bool checkedBefore = !pane.Load()["claudeClient"].StartsWith(notChecked, StringComparison.Ordinal);
             pane.Save(new Dictionary<string, string> { ["loopbackPort"] = "7440" });
+            bool clearedAtRestart = pane.Load()["claudeClient"].StartsWith(notChecked, StringComparison.Ordinal);
             Pump(() => pane.Load()["status"].StartsWith("Running", StringComparison.Ordinal), dispatcher);
-            check(pane.Load()["claudeClient"].StartsWith("Claude Code: configuration not checked yet.", StringComparison.Ordinal),
+            check(checkedBefore && clearedAtRestart && pane.Load()["claudeClient"].StartsWith(notChecked, StringComparison.Ordinal),
                 "onboarding: a settings restart clears the previous configuration check");
         }
         finally

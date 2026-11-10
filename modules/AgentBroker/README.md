@@ -46,8 +46,17 @@ separately from the configured rule. See `AgentBrokerModule.Clients.cs` and
 Connect preserves an existing entry and reports disabled, policy-blocked or mismatched
 Codex configuration without replacing it. Existing Codex HTTP entries match only a verified
 live, token-free broker connection. Token-required HTTP entries are preserved for connection
-review. An unavailable or unverified live control connection instead leaves a recognized HTTP
-entry not verified: refresh status, then choose Check client setup again. New Codex entries
+review. An unavailable or unverified live control connection instead leaves an HTTP entry whose
+URL is exactly `http://127.0.0.1:<port>/mcp` or `http://localhost:<port>/mcp` not verified: refresh
+status, then choose Check client setup again. Any other HTTP entry stays a different entry needing
+review. The
+endpoint line shows the live worker's own address: a standby instance attached to another
+instance's worker shows that worker's port, not its own saved port, and an unusable reported
+address is shown as not verified. Client setup results are dropped when the live worker's address
+or this instance's ownership of it changes, including while a check is still running, and a
+Connect stops without adding once the module has seen such a change before its add. A failed connection probe
+no longer replaces the module status (1.10.2); it shows where it decides the result, as Connect
+Claude MCP's verification failure or an HTTP entry that is not verified. New Codex entries
 use stdio; no temporary broker token is saved. A current Connect Claude MCP failure at
 connection verification appears as Last setup action without starting a vendor CLI. Restart,
 shutdown and cancellation prevent stale completions from changing the new connection's status.

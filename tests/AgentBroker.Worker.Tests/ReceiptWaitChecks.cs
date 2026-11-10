@@ -140,12 +140,17 @@ internal static class ReceiptWaitChecks
             var deadlineWait = real.NewRequest().Tools.WaitForReceipt(brief.Id, default, timeoutSeconds: 10);
             bool admitted = await SetupFrozenClock.AdmittedAsync(real, deadlineWait) &&
                 real.Store.FindReceipt(brief.Id)?.Status == MessageStatus.Accepted;
-            deadlineClock.Start();
-            var woke = await deadlineWait.WaitAsync(TimeSpan.FromSeconds(15));
-            var sinceStart = deadlineClock.ElapsedSinceStart;
-            Console.WriteLine($"NOTE RECEIPT_WAKES_AT_DEADLINE elapsedSeconds={sinceStart.TotalSeconds:F2}; deadlineSeconds=1.5; timeoutSeconds=10; admitted={admitted}");
+            Console.WriteLine($"NOTE RECEIPT_WAKES_AT_DEADLINE admitted={admitted}");
+            // Checked by name BEFORE the await: a refused wait has completed faulted, and awaiting it first would rethrow
+            // the refusal unlabelled. A wait that faults later is caught below and fails the named check instead.
             check(admitted, "WITNESS RECEIPT_WAKES_AT_DEADLINE: the wait was admitted on an Accepted receipt before its deadline clock started");
-            check(woke.Status == MessageStatus.Expired && sinceStart >= TimeSpan.FromSeconds(1.3) && sinceStart < TimeSpan.FromSeconds(4),
+            deadlineClock.Start();
+            AgentBroker.Worker.SenderReceipt? woke = null;
+            try { woke = await deadlineWait.WaitAsync(TimeSpan.FromSeconds(15)); }
+            catch (McpException) { /* refused after admission: the named check below fails */ }
+            var sinceStart = deadlineClock.ElapsedSinceStart;
+            Console.WriteLine($"NOTE RECEIPT_WAKES_AT_DEADLINE elapsedSeconds={sinceStart.TotalSeconds:F2}; deadlineSeconds=1.5; timeoutSeconds=10");
+            check(woke is { Status: MessageStatus.Expired } && sinceStart >= TimeSpan.FromSeconds(1.3) && sinceStart < TimeSpan.FromSeconds(4),
                 "RECEIPT_WAKES_AT_DEADLINE: a waiting wait_for_receipt wakes at the message's own deadline");
         }
 
@@ -236,12 +241,16 @@ internal static class ReceiptWaitChecks
             var aging = real.NewRequest().Tools.WaitForReceipt(brief.Id, default, timeoutSeconds: 10);
             bool admitted = await SetupFrozenClock.AdmittedAsync(real, aging) &&
                 real.Store.FindReceipt(brief.Id)?.Status == MessageStatus.Submitted;
-            agingClock.Start();
-            var aged = await aging.WaitAsync(TimeSpan.FromSeconds(15));
-            var sinceStart = agingClock.ElapsedSinceStart;
-            Console.WriteLine($"NOTE RECEIPT_WAIT_SUBMITTED_AGES_UNCERTAIN elapsed {sinceStart.TotalSeconds:F2} s for a 1.5 s deadline; admitted={admitted}");
+            Console.WriteLine($"NOTE RECEIPT_WAIT_SUBMITTED_AGES_UNCERTAIN admitted={admitted}");
+            // Checked by name BEFORE the await, for the reason given at RECEIPT_WAKES_AT_DEADLINE.
             check(admitted, "WITNESS RECEIPT_WAIT_SUBMITTED_AGES_UNCERTAIN: the wait was admitted on a Submitted receipt before its deadline clock started");
-            check(aged.Status == MessageStatus.Uncertain && aged.Reason == "receipt_unconfirmed" &&
+            agingClock.Start();
+            AgentBroker.Worker.SenderReceipt? aged = null;
+            try { aged = await aging.WaitAsync(TimeSpan.FromSeconds(15)); }
+            catch (McpException) { /* refused after admission: the named check below fails */ }
+            var sinceStart = agingClock.ElapsedSinceStart;
+            Console.WriteLine($"NOTE RECEIPT_WAIT_SUBMITTED_AGES_UNCERTAIN elapsed {sinceStart.TotalSeconds:F2} s for a 1.5 s deadline");
+            check(aged is { Status: MessageStatus.Uncertain, Reason: "receipt_unconfirmed" } &&
                 sinceStart >= TimeSpan.FromSeconds(1.3) && sinceStart < TimeSpan.FromSeconds(4),
                 "RECEIPT_WAIT_SUBMITTED_AGES_UNCERTAIN: a Submitted message's deadline ends the wait with Uncertain, receipt_unconfirmed");
         }

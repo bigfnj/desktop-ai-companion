@@ -15,6 +15,7 @@ internal static class McpCallClientChecks
     internal static async Task RunAsync(Action<bool, string> check)
     {
         Console.WriteLine("WITNESS: MCP_CALL_CLIENT_EXECUTED");
+        await RunRequestValueChecksAsync(check);
         string scratch = Path.Combine(AppContext.BaseDirectory, "scratch", "mcp-call-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(scratch);
         string request = Path.Combine(scratch, "request.json");
@@ -219,6 +220,86 @@ internal static class McpCallClientChecks
         }
         await WireContractsAsync(check);
         await OutputContractsAsync(check);
+    }
+
+    // Local request decoding only: the refusal must finish before a broker connection can be requested.
+    // This method can run independently of the synthetic worker/HTTP groups in RunAsync.
+    internal static async Task RunRequestValueChecksAsync(Action<bool, string> check)
+    {
+        Console.WriteLine("WITNESS: MCP_CALL_REQUEST_VALUES_LOCAL_EXECUTED");
+        string parent = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "scratch"));
+        string name = "mcp-request-values-" + Guid.NewGuid().ToString("N");
+        string scratch = Path.Combine(parent, name);
+        Directory.CreateDirectory(scratch);
+        try
+        {
+            string request = Path.Combine(scratch, "request.json");
+            string missingData = Path.Combine(scratch, "missing-data");
+            var reader = typeof(McpCallClient).GetMethod("ReadRequestAsync", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+            check(reader is not null, "MCP_CALL_REQUEST_BOUNDARY_READER: the actual bounded request reader is selected");
+            async Task<JsonDocument> ReadLocalAsync() =>
+                await (Task<JsonDocument>)reader!.Invoke(null, [request, CancellationToken.None])!;
+            foreach (var ordinary in new[] { (Tool: "list_sessions", Text: ""), (Tool: "read_inbox", Text: "line\nC:\\ordinary\\path"),
+                (Tool: "Tool_Name2", Text: "雪🙂") })
+            {
+                await File.WriteAllTextAsync(request, JsonSerializer.Serialize(new { tool = ordinary.Tool,
+                    arguments = new { note = ordinary.Text, items = new[] { ordinary.Text } } }), new UTF8Encoding(false));
+                using var result = await ReadLocalAsync();
+                check(result.RootElement.GetProperty("tool").GetString() == ordinary.Tool &&
+                    result.RootElement.GetProperty("arguments").GetProperty("note").GetString() == ordinary.Text &&
+                    result.RootElement.GetProperty("arguments").GetProperty("items")[0].GetString() == ordinary.Text,
+                    "MCP_CALL_REQUEST_VALUE_ORDINARY: bounded decoding preserves normal tool and nested string values");
+            }
+            // No UTF-8 signature case here: the signature path is covered end to end by MCP_CALL_REQUEST_UTF8_SIGNATURE and its
+            // witness, and an unlabelled read here would preempt that witness (post-push review of this lane, J2).
+            string high = string.Concat((char)92, "uD800"), low = string.Concat((char)92, "uDC00");
+            static byte[] Utf8(string text) => new UTF8Encoding(false).GetBytes(text);
+            static byte[] Raw(string before, byte[] invalid, string after) => [.. Utf8(before), .. invalid, .. Utf8(after)];
+            foreach (var bad in new[] {
+                (Kind: "TOOL_HIGH", Bytes: Utf8("{\"tool\":\"" + high + "\",\"arguments\":{}}")),
+                (Kind: "TOOL_LOW", Bytes: Utf8("{\"tool\":\"" + low + "\",\"arguments\":{}}")),
+                (Kind: "OBJECT_HIGH", Bytes: Utf8("{\"tool\":\"list_sessions\",\"arguments\":{\"note\":\"" + high + "\"}}")),
+                (Kind: "ARRAY_LOW", Bytes: Utf8("{\"tool\":\"list_sessions\",\"arguments\":{\"items\":[\"" + low + "\"]}}")),
+                // Raw invalid UTF-8 inside a string token (J3): the reader admits it and GetString fails while transcoding,
+                // so a catch narrowed to the surrogate case alone would let these escape.
+                (Kind: "TOOL_RAW", Bytes: Raw("{\"tool\":\"", [0xFF], "\",\"arguments\":{}}")),
+                (Kind: "ARRAY_RAW", Bytes: Raw("{\"tool\":\"list_sessions\",\"arguments\":{\"items\":[\"", [0xC3, 0x28], "\"]}}")) })
+            {
+                await File.WriteAllBytesAsync(request, bad.Bytes);
+                Exception? boundaryFailure = null;
+                try { using var result = await ReadLocalAsync(); }
+                catch (Exception error) { boundaryFailure = error; }
+                // This direct boundary assertion runs before the public-command calls. A missing string guard fails
+                // here, so even the omission control never attempts a broker connection with nested malformed text.
+                check(boundaryFailure is InvalidDataException { Message: "invalid_request" },
+                    "MCP_CALL_REQUEST_VALUE_BOUNDARY_" + bad.Kind + ": malformed text is refused by the actual local reader");
+                // The public command with a data directory that does not exist. status invalid_request is returned only while
+                // request validation is still incomplete (McpCallClient sets requestValidated just before it asks for a
+                // connection), so it is what proves the refusal came before any broker connection (J4: no other conjunct
+                // here could fail for a connect-first mutant, which would instead time out as transport_error).
+                int code = -1; string? status = null, dispatch = null; bool singleLine = false;
+                try
+                {
+                    using var output = new MemoryStream();
+                    code = await McpCallClient.RunCommandAsync(["--mcp-call", "--data", missingData, "--request-file", request], output);
+                    byte[] bytes = output.ToArray();
+                    singleLine = bytes.Count(value => value == (byte)'\n') == 1;
+                    using var result = JsonDocument.Parse(bytes);
+                    status = result.RootElement.GetProperty("status").GetString();
+                    dispatch = result.RootElement.GetProperty("dispatchState").GetString();
+                }
+                catch (Exception) { /* A decode escaping the local refusal must fail at the named assertion below. */ }
+                check(code == 2 && status == "invalid_request" && dispatch == "not_dispatched" && singleLine,
+                    "MCP_CALL_REQUEST_VALUE_UNICODE_LOCAL_" + bad.Kind +
+                    ": malformed text is a coded invalid_request refusal, which the client gives only before it asks for a broker connection");
+            }
+        }
+        finally
+        {
+            if (Path.GetDirectoryName(scratch) == parent && Path.GetFileName(scratch) == name && Directory.Exists(scratch))
+                Directory.Delete(scratch, true);
+        }
+        check(!Directory.Exists(scratch), "MCP_CALL_REQUEST_VALUE_FIXTURE_REMOVED: the local request fixture is removed");
     }
 
     internal static async Task OutputContractsAsync(Action<bool, string> check)

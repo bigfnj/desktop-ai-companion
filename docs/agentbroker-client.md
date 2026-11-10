@@ -60,8 +60,10 @@ With `--output-file`, the client saves the unchanged decoded response before add
 must be a new absolute drive-letter path in an existing directory on a local NTFS
 volume, without reparse points. UNC and device paths, alternate data streams and
 control characters are refused, as are the reserved names CON, PRN, AUX, NUL,
-COM1-9 and LPT1-9. Use the exact directory capitalization when a case-sensitive
-folder occurs in the path. Original path components ending in a dot or space are
+COM1-9 and LPT1-9. Use the exact capitalization, the drive letter included, when a
+case-sensitive folder occurs in the path. A SUBST drive is not supported: the client
+compares the directory's final path with the path you typed, and a SUBST letter
+resolves to another drive, so use the backing drive's path instead. Original path components ending in a dot or space are
 refused before path normalization. Exact `.` and `..` navigation components remain
 supported. The client flushes an owned temporary file and publishes it without
 replacing an existing destination. Flushing is not a guarantee against every
@@ -69,9 +71,12 @@ storage or power failure.
 
 A relative `--output-file` is an argument error (`invalid_arguments`, exit 2).
 A destination rejected by output preflight returns `output_error`, exit
-74 and `dispatchState: not_dispatched`. The local-volume, NTFS and directory-case
-checks occur when saving the client response. By then, the broker operation may
-already have completed. If publication fails after the call, the
+74 and `dispatchState: not_dispatched`. Since 1.10.2 the preflight makes the same
+directory checks as saving (plain local NTFS directories, the exact directory
+identity, case-sensitive folders), so such a destination is refused before any tool
+is dispatched. Saving repeats every check, because the directory can change between
+the two; a destination that becomes unusable after the call is refused then, when the
+broker operation may already have completed. If publication fails after the call, the
 output retains the known dispatch state and includes the complete original client
 response under `response`, including its `status` and either its `result` or error
 fields. The process exits 74 for this retention failure, replacing the operation's

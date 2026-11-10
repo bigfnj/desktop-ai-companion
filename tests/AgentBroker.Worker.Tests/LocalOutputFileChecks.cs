@@ -352,6 +352,27 @@ internal static class LocalOutputFileChecks
                 left.StartsWith(".agentbroker-output-", StringComparison.Ordinal) && left.EndsWith(".tmp", StringComparison.Ordinal)),
             "LOCAL_OUTPUT_MCP_CLI_CLEANUP: --mcp-call reports a refused discard as cleanup temporary_not_removed in its exit-74 JSON with the known response");
 
+        // Post-push audit of 7ad9d901 (C2): a destination that step 2 refuses is refused by the preflight, before any tool is
+        // dispatched, not only by Save afterwards. The reachable case is a SUBST drive, whose DOS final path names the backing
+        // volume, so the pin fails. The ParentFinalPath seam reports exactly such a path; no drive letter is mapped. The MCP
+        // request is malformed, so no broker is contacted either way: a refusal left to Save would show as the post-dispatch
+        // body that embeds that response, not as the preflight body below.
+        string preflightCase = Case(root, "preflight-pin"), preflightOut = Sub(preflightCase, "out");
+        var substSeams = new LocalOutputFile.Seams { ParentFinalPath = _ => @"\\?\Z:\subst-backing\preflight-pin\out" };
+        bool validateRefused = Refused("invalid_output_path",
+            () => LocalOutputFile.Validate(Path.Combine(preflightOut, "result.json"), substSeams), out _);
+        check(validateRefused && Safe("PREFLIGHT_PIN", () => Listing(preflightOut).Length == 0),
+            "LOCAL_OUTPUT_PREFLIGHT_PIN: Validate makes the held-directory proofs, so a parent whose final path names another volume is refused before any output exists");
+        string preflightRequest = Path.Combine(preflightCase, "malformed-request.json");
+        File.WriteAllText(preflightRequest, "{", new UTF8Encoding(false));
+        var preflightRun = RunCli(output => McpCallClient.RunAsync(new(preflightCase, preflightRequest, false,
+            Path.Combine(preflightOut, "result.json")), output, substSeams));
+        check(preflightRun.Code == 74 && preflightRun.Text ==
+                "{\"status\":\"output_error\",\"dispatchState\":\"not_dispatched\",\"retained\":false,\"code\":\"output_unavailable\"," +
+                "\"nextAction\":\"Choose a new local file in an existing plain directory; no tool was dispatched.\"}\n" &&
+            Safe("MCP_PREFLIGHT_PIN", () => Listing(preflightOut).Length == 0),
+            "LOCAL_OUTPUT_MCP_PREFLIGHT_PIN: --mcp-call refuses a parent that fails the pin in its preflight, before dispatch, not after it at Save");
+
         string racedCase = Case(root, "atomic-no-replace"), raced = Path.Combine(racedCase, "raced.json");
         string[] racedBefore = Listing(racedCase);
         bool racedRefused = Refused("output_exists", () => LocalOutputFile.Save(raced, "payload"u8.ToArray(),
@@ -446,8 +467,11 @@ internal static class LocalOutputFileChecks
         check(postCaseRefused && caseProbe.TemporaryBytes == 0 && Safe("POST_CREATE_CASE", () => Listing(postCase).Length == 0),
             "LOCAL_OUTPUT_POST_CREATE_CASE: the definitive case-sensitivity check runs once the owned temporary exists and before any payload byte, and its refusal leaves nothing");
 
+        // Static helpers, Win32 exports, and (post-push audit of 7ad9d901) the instance spellings: any .Delete( or .MoveTo(
+        // call and any FileInfo/DirectoryInfo/FileSystemInfo use. Span.CopyTo stays legal, so CopyTo is not listed.
         check(Safe("SOURCE_NO_PATH_DESTRUCTION", () => SourceText() is { } source && !Regex.IsMatch(source,
-                @"\b(File\.(Delete|Move|Replace|Copy)|Directory\.(Delete|Move)|(DeleteFile|MoveFile|MoveFileEx|RemoveDirectory|ReplaceFile)W?)\s*\(")),
+                @"\b(File\.(Delete|Move|Replace|Copy)|Directory\.(Delete|Move)|(DeleteFile|MoveFile|MoveFileEx|RemoveDirectory|ReplaceFile)W?)\s*\(" +
+                @"|\.(Delete|MoveTo)\s*\(|\b(FileInfo|DirectoryInfo|FileSystemInfo)\b")),
             "LOCAL_OUTPUT_SOURCE_NO_PATH_DESTRUCTION: LocalOutputFile.cs contains no path-based delete, move or replace call");
     }
 
