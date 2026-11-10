@@ -520,7 +520,11 @@ internal static class McpCallClientChecks
         Console.WriteLine("WITNESS: MCP_CALL_ENVELOPE_BOUNDARY_EXECUTED");
         static string Nested(int arrays) => "{\"tool\":\"send\",\"arguments\":{\"a\":" + new string('[', arrays) + new string(']', arrays) + "}}";
         static int Depth(JsonElement value) => value.ValueKind != JsonValueKind.Array ? 0 : value.GetArrayLength() == 1 ? 1 + Depth(value[0]) : 1;
-        await using (var wire = new WireFixture())
+        // A healthy client never sends this fixture more than its 128 KiB body limit. Under a regression that does (a missing or
+        // loosened bound), the peer refuses the body by throwing, which ends its listener, and disposal rethrows that; the
+        // one-byte-over check below has already failed by then, so the refusal is not rethrown over it.
+        var wire = new WireFixture();
+        try
         {
             // Root (1), arguments (2), then one level per array: 30 arrays reach the parser's limit of 32, 31 exceed it.
             foreach (var (arrays, accepted) in new[] { (30, true), (31, false) })
@@ -539,9 +543,47 @@ internal static class McpCallClientChecks
                         child.Value.GetProperty("dispatchState").GetString() == "not_dispatched" && wire.Methods.Count == 0,
                         "MCP_CALL_ENVELOPE_DEPTH_OVER: one level deeper is refused before connecting or dispatching");
             }
+            // The admitted side of the body bound (closure of 1.10.3): an encoded query of exactly the worker's 128 KiB body
+            // limit is sent whole, and one byte more is refused as invalid_request with no request reaching the peer. This
+            // fixture serves a broker, so that alone does not show the refusal comes before the broker connection (a client that
+            // connected first would still pass here); BODY_BOUND below, run with no broker, is that proof. The limit is the
+            // documented literal, not the product constant, so a changed constant cannot move this check with it. The peer
+            // records the body length it received, which proves this arithmetic matches the client's actual encoding. An ASCII
+            // text value adds exactly one encoded byte per character, and the request id has a fixed length
+            // ("agentbroker-call-" + 32 hex + "-query").
+            const int bodyLimit = 128 * 1024;
+            static int EncodedQueryBytes(int textLength) => JsonSerializer.SerializeToUtf8Bytes(new
+            {
+                jsonrpc = "2.0", id = new string('x', 55), method = "tools/call",
+                @params = new { name = "send", arguments = JsonSerializer.SerializeToElement(new { text = new string('a', textLength) }) },
+            }, new JsonSerializerOptions(JsonSerializerDefaults.Web)).Length;
+            int atLimit = bodyLimit - EncodedQueryBytes(0);
+            foreach (var (textLength, accepted) in new[] { (atLimit, true), (atLimit + 1, false) })
+            {
+                wire.Begin(WireMode.EmptyString);
+                await File.WriteAllTextAsync(wire.RequestFile, "{\"tool\":\"send\",\"arguments\":{\"text\":\"" + new string('a', textLength) + "\"}}",
+                    new UTF8Encoding(false));
+                bool fileWithinRequestLimit = new FileInfo(wire.RequestFile).Length <= 128 * 1024;
+                var child = await RunWireChildAsync(wire.Root, wire.RequestFile, list: false, check);
+                if (accepted)
+                    check(fileWithinRequestLimit && EncodedQueryBytes(textLength) == bodyLimit && child.Code == 0 &&
+                        child.Value.GetProperty("status").GetString() == "ok" &&
+                        child.Value.GetProperty("dispatchState").GetString() == "confirmed" && wire.ToolCalls == 1 &&
+                        wire.LastToolCallBodyBytes == bodyLimit,
+                        "MCP_CALL_ENVELOPE_BODY_AT_LIMIT: a request whose encoded query is exactly the worker's body limit is sent whole and confirmed");
+                else
+                    check(fileWithinRequestLimit && child.Code == 2 && child.Value.GetProperty("status").GetString() == "invalid_request" &&
+                        child.Value.GetProperty("dispatchState").GetString() == "not_dispatched" && wire.Methods.Count == 0,
+                        "MCP_CALL_ENVELOPE_BODY_OVER_LIMIT: one byte over the worker's body limit is refused before any request reaches the peer");
+            }
         }
-        // Last, in its own fixture: the peer refuses an oversized body by throwing, which ends its listener, and disposal
-        // rethrows that. A healthy client never contacts the peer here; under a regression the check below has already failed.
+        finally
+        {
+            try { await wire.DisposeAsync(); }
+            catch (InvalidDataException) { }
+        }
+        // Last, in its own fixture, which here only owns the request file's folder: the data directory below has no broker, so
+        // no peer can be reached at all. Detection rests on the status: invalid_request only while validation is incomplete.
         var oversized = new WireFixture();
         try
         {
@@ -557,14 +599,10 @@ internal static class McpCallClientChecks
             var child = await RunWireChildAsync(noBroker, oversized.RequestFile, list: false, check);
             check(new FileInfo(oversized.RequestFile).Length < 128 * 1024 && child.Code == 2 &&
                 child.Value.GetProperty("status").GetString() == "invalid_request" &&
-                child.Value.GetProperty("dispatchState").GetString() == "not_dispatched" && oversized.Methods.Count == 0,
+                child.Value.GetProperty("dispatchState").GetString() == "not_dispatched",
                 "MCP_CALL_ENVELOPE_BODY_BOUND: a request whose encoded envelope exceeds the worker's body limit is refused before connecting");
         }
-        finally
-        {
-            try { await oversized.DisposeAsync(); }
-            catch (InvalidDataException) { }
-        }
+        finally { await oversized.DisposeAsync(); }
     }
 
     private static async Task<(int Code, JsonElement Value, string Raw)> RunWireChildAsync(string root, string request, bool list, Action<bool, string> check,
@@ -700,6 +738,7 @@ internal static class McpCallClientChecks
         internal bool AllAuthorized = true;
         internal int ToolCalls;
         internal JsonElement? LastArguments;
+        internal int LastToolCallBodyBytes;
         internal string? OutputRacePath;
         public WorkerOptions Options { get; }
         public BrokerRuntime Runtime => fixture.Runtime;
@@ -721,7 +760,7 @@ internal static class McpCallClientChecks
         }
 
         internal void Begin(WireMode selected)
-        { mode = selected; Methods.Clear(); AllAuthorized = true; ToolCalls = 0; LastArguments = null; OutputRacePath = null; }
+        { mode = selected; Methods.Clear(); AllAuthorized = true; ToolCalls = 0; LastArguments = null; LastToolCallBodyBytes = 0; OutputRacePath = null; }
 
         private async Task RunAsync()
         {
@@ -778,7 +817,7 @@ internal static class McpCallClientChecks
             }
             ToolCalls++;
             if (OutputRacePath is { } destination) await File.WriteAllTextAsync(destination, "raced output sentinel", new UTF8Encoding(false), deadline.Token);
-            if (method == "tools/call") LastArguments = root.GetProperty("params").GetProperty("arguments").Clone();
+            if (method == "tools/call") { LastArguments = root.GetProperty("params").GetProperty("arguments").Clone(); LastToolCallBodyBytes = count; }
             if (mode == WireMode.DropAfterDispatch) { client.Client.LingerState = new LingerOption(true, 0); return; }
             if (mode == WireMode.HttpError) { await ReplyAsync(stream, 503, "application/json", "{}", deadline.Token); return; }
             if (mode == WireMode.RpcError)

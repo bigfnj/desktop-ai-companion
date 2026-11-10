@@ -153,9 +153,9 @@ $harnesses = @(
        Summary = '^RESULT=PASS assertions=([1-9][0-9]*)$' }
 )
 $failures = New-Object 'Collections.Generic.List[string]'
-# Floors are the measured 2026-11-10 1.10.3 integration inventories (3701 total; Worker 1994 -> 2004). Intentional suite
-# removal needs an explicit review.
-$assertionFloors = @{ Core = 517; Relay = 40; Claude = 212; Desktop = 594; Adapter = 84; Network = 250; Worker = 2004 }
+# Floors are the measured 2026-11-10 inventories after the 1.10.3 closure tests (3705 total; Worker 2004 -> 2008). Intentional
+# suite removal needs an explicit review.
+$assertionFloors = @{ Core = 517; Relay = 40; Claude = 212; Desktop = 594; Adapter = 84; Network = 250; Worker = 2008 }
 $assertions = 0
 foreach ($harness in $harnesses) {
     Write-Host ("=== AgentBroker " + $harness.Name + ' deterministic harness')
