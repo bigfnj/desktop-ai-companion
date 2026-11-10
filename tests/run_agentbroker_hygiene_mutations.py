@@ -183,10 +183,13 @@ LOCAL_OUTPUT_WITNESSES = (
     local_witness("local-output-pin-dropped",
                   (('canon = CanonicalDirectory(dos, parent) ?? throw new InvalidDataException("invalid_output_path");',
                     'canon = dos?[4..] ?? throw new InvalidDataException("invalid_output_path");', 1),), "HELD_ANCESTOR_REPARSE"),
-    # Also valid against e398eba2, where the only junction fixtures were depth 1.
+    # Also valid against e398eba2, where the only junction fixtures were depth 1. Retargeted 2026-11-10 (post-push audit of
+    # 1.10.2): since Validate makes the held-directory proofs, the DOS pin refuses the ANCESTOR_REPARSE junction fixture first,
+    # whatever this walk does. CANON_CHAIN_PLAIN isolates the canonical ancestor re-walk (a real junction with the
+    # ParentFinalPath seam making canon equal the typed path), which is what a truncated walk breaks.
     local_witness("local-output-ancestor-walk-truncated",
                   (("for (string? component = directory; component is not null; component = Path.GetDirectoryName(component))",
-                    "for (string? component = directory; component is not null; component = null)", 1),), "ANCESTOR_REPARSE"),
+                    "for (string? component = directory; component is not null; component = null)", 1),), "CANON_CHAIN_PLAIN"),
     local_witness("local-output-collision-uncoded",
                   (("bool exists = status == StatusObjectNameCollision;", "bool exists = false;", 1),), "ATOMIC_NO_REPLACE"),
     # The bare Win32Exception is converted to output_unavailable by the outer catch, so the collision loses output_exists.

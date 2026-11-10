@@ -42,7 +42,7 @@ public sealed partial class AgentBrokerModule
         var control = new TestControl();
         var supervisor = new TestSupervisor();
         var launcher = new TestDesktopChatLauncher();
-        var module = new AgentBrokerModule(control, supervisor) { DesktopChatLauncher = launcher };
+        var module = new AgentBrokerModule(control, supervisor) { DesktopChatLauncher = launcher, ClientSetup = new(new TestClientCommand()) };
         module.Init(host);
         try
         {

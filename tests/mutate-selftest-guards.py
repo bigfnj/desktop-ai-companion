@@ -14047,13 +14047,17 @@ CASES = (
      AGENTBROKER_CSPROJ, AGENTBROKER_DLL,
      "--module-selftest=agentbroker", "dp-module-agentbroker-selftest.txt",
      "onboarding: Claude's tool list is not Codex traffic"),
+    # Re-targeted 2026-11-10 (N-broker-next-guard-harness-01): this mutant makes every applied status start a client check,
+    # whose first act is an extra "connection" control request. The status check below observes exactly that request; the
+    # onboarding check named here before ran after a lifecycle timeout that the same mutant causes, so it never ran (graded
+    # WRONG on 03dce70b and 34f73e81 alike).
     ("backlog-a: every status poll runs the vendor CLI check",
      AGENTBROKER_MODULE,
      b"        AskAboutDiscovery(snapshot);\n",
      b"        AskAboutDiscovery(snapshot);\n        _ = CheckClientSetupAsync();\n",
      AGENTBROKER_CSPROJ, AGENTBROKER_DLL,
      "--module-selftest=agentbroker", "dp-module-agentbroker-selftest.txt",
-     "onboarding: each client has its own row, unchecked until asked, and status polls launch no CLI"),
+     "status: refresh timeout updates the visible Info, sends only status, and neither saves nor restarts"),
     ("backlog-a: a settings restart keeps the check made against the old settings",
      AGENTBROKER_MODULE,
      b"\n        claudeInspection = null; codexInspection = null; clientSetupResults.Clear();\n",

@@ -338,7 +338,7 @@ public sealed partial class AgentBrokerModule
         host.UseStorage(Id, new TestStorage(Path.Combine(Path.GetTempPath(), "agentbroker-lan-profile-synthetic")));
         host.SettingsFor(Id).Set("enabled", "true");
         var control = new StatusControl { Response = new(true, "ok", view) };
-        var module = new AgentBrokerModule(control, new StatusSupervisor(view)) { McpNow = () => now };
+        var module = new AgentBrokerModule(control, new StatusSupervisor(view)) { McpNow = () => now, ClientSetup = new(new TestClientCommand()) };
         var launcher = new TestFirewallLauncher(); module.FirewallLauncher = launcher;
         try
         {

@@ -10,7 +10,7 @@ public sealed partial class AgentBrokerModule
         var host = new TestHost();
         host.UseStorage(Id, new TestStorage(Path.Combine(Path.GetTempPath(), "agentbroker-lifetime-synthetic")));
         var supervisor = new TestSupervisor();
-        var module = new AgentBrokerModule(new TestControl(), supervisor);
+        var module = new AgentBrokerModule(new TestControl(), supervisor) { ClientSetup = new(new TestClientCommand()) };
         try
         {
             module.Init(host);

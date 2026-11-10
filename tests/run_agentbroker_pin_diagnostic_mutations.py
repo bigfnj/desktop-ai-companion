@@ -147,7 +147,11 @@ def mutation_artifact(source: str) -> str:
 # MCP_PREFLIGHT_PIN), before the cut-off. Lane J's request-value group adds its own checks on top; re-measure when merged.
 # 757 -> 774 (2026-11-09, 1.10.2 integration, measured): McpCallClientChecks gains the request-value group (17: reader,
 # 3 ordinary, 6 malformed kinds x boundary + local command, fixture removal), which runs first in that group, before the cut-off.
-EXISTING_COUNTS = {"worker": 774, "desktop": 157}
+# 774 -> 780 (2026-11-10, 1.10.3, measured): RequestEnvelopeBoundaryChecksAsync (DEPTH_LIMIT, DEPTH_OVER, BODY_BOUND and one
+# WIRE_FRAME check per child process) runs right after the request-value group, before the cut-off.
+# 780 -> 784 (2026-11-10, 1.10.3 review round, measured): the NotificationRefused wire mode adds NOTIFICATION_REFUSED and that
+# mode's TOKEN_PRIVATE, AUTHENTICATION and WIRE_FRAME checks, before the cut-off.
+EXISTING_COUNTS = {"worker": 784, "desktop": 157}
 FOCUSED_COUNTS = {"worker": 92, "desktop": 23}  # desktop 15 -> 23: installed-version image-mismatch witnesses and layout controls
 CLAUDE_SCENARIOS = ("early-reject", "unsupported-version", "hash-mismatch", "mixed", "recovery", "bounded-snapshot")
 
@@ -263,7 +267,7 @@ WITNESSES = (
     ),), failure_check="a second concurrent wait for one session is refused as wait_in_progress"),
     # ---- lane feature/agentbroker-wait-classes (AgentBroker next campaign, 2026-11-08) ----
     # Each mutant breaks one rule of the two wait classes or the listening count; failure_check names the one check it
-    # must fail first. These checks remain after the --existing-tests-only cut-off; its measured pin is now 774
+    # must fail first. These checks remain after the --existing-tests-only cut-off; its measured pin is now 784
     # (EXISTING_COUNTS above, with each step from 696).
     Witness("wait-class-receipt-joins-incoming", "tools", "worker", ("--receipt-wait-only",), "ReceiptWaitChecks.cs", ((
         "var answered = await WaitAsync(original.Sender, WaitClass.Receipt, timeoutSeconds, () =>",
@@ -391,8 +395,8 @@ WITNESSES = (
     ),), allowed_existing_failures=("HANDOFF_PROCESS_UTF8_SIGNATURE: a request file that starts with one UTF-8 signature is prepared normally",),
         failure_check="HANDOFF_PROCESS_UTF8_SIGNATURE: a request file that starts with one UTF-8 signature is prepared normally"),
     Witness("mcpcall-signature-bypassed", "mcpcall", "worker", ("--mcp-call-client-only",), "McpCallClientChecks.cs", ((
-        "JsonDocument.Parse(McpStdioBridge.WithoutUtf8Signature(bytes), new JsonDocumentOptions { MaxDepth = 32 })",
-        "JsonDocument.Parse(bytes, new JsonDocumentOptions { MaxDepth = 32 })",
+        "JsonDocument.Parse(McpStdioBridge.WithoutUtf8Signature(bytes), new JsonDocumentOptions { MaxDepth = MaximumRequestDepth })",
+        "JsonDocument.Parse(bytes, new JsonDocumentOptions { MaxDepth = MaximumRequestDepth })",
     ),), allowed_existing_failures=("MCP_CALL_REQUEST_UTF8_SIGNATURE: a request file with one leading UTF-8 signature is parsed and dispatched",),
         failure_check="MCP_CALL_REQUEST_UTF8_SIGNATURE: a request file with one leading UTF-8 signature is parsed and dispatched"),
     Witness("signature-dropped-repeatedly", "stdiobridge", "worker", ("--handoff-client-only",), "HandoffClientChecks.cs", ((
@@ -418,6 +422,39 @@ WITNESSES = (
         "_ = component;",
     ),), allowed_existing_failures=("MCP_CALL_REQUEST_REPARSE: a request read through a junction is refused before dispatch",),
         failure_check="MCP_CALL_REQUEST_REPARSE: a request read through a junction is refused before dispatch"),
+    # 1.10.3 (N-broker-next-request-depth-01): the query is encoded and bounded before connecting. Each witness breaks one
+    # invariant: the outbound depth allowance, the encoded body bound, and preparation before the request counts as validated.
+    Witness("mcpcall-envelope-allowance-removed", "mcpcall", "worker", ("--mcp-call-client-only",), "McpCallClientChecks.cs", ((
+        "MaxDepth = MaximumRequestDepth + 1 }", "MaxDepth = MaximumRequestDepth }",
+    ),), allowed_existing_failures=("MCP_CALL_ENVELOPE_DEPTH_LIMIT: a request at the parser's depth limit travels in the actual envelope and is confirmed",),
+        failure_check="MCP_CALL_ENVELOPE_DEPTH_LIMIT: a request at the parser's depth limit travels in the actual envelope and is confirmed"),
+    Witness("mcpcall-envelope-bound-removed", "mcpcall", "worker", ("--mcp-call-client-only",), "McpCallClientChecks.cs", ((
+        'if (query.Length > WorkerApplication.MaximumRequestBodyBytes) throw new InvalidDataException("invalid_request");',
+        "_ = query;",
+    ),), allowed_existing_failures=("MCP_CALL_ENVELOPE_BODY_BOUND: a request whose encoded envelope exceeds the worker's body limit is refused before connecting",),
+        failure_check="MCP_CALL_ENVELOPE_BODY_BOUND: a request whose encoded envelope exceeds the worker's body limit is refused before connecting"),
+    # Preparing the query after the request counts as validated turns the local encoded-size refusal into transport_error
+    # (exit 69). DEPTH_OVER cannot see this: a depth-33 request is refused earlier, by the request parser itself.
+    Witness("mcpcall-envelope-prepared-late", "mcpcall", "worker", ("--mcp-call-client-only",), "McpCallClientChecks.cs", ((
+        'string prefix = "agentbroker-call-" + Guid.NewGuid().ToString("N");',
+        'requestValidated = true; string prefix = "agentbroker-call-" + Guid.NewGuid().ToString("N");',
+    ),), allowed_existing_failures=("MCP_CALL_ENVELOPE_BODY_BOUND: a request whose encoded envelope exceeds the worker's body limit is refused before connecting",),
+        failure_check="MCP_CALL_ENVELOPE_BODY_BOUND: a request whose encoded envelope exceeds the worker's body limit is refused before connecting"),
+    # The query is encoded and bounded before the client asks for its broker connection: a client that connects first reports
+    # an oversized request, run against a data directory with no broker, as transport_error (final review of 1.10.3).
+    Witness("mcpcall-envelope-connect-first", "mcpcall", "worker", ("--mcp-call-client-only",), "McpCallClientChecks.cs", ((
+        'string prefix = "agentbroker-call-" + Guid.NewGuid().ToString("N");',
+        '_ = await McpStdioBridge.GetConnectionAsync(options.DataDirectory, deadline.Token); '
+        'string prefix = "agentbroker-call-" + Guid.NewGuid().ToString("N");',
+    ),), allowed_existing_failures=("MCP_CALL_ENVELOPE_BODY_BOUND: a request whose encoded envelope exceeds the worker's body limit is refused before connecting",),
+        failure_check="MCP_CALL_ENVELOPE_BODY_BOUND: a request whose encoded envelope exceeds the worker's body limit is refused before connecting"),
+    # The initialized notification never marks the tool as dispatched: marking it would report a refused notification,
+    # sent before any tool call, as dispatchState unknown (review of the 1.10.3 candidate).
+    Witness("mcpcall-notification-marks-dispatch", "mcpcall", "worker", ("--mcp-call-client-only",), "McpCallClientChecks.cs", ((
+        'await ExchangeAsync(Body("notifications/initialized", new { }, null), null, dispatchesTool: false);',
+        'await ExchangeAsync(Body("notifications/initialized", new { }, null), null, dispatchesTool: true);',
+    ),), allowed_existing_failures=("MCP_CALL_PROCESS_NOTIFICATION_REFUSED: a refused initialized notification exits twelve, not_dispatched, before the tool call",),
+        failure_check="MCP_CALL_PROCESS_NOTIFICATION_REFUSED: a refused initialized notification exits twelve, not_dispatched, before the tool call"),
     Witness("bus-instructions-removed", "workerapp", "worker", ("--instructions-only",), "InstructionsChecks.cs", ((
         "AddMcpServer(server => server.ServerInstructions = BrokerInstructions.Text)",
         "AddMcpServer()",

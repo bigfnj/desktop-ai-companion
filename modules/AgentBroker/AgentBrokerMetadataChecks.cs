@@ -14,7 +14,7 @@ public sealed partial class AgentBrokerModule
         host.PublishContext("agentflow", CodexApprovalObservation.ContextKey, new CodexApprovalObservation(2, now).ToJson());
         int Subscribers() => (typeof(RecordingHost).GetField("ContextChanged", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(host) as Delegate)?.GetInvocationList().Length ?? 0;
         int baseline = Subscribers();
-        var module = new AgentBrokerModule(new TestControl(), new TestSupervisor());
+        var module = new AgentBrokerModule(new TestControl(), new TestSupervisor()) { ClientSetup = new(new TestClientCommand()) };
         module.Init(host);
         var pane = host.OptionsPanes.Single();
         check(Subscribers() == baseline + 1 && pane.Load()["approvalPrompts"].Contains("2 visible Codex approval prompts; conversation unknown.", StringComparison.Ordinal),
@@ -73,7 +73,7 @@ public sealed partial class AgentBrokerModule
         int baseline = Subscribers();
         string extreme = new CodexApprovalObservation(1, DateTimeOffset.MaxValue).ToJson();
         host.PublishContext("agentflow", CodexApprovalObservation.ContextKey, extreme);
-        var module = new AgentBrokerModule(new TestControl(), new TestSupervisor());
+        var module = new AgentBrokerModule(new TestControl(), new TestSupervisor()) { ClientSetup = new(new TestClientCommand()) };
         try
         {
             bool initialized = true;
@@ -115,7 +115,7 @@ public sealed partial class AgentBrokerModule
         host.SettingsFor(Id).Set("enabled", "true");
         host.UseStorage(Id, new TestStorage(Path.Combine(Path.GetTempPath(), "agentbroker-approval-forwarding")));
         host.PublishContext("agentflow", CodexApprovalObservation.ContextKey, new CodexApprovalObservation(2, observedAt).ToJson());
-        var module = new AgentBrokerModule(transport, transport);
+        var module = new AgentBrokerModule(transport, transport) { ClientSetup = new(new TestClientCommand()) };
         try
         {
             module.Init(host);

@@ -16,6 +16,7 @@ internal static class McpCallClientChecks
     {
         Console.WriteLine("WITNESS: MCP_CALL_CLIENT_EXECUTED");
         await RunRequestValueChecksAsync(check);
+        await RequestEnvelopeBoundaryChecksAsync(check);
         string scratch = Path.Combine(AppContext.BaseDirectory, "scratch", "mcp-call-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(scratch);
         string request = Path.Combine(scratch, "request.json");
@@ -437,6 +438,17 @@ internal static class McpCallClientChecks
                     "MCP_CALL_PROCESS_INITIALIZATION: RPC refusal and incompatible protocol keep truthful pre-dispatch exits");
                 continue;
             }
+            if (mode == WireMode.NotificationRefused)
+            {
+                // Initialization and its notification never mark the tool as dispatched: a refused notification is an HTTP
+                // failure before the query, so the tool call was never sent (review of the 1.10.3 candidate).
+                check(child.Code == 12 && value.GetProperty("status").GetString() == "http_error" &&
+                    value.GetProperty("dispatchState").GetString() == "not_dispatched" &&
+                    value.GetProperty("httpStatus").GetInt32() == 503 && wire.ToolCalls == 0 &&
+                    wire.Methods.SequenceEqual(["initialize", "notifications/initialized"]),
+                    "MCP_CALL_PROCESS_NOTIFICATION_REFUSED: a refused initialized notification exits twelve, not_dispatched, before the tool call");
+                continue;
+            }
             check(wire.ToolCalls == 1 && wire.Methods.SequenceEqual(["initialize", "notifications/initialized", mode == WireMode.Discovery ? "tools/list" : "tools/call"]),
                 "MCP_CALL_PROCESS_ONCE: initialize, initialized notification and one requested call occur with no retry");
             if (mode != WireMode.Discovery)
@@ -497,6 +509,61 @@ internal static class McpCallClientChecks
                         "MCP_CALL_PROCESS_DISCOVERY_CARD: actual tool discovery retains the initialization instructions");
                     break;
             }
+        }
+    }
+
+    // N-broker-next-request-depth-01: the query is encoded and bounded before connecting. A request at the parser's depth
+    // limit travels in the actual envelope, one container deeper, and is confirmed; one level deeper, or a request whose
+    // encoded envelope exceeds the worker's body limit, is refused as invalid_request with no connection and no tool call.
+    internal static async Task RequestEnvelopeBoundaryChecksAsync(Action<bool, string> check)
+    {
+        Console.WriteLine("WITNESS: MCP_CALL_ENVELOPE_BOUNDARY_EXECUTED");
+        static string Nested(int arrays) => "{\"tool\":\"send\",\"arguments\":{\"a\":" + new string('[', arrays) + new string(']', arrays) + "}}";
+        static int Depth(JsonElement value) => value.ValueKind != JsonValueKind.Array ? 0 : value.GetArrayLength() == 1 ? 1 + Depth(value[0]) : 1;
+        await using (var wire = new WireFixture())
+        {
+            // Root (1), arguments (2), then one level per array: 30 arrays reach the parser's limit of 32, 31 exceed it.
+            foreach (var (arrays, accepted) in new[] { (30, true), (31, false) })
+            {
+                // EmptyString answers without reading the arguments, which here are only the nested array.
+                wire.Begin(WireMode.EmptyString);
+                await File.WriteAllTextAsync(wire.RequestFile, Nested(arrays), new UTF8Encoding(false));
+                var child = await RunWireChildAsync(wire.Root, wire.RequestFile, list: false, check);
+                if (accepted)
+                    check(child.Code == 0 && child.Value.GetProperty("status").GetString() == "ok" &&
+                        child.Value.GetProperty("dispatchState").GetString() == "confirmed" && wire.ToolCalls == 1 &&
+                        wire.LastArguments is { } arguments && Depth(arguments.GetProperty("a")) == arrays,
+                        "MCP_CALL_ENVELOPE_DEPTH_LIMIT: a request at the parser's depth limit travels in the actual envelope and is confirmed");
+                else
+                    check(child.Code == 2 && child.Value.GetProperty("status").GetString() == "invalid_request" &&
+                        child.Value.GetProperty("dispatchState").GetString() == "not_dispatched" && wire.Methods.Count == 0,
+                        "MCP_CALL_ENVELOPE_DEPTH_OVER: one level deeper is refused before connecting or dispatching");
+            }
+        }
+        // Last, in its own fixture: the peer refuses an oversized body by throwing, which ends its listener, and disposal
+        // rethrows that. A healthy client never contacts the peer here; under a regression the check below has already failed.
+        var oversized = new WireFixture();
+        try
+        {
+            oversized.Begin(WireMode.Json);
+            // A raw '<' is one byte in the request file and a six-byte escape in the encoded envelope, so a file well inside
+            // the request limit encodes past the body limit.
+            await File.WriteAllTextAsync(oversized.RequestFile, "{\"tool\":\"send\",\"arguments\":{\"text\":\"" + new string('<', 40_000) + "\"}}",
+                new UTF8Encoding(false));
+            // A data directory with no broker, as the request-value group uses: invalid_request is returned only while request
+            // validation is incomplete, and a client that asked for its connection first would instead wait out the control
+            // pipe and report transport_error, so this proves the refusal came before any connection (final review of 1.10.3).
+            string noBroker = Path.Combine(oversized.Root, "no-broker-" + Guid.NewGuid().ToString("N"));
+            var child = await RunWireChildAsync(noBroker, oversized.RequestFile, list: false, check);
+            check(new FileInfo(oversized.RequestFile).Length < 128 * 1024 && child.Code == 2 &&
+                child.Value.GetProperty("status").GetString() == "invalid_request" &&
+                child.Value.GetProperty("dispatchState").GetString() == "not_dispatched" && oversized.Methods.Count == 0,
+                "MCP_CALL_ENVELOPE_BODY_BOUND: a request whose encoded envelope exceeds the worker's body limit is refused before connecting");
+        }
+        finally
+        {
+            try { await oversized.DisposeAsync(); }
+            catch (InvalidDataException) { }
         }
     }
 
@@ -614,7 +681,7 @@ internal static class McpCallClientChecks
     }
 
     private enum WireMode { Json, Sse, EmptyArray, Singleton, EmptyString, ToolError, RpcError, HttpError, DropAfterDispatch,
-        WrongResponseId, InitializeRpcError, BadProtocol, Discovery, MalformedRequest }
+        WrongResponseId, InitializeRpcError, BadProtocol, NotificationRefused, Discovery, MalformedRequest }
 
     private sealed class WireFixture : ILocalControlWorker, IAsyncDisposable
     {
@@ -695,7 +762,12 @@ internal static class McpCallClientChecks
             string method = root.GetProperty("method").GetString()!;
             Methods.Add(method);
             string? id = root.TryGetProperty("id", out var supplied) ? supplied.GetString() : null;
-            if (method == "notifications/initialized") { await ReplyAsync(stream, 202, "application/json", "", deadline.Token); return; }
+            if (method == "notifications/initialized")
+            {
+                await ReplyAsync(stream, mode == WireMode.NotificationRefused ? 503 : 202, "application/json",
+                    mode == WireMode.NotificationRefused ? "{}" : "", deadline.Token);
+                return;
+            }
             if (method == "initialize")
             {
                 string initialized = mode == WireMode.InitializeRpcError

@@ -13,6 +13,8 @@ namespace AgentBroker.Worker;
 
 public sealed class WorkerApplication : IAsyncDisposable
 {
+    // Kestrel's request body limit. The --mcp-call client bounds the body it encodes by the same value before it connects.
+    internal const int MaximumRequestBodyBytes = 128 * 1024;
     private readonly BrokerIdentity identity;
     private readonly DateTimeOffset certificateRenewalDueAt;
     private readonly CancellationTokenSource lifetime = new();
@@ -83,7 +85,7 @@ public sealed class WorkerApplication : IAsyncDisposable
             builder.WebHost.ConfigureKestrel(server =>
             {
                 server.AddServerHeader = false;
-                server.Limits.MaxRequestBodySize = 128 * 1024;
+                server.Limits.MaxRequestBodySize = MaximumRequestBodyBytes;
                 server.Limits.MaxRequestHeadersTotalSize = 16 * 1024;
                 server.Limits.MaxConcurrentConnections = 128;
                 server.Limits.RequestHeadersTimeout = TimeSpan.FromSeconds(10);

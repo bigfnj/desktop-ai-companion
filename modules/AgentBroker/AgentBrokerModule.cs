@@ -41,7 +41,8 @@ public sealed partial class AgentBrokerModule : IModule
     {
         Id = "agentbroker",
         Name = "AgentBroker",
-        Version = "1.10.2",  // Request values decoded before dispatch, output checks before dispatch, live endpoint display.
+        Version = "1.10.3",  // --mcp-call encodes and bounds the whole query before connecting, so depth-limit requests travel.
+                             // 1.10.2: request values decoded before dispatch, output checks before dispatch, live endpoint display.
                              // 1.10.1: verified client HTTP setup and a single cancellation outcome.
                              // 1.10.0: collaboration handoffs, retained client output and delivery advisories.
                              // 1.9.0: authenticated certificate renewal and post-push reliability repairs.

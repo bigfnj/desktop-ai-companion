@@ -8,7 +8,7 @@ public sealed partial class AgentBrokerModule
         host.UseStorage(Id, new TestStorage(Path.Combine(Path.GetTempPath(), "agentbroker-supervision-synthetic")));
         host.SettingsFor(Id).Set("enabled", "true");
         var supervisor = new TestSupervisor { RefreshFaults = 1 };
-        var module = new AgentBrokerModule(new TestControl(), supervisor);
+        var module = new AgentBrokerModule(new TestControl(), supervisor) { ClientSetup = new(new TestClientCommand()) };
         try
         {
             module.Init(host);

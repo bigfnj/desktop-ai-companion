@@ -94,7 +94,7 @@ $Covered = @('agentbroker', 'agentflow', 'aibrain', 'blinkingled', 'fortunes', '
 # before it times out. A caller's larger -TimeoutSeconds still wins (Get-ModuleTimeoutSeconds), so this can only lengthen
 # a module's limit, never shorten it below what the caller asked for.
 $ModuleTimeoutSeconds = @{ 'fortunes' = 300 }
-$moduleAssertionFloors = @{ 'agentbroker' = 518 }
+$moduleAssertionFloors = @{ 'agentbroker' = 520 }
 
 # The EXACT set of failures each uncovered module is expected to report -- not merely "it failed",
 # and not just its first failure. The first draft of this file matched the first FAIL line only, and

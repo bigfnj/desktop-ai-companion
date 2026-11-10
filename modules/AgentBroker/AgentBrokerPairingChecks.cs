@@ -36,7 +36,7 @@ public sealed partial class AgentBrokerModule
         var view = new BrokerSnapshot(Guid.NewGuid(), "Synthetic", "http://127.0.0.1:7432", "https://192.168.1.1:7433/",
             [], [], [], [], new Dictionary<string, string>(), new string('A', 64));
         var control = new StatusControl { Response = new(false, "pairing_network_timeout") };
-        var module = new AgentBrokerModule(control, new StatusSupervisor(view));
+        var module = new AgentBrokerModule(control, new StatusSupervisor(view)) { ClientSetup = new(new TestClientCommand()) };
         try
         {
             module.Init(host);
@@ -111,7 +111,7 @@ public sealed partial class AgentBrokerModule
         AgentBrokerModule? module = null;
         var supervisor = new ObservationSupervisor(() => Volatile.Read(ref module!.nextObservation));
         var control = new ObservationControl(() => Volatile.Read(ref module!.nextObservation), view);
-        module = new AgentBrokerModule(control, supervisor);
+        module = new AgentBrokerModule(control, supervisor) { ClientSetup = new(new TestClientCommand()) };
         try
         {
             module.Init(host); Pump(() => supervisor.Sequence > 0, dispatcher);
@@ -160,7 +160,7 @@ public sealed partial class AgentBrokerModule
             [], [], [], [], new Dictionary<string, string>(), new string('A', 64));
         var supervisor = new TestSupervisor { View = view };
         var control = new StatusControl();
-        var module = new AgentBrokerModule(control, supervisor);
+        var module = new AgentBrokerModule(control, supervisor) { ClientSetup = new(new TestClientCommand()) };
         void Apply(BrokerSnapshot updated)
         { supervisor.View = updated; module.ApplyStatus(new(true, false, "standby", updated)); }
         try
@@ -260,7 +260,7 @@ public sealed partial class AgentBrokerModule
             [], [peer], [], [], new Dictionary<string, string>(), new string('A', 64));
         var control = new StatusControl { Response = new(false, "pairing_network_timeout") };
         var supervisor = new TestSupervisor { View = view };
-        var module = new AgentBrokerModule(control, supervisor);
+        var module = new AgentBrokerModule(control, supervisor) { ClientSetup = new(new TestClientCommand()) };
         void Apply(BrokerSnapshot updated)
         {
             supervisor.View = updated;
@@ -416,7 +416,7 @@ public sealed partial class AgentBrokerModule
         var view = new BrokerSnapshot(Guid.NewGuid(), "Synthetic", "http://127.0.0.1:7432", "https://192.168.1.1:7433/",
             [], [], [], [], new Dictionary<string, string>(), new string('A', 64));
         var control = new TestControl();
-        var module = new AgentBrokerModule(control, new StatusSupervisor(view));
+        var module = new AgentBrokerModule(control, new StatusSupervisor(view)) { ClientSetup = new(new TestClientCommand()) };
         try
         {
             module.Init(host);

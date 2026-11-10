@@ -11,7 +11,12 @@ public static class McpCallClient
     private const int MaximumRequestBytes = 128 * 1024;
     private const int MaximumResponseBytes = 8 * 1024 * 1024;
     private const string ProtocolVersion = "2025-11-25";
-    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { MaxDepth = 32 };
+    private const int MaximumRequestDepth = 32;
+    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { MaxDepth = MaximumRequestDepth };
+    // Outbound JSON-RPC envelopes only. The query carries the request's arguments one container deeper (root -> params ->
+    // arguments) than the request file holds them (root -> arguments), so a request admitted at MaximumRequestDepth needs
+    // exactly one more level here. Responses and local output keep Json's limit (N-broker-next-request-depth-01).
+    private static readonly JsonSerializerOptions Envelope = new(JsonSerializerDefaults.Web) { MaxDepth = MaximumRequestDepth + 1 };
 
     public sealed record Options(string DataDirectory, string? RequestFile, bool ListTools, string? OutputFile = null)
     {
@@ -130,7 +135,7 @@ public static class McpCallClient
             if (!options.ListTools)
             {
                 using var document = memoryRequest is { } prepared
-                    ? JsonDocument.Parse(prepared.GetRawText(), new JsonDocumentOptions { MaxDepth = 32 })
+                    ? JsonDocument.Parse(prepared.GetRawText(), new JsonDocumentOptions { MaxDepth = MaximumRequestDepth })
                     : await ReadRequestAsync(options.RequestFile!, deadline.Token);
                 var root = document.RootElement;
                 if (root.ValueKind != JsonValueKind.Object ||
@@ -143,6 +148,13 @@ public static class McpCallClient
                 arguments = root.TryGetProperty("arguments", out var supplied) ? supplied.Clone() : JsonSerializer.SerializeToElement(new { });
                 if (arguments.Value.ValueKind != JsonValueKind.Object) throw new InvalidDataException("invalid_request");
             }
+            // The complete query is encoded and bounded while the request is still being validated, before any connection:
+            // a request the envelope cannot carry, or whose encoded body exceeds the worker's body limit, is refused as
+            // invalid_request and never dispatched (N-broker-next-request-depth-01).
+            string prefix = "agentbroker-call-" + Guid.NewGuid().ToString("N");
+            byte[] query = Body(options.ListTools ? "tools/list" : "tools/call",
+                options.ListTools ? new { } : (object)new { name = tool, arguments }, prefix + "-query");
+            if (query.Length > WorkerApplication.MaximumRequestBodyBytes) throw new InvalidDataException("invalid_request");
             requestValidated = true;
             LocalConnection connection = await McpStdioBridge.GetConnectionAsync(options.DataDirectory, deadline.Token);
             using var client = new HttpClient(new SocketsHttpHandler
@@ -150,24 +162,20 @@ public static class McpCallClient
                 UseProxy = false, AllowAutoRedirect = false, UseCookies = false,
                 ConnectTimeout = TimeSpan.FromSeconds(5),
             }) { Timeout = Timeout.InfiniteTimeSpan };
-            string prefix = "agentbroker-call-" + Guid.NewGuid().ToString("N");
-            var initialized = await ExchangeAsync("initialize", new
+            var initialized = await ExchangeAsync(Body("initialize", new
             {
                 protocolVersion = ProtocolVersion, capabilities = new { },
                 clientInfo = new { name = "agentbroker-cli", version = "1.0" },
-            }, prefix + "-initialize");
+            }, prefix + "-initialize"), prefix + "-initialize", dispatchesTool: false);
             if (initialized.TryGetProperty("error", out var initializationError))
                 return (new { status = "rpc_error", dispatchState = "not_dispatched", error = initializationError }, 11);
             if (!initialized.TryGetProperty("result", out var initialization) || initialization.ValueKind != JsonValueKind.Object ||
                 !initialization.TryGetProperty("protocolVersion", out var negotiated) ||
                 negotiated.ValueKind != JsonValueKind.String || negotiated.GetString() != ProtocolVersion)
                 throw new InvalidDataException("protocol_unavailable");
-            await ExchangeAsync("notifications/initialized", new { }, null);
+            await ExchangeAsync(Body("notifications/initialized", new { }, null), null, dispatchesTool: false);
 
-            toolDispatchStarted = true; // Later transport failure cannot prove whether the tool acted.
-            var reply = options.ListTools
-                ? await ExchangeAsync("tools/list", new { }, prefix + "-query")
-                : await ExchangeAsync("tools/call", new { name = tool, arguments }, prefix + "-query");
+            var reply = await ExchangeAsync(query, prefix + "-query", dispatchesTool: true);
             if (reply.TryGetProperty("error", out var rpcError))
                 return (new { status = "rpc_error", dispatchState = "confirmed", error = rpcError }, 11);
             if (!reply.TryGetProperty("result", out var result)) throw new InvalidDataException("response_unavailable");
@@ -186,17 +194,17 @@ public static class McpCallClient
                 result = decoded.Value, advisories = decoded.Advisories, structuredContent = decoded.Structured,
             }, failed ? 10 : 0);
 
-            async Task<JsonElement> ExchangeAsync(string method, object parameters, string? id)
+            async Task<JsonElement> ExchangeAsync(byte[] body, string? id, bool dispatchesTool)
             {
                 using var message = new HttpRequestMessage(HttpMethod.Post, connection.McpEndpoint);
                 message.Headers.Add("MCP-Protocol-Version", ProtocolVersion);
                 message.Headers.Accept.ParseAdd("application/json, text/event-stream");
                 if (connection.BearerToken is not null) message.Headers.Authorization = new("Bearer", connection.BearerToken);
-                byte[] body = id is null
-                    ? JsonSerializer.SerializeToUtf8Bytes(new { jsonrpc = "2.0", method, @params = parameters }, Json)
-                    : JsonSerializer.SerializeToUtf8Bytes(new { jsonrpc = "2.0", id, method, @params = parameters }, Json);
                 message.Content = new ByteArrayContent(body);
                 message.Content.Headers.ContentType = new("application/json");
+                // Marked immediately before the query's own send: from here a transport failure cannot prove whether the
+                // tool acted. Initialization and its notification never mark it.
+                if (dispatchesTool) toolDispatchStarted = true;
                 using var response = await client.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, deadline.Token);
                 response.EnsureSuccessStatusCode();
                 if (id is null && (response.StatusCode is System.Net.HttpStatusCode.Accepted or System.Net.HttpStatusCode.NoContent ||
@@ -225,6 +233,10 @@ public static class McpCallClient
         }
     }
 
+    private static byte[] Body(string method, object parameters, string? id) => id is null
+        ? JsonSerializer.SerializeToUtf8Bytes(new { jsonrpc = "2.0", method, @params = parameters }, Envelope)
+        : JsonSerializer.SerializeToUtf8Bytes(new { jsonrpc = "2.0", id, method, @params = parameters }, Envelope);
+
     private static async Task<JsonDocument> ReadRequestAsync(string path, CancellationToken token)
     {
         if (!Path.IsPathFullyQualified(path) || !Path.GetExtension(path).Equals(".json", StringComparison.OrdinalIgnoreCase))
@@ -234,7 +246,7 @@ public static class McpCallClient
             if ((File.GetAttributes(component) & FileAttributes.ReparsePoint) != 0) throw new InvalidDataException("invalid_request");
         await using var stream = new FileStream(full, FileMode.Open, FileAccess.Read, FileShare.Read, 8192, useAsync: true);
         var bytes = await McpStdioBridge.ReadBoundedAsync(stream, MaximumRequestBytes, token);
-        var document = JsonDocument.Parse(McpStdioBridge.WithoutUtf8Signature(bytes), new JsonDocumentOptions { MaxDepth = 32 });
+        var document = JsonDocument.Parse(McpStdioBridge.WithoutUtf8Signature(bytes), new JsonDocumentOptions { MaxDepth = MaximumRequestDepth });
         try
         {
             var pending = new Stack<JsonElement>();

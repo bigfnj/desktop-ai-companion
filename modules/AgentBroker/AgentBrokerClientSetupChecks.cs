@@ -567,11 +567,47 @@ public sealed partial class AgentBrokerModule
         }
     }
 
+    // Post-push audit of 1.10.2 (U7, Claude half): Claude's own report parser decides LoopbackUrl. With the connection probe
+    // unavailable, a Claude HTTP entry whose URL could never be this broker's stays an entry needing review; only the canonical
+    // loopback URLs (covered by the loop below) read as not verified. Check client setup only: Connect Claude stops at the
+    // failed probe before any vendor command.
+    private static void RunClaudeRemoteEntryUnavailableCheck(Action<bool, string> check, TestDispatcher dispatcher, string directory,
+        string privateDiagnostic)
+    {
+        var command = new HttpSetupCommand
+        {
+            Existing = AgentClientSetup.ServerName + ":\n  Scope: User config\n  Status: √ Connected\n  Type: http\n  URL: http://192.0.2.10:7432/mcp\n"
+        };
+        var host = new TestHost();
+        host.UseStorage(Id, new TestStorage(directory)); host.SettingsFor(Id).Set("enabled", "true");
+        var view = new BrokerSnapshot(Guid.NewGuid(), "Synthetic", "http://127.0.0.1:7432", null,
+            [], [], [], [], new Dictionary<string, string>(), Mcp: new(true, null, null, []));
+        var control = new StatusControl { Failure = new IOException(privateDiagnostic) };
+        var module = new AgentBrokerModule(control, new StatusSupervisor(view)) { ClientSetup = new(command) };
+        try
+        {
+            module.Init(host); Pump(() => module.snapshot is not null, dispatcher);
+            Task<string> action = module.CheckClientSetupAsync("claude");
+            Pump(() => action.IsCompleted, dispatcher);
+            string result = action.GetAwaiter().GetResult();
+            string display = module.ClientDisplay("claude");
+            var tray = module.ClientTrayItems().Single(item => item.Label.StartsWith(ClientName("claude") + ":", StringComparison.Ordinal));
+            check(module.Inspection("claude")?.State == ClientConfiguration.DifferentEntry && command.Calls.Count == 1 &&
+                command.Calls[0][1] == "get" && control.Requests.Count(item => item == "connection") == 1 &&
+                display.Contains("needs review", StringComparison.Ordinal) && !display.Contains("could not be verified", StringComparison.Ordinal) &&
+                !result.Contains("HTTP entry not verified", StringComparison.Ordinal) && !display.Contains(privateDiagnostic, StringComparison.Ordinal) &&
+                !tray.BuildChildren!().Any(item => item.Label.Contains("HTTP entry not verified", StringComparison.Ordinal)),
+                "CLIENT_CONNECTION_UNAVAILABLE_CLAUDE_HTTP_REMOTE_ENTRY: an unavailable probe leaves a Claude HTTP entry whose URL could never be this broker's needing review, not unverified");
+        }
+        finally { module.Shutdown(); Pump(() => module.pending.IsCompleted, dispatcher); }
+    }
+
     private static void RunClientUnavailableConnectionChecks(Action<bool, string> check, TestDispatcher dispatcher)
     {
         const string endpoint = "http://127.0.0.1:7432/mcp";
         const string privateDiagnostic = "SYNTHETIC_UNAVAILABLE_CONNECTION_PRIVATE_VALUE";
         string directory = Path.Combine(Path.GetTempPath(), "agentbroker-client-unavailable-synthetic");
+        RunClaudeRemoteEntryUnavailableCheck(check, dispatcher, directory, privateDiagnostic);
         foreach (string client in new[] { "claude", "codex" })
         foreach (string transport in new[] { "http", "stdio" })
         foreach (string failure in new[] { "FAULT", "NEGATIVE", "MISSING", "INVALID" })

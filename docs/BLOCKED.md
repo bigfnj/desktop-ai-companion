@@ -249,6 +249,8 @@ The entry as it stood:
 
 **N-agentbroker-uncertain-parked-01** [reliability, observed 2026-10-28] Two messages to a live Codex chat (`codex:01a18357`) ended `Uncertain` while its activity was `Unknown`, probably because the chat was parked on an approval prompt. `Uncertain` is never retried and produces no delivery notice. 1.4.0 keeps the library's typed cause in the receipt reason (`native_uncertain_timeout`, `native_uncertain_native_error`, `native_uncertain_owner_changed`, `native_uncertain_connection`; `native_submission_uncertain` otherwise), so the next occurrence names its cause. Then: if a parked thread times out, defer before submitting while the directory cannot show it idle.
 
+Occurrence, 2026-11-10 (dated addition; the blocker stays as written): a message to a live Codex chat owned by VS Code ended `Uncertain` with reason `native_uncertain_timeout` at 05:55:54 UTC, a few minutes after that chat's native row returned from a directory gap (`N-broker-native-lease-gap-01`). The recipient reported that it was actively working a turn at the time, with no approval prompt outstanding, and it later read the message as pending and acknowledged it. This is a timeout on a busy chat, not a parked one, so it does not confirm the parked-chat cause; the watch stays open for an occurrence that names it.
+
 ---
 
 ## N-bus-05 (moved from BACKLOG.md 2026-10-29)

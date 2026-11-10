@@ -38,7 +38,7 @@ public sealed partial class AgentBrokerModule
             host.UseStorage(Id, new TestStorage(directory));
             var control = new TestControl();
             var supervisor = new TestSupervisor();
-            module = new(control, supervisor);
+            module = new(control, supervisor) { ClientSetup = new(new TestClientCommand()) };
             module.Init(host);
             // Settle the disabled run before enabling another one, so its cleanup cannot
             // race the later shutdown assertion and masquerade as that run's own stop.
@@ -350,7 +350,7 @@ public sealed partial class AgentBrokerModule
 
             var missingHost = new TestHost();
             var missingSupervisor = new TestSupervisor();
-            var missing = new AgentBrokerModule(new TestControl(), missingSupervisor);
+            var missing = new AgentBrokerModule(new TestControl(), missingSupervisor) { ClientSetup = new(new TestClientCommand()) };
             missingHost.SettingsFor(Id).Set("enabled", "true");
             missing.Init(missingHost);
             Pump(() => missing.pending.IsCompleted, dispatcher);

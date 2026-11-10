@@ -25,6 +25,13 @@ in a request file. A second is invalid JSON. Invalid Unicode in a top-level requ
 field name returns exit 2 before dispatch: `invalid_request` for `--mcp-call`, or
 `invalid_handoff` for `--handoff-prepare`.
 
+An `--mcp-call` request file is limited to 128 KiB and a nesting depth of 32. Since
+1.10.3 the client encodes the complete JSON-RPC query before it connects, so a request
+at that depth still travels. A deeper request, or one whose encoded query exceeds the
+worker's 128 KiB body limit (escaping can make the encoded text longer than the
+file), returns `invalid_request`, exit 2 and `dispatchState: not_dispatched`.
+`dispatchState: unknown` appears only after the query's own send has been attempted.
+
 Use the tool schemas returned by `--list-tools` for other operations. Sending,
 reading and acknowledging still use complete addresses. A client mode does not
 establish which Codex chat owns a shared host process; find this conversation's
@@ -75,8 +82,10 @@ A destination rejected by output preflight returns `output_error`, exit
 directory checks as saving (plain local NTFS directories, the exact directory
 identity, case-sensitive folders), so such a destination is refused before any tool
 is dispatched. Saving repeats every check, because the directory can change between
-the two; a destination that becomes unusable after the call is refused then, when the
-broker operation may already have completed. If publication fails after the call, the
+the two. The preflight proves neither permission to create a file in the directory
+nor free space: even when its directory checks pass, a directory you cannot create
+files in, or a full volume, can stop the save after the broker operation may already
+have completed. If publication fails after the call, the
 output retains the known dispatch state and includes the complete original client
 response under `response`, including its `status` and either its `result` or error
 fields. The process exits 74 for this retention failure, replacing the operation's
