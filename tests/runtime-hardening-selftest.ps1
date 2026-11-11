@@ -3557,8 +3557,8 @@ function Test-NuGetMappingLayout([string]$Body, [string[]]$AllowedKeys, [string[
     return $true
 }
 function Test-NuGetPhysicalScalars([string]$Text) {
-    # Known workflow header values must close quoted tokens on their physical line. Literal run/path
-    # bodies are opaque. Token scanning includes flow wrappers, but does not evaluate YAML or expressions.
+    # Scan every noncomment physical line outside plain literal/folded block bodies. Strip only
+    # plain ASCII key prefixes; quoted keys and bare/sequence continuations remain in the value.
     $literalIndent = -1
     foreach ($line in @($Text -split "`n")) {
         if ([string]::IsNullOrWhiteSpace($line)) { continue }
@@ -3566,8 +3566,7 @@ function Test-NuGetPhysicalScalars([string]$Text) {
         $indent = [regex]::Match($line, '^ *').Length
         if ($literalIndent -ge 0 -and $indent -gt $literalIndent) { continue }
         $literalIndent = -1
-        $header = [regex]::Match($line, '^(?<indent> *)(?:- )?[^:#][^:]*:[ \t]*(?<value>.*)$')
-        if (-not $header.Success) { continue }
+        $header = [regex]::Match($line, '^(?<indent> *)(?<dash>- )?(?:(?<key>[A-Za-z0-9_-]+):[ \t]*)?(?<value>.*)$')
         $value = $header.Groups['value'].Value
         if ($value.TrimStart() -cmatch '^[!&*]') { return $false }
         $quote = 0; $escaped = $false; $end = $value.Length
@@ -3587,7 +3586,10 @@ function Test-NuGetPhysicalScalars([string]$Text) {
             }
         }
         if ($quote -ne 0) { return $false }
-        if ($value.Substring(0, $end).Trim() -cmatch '^\|[+-]?$') { $literalIndent = $header.Groups['indent'].Length }
+        if ($value.Substring(0, $end).Trim() -cmatch '^[|>][+-]?$') {
+            $literalIndent = $header.Groups['indent'].Length
+            if ($header.Groups['key'].Success) { $literalIndent += $header.Groups['dash'].Length }
+        }
     }
     return $true
 }
@@ -3697,6 +3699,25 @@ function Test-NuGetReleasePackFailure([string]$WorkflowText) {
 }
 Assert-True (Test-NuGetReleasePackFailure $releaseWorkflowText) (
     'release.yml propagates the module-author NuGet pack failure (RA-190)')
+# The narrow physical-line policy must preserve opaque scalar data while refusing quoted headers
+# that could hide the selected jobs or steps. These are data samples, not executable workflow commands.
+$nugetScalarContract = & {
+    foreach ($style in @('|', '|-', '|+', '>', '>-', '>+')) {
+        foreach ($quote in @([string][char]39, [string][char]34)) {
+            $opaque = 'run: ' + $style + "`n  token " + $quote + 'Built by:' + $quote + " marker`n  token " + $quote + "built`n  today" + $quote + "`nnext: closed`n"
+            if (-not (Test-NuGetPhysicalScalars $opaque)) { return $false }
+            $bare = '- ' + $style + "`n  " + $quote + "opaque`n- closed`n"
+            if (-not (Test-NuGetPhysicalScalars $bare)) { return $false }
+            $sibling = '- run: ' + $style + "`n    opaque`n  env:`n    NOTE: " + $quote + "unfinished`n"
+            if (Test-NuGetPhysicalScalars $sibling) { return $false }
+        }
+    }
+    $quotedKey = [string][char]34 + "RE:MARK 'x" + [char]34 + ": 'unfinished`n"
+    if (Test-NuGetPhysicalScalars ("env:`n  " + $quotedKey)) { return $false }
+    return $true
+}
+Assert-True $nugetScalarContract (
+    'NuGet source policy preserves opaque scalar blocks and refuses multiline quoted headers (RA-190)')
 # THE RELEASE NOTES SAY SIGNED OR UNSIGNED FROM THE THUMBPRINT. release.yml hardcoded "Unsigned" in the notes
 # while its own header promised the first signed release needs no workflow edit (RA-002). The publish step's
 # env maps the thumbprint (the F002 route) and the --notes text is built from $signedWord; the old literal is
