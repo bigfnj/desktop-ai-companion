@@ -1,0 +1,26 @@
+<Project>
+  <!-- Opt-in only. The release helper supplies GLOBAL properties to both CLI invocations. -->
+  <ItemGroup Condition="'$(AgentBrokerReleaseProvenance)' == 'true'">
+    <AssemblyMetadata Include="AgentBroker.SourceContentSha256" Value="$(AgentBrokerSourceContentSha256)" />
+    <AssemblyMetadata Include="AgentBroker.SourceParentCommit" Value="$(AgentBrokerSourceParentCommit)" />
+  </ItemGroup>
+  <Target Name="VerifyAgentBrokerReleaseProvenance" BeforeTargets="CoreCompile"
+          Condition="'$(AgentBrokerReleaseProvenance)' == 'true'">
+    <PropertyGroup>
+      <_ABPRepositoryRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..'))</_ABPRepositoryRoot>
+      <_ABPExpectedPathMap>$(_ABPRepositoryRoot)=/_/</_ABPExpectedPathMap>
+      <_ABPExpectedRestoreConfig>$(_ABPRepositoryRoot)\build\AgentBrokerReleaseProvenance\NuGet.Config</_ABPExpectedRestoreConfig>
+    </PropertyGroup>
+    <Error Condition="'$(Configuration)' != 'Release'" Text="PROVENANCE_RELEASE_REQUIRED" />
+    <Error Condition="'$(MSBuildProjectName)' == 'AgentBroker' and ('$(SkipAgentBrokerWorkerPublish)' != 'false' or '$(DesignTimeBuild)' == 'true' or '$(BuildProjectReferences)' != 'true')" Text="PROVENANCE_WORKER_PUBLISH_REQUIRED" />
+    <Error Condition="'$(TargetFramework)' != 'net10.0-windows'" Text="PROVENANCE_ENTRY_TARGET_FRAMEWORK_REQUIRED" />
+    <Error Condition="!$([System.Text.RegularExpressions.Regex]::IsMatch('$(AgentBrokerSourceContentSha256)', '^[A-F0-9]{64}\z'))" Text="PROVENANCE_DIGEST_REQUIRED" />
+    <Error Condition="!$([System.Text.RegularExpressions.Regex]::IsMatch('$(AgentBrokerSourceParentCommit)', '^[a-f0-9]{40}\z'))" Text="PROVENANCE_PARENT_REQUIRED" />
+    <Error Condition="'$(AgentBrokerReleaseManifest)' == ''" Text="PROVENANCE_MANIFEST_REQUIRED" />
+    <Error Condition="'$(GenerateAssemblyInfo)' != 'true' or '$(GenerateAssemblyMetadataAttributes)' != 'true'" Text="PROVENANCE_METADATA_GENERATION_REQUIRED" />
+    <Error Condition="'$(PathMap)' != '$(_ABPExpectedPathMap)' or '$(RestoreConfigFile)' != '$(_ABPExpectedRestoreConfig)' or '$(RestoreLockedMode)' != 'true' or '$(Deterministic)' != 'true' or '$(PublishTrimmed)' != 'false' or '$(PublishSingleFile)' != 'false'" Text="PROVENANCE_RELEASE_SETTINGS_REQUIRED" />
+    <Error Condition="'$(MSBuildProjectName)' == 'AgentBroker.Worker' and ('$(RuntimeIdentifier)' != 'win-x64' or '$(SelfContained)' != 'true')" Text="PROVENANCE_WORKER_PUBLISH_SETTINGS_REQUIRED" />
+    <Error Condition="'$(DebugType)' != 'None' or '$(DebugSymbols)' != 'false' or '$(EnableSourceLink)' != 'false' or '$(EmbedUntrackedSources)' != 'false' or '$(EmbedAllSources)' != 'false' or '$(IncludeSourceRevisionInInformationalVersion)' != 'false' or '$(SourceLink)' != ''" Text="PROVENANCE_GLOBAL_PRIVACY_PROPERTIES_REQUIRED" />
+    <Exec Command="pwsh -NoLogo -NoProfile -File &quot;$(MSBuildThisFileDirectory)AgentBrokerReleaseProvenance.ps1&quot; -Mode Verify -ManifestPath &quot;$(AgentBrokerReleaseManifest)&quot; -ExpectedSha256 &quot;$(AgentBrokerSourceContentSha256)&quot; -ExpectedParent &quot;$(AgentBrokerSourceParentCommit)&quot; -ActualSdk &quot;$(NETCoreSdkVersion)&quot;" />
+  </Target>
+</Project>

@@ -184,8 +184,9 @@ public sealed partial class AgentBrokerModule
             var setup = new AgentClientSetup(setupCommand);
             string setupResult = setup.ConfigureAsync("codex", syntheticWorker, directory, CancellationToken.None).GetAwaiter().GetResult();
             Check(setupResult.Contains("added", StringComparison.Ordinal) && setupCommand.Calls.Count == 2 &&
-                setupCommand.Calls[1].Arguments.Contains("--mcp-stdio") && setupCommand.Calls[1].Arguments.Contains(directory) &&
-                !setupCommand.Calls[1].Arguments.Any(a => a.Contains("token", StringComparison.OrdinalIgnoreCase)),
+                setupCommand.Calls[1].Executable == "codex" && setupCommand.Calls[1].Arguments.SequenceEqual(
+                    new[] { "mcp", "add", AgentClientSetup.ServerName, "--", syntheticWorker,
+                        "--mcp-stdio", "--data", directory }),
                 "client setup adds typed stdio arguments without persisting connection tokens");
             setupCommand.Existing = "{}"; setupCommand.Calls.Clear();
             setup.ConfigureAsync("codex", syntheticWorker, directory, CancellationToken.None).GetAwaiter().GetResult();

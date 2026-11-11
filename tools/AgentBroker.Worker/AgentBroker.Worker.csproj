@@ -25,4 +25,5 @@
          (N-broker-b-02), compiled here as linked source; the adapter's own copy is internal to it. -->
     <Compile Include="..\AgentBroker.Pins\WindowsAuthenticode.cs" Link="Pins\WindowsAuthenticode.cs" />
   </ItemGroup>
+  <Import Project="..\..\packaging\AgentBrokerReleaseProvenance.props" />
 </Project>

@@ -153,7 +153,9 @@ def mutation_artifact(source: str) -> str:
 # mode's TOKEN_PRIVATE, AUTHENTICATION and WIRE_FRAME checks, before the cut-off.
 # 784 -> 788 (2026-11-10, closure of 1.10.3, measured): the body-bound boundary pair (BODY_AT_LIMIT, BODY_OVER_LIMIT and one
 # WIRE_FRAME check per child process), before the cut-off.
-EXISTING_COUNTS = {"worker": 788, "desktop": 157}
+# 788 -> 801 (2026-11-10, shipping cadence, measured): RuntimeLifecycleChecks gains 13 checks before the cut-off.
+# The complete seven-harness run measured Worker 2021 and 3718 total; the existing-suite subset marker was 801.
+EXISTING_COUNTS = {"worker": 801, "desktop": 157}
 FOCUSED_COUNTS = {"worker": 92, "desktop": 23}  # desktop 15 -> 23: installed-version image-mismatch witnesses and layout controls
 CLAUDE_SCENARIOS = ("early-reject", "unsupported-version", "hash-mismatch", "mixed", "recovery", "bounded-snapshot")
 
@@ -269,7 +271,7 @@ WITNESSES = (
     ),), failure_check="a second concurrent wait for one session is refused as wait_in_progress"),
     # ---- lane feature/agentbroker-wait-classes (AgentBroker next campaign, 2026-11-08) ----
     # Each mutant breaks one rule of the two wait classes or the listening count; failure_check names the one check it
-    # must fail first. These checks remain after the --existing-tests-only cut-off; its measured pin is now 788
+    # must fail first. These checks remain after the --existing-tests-only cut-off; its measured pin is now 801
     # (EXISTING_COUNTS above, with each step from 696).
     Witness("wait-class-receipt-joins-incoming", "tools", "worker", ("--receipt-wait-only",), "ReceiptWaitChecks.cs", ((
         "var answered = await WaitAsync(original.Sender, WaitClass.Receipt, timeoutSeconds, () =>",

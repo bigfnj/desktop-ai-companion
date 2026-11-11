@@ -153,6 +153,13 @@ $commonArguments = @(
     '--nologo',
     '-v:minimal'
 )
+# Fresh Release compilation consumes the publication privacy properties, including project references.
+# Keep these build-only arguments out of clean/restore, and leave ordinary Debug behavior unchanged.
+$releasePublicationArguments = @()
+if ($Release) {
+    $releasePublicationArguments = @('--no-incremental', '-p:EnableSourceLink=false',
+        '-p:EmbedUntrackedSources=false', '-p:EmbedAllSources=false')
+}
 # `dotnet --version` fails whenever global.json pins an SDK this box does not have (an exact version with
 # rollForward disable, so a different patch is enough), and the muxer then splits its text: the
 # "Requested SDK version ... Installed SDKs ..." explanation goes to stderr and one 'Installed SDKs' entry
@@ -298,7 +305,7 @@ Write-Host 'Restoring NuGet packages...' -ForegroundColor Cyan
 if ($LASTEXITCODE -ne 0) { throw "restore failed (exit $LASTEXITCODE)" }
 
 Write-Host "Building $configuration|x64..." -ForegroundColor Cyan
-& $dotnet build $projectPath @commonArguments '--no-restore'
+& $dotnet build $projectPath @commonArguments @releasePublicationArguments '--no-restore'
 if ($LASTEXITCODE -ne 0) {
     throw "build failed (exit $LASTEXITCODE). If DesktopAICompanion.exe is locked, close the running application and retry."
 }
@@ -332,7 +339,7 @@ if (-not [string]::IsNullOrWhiteSpace($SigningCertThumbprint)) {
 # signing, into the runtime modules\<id>\ folders.
 foreach ($moduleProject in $moduleProjects) {
     Write-Host "Building plugin module: $([System.IO.Path]::GetFileNameWithoutExtension($moduleProject))..." -ForegroundColor Cyan
-    & $dotnet build $moduleProject -c $configuration '--nologo' '-v:minimal'
+    & $dotnet build $moduleProject -c $configuration '--nologo' '-v:minimal' @releasePublicationArguments
     if ($LASTEXITCODE -ne 0) { throw "module build failed ($moduleProject) (exit $LASTEXITCODE)" }
 }
 

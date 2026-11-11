@@ -63,6 +63,54 @@ internal static class WaitLifecycleChecks
             "WAIT_REQUEST_SCOPES_IDENTITY: changing one request's identity cannot change another request's caller or ambient holder");
     }
 
+    // Only the request's monotonic budget/timer is controlled; Store clocks remain ordinary.
+    private sealed class QuietRequestClock : TimeProvider
+    {
+        private readonly object gate = new();
+        private readonly List<QuietTimer> timers = [];
+        private readonly List<TimeSpan> scheduled = [];
+        private long timestamp;
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+        public override long GetTimestamp() { lock (gate) return timestamp; }
+        internal TimeSpan[] ScheduledDelays { get { lock (gate) return scheduled.ToArray(); } }
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            var timer = new QuietTimer(this, callback, state);
+            timer.Change(dueTime, period);
+            lock (gate) { timers.Add(timer); scheduled.Add(dueTime); }
+            return timer;
+        }
+        internal void Advance(TimeSpan amount)
+        {
+            QuietTimer[] ready;
+            lock (gate)
+            {
+                timestamp += amount.Ticks;
+                ready = timers.Where(timer => !timer.Disposed && timer.Due <= timestamp).ToArray();
+                foreach (var timer in ready) timer.Due = long.MaxValue;
+            }
+            foreach (var timer in ready) timer.Fire();
+        }
+        private sealed class QuietTimer(QuietRequestClock owner, TimerCallback callback, object? state) : ITimer
+        {
+            internal long Due = long.MaxValue;
+            internal bool Disposed;
+            public bool Change(TimeSpan dueTime, TimeSpan period)
+            {
+                if (period != Timeout.InfiniteTimeSpan) throw new NotSupportedException("This fixture owns one-shot request timers only.");
+                lock (owner.gate)
+                {
+                    if (Disposed) return false;
+                    Due = dueTime == Timeout.InfiniteTimeSpan ? long.MaxValue : owner.timestamp + dueTime.Ticks;
+                    return true;
+                }
+            }
+            internal void Fire() => callback(state);
+            public void Dispose() { lock (owner.gate) { Disposed = true; Due = long.MaxValue; } }
+            public ValueTask DisposeAsync() { Dispose(); return ValueTask.CompletedTask; }
+        }
+    }
+
     private static async Task QuietAsync(Action<bool, string> check)
     {
         await using (var fixture = new ToolFixture("wait-lifecycle-no-poll", clock: TimeProvider.System))
@@ -71,17 +119,39 @@ internal static class WaitLifecycleChecks
             int pendingReads = 0;
             Func<MessageReceipt[]> pending = () => { Interlocked.Increment(ref pendingReads); return []; };
             using var cancel = new CancellationTokenSource();
+            var requestClock = new QuietRequestClock();
             var method = typeof(BrokerTools).GetMethod("WaitAsync", BindingFlags.NonPublic | BindingFlags.Instance)!;
             var waiting = (Task<IReadOnlyList<MessageReceipt>>)method.Invoke(fixture.NewRequest().Tools,
-                [owner.Address, WaitClass.Incoming, 4, pending, cancel.Token, null, "caller_recipient"])!;
+                [owner.Address, WaitClass.Incoming, 4, pending, cancel.Token, null, "caller_recipient", requestClock])!;
+            bool primaryFailed = false;
+            using var guardCancel = new CancellationTokenSource();
             try
             {
-                var result = await waiting.WaitAsync(TimeSpan.FromSeconds(7));
-                check(result.Count == 0 && Volatile.Read(ref pendingReads) == 2 && fixture.Runtime.ActiveWaitCount == 0 &&
-                    ListeningCount(fixture.Store) == 0,
+                bool admitted = !waiting.IsCompleted && Volatile.Read(ref pendingReads) == 1 &&
+                    fixture.Runtime.ActiveWaitCount == 1 && ListeningCount(fixture.Store) == 1;
+                var scheduled = requestClock.ScheduledDelays;
+                requestClock.Advance(TimeSpan.FromSeconds(4));
+                // Finite deadlock guard only; completion faults/timeouts reach the named assertion below.
+                var completed = await Task.WhenAny(waiting, Task.Delay(TimeSpan.FromSeconds(30), guardCancel.Token));
+                guardCancel.Cancel();
+                bool succeeded = ReferenceEquals(completed, waiting) && waiting.IsCompletedSuccessfully;
+                var finalScheduled = requestClock.ScheduledDelays;
+                check(admitted && scheduled.Length == 1 && scheduled[0] == TimeSpan.FromSeconds(4) &&
+                    succeeded && waiting.Result.Count == 0 && finalScheduled.Length == 1 &&
+                    finalScheduled[0] == TimeSpan.FromSeconds(4) && Volatile.Read(ref pendingReads) == 2 &&
+                    fixture.Runtime.ActiveWaitCount == 0 && ListeningCount(fixture.Store) == 0,
                     "WAIT_LIFECYCLE_QUIET_NO_POLL: a complete quiet four-second wait reads pending exactly twice and releases both bounded maps");
             }
-            finally { cancel.Cancel(); await DrainAsync(waiting); }
+            catch { primaryFailed = true; throw; }
+            finally
+            {
+                try { cancel.Cancel(); await DrainAsync(waiting); }
+                catch (Exception cleanup) when (primaryFailed)
+                {
+                    // Preserve the primary named assertion while keeping incomplete cleanup observable.
+                    Console.WriteLine("WAIT_LIFECYCLE_QUIET_CLEANUP_FAILURE=" + cleanup.GetType().Name);
+                }
+            }
         }
         // The lease clock holds still through Register and the wait's admission, so a delayed call cannot reach an already
         // expired lease and pass on the initial addressability refusal; it starts only once the wait is admitted and listening.

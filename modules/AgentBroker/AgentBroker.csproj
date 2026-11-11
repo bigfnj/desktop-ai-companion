@@ -27,10 +27,16 @@
     <ModulePayloadProject Include="..\..\tools\AgentBroker.Worker\AgentBroker.Worker.csproj" />
     <ModulePayloadInput Include="..\..\packaging\Publish-AgentBrokerWorker.ps1" />
     <ModulePayloadInput Include="..\..\packaging\StagingPathSafety.ps1" />
+    <ModulePayloadInput Include="..\..\packaging\AgentBrokerReleaseProvenance.ps1" />
+    <ModulePayloadInput Include="..\..\packaging\AgentBrokerReleaseProvenance.props" />
+    <ModulePayloadInput Include="..\..\packaging\AgentBrokerReleaseOutput.ps1" />
+    <ModulePayloadInput Include="..\..\packaging\AgentBrokerReleasePayloadMetadata.cs" />
     <ModulePayloadInput Include="..\..\packaging\AgentBrokerNotices\**\*" />
   </ItemGroup>
   <Target Name="PublishAgentBrokerWorker" AfterTargets="Build"
           Condition="'$(DesignTimeBuild)' != 'true' and '$(SkipAgentBrokerWorkerPublish)' != 'true'">
-    <Exec Command="pwsh -NoLogo -NoProfile -File &quot;$(MSBuildThisFileDirectory)..\..\packaging\Publish-AgentBrokerWorker.ps1&quot; -Configuration &quot;$(Configuration)&quot;" />
+    <Exec Condition="'$(AgentBrokerReleaseProvenance)' != 'true'" Command="pwsh -NoLogo -NoProfile -File &quot;$(MSBuildThisFileDirectory)..\..\packaging\Publish-AgentBrokerWorker.ps1&quot; -Configuration &quot;$(Configuration)&quot;" />
+    <Exec Condition="'$(AgentBrokerReleaseProvenance)' == 'true'" Command="pwsh -NoLogo -NoProfile -File &quot;$(MSBuildThisFileDirectory)..\..\packaging\Publish-AgentBrokerWorker.ps1&quot; -Configuration &quot;$(Configuration)&quot; -ReleaseProvenance true -ReleaseManifest &quot;$(AgentBrokerReleaseManifest)&quot; -ReleaseSourceSha256 &quot;$(AgentBrokerSourceContentSha256)&quot; -ReleaseParentCommit &quot;$(AgentBrokerSourceParentCommit)&quot;" />
   </Target>
+  <Import Project="..\..\packaging\AgentBrokerReleaseProvenance.props" />
 </Project>

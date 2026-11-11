@@ -129,6 +129,8 @@ A present mailbox lists as `Idle` only while its owner is inside a wait (`wait_f
 
 Retention is process-local and never persisted. A worker restart drops every registration while messages persist, and registering the same `clientId` and incarnation again finds them. At most 64 mailboxes are retained. A registration that would pass the 256-session bound takes the slot of the oldest retained mailbox with no outstanding message, then of the oldest retained one, and never a present session's. A local privacy or pause choice applies to a retained mailbox without restoring its presence.
 
+For a native session, `session_unavailable` reports that the requested exact address is currently unavailable to the broker. The vendor chat may still be open. When the `agentbroker.recovery_guidance` advisory includes `guidance.availability.cause` set to `native_lease_elapsed`, the native discovery lease elapsed; this field does not identify why discovery stopped renewing it. Follow the guidance: refresh `list_sessions` and use the current complete address matching the intended broker ID and session ID, never a display label. If fresh matching native discovery is absent, wait for it; do not register the old native address. A generic mailbox instead re-registers its same `clientId` and incarnation.
+
 ### Waiting instead of polling
 
 `wait_for_messages` returns at once when the session has incoming messages still `Accepted`, meaning not yet acknowledged. Otherwise it blocks until the store records a change or the deadline passes, then checks again. Acknowledge each message actually received, or the next wait returns it again. `wait_for_reply` waits the same way for replies to one message the caller sent; one message can receive several replies.
@@ -309,7 +311,7 @@ The current durable store is intended for low-volume workstation coordination. D
 | Revalidate a paired identity before saving a discovered address change | Restarts and DHCP changes recover without trusting an unverified discovery announcement. |
 | Retain unrelated and externally blocked backlog entries | Closing them without implementation or evidence would hide remaining work. |
 | Keep a generic MCP mailbox addressable for 24 hours after its owner's last call | Turn-based agents fell off the bus between turns, and a renewal sidecar process was the workaround. Retention is process-local and peers still see presence only, so no federation record or persisted state changed. |
-| Never retain a native session | A lapsed native lease means the vendor session is gone; waking a stale native session must stay impossible. |
+| Never retain a native session | Ordinary sends require its current native discovery lease; a lapse makes that exact address unavailable to the broker even when the vendor chat remains open. |
 | Bound blocking waits at 25 seconds, one per class and sixteen total per worker | Stays inside the stdio bridge's 60-second request limit and ordinary client tool timeouts without configuration; each wait occupies a request. |
 | Refuse a wait on an unreachable mailbox | An empty result would look like silence forever after a restart; `session_unavailable` tells the agent to register again. |
 | Add `send` beside `send_message` | Clients regenerate timestamps on retry; comparing only caller-supplied fields keeps an honest retry from colliding, while `send_message` keeps its exact-record semantics. |

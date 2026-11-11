@@ -26,6 +26,8 @@ public interface ICodexNativeProvider : IAsyncDisposable
     // A provider without the update-tolerant policy can only ever report the reviewed exact path.
     CodexDeliveryAuthority Authorize(DesktopOwnerBinding binding)
         => IsDeliveryAuthorized(binding) ? CodexDeliveryAuthority.ExactPinned : CodexDeliveryAuthority.None;
+    // Wait only for a reconnect already running; the next owner lookup remains its sole adopter.
+    Task PrepareDiscoveryAsync(TimeSpan maximumWait, CancellationToken stop) => Task.CompletedTask;
     Task<IReadOnlyList<DesktopDirectorySession>> ObserveAsync(CancellationToken token);
     // An independently owned submission provider prepares its own verification state without touching discovery's
     // connection or pass diagnostics. The actual submission still performs its fresh checks before model input.
@@ -123,6 +125,17 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
         this.engineBindings = engineBindings;
         // Strict exact pins stay the default; update tolerance is a separate opt-in on top of delivery.
         updateTolerant = enableDelivery && updateTolerantDelivery;
+    }
+
+    public async Task PrepareDiscoveryAsync(TimeSpan maximumWait, CancellationToken stop)
+    {
+        await gate.WaitAsync(stop);
+        try
+        {
+            ObjectDisposedException.ThrowIf(disposed, this);
+            await provider.PrepareDiscoveryAsync(maximumWait, stop);
+        }
+        finally { gate.Release(); }
     }
 
     public async Task<IReadOnlyList<BrokerSession>> DiscoverAsync(Guid brokerId, CancellationToken token)

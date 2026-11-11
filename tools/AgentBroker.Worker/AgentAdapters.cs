@@ -18,6 +18,9 @@ public interface ILocalAgentAdapter : IAsyncDisposable
     // Report only: a complete successful native pass can end busy observations for absent rows.
     bool DiscoveryCensusComplete => true;
     IReadOnlyList<AdapterDiscoveryDiagnostic> DiscoveryDiagnostics => Array.Empty<AdapterDiscoveryDiagnostic>();
+    // Give work already started between passes a bounded head start before the fresh pass deadline.
+    // Adapters without such work keep their existing discovery schedule.
+    Task PrepareDiscoveryAsync(TimeSpan maximumWait, CancellationToken stop) => Task.CompletedTask;
     Task<IReadOnlyList<BrokerSession>> DiscoverAsync(Guid brokerId, CancellationToken token);
     Task<AdapterResult> SubmitAsync(BrokerMessage message, CancellationToken token);
     // The runtime's call. An adapter that renders an envelope takes the sender's description; any other ignores it.

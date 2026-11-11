@@ -267,7 +267,7 @@ public sealed partial class BrokerTools(BrokerRuntime runtime, IHttpContextAcces
     // signal is captured under the lock and awaited after the lock is released.
     private async Task<IReadOnlyList<MessageReceipt>> WaitAsync(SessionAddress session, WaitClass waitClass, int timeoutSeconds,
         Func<MessageReceipt[]> pending, CancellationToken cancellationToken, Func<TimeSpan?>? wakeWithin = null,
-        string availabilitySubject = "caller_recipient")
+        string availabilitySubject = "caller_recipient", TimeProvider? requestClock = null)
     {
         Guid caller = Caller;
         Run(() => { runtime.Store.RequireAddressable(session, availabilitySubject); return true; });
@@ -276,7 +276,9 @@ public sealed partial class BrokerTools(BrokerRuntime runtime, IHttpContextAcces
         cancellationToken = stopping.Token;
         runtime.RenewPollingAgent(session, caller);
         // Real elapsed time bounds the request; the store clock decides only lease and message state.
-        long deadline = Environment.TickCount64 + timeoutSeconds * 1000L;
+        requestClock ??= TimeProvider.System;
+        long started = requestClock.GetTimestamp();
+        long budgetMilliseconds = timeoutSeconds * 1000L;
         try
         {
             while (true)
@@ -290,7 +292,7 @@ public sealed partial class BrokerTools(BrokerRuntime runtime, IHttpContextAcces
                 // recipient_unavailable, with no session_unavailable to say "register again" while any were pending.
                 Run(() => { runtime.Store.RequireAddressable(session, availabilitySubject); return true; });
                 var result = pending();
-                long remaining = deadline - Environment.TickCount64;
+                long remaining = budgetMilliseconds - (long)requestClock.GetElapsedTime(started).TotalMilliseconds;
                 if (result.Length > 0 || remaining <= 0)
                 {
                     runtime.RenewPollingAgent(session, caller);
@@ -302,7 +304,7 @@ public sealed partial class BrokerTools(BrokerRuntime runtime, IHttpContextAcces
                 long sleep = wakeWithin?.Invoke() is TimeSpan wake ? Math.Min(remaining, Math.Max(1, (long)Math.Ceiling(wake.TotalMilliseconds))) : remaining;
                 var unavailableIn = runtime.Store.TimeUntilAddressUnavailable(session);
                 sleep = Math.Min(sleep, Math.Max(1, (long)Math.Ceiling(unavailableIn.TotalMilliseconds)));
-                try { await changed.WaitAsync(TimeSpan.FromMilliseconds(sleep), cancellationToken); }
+                try { await changed.WaitAsync(TimeSpan.FromMilliseconds(sleep), requestClock, cancellationToken); }
                 catch (TimeoutException) { /* A real request/message/address deadline passed; recheck its state. */ }
             }
         }

@@ -301,8 +301,8 @@ public sealed partial class BrokerRuntime(BrokerStore store, IPeerFederation fed
         }
     }
 
-    // Discovery timing: each adapter's pass deadline and the pause after it. Internal so the lifecycle checks can scale
-    // them down; production keeps ten seconds each, inside the 30-second native leases a pass renews.
+    // Discovery timing: each adapter's pass deadline and interval between pass starts. Internal so lifecycle checks
+    // can scale them down. A slow pass consumes the interval rather than adding another pause before lease renewal.
     internal TimeSpan DiscoveryPassDeadline { get; init; } = TimeSpan.FromSeconds(10);
     internal TimeSpan DiscoveryInterval { get; init; } = TimeSpan.FromSeconds(10);
 
@@ -315,10 +315,15 @@ public sealed partial class BrokerRuntime(BrokerStore store, IPeerFederation fed
 
     private async Task DiscoverLoopAsync(ILocalAgentAdapter adapter, CancellationToken stop)
     {
+        var discoveryClock = clock ?? TimeProvider.System;
         while (!stop.IsCancellationRequested)
         {
+            var passStarted = discoveryClock.GetTimestamp();
             try
             {
+                // An already-started reconnect gets at most the interval it previously overlapped.
+                // Count preparation in cadence, but give owner queries a fresh pass deadline afterwards.
+                await adapter.PrepareDiscoveryAsync(DiscoveryInterval, stop);
                 using var deadline = CancellationTokenSource.CreateLinkedTokenSource(stop);
                 deadline.CancelAfter(DiscoveryPassDeadline);
                 var sessions = await adapter.DiscoverAsync(store.BrokerId, deadline.Token);
@@ -362,7 +367,9 @@ public sealed partial class BrokerRuntime(BrokerStore store, IPeerFederation fed
                 adapterNotes.TryRemove(adapter.Id, out _); // As above: a failed pass completed nothing to note.
                 adapterErrors[adapter.Id] = "adapter_failed";
             }
-            await Task.Delay(DiscoveryInterval, stop);
+            var pause = DiscoveryInterval - discoveryClock.GetElapsedTime(passStarted);
+            if (pause >= TimeSpan.FromMilliseconds(1)) await Task.Delay(pause, stop);
+            else await Task.Yield(); // Task.Delay truncates sub-ms waits; synchronous adapters must still cooperate.
         }
     }
 

@@ -195,7 +195,9 @@ jobs:
         # package on every host release even when the contract has not changed. Pushing to nuget.org stays a
         # deliberate manual act: see packaging\New-NuGetPackages.ps1, which prints the command.
         shell: pwsh
-        run: .\packaging\New-NuGetPackages.ps1 -OutputDirectory dist\nuget
+        run: |
+          .\tests\Test-NuGetPackagePrivacyRules.ps1
+          .\packaging\New-NuGetPackages.ps1 -OutputDirectory dist\nuget
 
       - name: Assemble release assets and checksums
         shell: pwsh

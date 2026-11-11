@@ -223,6 +223,12 @@ try {
     Write-Host '=== published module payloads' -ForegroundColor Cyan
     try { & (Join-Path $repoRoot 'tests\Test-ModuleSourceDiscovery.ps1') }
     catch { $failures.Add('Test-ModuleSourceDiscovery.ps1: ' + $_.Exception.Message) }
+    # The freshness rules' synthetic controls, the same try/catch form: they throw on the first failure. Once
+    # every LEGACY_PRESERVED zip is republished they are the only control left on the SourceLink reader.
+    try { & (Join-Path $repoRoot 'tests\Test-ModulePublishFreshnessRules.ps1') }
+    catch { $failures.Add('Test-ModulePublishFreshnessRules.ps1: ' + $_.Exception.Message) }
+    try { & (Join-Path $repoRoot 'tests\Test-NuGetPackagePrivacyRules.ps1') }
+    catch { $failures.Add('Test-NuGetPackagePrivacyRules.ps1: ' + $_.Exception.Message) }
     try { & (Join-Path $repoRoot 'packaging\Test-ModulePublishFreshness.ps1') }
     catch { $failures.Add('Test-ModulePublishFreshness.ps1: ' + $_.Exception.Message) }
 

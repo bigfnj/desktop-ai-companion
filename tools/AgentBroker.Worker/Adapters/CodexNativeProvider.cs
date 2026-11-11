@@ -260,6 +260,19 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
     // initialize request with its own five-second timeouts, so this bounds only what those leave.
     internal static readonly TimeSpan OwnerReconnectBudget = TimeSpan.FromSeconds(30);
 
+    public async Task PrepareDiscoveryAsync(TimeSpan maximumWait, CancellationToken stop)
+    {
+        stop.ThrowIfCancellationRequested();
+        var started = reconnecting;
+        if (started is null || started.IsCompleted || maximumWait <= TimeSpan.Zero) return;
+        // Waiting does not adopt, cancel, or detach this task. ResolveOwnerAsync or disposal still owns it.
+        // A timeout leaves the remainder to the established in-pass adopt/outlasted path.
+        try { await started.WaitAsync(maximumWait, stop); }
+        catch (OperationCanceledException) when (stop.IsCancellationRequested) { throw; }
+        catch (Exception) { } // As in AdoptReconnectAsync, an old reconnect failure is not a new pass failure.
+        stop.ThrowIfCancellationRequested();
+    }
+
     public async Task<DesktopOwnerBinding?> ResolveOwnerAsync(Guid conversationId, CancellationToken token)
     {
         // A reconnect that outlasted the pass deadline used to fail at its initialize request on the expired pass token
@@ -305,7 +318,8 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
         }
     }
 
-    // The reconnect after a failed lookup starts at once, so it runs in the pause between passes (N-broker-161-01). It used
+    // The reconnect after a failed lookup starts at once. It overlaps the cadence interval or, when that was consumed,
+    // at most one interval of preparation before the next pass deadline (N-broker-161-01). It used
     // to run inside the next pass, charged to whichever conversation came first: with one conversation whose lookup times
     // out on every pass (and drops the connection each time) and a reconnect longer than a pass, the other rows were
     // renewed on every other pass at best, and with 10-second passes and pauses that exceeds the 30-second lease

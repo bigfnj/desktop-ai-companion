@@ -255,9 +255,12 @@ jobs:
         # it automatically -- so it rots silently when module source lands without a republish. That is
         # how fortunes.zip shipped with no fortune corpus and aibrain.zip shipped without PR #71's
         # Windows OCR. Needs full history, hence fetch-depth: 0 on the checkout above.
+        # Test-ModulePublishFreshnessRules.ps1 runs the freshness rules' synthetic controls first, so a blind
+        # reader is reported before the verdict it would make vacuous, and a stale payload cannot hide it.
         shell: pwsh
         run: |
           .\tests\Test-ModuleSourceDiscovery.ps1
+          .\tests\Test-ModulePublishFreshnessRules.ps1
           .\packaging\Test-ModulePublishFreshness.ps1
 
       - name: Check catalog.json still describes the committed content
@@ -294,7 +297,9 @@ jobs:
         # Everything else release.yml runs already ran here on every push. Same script, same output
         # directory as the release; the packages ride in the artifact below so a reviewer can open them.
         shell: pwsh
-        run: .\packaging\New-NuGetPackages.ps1 -OutputDirectory dist\nuget
+        run: |
+          .\tests\Test-NuGetPackagePrivacyRules.ps1
+          .\packaging\New-NuGetPackages.ps1 -OutputDirectory dist\nuget
 
       - name: Upload the ZIP, MSI and author packages
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9   # v7.0.2

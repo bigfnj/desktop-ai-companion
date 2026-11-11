@@ -3535,14 +3535,49 @@ Assert-True (($buildStepSlices[0] -cmatch '(?m)^        id: build\s*$') -and
              ($moduleSelfTestSlices[0] -cmatch ('(?m)^' + [regex]::Escape($moduleSelfTestCondition) + '\s*$'))) (
     "build.yml's module self-test step runs whenever the build step succeeded, red product self-tests or not (RA-001)")
 
-# THE NUGET PACK RUNS ON EVERY PUSH. New-NuGetPackages.ps1 (dotnet pack, the README/lib assertions and the
-# dependency-free check) first executed on a v* tag, the one release-only build step left (RA-190); build.yml
-# runs it after the MSI and ships the packages in the artifact. The whole file is judged comment-stripped so
-# the prose that explains the step cannot satisfy it.
-$buildWorkflowCode = $buildWorkflowText -replace '(?m)^[ \t]*#.*$', ''
-$nugetPackRun = '        run: .\packaging\New-NuGetPackages.ps1 -OutputDirectory dist\nuget'
-Assert-True (($buildWorkflowCode -cmatch ('(?m)^' + [regex]::Escape($nugetPackRun) + '\s*$')) -and
-             ($buildWorkflowCode -cmatch '(?m)^            dist/nuget/\*\.nupkg\s*$')) (
+# THE NUGET PACK RUNS ON EVERY PUSH. Judge the named build job and steps, not a filename
+# elsewhere in YAML. The supported run forms are the original inline pack and the direct privacy-check
+# then pack block. A conditional step, nested command or reversed block cannot satisfy this invariant.
+function Test-NuGetBuildWorkflow([string]$WorkflowText) {
+    $raCode = $WorkflowText.Replace("`r`n", "`n") -replace '(?m)^[ \t]*#.*$', ''
+    $raJobs = [regex]::Matches($raCode, '(?ms)^  build:[ \t]*\r?\n(?<body>.*?)(?=^  [A-Za-z_][A-Za-z0-9_-]*:|\z)')
+    if ($raJobs.Count -ne 1) { return $false }
+    $raJob = $raJobs[0].Groups['body'].Value
+    if ($raJob -cmatch '(?m)^    if:') { return $false }
+    $raSteps = @([regex]::Matches($raJob, '(?ms)^      - name: (?<name>[^\r\n]+)\r?\n(?<body>.*?)(?=^      - |\z)'))
+    $raMsi = @($raSteps | Where-Object { $_.Groups['name'].Value -ceq 'Install WiX and build the MSI' })
+    $raPack = @($raSteps | Where-Object { $_.Groups['name'].Value -ceq 'Pack the module-author NuGet packages' })
+    $raUpload = @($raSteps | Where-Object { $_.Groups['name'].Value -ceq 'Upload the ZIP, MSI and author packages' })
+    if ($raMsi.Count -ne 1 -or $raPack.Count -ne 1 -or $raUpload.Count -ne 1) { return $false }
+    if ($raMsi[0].Index -ge $raPack[0].Index -or $raPack[0].Index -ge $raUpload[0].Index) { return $false }
+    $raPackBody = $raPack[0].Groups['body'].Value
+    $raUploadBody = $raUpload[0].Groups['body'].Value
+    if ($raPackBody -cmatch '(?m)^        (if|working-directory|uses):' -or
+        $raUploadBody -cmatch '(?m)^        if:') { return $false }
+    if ($raPackBody -cnotmatch '(?m)^        shell: pwsh[ \t]*$') { return $false }
+    $raRunLines = @($raPackBody -split '\r?\n')
+    $raRunIndices = @(for ($raIndex = 0; $raIndex -lt $raRunLines.Count; $raIndex++) {
+        if ($raRunLines[$raIndex] -cmatch '^        run: ') { $raIndex }
+    })
+    if ($raRunIndices.Count -ne 1) { return $false }
+    $raRunIndex = $raRunIndices[0]
+    $raRunValue = $raRunLines[$raRunIndex].Substring(13).Trim()
+    $raPackCommand = '.\packaging\New-NuGetPackages.ps1 -OutputDirectory dist\nuget'
+    if ($raRunValue -ceq '|') {
+        $raCommands = @()
+        for ($raIndex = $raRunIndex + 1; $raIndex -lt $raRunLines.Count; $raIndex++) {
+            if ([string]::IsNullOrWhiteSpace($raRunLines[$raIndex])) { continue }
+            if ($raRunLines[$raIndex] -cnotmatch '^          ') { break }
+            $raCommands += $raRunLines[$raIndex].Trim()
+        }
+        if ($raCommands.Count -ne 2 -or $raCommands[0] -cne '.\tests\Test-NuGetPackagePrivacyRules.ps1' -or
+            $raCommands[1] -cne $raPackCommand) { return $false }
+    } elseif ($raRunValue -cne $raPackCommand) { return $false }
+    return ($raUploadBody -cmatch '(?m)^        uses: actions/upload-artifact@[0-9a-f]{40}(?:[ \t]+#.*)?[ \t]*$' -and
+            $raUploadBody -cmatch '(?m)^          path: \|[ \t]*\r?\n(?:            [^\r\n]*\r?\n)*?            dist/nuget/\*\.nupkg[ \t]*(?:\r?\n|\z)' -and
+            $raUploadBody -cmatch '(?m)^          if-no-files-found: error[ \t]*$')
+}
+Assert-True (Test-NuGetBuildWorkflow $buildWorkflowText) (
     'build.yml packs the module-author NuGet packages on every push and uploads them with the ZIP and MSI (RA-190)')
 
 # THE RELEASE NOTES SAY SIGNED OR UNSIGNED FROM THE THUMBPRINT. release.yml hardcoded "Unsigned" in the notes
@@ -4591,7 +4626,7 @@ Assert-True (
 $insightPublishCode = Remove-PsLineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'packaging\New-ModulePublish.ps1') -Raw)
 $insightPublishJudgeAt = $insightPublishCode.IndexOf('Test-ModuleEntriesWithAppParser -RepoRoot $repoRoot', [StringComparison]::Ordinal)
 $insightPublishBuildAt = $insightPublishCode.IndexOf('& dotnet build $csproj.FullName', [StringComparison]::Ordinal)
-$insightPublishZipAt = $insightPublishCode.IndexOf("New-ModuleDistZip.ps1", [StringComparison]::Ordinal)
+$insightPublishZipAt = $insightPublishCode.IndexOf('$zip = & (Join-Path $PSScriptRoot ''New-ModuleDistZip.ps1'') @zipArguments', [StringComparison]::Ordinal)
 $insightPublishManifestAt = $insightPublishCode.IndexOf('[IO.File]::WriteAllText($manifestPath', [StringComparison]::Ordinal)
 Assert-True ($insightPublishJudgeAt -ge 0 -and $insightPublishBuildAt -ge 0 -and $insightPublishZipAt -ge 0 -and $insightPublishManifestAt -ge 0) (
     'catalog-insight: the publish''s judgement, build, zip and manifest write were located')

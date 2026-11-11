@@ -7,7 +7,7 @@ using AgentBroker.Worker.Adapters;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 
-internal static class RuntimeLifecycleChecks
+internal static partial class RuntimeLifecycleChecks
 {
     internal static async Task RunAsync(Action<bool, string> check)
     {
@@ -100,6 +100,679 @@ internal static class RuntimeLifecycleChecks
         await PeerAnswerInvalidAsync(check, scratch);
         SessionPreferenceLimit(check, scratch);
         await SessionPreferenceWiringAsync(check, scratch);
+        await DiscoveryCadenceChecksAsync(check);
+    }
+
+    // Trace-free cadence regressions: use ordinary provider/store/runtime seams only.
+    private static async Task DiscoveryCadenceChecksAsync(Action<bool, string> check)
+    {
+        using (var scratch = OwnedScratch.Create("runtime-cadence-consumed"))
+        {
+            var clock = new CadenceClock();
+            var owner = new CadenceOwner();
+            var interval = TimeSpan.FromSeconds(10);
+            DateTimeOffset firstLease = default;
+            int successfulReplies = 0, syntheticCancellationReplies = 0;
+            using var store = new BrokerStore(Path.Combine(scratch.Root, "store"), clock: clock);
+            var address = new SessionAddress(store.BrokerId, CadenceSessionId, owner.Binding.NativeSessionIncarnation);
+            bool firstPublicationObserved = false;
+            owner.Query = _ =>
+            {
+                int query = Volatile.Read(ref owner.Queries);
+                if (query <= 2) clock.Advance(interval);
+                if (query == 1) firstLease = clock.GetUtcNow().AddSeconds(30);
+                if (query == 2)
+                {
+                    Interlocked.Increment(ref syntheticCancellationReplies);
+                    // Deliberately synthetic: this is not proof that a real deadline elapsed.
+                    return Task.FromException<DesktopOwnerBinding?>(new OperationCanceledException("Synthetic cadence cancellation."));
+                }
+                // Expire the first proof so the final predicate must observe the new publication.
+                if (query == 3) clock.Advance(TimeSpan.FromSeconds(21));
+                Interlocked.Increment(ref successfulReplies);
+                return Task.FromResult<DesktopOwnerBinding?>(owner.Binding);
+            };
+            var provider = CadenceProvider(owner, async token =>
+            {
+                // This callback begins only after the preceding pass has completed publication.
+                if (Volatile.Read(ref owner.Queries) == 1)
+                    firstPublicationObserved = store.Directory().Any(item => item.Address == address && item.LeaseUntil == firstLease) &&
+                        store.IsAddressable(address) && store.IsVerifiedNativeSession(address);
+                // A fourth pass suspends, including under the no-pause control.
+                if (Volatile.Read(ref owner.Queries) >= 3) await Task.Delay(Timeout.Infinite, token);
+                return [CadenceRow(clock)];
+            });
+            var adapter = new CodexNativeAdapter(provider, enableDelivery: true, clock: clock);
+            await using var runtime = new BrokerRuntime(store, new SlowDirectoryFederation(Guid.Empty), [adapter], clock: clock)
+            { DiscoveryInterval = interval };
+            runtime.Start(default);
+            bool renewed = false;
+            using (var bound = new CancellationTokenSource(TimeSpan.FromSeconds(4)))
+            {
+                try
+                {
+                    while (!renewed)
+                    {
+                        var row = store.Directory().SingleOrDefault(item => item.Address == address);
+                        renewed = firstPublicationObserved && Volatile.Read(ref owner.Queries) == 3 && Volatile.Read(ref successfulReplies) == 2 &&
+                            Volatile.Read(ref syntheticCancellationReplies) == 1 && clock.GetUtcNow() > firstLease &&
+                            row is not null && row.LeaseUntil > firstLease &&
+                            store.IsAddressable(address) && store.IsVerifiedNativeSession(address);
+                        if (!renewed) await Task.Delay(5, bound.Token);
+                    }
+                }
+                catch (OperationCanceledException) when (bound.IsCancellationRequested) { }
+            }
+            var current = store.Directory().SingleOrDefault(item => item.Address.SessionId == CadenceSessionId);
+            check(renewed && firstPublicationObserved && current is not null && current.Address == address &&
+                current.LeaseUntil == clock.GetUtcNow().AddSeconds(30) &&
+                Volatile.Read(ref successfulReplies) == 2 && Volatile.Read(ref syntheticCancellationReplies) == 1 && owner.Submits == 0,
+                "NATIVE_DISCOVERY_CONSUMED_INTERVAL_RENEWS: actual runtime promptly retries consumed success and synthetic cancellation passes, renewing the same exact native tuple and expired proof within a four-second bound");
+        }
+        await FastDiscoveryCadenceChecksAsync(check);
+        await YieldDiscoveryCadenceChecksAsync(check);
+        await PostConsumedFastCadenceChecksAsync(check);
+        await AdditionalYieldCadenceChecksAsync(check, TimeSpan.FromSeconds(11),
+            "NATIVE_DISCOVERY_NEGATIVE_PASS_YIELDS: an overdue synchronous pass yields before another observation");
+        await AdditionalYieldCadenceChecksAsync(check, TimeSpan.FromSeconds(10) - TimeSpan.FromTicks(1),
+            "NATIVE_DISCOVERY_SUBMILLISECOND_PASS_YIELDS: a positive sub-millisecond remainder yields instead of synchronously repeating discovery");
+        await ReconnectPreparationCadenceChecksAsync(check);
+        await ReconnectPreparationCadenceChecksAsync(check, shutdownWhilePreparing: true);
+        await ReconnectPreparationLifetimeChecksAsync(check);
+        await ReconnectPreparationOutlastedCapChecksAsync(check);
+        await ReconnectAdoptTwiceChecksAsync(check);
+    }
+
+    private static async Task PostConsumedFastCadenceChecksAsync(Action<bool, string> check)
+    {
+        using var scratch = OwnedScratch.Create("runtime-cadence-consumed-fast");
+        var clock = new CadenceClock(); var owner = new CadenceOwner();
+        using var stop = new CancellationTokenSource();
+        var interval = TimeSpan.FromMinutes(1);
+        owner.Query = _ =>
+        {
+            if (Volatile.Read(ref owner.Queries) == 1) clock.Advance(interval + TimeSpan.FromSeconds(1));
+            return Task.FromResult<DesktopOwnerBinding?>(owner.Binding);
+        };
+        int observations = 0;
+        var provider = CadenceProvider(owner, _ =>
+        {
+            if (Interlocked.Increment(ref observations) > 2) stop.Cancel();
+            return Task.FromResult<IReadOnlyList<DesktopDirectorySession>>([CadenceRow(clock)]);
+        });
+        var adapter = new CodexNativeAdapter(provider, enableDelivery: true, clock: clock);
+        using var store = new BrokerStore(Path.Combine(scratch.Root, "store"), clock: clock);
+        var runtime = new BrokerRuntime(store, new SlowDirectoryFederation(Guid.Empty), [adapter], clock: clock)
+        { DiscoveryInterval = interval };
+        var context = new CadenceStartContext(); var previous = SynchronizationContext.Current;
+        bool paused = false, unrelatedReadyRan = false;
+        var address = new SessionAddress(store.BrokerId, CadenceSessionId, owner.Binding.NativeSessionIncarnation);
+        try
+        {
+            SynchronizationContext.SetSynchronizationContext(context);
+            context.Post(_ => unrelatedReadyRan = true, null);
+            runtime.Start(stop.Token);
+            bool drained = context.DrainReady(64);
+            paused = drained && unrelatedReadyRan && observations == 2 && owner.Queries == 2 &&
+                !stop.IsCancellationRequested && store.IsAddressable(address) && store.IsVerifiedNativeSession(address);
+        }
+        finally
+        {
+            SynchronizationContext.SetSynchronizationContext(previous);
+            stop.Cancel(); context.Release();
+            await runtime.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        check(paused && owner.Submits == 0,
+            "NATIVE_DISCOVERY_POST_CONSUMED_FAST_PASS_PAUSES: after a consumed pass, a later fast pass measures its own interval and pauses before the third-observation escape");
+    }
+
+    private static async Task AdditionalYieldCadenceChecksAsync(Action<bool, string> check, TimeSpan consumed, string label)
+    {
+        using var scratch = OwnedScratch.Create("runtime-cadence-yield-edge");
+        var clock = new CadenceClock(); var owner = new CadenceOwner();
+        using var stop = new CancellationTokenSource();
+        owner.Query = _ => { clock.Advance(consumed); return Task.FromResult<DesktopOwnerBinding?>(owner.Binding); };
+        int observations = 0;
+        var provider = CadenceProvider(owner, _ =>
+        {
+            if (Interlocked.Increment(ref observations) > 1) stop.Cancel();
+            return Task.FromResult<IReadOnlyList<DesktopDirectorySession>>([CadenceRow(clock)]);
+        });
+        var adapter = new CodexNativeAdapter(provider, enableDelivery: true, clock: clock);
+        using var store = new BrokerStore(Path.Combine(scratch.Root, "store"), clock: clock);
+        var runtime = new BrokerRuntime(store, new SlowDirectoryFederation(Guid.Empty), [adapter], clock: clock);
+        var address = new SessionAddress(store.BrokerId, CadenceSessionId, owner.Binding.NativeSessionIncarnation);
+        var context = new CadenceStartContext(); var previous = SynchronizationContext.Current;
+        bool yielded = false;
+        try
+        {
+            SynchronizationContext.SetSynchronizationContext(context);
+            runtime.Start(stop.Token);
+            yielded = observations == 1 && context.QueuedCount > 0 &&
+                store.IsAddressable(address) && store.IsVerifiedNativeSession(address);
+        }
+        finally
+        {
+            SynchronizationContext.SetSynchronizationContext(previous);
+            stop.Cancel(); context.Release();
+            await runtime.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        check(yielded && owner.Queries == 1 && owner.Submits == 0, label);
+    }
+
+    // Every member forwards to the actual provider, including interface defaults. This observes the
+    // adapter-to-discovery-provider boundary without implementing reconnect waiting or adoption itself.
+    private sealed class PreparationDiscoveryProvider(ICodexNativeProvider inner, Func<bool> retired) : ICodexNativeProvider
+    {
+        internal readonly TaskCompletionSource ReconnectPreparationWaiting = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal TimeSpan? ReconnectMaximumWait;
+        internal long ReconnectPreparationStarted;
+        internal int ReconnectPreparations;
+        public bool NativeIdleGuard => inner.NativeIdleGuard;
+        public bool VerificationPending => inner.VerificationPending;
+        public IReadOnlyList<AdapterDiscoveryDiagnostic> DiscoveryDiagnostics => inner.DiscoveryDiagnostics;
+        public void CompleteDiscovery(bool updateTolerantDelivery) => inner.CompleteDiscovery(updateTolerantDelivery);
+        public bool IsDeliveryAuthorized(DesktopOwnerBinding binding) => inner.IsDeliveryAuthorized(binding);
+        public CodexDeliveryAuthority Authorize(DesktopOwnerBinding binding) => inner.Authorize(binding);
+        public Task PrepareDiscoveryAsync(TimeSpan maximumWait, CancellationToken stop)
+        {
+            bool reconnect = retired();
+            if (reconnect)
+            {
+                Interlocked.Increment(ref ReconnectPreparations);
+                ReconnectMaximumWait = maximumWait;
+                Interlocked.CompareExchange(ref ReconnectPreparationStarted, Stopwatch.GetTimestamp(), 0);
+            }
+            var preparation = inner.PrepareDiscoveryAsync(maximumWait, stop);
+            if (reconnect && !preparation.IsCompleted) ReconnectPreparationWaiting.TrySetResult();
+            return preparation;
+        }
+        public Task<IReadOnlyList<DesktopDirectorySession>> ObserveAsync(CancellationToken token) => inner.ObserveAsync(token);
+        public Task PrepareDeliveryAsync(CancellationToken token) => inner.PrepareDeliveryAsync(token);
+        public bool VerifiesDeliveryAtSubmission => inner.VerifiesDeliveryAtSubmission;
+        public Task<DesktopOwnerBinding?> ResolveOwnerAsync(Guid conversationId, CancellationToken token)
+            => inner.ResolveOwnerAsync(conversationId, token);
+        public Task<DesktopSubmissionResult> SubmitAsync(DesktopOwnerBinding binding, Guid messageId, string text, CancellationToken token)
+            => inner.SubmitAsync(binding, messageId, text, token);
+        public ValueTask DisposeAsync() => inner.DisposeAsync();
+    }
+
+    // Records the real adapter's operation boundary; it never implements preparation or reconnect adoption itself.
+    private sealed class PreparationRecordingAdapter(CodexNativeAdapter inner, Func<bool> retired) : ILocalAgentAdapter
+    {
+        internal readonly TaskCompletionSource PreparationEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal readonly TaskCompletionSource DiscoveryEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal readonly TaskCompletionSource DiscoveryCancelled = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal TimeSpan? PreparationMaximumWait;
+        internal int PreparedDiscoveries, FirstPreparedDiscoveryCancelled;
+        internal IReadOnlyList<BrokerSession>? FirstPreparedSessions;
+        public string Id => inner.Id;
+        public bool DiscoveryCensusComplete => inner.DiscoveryCensusComplete;
+        public IReadOnlyList<AdapterDiscoveryDiagnostic> DiscoveryDiagnostics => inner.DiscoveryDiagnostics;
+        public Task PrepareDiscoveryAsync(TimeSpan maximumWait, CancellationToken stop)
+        {
+            if (retired())
+            {
+                PreparationMaximumWait = maximumWait;
+                PreparationEntered.TrySetResult();
+            }
+            return inner.PrepareDiscoveryAsync(maximumWait, stop);
+        }
+        public async Task<IReadOnlyList<BrokerSession>> DiscoverAsync(Guid brokerId, CancellationToken token)
+        {
+            bool firstPrepared = retired() && Interlocked.Increment(ref PreparedDiscoveries) == 1;
+            using var cancellation = token.Register(() =>
+            {
+                if (retired()) DiscoveryCancelled.TrySetResult();
+                if (firstPrepared) Interlocked.Exchange(ref FirstPreparedDiscoveryCancelled, 1);
+            });
+            if (retired()) DiscoveryEntered.TrySetResult();
+            var sessions = await inner.DiscoverAsync(brokerId, token);
+            if (firstPrepared) Volatile.Write(ref FirstPreparedSessions, sessions);
+            return sessions;
+        }
+        public Task<AdapterResult> SubmitAsync(BrokerMessage message, CancellationToken token) => inner.SubmitAsync(message, token);
+        public Task<AdapterResult> SubmitAsync(BrokerMessage message, PeerSenderInfo? sender, CancellationToken token)
+            => ((ILocalAgentAdapter)inner).SubmitAsync(message, sender, token);
+        public SessionAddress? FindSessionByProcess(int processId, ulong startFileTime)
+            => ((ILocalAgentAdapter)inner).FindSessionByProcess(processId, startFileTime);
+        public EngineBinding? EngineBindingOf(SessionAddress address) => inner.EngineBindingOf(address);
+        public ValueTask DisposeAsync() => inner.DisposeAsync();
+    }
+    private sealed class PreparationOwner(Guid healthy, Guid slow, Guid owner, Guid incarnation) : ICodexOwnerConnection
+    {
+        internal int Queries, Disposals, Submits;
+        internal bool HangSlow, FailHealthy;
+        internal TimeSpan HealthyDelay;
+        internal Action? SlowCancelled;
+        internal readonly TaskCompletionSource Disposed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public bool NativeIdleGuard => true;
+        internal DesktopOwnerBinding Binding => new(healthy, owner, incarnation, 12345, 134000000000000000, true)
+            { RouterTrust = DesktopRouterTrust.ExactPinned };
+        public async Task<DesktopOwnerBinding?> DiscoverAsync(Guid conversationId, CancellationToken token)
+        {
+            Interlocked.Increment(ref Queries);
+            if (conversationId == healthy)
+            {
+                if (FailHealthy) throw new IOException("Synthetic preparation lookup failure.");
+                token.ThrowIfCancellationRequested();
+                if (HealthyDelay > TimeSpan.Zero) await Task.Delay(HealthyDelay, token);
+                return Binding;
+            }
+            if (conversationId == slow && HangSlow)
+            {
+                try { await Task.Delay(Timeout.Infinite, token); }
+                catch (OperationCanceledException) when (token.IsCancellationRequested) { SlowCancelled?.Invoke(); throw; }
+            }
+            return null;
+        }
+        public Task<DesktopSubmissionResult> SubmitAsync(DesktopOwnerBinding binding, Guid messageId, string text, CancellationToken token)
+        { Interlocked.Increment(ref Submits); throw new InvalidOperationException("Preparation checks never submit."); }
+        public ValueTask DisposeAsync() { Interlocked.Increment(ref Disposals); Disposed.TrySetResult(); return ValueTask.CompletedTask; }
+    }
+
+    private static async Task ReconnectPreparationCadenceChecksAsync(Action<bool, string> check, bool shutdownWhilePreparing = false)
+    {
+        using var scratch = OwnedScratch.Create("runtime-cadence-preparation");
+        var clock = new CadenceClock(); var observationClock = new CadenceObservationClock(clock);
+        var healthy = Guid.NewGuid(); var slow = Guid.NewGuid(); var ownerId = Guid.NewGuid(); var incarnation = Guid.NewGuid();
+        var first = new PreparationOwner(healthy, slow, ownerId, incarnation) { HangSlow = true };
+        // Only the reconnect's healthy query takes time. The first pass remains unchanged.
+        var next = new PreparationOwner(healthy, slow, ownerId, incarnation) { HealthyDelay = TimeSpan.FromMilliseconds(100) };
+        var interval = TimeSpan.FromSeconds(10);
+        first.SlowCancelled = () => clock.Advance(interval);
+        int connects = 0;
+        var connecting = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource<ICodexOwnerConnection>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var stop = new CancellationTokenSource();
+        using var probeStop = new CancellationTokenSource();
+        var provider = new CodexNativeProvider(true, _ =>
+        {
+            if (Interlocked.Increment(ref connects) == 1) return Task.FromResult<ICodexOwnerConnection>(first);
+            connecting.TrySetResult(); return release.Task;
+        }, () => { }, _ => Task.FromResult<IReadOnlyList<DesktopDirectorySession>>(
+            [new(healthy, DesktopSessionActivity.Idle, clock.GetUtcNow(), clock.GetUtcNow()),
+             new(slow, DesktopSessionActivity.Idle, clock.GetUtcNow(), clock.GetUtcNow())]));
+        var discoveryProvider = new PreparationDiscoveryProvider(provider, () => Volatile.Read(ref first.Disposals) > 0);
+        int deliveryConnections = 0, deliveryObservations = 0, deliveryVerifications = 0;
+        var deliveryProvider = new CodexNativeProvider(true,
+            _ => { Interlocked.Increment(ref deliveryConnections); throw new InvalidOperationException("Synthetic unpublished delivery must not connect."); },
+            () => { Interlocked.Increment(ref deliveryVerifications); throw new InvalidOperationException("Synthetic unpublished delivery must not verify."); },
+            _ => { Interlocked.Increment(ref deliveryObservations); throw new InvalidOperationException("Synthetic delivery must not enumerate."); });
+        var inner = new CodexNativeAdapter(discoveryProvider, enableDelivery: true, clock: clock, deliveryProvider: deliveryProvider);
+        var adapter = new PreparationRecordingAdapter(inner, () => Volatile.Read(ref first.Disposals) > 0);
+        using var store = new BrokerStore(Path.Combine(scratch.Root, "store"), clock: clock);
+        var address = new SessionAddress(store.BrokerId, "codex:" + healthy.ToString("D"), first.Binding.NativeSessionIncarnation);
+        var firstPublished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var renewed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        DateTimeOffset firstLease = default;
+        var phaseGate = new object();
+        observationClock.BeforeUtcNow = () =>
+        {
+            var row = store.Directory().SingleOrDefault(item => item.Address == address);
+            if (row is null || !store.IsVerifiedNativeSession(address)) return;
+            lock (phaseGate)
+            {
+                if (firstLease == default) { firstLease = row.LeaseUntil; firstPublished.TrySetResult(); }
+                else if (row.LeaseUntil > firstLease) renewed.TrySetResult();
+            }
+        };
+        var discoveryDeadline = TimeSpan.FromMilliseconds(500);
+        var runtime = new BrokerRuntime(store, new SlowDirectoryFederation(Guid.Empty), [adapter], clock: observationClock)
+        { DiscoveryInterval = interval, DiscoveryPassDeadline = discoveryDeadline };
+        bool complete = false, preparationFirst = false, discoveryPreparationObserved = false;
+        bool deliveryUnblocked = false, probeSettled = true;
+        bool deadlineWindowObserved = shutdownWhilePreparing;
+        TimeSpan preparationElapsed = TimeSpan.Zero;
+        Task? disposal = null;
+        Task<AdapterResult>? submissionProbe = null;
+        string phase = "not_started";
+        bool timedOut = false;
+        try
+        {
+            runtime.Start(stop.Token);
+            phase = "await_first_publication";
+            await firstPublished.Task.WaitAsync(TimeSpan.FromSeconds(4));
+            phase = "await_reconnect";
+            await connecting.Task.WaitAsync(TimeSpan.FromSeconds(4));
+            phase = "await_preparation_or_discovery";
+            await Task.WhenAny(adapter.PreparationEntered.Task, adapter.DiscoveryEntered.Task).WaitAsync(TimeSpan.FromSeconds(4));
+            preparationFirst = adapter.PreparationEntered.Task.IsCompleted && !adapter.DiscoveryEntered.Task.IsCompleted;
+            if (!preparationFirst)
+            {
+                phase = "await_discovery_cancellation";
+                await adapter.DiscoveryCancelled.Task.WaitAsync(TimeSpan.FromSeconds(4));
+            }
+            if (preparationFirst)
+            {
+                phase = "await_discovery_provider_preparation";
+                await discoveryProvider.ReconnectPreparationWaiting.Task.WaitAsync(TimeSpan.FromSeconds(4));
+                discoveryPreparationObserved = !release.Task.IsCompleted && !adapter.DiscoveryEntered.Task.IsCompleted &&
+                    discoveryProvider.ReconnectMaximumWait == interval;
+                // This is an unpublished, entirely synthetic recipient. A free independent delivery gate
+                // returns immediately before verification, owner connection or any input method is reached.
+                var probe = new BrokerMessage(Guid.NewGuid(), Guid.NewGuid(), null,
+                    new(store.BrokerId, "synthetic-sender", Guid.NewGuid()),
+                    new(store.BrokerId, "codex:" + Guid.NewGuid().ToString("D"), Guid.NewGuid()),
+                    "Synthetic unpublished delivery probe.", clock.GetUtcNow(), clock.GetUtcNow().AddMinutes(1));
+                submissionProbe = inner.SubmitAsync(probe, probeStop.Token);
+                deliveryUnblocked = submissionProbe.IsCompletedSuccessfully &&
+                    submissionProbe.GetAwaiter().GetResult() is { Outcome: AdapterAdmission.DeferredNotSubmitted, Reason: "native_session_unavailable" };
+            }
+            if (preparationFirst && !shutdownWhilePreparing)
+            {
+                // Hold across three real deadline windows, then reflect actual elapsed preparation
+                // in the store/runtime test clock. Queries must still receive a new full deadline.
+                var requestedWindow = discoveryDeadline + discoveryDeadline + discoveryDeadline;
+                var held = Stopwatch.StartNew();
+                phase = "observe_deadline_window";
+                await Task.Delay(requestedWindow, stop.Token);
+                held.Stop();
+                preparationElapsed = Stopwatch.GetElapsedTime(Volatile.Read(ref discoveryProvider.ReconnectPreparationStarted));
+                clock.Advance(preparationElapsed);
+                deadlineWindowObserved = held.Elapsed >= discoveryDeadline + discoveryDeadline &&
+                    preparationElapsed >= held.Elapsed && !adapter.DiscoveryEntered.Task.IsCompleted && !release.Task.IsCompleted;
+                Console.WriteLine("WITNESS: CODEX_RUNTIME_PREPARATION_WINDOW requestedTicks=" + requestedWindow.Ticks +
+                    " elapsedTicks=" + held.Elapsed.Ticks + " preparationElapsedTicks=" + preparationElapsed.Ticks +
+                    " maximumWaitTicks=" + adapter.PreparationMaximumWait?.Ticks);
+            }
+            if (shutdownWhilePreparing && preparationFirst)
+            {
+                disposal = runtime.DisposeAsync().AsTask();
+                phase = "await_runtime_shutdown";
+                await disposal.WaitAsync(TimeSpan.FromSeconds(4));
+                bool stoppedBeforeRelease = !release.Task.IsCompleted && !renewed.Task.IsCompleted;
+                release.TrySetResult(next);
+                phase = "await_late_disposal";
+                await next.Disposed.Task.WaitAsync(TimeSpan.FromSeconds(4));
+                complete = stoppedBeforeRelease && connects == 2 && first.Disposals == 1 && next.Disposals == 1;
+            }
+            else
+            {
+                release.TrySetResult(next);
+                if (preparationFirst)
+                {
+                    phase = "await_renewal";
+                    await renewed.Task.WaitAsync(TimeSpan.FromSeconds(4));
+                }
+                // An immediate retry must not mask a first prepared pass whose shortened deadline
+                // cancelled or skipped the healthy lookup. Observe its actual returned sessions.
+                var preparedSessions = Volatile.Read(ref adapter.FirstPreparedSessions);
+                complete = preparationFirst && firstLease != default && renewed.Task.IsCompleted &&
+                    preparedSessions is not null && preparedSessions.Any(row => row.Address == address && row.LeaseUntil > firstLease) &&
+                    Volatile.Read(ref adapter.FirstPreparedDiscoveryCancelled) == 0 &&
+                    store.Directory().Any(row => row.Address == address && row.LeaseUntil > firstLease) &&
+                    store.IsAddressable(address) && store.IsVerifiedNativeSession(address) && connects == 2 && first.Disposals == 1;
+            }
+        }
+        catch (TimeoutException) { timedOut = true; }
+        finally
+        {
+            probeStop.Cancel(); release.TrySetResult(next); stop.Cancel();
+            await (disposal ?? runtime.DisposeAsync().AsTask()).WaitAsync(TimeSpan.FromSeconds(5));
+            if (submissionProbe is not null)
+            {
+                try { await submissionProbe.WaitAsync(TimeSpan.FromSeconds(5)); }
+                catch (Exception error) when (error is TimeoutException or OperationCanceledException or InvalidOperationException) { probeSettled = false; }
+            }
+        }
+        Console.WriteLine("NOTE CODEX_RUNTIME_PREPARATION_PHASE phase=" + phase + "; timeout=" + timedOut +
+            "; firstPublished=" + firstPublished.Task.IsCompletedSuccessfully + "; reconnectStarted=" + connecting.Task.IsCompletedSuccessfully +
+            "; preparationEntered=" + adapter.PreparationEntered.Task.IsCompletedSuccessfully +
+            "; discoveryProviderWaiting=" + discoveryPreparationObserved + "; deliveryUnblocked=" + deliveryUnblocked +
+            "; probeSettled=" + probeSettled + "; preparationElapsedTicks=" + preparationElapsed.Ticks +
+            "; discoveryEntered=" + adapter.DiscoveryEntered.Task.IsCompletedSuccessfully +
+            "; discoveryCancelled=" + adapter.DiscoveryCancelled.Task.IsCompletedSuccessfully +
+            "; firstPreparedCancelled=" + Volatile.Read(ref adapter.FirstPreparedDiscoveryCancelled) +
+            "; firstPreparedSessionCount=" + Volatile.Read(ref adapter.FirstPreparedSessions)?.Count +
+            "; deadlineWindow=" + deadlineWindowObserved + "; preparationArgumentMatches=" + (adapter.PreparationMaximumWait == interval) +
+            "; providerArgumentMatches=" + (discoveryProvider.ReconnectMaximumWait == interval) +
+            "; exactTuple=" + (first.Binding.NativeSessionIncarnation == address.Incarnation && next.Binding.NativeSessionIncarnation == address.Incarnation) +
+            "; connects=" + Volatile.Read(ref connects) + "; firstQueries=" + Volatile.Read(ref first.Queries) +
+            "; nextQueries=" + Volatile.Read(ref next.Queries) + "; firstDisposals=" + Volatile.Read(ref first.Disposals) +
+            "; nextDisposals=" + Volatile.Read(ref next.Disposals));
+        check(complete && preparationFirst && discoveryPreparationObserved && deliveryUnblocked && probeSettled &&
+            deadlineWindowObserved && adapter.PreparationMaximumWait == interval && discoveryProvider.ReconnectMaximumWait == interval &&
+            deliveryConnections == 0 && deliveryObservations == 0 && deliveryVerifications == 0 &&
+            first.Disposals == 1 && next.Disposals == 1 && first.Submits == 0 && next.Submits == 0,
+            shutdownWhilePreparing
+                ? "CODEX_RUNTIME_RECONNECT_PREPARATION_SHUTDOWN: actual runtime disposal cancels preparation and releases its gate before the held reconnect is released, then closes the late synthetic connection exactly once"
+                : "CODEX_RUNTIME_RECONNECT_PREPARATION_FRESH_PASS: after actual slow-row cancellation and first native publication, runtime awaits the held reconnect before discovery and renews the same healthy tuple without a manual inter-pass pause");
+    }
+    private static async Task ReconnectPreparationLifetimeChecksAsync(Action<bool, string> check)
+    {
+        var healthy = Guid.NewGuid(); var slow = Guid.NewGuid(); var ownerId = Guid.NewGuid(); var incarnation = Guid.NewGuid();
+        var first = new PreparationOwner(healthy, slow, ownerId, incarnation);
+        var late = new PreparationOwner(healthy, slow, ownerId, incarnation);
+        int connects = 0;
+        CancellationToken reconnectToken = default;
+        var connecting = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource<ICodexOwnerConnection>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var provider = new CodexNativeProvider(true, token =>
+        {
+            if (Interlocked.Increment(ref connects) == 1) return Task.FromResult<ICodexOwnerConnection>(first);
+            reconnectToken = token; connecting.TrySetResult(); return release.Task;
+        }, () => { }, _ => Task.FromResult<IReadOnlyList<DesktopDirectorySession>>([]));
+        bool disposed = false;
+        var preparations = new List<Task>();
+        try
+        {
+            await provider.ResolveOwnerAsync(healthy, default);
+            first.FailHealthy = true;
+            try { await provider.ResolveOwnerAsync(healthy, default); }
+            catch (IOException) { }
+            await connecting.Task.WaitAsync(TimeSpan.FromSeconds(4));
+            bool capReturned = false;
+            var capped = provider.PrepareDiscoveryAsync(TimeSpan.FromMilliseconds(50), default);
+            preparations.Add(capped);
+            try { await capped.WaitAsync(TimeSpan.FromSeconds(4)); capReturned = true; }
+            catch (TimeoutException) { }
+            check(capReturned && !release.Task.IsCompleted && !reconnectToken.IsCancellationRequested && connects == 2 && first.Disposals == 1 && late.Disposals == 0,
+                "CODEX_RUNTIME_RECONNECT_PREPARATION_CAP: preparation completes without awaiting the held reconnect, leaving that reconnect owned by the provider");
+            using var stop = new CancellationTokenSource();
+            var waiting = provider.PrepareDiscoveryAsync(TimeSpan.FromMinutes(1), stop.Token);
+            preparations.Add(waiting);
+            bool admitted = !waiting.IsCompleted;
+            stop.Cancel();
+            bool cancelled = false;
+            try { await waiting.WaitAsync(TimeSpan.FromSeconds(4)); }
+            catch (OperationCanceledException) when (stop.IsCancellationRequested) { cancelled = true; }
+            catch (TimeoutException) { }
+            check(admitted && cancelled && !release.Task.IsCompleted && !reconnectToken.IsCancellationRequested && connects == 2,
+                "CODEX_RUNTIME_RECONNECT_PREPARATION_STOP: preparation propagates its caller cancellation without cancelling or replacing the independently owned reconnect");
+            await provider.DisposeAsync(); disposed = true;
+            release.TrySetResult(late);
+            bool lateClosed = false;
+            try { await late.Disposed.Task.WaitAsync(TimeSpan.FromSeconds(4)); lateClosed = true; }
+            catch (TimeoutException) { }
+            check(lateClosed && first.Disposals == 1 && late.Disposals == 1 && reconnectToken.IsCancellationRequested && connects == 2 && first.Submits == 0 && late.Submits == 0,
+                "CODEX_RUNTIME_RECONNECT_PREPARATION_LATE_DISPOSAL: provider shutdown cancels its pending budget and closes the explicitly released late connection exactly once");
+        }
+        finally
+        {
+            if (!disposed) await provider.DisposeAsync();
+            release.TrySetResult(late);
+            foreach (var preparation in preparations)
+            {
+                try { await preparation.WaitAsync(TimeSpan.FromSeconds(5)); }
+                catch (OperationCanceledException) { }
+            }
+            // A failed late-close control still releases its purely synthetic resource; it cannot make the earlier check pass.
+            if (!late.Disposed.Task.IsCompleted) await late.DisposeAsync();
+        }
+    }
+
+    private static async Task FastDiscoveryCadenceChecksAsync(Action<bool, string> check)
+    {
+        using var scratch = OwnedScratch.Create("runtime-cadence-fast");
+        var clock = new CadenceClock();
+        var observationClock = new CadenceObservationClock(clock);
+        var owner = new CadenceOwner();
+        using var stop = new CancellationTokenSource();
+        int observations = 0;
+        var provider = CadenceProvider(owner, _ =>
+        {
+            // A missing positive pause has an independent finite escape.
+            if (Interlocked.Increment(ref observations) > 1) stop.Cancel();
+            return Task.FromResult<IReadOnlyList<DesktopDirectorySession>>([CadenceRow(clock)]);
+        });
+        var adapter = new CodexNativeAdapter(provider, enableDelivery: true, clock: clock);
+        using var store = new BrokerStore(Path.Combine(scratch.Root, "store"), clock: clock);
+        var runtime = new BrokerRuntime(store, new SlowDirectoryFederation(Guid.Empty), [adapter], clock: observationClock)
+        { DiscoveryInterval = TimeSpan.FromMinutes(1) };
+        var address = new SessionAddress(store.BrokerId, CadenceSessionId, owner.Binding.NativeSessionIncarnation);
+        bool publicationObserved = false;
+        // DeliveryObservations reads Runtime's clock only after actual native-proof publication.
+        // Store uses the plain shared clock, so this proof query cannot recurse into this callback.
+        observationClock.BeforeUtcNow = () =>
+        {
+            if (!publicationObserved && store.IsVerifiedNativeSession(address)) publicationObserved = true;
+        };
+        var context = new CadenceStartContext();
+        var previous = SynchronizationContext.Current;
+        bool paused = false;
+        bool unrelatedReadyRan = false;
+        try
+        {
+            SynchronizationContext.SetSynchronizationContext(context);
+            // Nondegenerate ready work representing an unrelated captured timer callback.
+            context.Post(_ => unrelatedReadyRan = true, null);
+            runtime.Start(stop.Token);
+            // Other runtime loops share this context. Run their ready callbacks too,
+            // rather than mistaking an unrelated timer for a discovery continuation.
+            bool drained = context.DrainReady(64);
+            paused = drained && unrelatedReadyRan && publicationObserved && Volatile.Read(ref observations) == 1 && !stop.IsCancellationRequested &&
+                owner.Queries == 1 && store.IsAddressable(address) && store.IsVerifiedNativeSession(address);
+        }
+        finally
+        {
+            SynchronizationContext.SetSynchronizationContext(previous);
+            stop.Cancel();
+            context.Release();
+            await runtime.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        check(paused && owner.Queries == 1 && owner.Submits == 0,
+            "NATIVE_DISCOVERY_FAST_PASS_PAUSES: after ready runtime callbacks drain, verified fast discovery retains its positive pause and one metadata observation without triggering the second-observation cancellation escape");
+    }
+
+    private static async Task YieldDiscoveryCadenceChecksAsync(Action<bool, string> check)
+    {
+        using var scratch = OwnedScratch.Create("runtime-cadence-yield");
+        var clock = new CadenceClock();
+        var owner = new CadenceOwner();
+        using var stop = new CancellationTokenSource();
+        owner.Query = _ => { clock.Advance(TimeSpan.FromSeconds(10)); return Task.FromResult<DesktopOwnerBinding?>(owner.Binding); };
+        int observations = 0;
+        var provider = CadenceProvider(owner, _ =>
+        {
+            // Removing the yield reaches this independent finite escape, never an unbounded loop.
+            if (Interlocked.Increment(ref observations) > 1) stop.Cancel();
+            return Task.FromResult<IReadOnlyList<DesktopDirectorySession>>([CadenceRow(clock)]);
+        });
+        var adapter = new CodexNativeAdapter(provider, enableDelivery: true, clock: clock);
+        using var store = new BrokerStore(Path.Combine(scratch.Root, "store"), clock: clock);
+        var runtime = new BrokerRuntime(store, new SlowDirectoryFederation(Guid.Empty), [adapter], clock: clock);
+        var context = new CadenceStartContext();
+        var previous = SynchronizationContext.Current;
+        bool yielded = false;
+        var address = new SessionAddress(store.BrokerId, CadenceSessionId, owner.Binding.NativeSessionIncarnation);
+        try
+        {
+            SynchronizationContext.SetSynchronizationContext(context);
+            runtime.Start(stop.Token);
+            yielded = Volatile.Read(ref observations) == 1 && context.QueuedCount > 0 &&
+                store.IsAddressable(address) && store.IsVerifiedNativeSession(address);
+        }
+        finally
+        {
+            SynchronizationContext.SetSynchronizationContext(previous);
+            stop.Cancel();
+            context.Release();
+            await runtime.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        check(yielded && owner.Queries == 1 && owner.Submits == 0,
+            "NATIVE_DISCOVERY_CONSUMED_PASS_YIELDS: synchronous consumed discovery publishes its native proof and yields startup before another pass; the missing-yield control cancels at the second observation");
+    }
+
+    private static readonly Guid CadenceThread = Guid.Parse("10000000-0000-0000-0000-000000000001");
+    private static string CadenceSessionId => "codex:" + CadenceThread.ToString("D");
+    private static DesktopDirectorySession CadenceRow(CadenceClock clock) =>
+        new(CadenceThread, DesktopSessionActivity.Idle, clock.GetUtcNow(), clock.GetUtcNow());
+    private static CodexNativeProvider CadenceProvider(CadenceOwner owner,
+        Func<CancellationToken, Task<IReadOnlyList<DesktopDirectorySession>>> observe) =>
+        new(true, _ => Task.FromResult<ICodexOwnerConnection>(owner), () => { }, observe);
+
+    private sealed class CadenceClock : TimeProvider
+    {
+        private readonly object gate = new();
+        private DateTimeOffset now = new(2026, 11, 10, 0, 0, 0, TimeSpan.Zero);
+        private long stamp;
+        public override DateTimeOffset GetUtcNow() { lock (gate) return now; }
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+        public override long GetTimestamp() { lock (gate) return stamp; }
+        internal void Advance(TimeSpan amount) { lock (gate) { now += amount; stamp += amount.Ticks; } }
+    }
+
+    private sealed class CadenceObservationClock(CadenceClock clock) : TimeProvider
+    {
+        internal Action? BeforeUtcNow;
+        public override DateTimeOffset GetUtcNow() { BeforeUtcNow?.Invoke(); return clock.GetUtcNow(); }
+        public override long TimestampFrequency => clock.TimestampFrequency;
+        public override long GetTimestamp() => clock.GetTimestamp();
+    }
+
+    private sealed class CadenceOwner : ICodexOwnerConnection
+    {
+        private readonly Guid owner = Guid.NewGuid(), server = Guid.NewGuid();
+        internal int Queries, Submits;
+        internal Func<CancellationToken, Task<DesktopOwnerBinding?>>? Query;
+        internal DesktopOwnerBinding Binding => new(CadenceThread, owner, server, 12345, 134000000000000000, true)
+            { RouterTrust = DesktopRouterTrust.ExactPinned };
+        public bool NativeIdleGuard => true;
+        public Task<DesktopOwnerBinding?> DiscoverAsync(Guid conversationId, CancellationToken token)
+        {
+            Interlocked.Increment(ref Queries);
+            return Query?.Invoke(token) ?? Task.FromResult<DesktopOwnerBinding?>(conversationId == CadenceThread ? Binding : null);
+        }
+        public Task<DesktopSubmissionResult> SubmitAsync(DesktopOwnerBinding binding, Guid messageId, string text, CancellationToken token)
+        { Interlocked.Increment(ref Submits); throw new InvalidOperationException("Synthetic cadence checks never submit."); }
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    private sealed class CadenceStartContext : SynchronizationContext
+    {
+        private readonly object gate = new();
+        private readonly Queue<(SendOrPostCallback Callback, object? State)> pending = new();
+        private bool released;
+        internal int QueuedCount { get { lock (gate) return pending.Count; } }
+        public override void Post(SendOrPostCallback callback, object? state)
+        {
+            lock (gate)
+            {
+                if (!released) { pending.Enqueue((callback, state)); return; }
+            }
+            ThreadPool.QueueUserWorkItem(_ => callback(state));
+        }
+        internal bool DrainReady(int maximumCallbacks)
+        {
+            for (int index = 0; index < maximumCallbacks; index++)
+            {
+                (SendOrPostCallback Callback, object? State) work;
+                lock (gate)
+                {
+                    if (pending.Count == 0) return true;
+                    work = pending.Dequeue();
+                }
+                work.Callback(work.State);
+            }
+            lock (gate) return pending.Count == 0;
+        }
+        internal void Release()
+        {
+            (SendOrPostCallback Callback, object? State)[] ready;
+            lock (gate) { released = true; ready = pending.ToArray(); pending.Clear(); }
+            foreach (var work in ready) ThreadPool.QueueUserWorkItem(_ => work.Callback(work.State));
+        }
     }
 
     // N-broker-161-04: SetSessionPreference hands SessionPreferences the runtime's own observed set, which decides whose
