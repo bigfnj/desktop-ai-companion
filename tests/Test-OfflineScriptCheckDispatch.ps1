@@ -21,6 +21,8 @@ if ([string]::IsNullOrWhiteSpace($PythonExecutable)) {
 # This expected contract is independent of the runner's registry. Removing a route from that registry
 # must fail the healthy fixture too, even though the remaining children all succeed.
 $checks = @(
+    @{ Name = 'Test-AgentBrokerReleaseProvenanceRules.ps1'; Relative = 'tests/Test-AgentBrokerReleaseProvenanceRules.ps1'; Summary = 'PROVENANCE_RULES=19 checks passed; no SDK build; owned fixture removed'; New = $true },
+    @{ Name = 'Test-AgentBrokerFixtureReadiness.ps1'; Relative = 'tests/Test-AgentBrokerFixtureReadiness.ps1'; Summary = 'PASS: 3 fixture readiness checks; owned children and fixture files cleaned.'; New = $true },
     @{ Name = 'Test-ModulePublishCommit.ps1'; Relative = 'tests/Test-ModulePublishCommit.ps1'; Summary = 'SUMMARY: Test-ModulePublishCommit passed 1 checks; synthetic repository removed.'; New = $true },
     @{ Name = 'Test-CatalogDeadChild.ps1'; Relative = 'tests/Test-CatalogDeadChild.ps1'; Summary = 'SUMMARY: Test-CatalogDeadChild passed 1 checks; owned children disposed.'; New = $true },
     @{ Name = 'Test-GrantClaudeLocalMcpReadiness.ps1'; Relative = 'tests/Test-GrantClaudeLocalMcpReadiness.ps1'; Summary = 'SUMMARY: Test-GrantClaudeLocalMcpReadiness passed 1 checks; no live policy, CLI or settings access.'; New = $true },

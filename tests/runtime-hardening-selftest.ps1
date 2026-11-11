@@ -3537,7 +3537,8 @@ Assert-True (($buildStepSlices[0] -cmatch '(?m)^        id: build\s*$') -and
 
 # THE NUGET PACK RUNS ON EVERY PUSH. Judge the named build job and steps, not a filename
 # elsewhere in YAML. The supported run forms are the original inline pack and the direct privacy-check
-# then pack block. A conditional step, nested command or reversed block cannot satisfy this invariant.
+# then pack block. A conditional step, nested command, reversed block or step-level failure suppression
+# cannot satisfy this invariant.
 function Test-NuGetBuildWorkflow([string]$WorkflowText) {
     $raCode = $WorkflowText.Replace("`r`n", "`n") -replace '(?m)^[ \t]*#.*$', ''
     $raJobs = [regex]::Matches($raCode, '(?ms)^  build:[ \t]*\r?\n(?<body>.*?)(?=^  [A-Za-z_][A-Za-z0-9_-]*:|\z)')
@@ -3552,8 +3553,8 @@ function Test-NuGetBuildWorkflow([string]$WorkflowText) {
     if ($raMsi[0].Index -ge $raPack[0].Index -or $raPack[0].Index -ge $raUpload[0].Index) { return $false }
     $raPackBody = $raPack[0].Groups['body'].Value
     $raUploadBody = $raUpload[0].Groups['body'].Value
-    if ($raPackBody -cmatch '(?m)^        (if|working-directory|uses):' -or
-        $raUploadBody -cmatch '(?m)^        if:') { return $false }
+    if ($raPackBody -cmatch '(?m)^        (if|working-directory|uses|continue-on-error):' -or
+        $raUploadBody -cmatch '(?m)^        (if|continue-on-error):') { return $false }
     if ($raPackBody -cnotmatch '(?m)^        shell: pwsh[ \t]*$') { return $false }
     $raRunLines = @($raPackBody -split '\r?\n')
     $raRunIndices = @(for ($raIndex = 0; $raIndex -lt $raRunLines.Count; $raIndex++) {
@@ -3580,11 +3581,23 @@ function Test-NuGetBuildWorkflow([string]$WorkflowText) {
 Assert-True (Test-NuGetBuildWorkflow $buildWorkflowText) (
     'build.yml packs the module-author NuGet packages on every push and uploads them with the ZIP and MSI (RA-190)')
 
+$releaseWorkflowText = Get-Content -LiteralPath (Join-Path $repoRoot '.github\workflows\release.yml') -Raw
+# A release must also stop when its named pack step refuses an unsafe package. Inspect the actual
+# step body in the release job; a comment or a different step's setting is not evidence of this condition.
+function Test-NuGetReleasePackFailure([string]$WorkflowText) {
+    $raCode = $WorkflowText.Replace("`r`n", "`n") -replace '(?m)^[ \t]*#.*$', ''
+    $raJobs = [regex]::Matches($raCode, '(?ms)^  release:[ \t]*\r?\n(?<body>.*?)(?=^  [A-Za-z_][A-Za-z0-9_-]*:|\z)')
+    if ($raJobs.Count -ne 1) { return $false }
+    $raSteps = @([regex]::Matches($raJobs[0].Groups['body'].Value, '(?ms)^      - name: (?<name>[^\r\n]+)\r?\n(?<body>.*?)(?=^      - |\z)'))
+    $raPack = @($raSteps | Where-Object { $_.Groups['name'].Value -ceq 'Pack the module-author NuGet packages' })
+    return ($raPack.Count -eq 1 -and $raPack[0].Groups['body'].Value -cnotmatch '(?m)^        continue-on-error:')
+}
+Assert-True (Test-NuGetReleasePackFailure $releaseWorkflowText) (
+    'release.yml propagates the module-author NuGet pack failure (RA-190)')
 # THE RELEASE NOTES SAY SIGNED OR UNSIGNED FROM THE THUMBPRINT. release.yml hardcoded "Unsigned" in the notes
 # while its own header promised the first signed release needs no workflow edit (RA-002). The publish step's
 # env maps the thumbprint (the F002 route) and the --notes text is built from $signedWord; the old literal is
 # asserted absent from every run body of the file.
-$releaseWorkflowText = Get-Content -LiteralPath (Join-Path $repoRoot '.github\workflows\release.yml') -Raw
 $releasePublishSlices = @([regex]::Split($releaseWorkflowText, '(?m)^      - name:') | Select-Object -Skip 1 |
     ForEach-Object { $_ -replace '(?m)^[ \t]*#.*$', '' } | Where-Object { $_ -cmatch '\A Publish the GitHub release' })
 $releaseNotesFromThumbprint = '--notes "$signedWord x64 build for $tag'

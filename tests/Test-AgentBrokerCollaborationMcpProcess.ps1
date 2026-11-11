@@ -24,24 +24,7 @@ function Start-Child([string]$File,[string[]]$Arguments) {
     if (-not $process.Start()) { throw 'Owned child process did not start.' }
     return $process
 }
-function Startup-Failure([Diagnostics.Process]$Process,[string]$CaseName) {
-    $nativeExit='running'; $diagnostic='not-read-running'
-    if ($Process.HasExited) {
-        $nativeExit=[string]$Process.ExitCode; $diagnostic='read-deadline'
-        try {
-            $buffer=[char[]]::new(256)
-            $read=$Process.StandardError.ReadBlockAsync($buffer,0,$buffer.Length)
-            if ($read.Wait(1000)) {
-                $sample=[string]::new($buffer,0,$read.GetAwaiter().GetResult())
-                if ($sample -cmatch '\AFIXTURE_READY_PUBLISH_FAILED (EPERM|EACCES|EBUSY|OTHER)(?:\r?\n|\z)') {
-                    $diagnostic='FIXTURE_READY_PUBLISH_FAILED '+$Matches[1]
-                } elseif ($sample.Length -eq 0) { $diagnostic='empty' }
-                else { $diagnostic='unclassified' }
-            }
-        } catch { $diagnostic='read-failed' }
-    }
-    return ('Fixture failed to start: '+$CaseName+'; exit='+$nativeExit+'; stderr='+$diagnostic)
-}
+. (Join-Path $PSScriptRoot 'AgentBrokerFixtureStartup.ps1')
 $pwsh=@(Get-Command pwsh.exe -CommandType Application -ErrorAction Stop)[0].Source
 $node=@(Get-Command node.exe -CommandType Application -ErrorAction Stop)[0].Source
 $fixture=Join-Path $PSScriptRoot 'agentbroker-collaboration-process-fixture.mjs'
@@ -62,7 +45,7 @@ try {
             $server=Start-Child $node @($fixture,$ready,$requests,$name)
             $until=[DateTime]::UtcNow.AddSeconds(10)
             while (-not [IO.File]::Exists($ready) -and -not $server.HasExited -and [DateTime]::UtcNow -lt $until) { Start-Sleep -Milliseconds 25 }
-            if (-not [IO.File]::Exists($ready)) { throw (Startup-Failure $server $name) }
+            if (-not [IO.File]::Exists($ready)) { throw (Get-AgentBrokerFixtureStartupFailure $server $name) }
             $state=[IO.File]::ReadAllText($ready) | ConvertFrom-Json -AsHashtable
             Check ($state.pid -eq $server.Id -and $state.port -gt 0 -and $state.port -le 65535 -and $state.port -ne 7432) ('PROCESS_OWNED_ENDPOINT '+$name+': child binds its own ephemeral loopback port')
             $arguments=@{limit=16}; $tool='list_sessions'

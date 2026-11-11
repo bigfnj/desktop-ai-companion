@@ -17,6 +17,53 @@ foreach ($name in @('Join-Bytes', 'ConvertTo-CompressedUInt', 'Write-UInt16', 'W
     . ([scriptblock]::Create($definitions[0].Extent.Text))
 }
 
+# Judge the actual producer's unconditional call sites. This parses source only; it never packs or builds.
+function Get-NuGetPackWiringFailures([string]$Source) {
+    $tokens = $null; $errors = $null
+    $root = [Management.Automation.Language.Parser]::ParseInput($Source, [ref]$tokens, [ref]$errors)
+    $failures = New-Object 'Collections.Generic.List[string]'
+    if ($errors.Count -ne 0) { $failures.Add('PARSE'); return $failures.ToArray() }
+    $banner = @($root.FindAll({ param($n) $n -is [Management.Automation.Language.StringConstantExpressionAst] -and $n.Value.Contains('dotnet nuget push') }, $true))
+    if ($banner.Count -ne 1) { $failures.Add('PUSH_BANNER'); return $failures.ToArray() }
+    function ArgumentText($Call, [string]$Name) {
+        for ($i = 1; $i -lt $Call.CommandElements.Count - 1; $i++) {
+            $part = $Call.CommandElements[$i]
+            if ($part -is [Management.Automation.Language.CommandParameterAst] -and $part.ParameterName -ieq $Name) {
+                return ($Call.CommandElements[$i + 1].Extent.Text -replace '\s', '')
+            }
+        }
+        return ''
+    }
+    foreach ($entry in @(@('Assert-NuGetExpectedPackages', 'PACKAGE_SET'), @('Assert-NuGetOutputPrivacy', 'OUTPUT_PRIVACY'))) {
+        $commandName = $entry[0]
+        $calls = @($root.FindAll({ param($n) $n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq $commandName }, $true))
+        if ($calls.Count -ne 1 -or -not [object]::ReferenceEquals($calls[0].Parent.Parent, $root.EndBlock) -or
+            $calls[0].Extent.EndOffset -ge $banner[0].Extent.StartOffset -or
+            (ArgumentText $calls[0] 'OutputDirectory') -cne '$OutputDirectory') { $failures.Add($entry[1]) }
+    }
+    $reads = @($root.FindAll({ param($n) $n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Get-NuGetPackagePrivacySummary' }, $true))
+    $valid = $reads.Count -eq 1
+    if ($valid) {
+        $read = $reads[0]; $assignment = $read.Parent.Parent; $loop = $assignment.Parent.Parent
+        $valid = $assignment -is [Management.Automation.Language.AssignmentStatementAst] -and
+            $assignment.Left.Extent.Text -ceq '$privacy' -and
+            $loop -is [Management.Automation.Language.ForEachStatementAst] -and
+            [object]::ReferenceEquals($loop.Parent, $root.EndBlock) -and
+            [object]::ReferenceEquals($assignment.Parent, $loop.Body) -and
+            $loop.Variable.VariablePath.UserPath -ceq 'id' -and $loop.Condition.Extent.Text -ceq '$packageIds' -and
+            $loop.Extent.EndOffset -lt $banner[0].Extent.StartOffset -and
+            (ArgumentText $read 'PackagePath') -ceq '$packagePath' -and
+            (ArgumentText $read 'AssemblyName') -ceq "(`$id+'.dll')" -and
+            (ArgumentText $read 'ExpectedImageSha256') -ceq '$freshBuilds[$id].ImageSha256'
+    }
+    if (-not $valid) { $failures.Add('PACKAGE_PRIVACY_READ') }
+    return $failures.ToArray()
+}
+function Replace-WiringOnce([string]$Source, [string]$Before, [string]$After) {
+    if ([regex]::Matches($Source, [regex]::Escape($Before)).Count -ne 1) { throw 'NUGET_PRIVACY_RULES_WIRING_ANCHOR' }
+    return $Source.Replace($Before, $After)
+}
+
 $checks = 0
 function Require([bool]$Condition, [string]$Label) {
     if (-not $Condition) { throw ('NUGET_PRIVACY_RULES_' + $Label) }
@@ -159,15 +206,30 @@ try {
         Require (Refuses { Assert-NuGetExpectedPackages -OutputDirectory $setDirectory -Version '1.2.3' -PackageIds $setIds } 'NUGET_PRIVACY_PACKAGE_SET') $label
     }
 
-    # Wiring: the pack script calls the package-set check unconditionally, at top level, before it prints the push command.
+    # Wiring checks use the actual producer's AST, then source-only mutations prove each decision can fail.
     $packScript = Join-Path (Join-Path (Split-Path $PSScriptRoot -Parent) 'packaging') 'New-NuGetPackages.ps1'
-    $packTokens = $null; $packErrors = $null
-    $packAst = [Management.Automation.Language.Parser]::ParseFile($packScript, [ref]$packTokens, [ref]$packErrors)
-    $setCalls = @($packAst.FindAll({ param($node) $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Assert-NuGetExpectedPackages' }, $true))
-    $pushBanner = @($packAst.FindAll({ param($node) $node -is [Management.Automation.Language.StringConstantExpressionAst] -and $node.Value.Contains('dotnet nuget push') }, $true))
-    Require ($packErrors.Count -eq 0 -and $setCalls.Count -eq 1 -and $pushBanner.Count -eq 1 -and
-        [object]::ReferenceEquals($setCalls[0].Parent.Parent, $packAst.EndBlock) -and
-        $setCalls[0].Extent.StartOffset -lt $pushBanner[0].Extent.StartOffset) 'PACKAGE_SET_WIRED_BEFORE_PUSH_BANNER'
+    $packSource = [IO.File]::ReadAllText($packScript)
+    Write-Output ('LOADED packaging/New-NuGetPackages.ps1 sha256 ' + (Get-NuGetImageSha256 ([IO.File]::ReadAllBytes($packScript))))
+    $wiring = @(Get-NuGetPackWiringFailures $packSource)
+    Require ($wiring -cnotcontains 'PACKAGE_SET' -and $wiring -cnotcontains 'PARSE' -and $wiring -cnotcontains 'PUSH_BANNER') 'PACKAGE_SET_WIRED_BEFORE_PUSH_BANNER'
+    Require ($wiring -cnotcontains 'OUTPUT_PRIVACY' -and $wiring -cnotcontains 'PARSE' -and $wiring -cnotcontains 'PUSH_BANNER') 'OUTPUT_PRIVACY_WIRED_BEFORE_PUSH_BANNER'
+    Require ($wiring -cnotcontains 'PACKAGE_PRIVACY_READ' -and $wiring -cnotcontains 'PARSE' -and $wiring -cnotcontains 'PUSH_BANNER') 'PACKAGE_PRIVACY_READ_WIRED_BEFORE_PUSH_BANNER'
+    $outputCall = 'Assert-NuGetOutputPrivacy -OutputDirectory $OutputDirectory'
+    $readCall = '$privacy = Get-NuGetPackagePrivacySummary -PackagePath $packagePath -AssemblyName ($id + ''.dll'') -ExpectedImageSha256 $freshBuilds[$id].ImageSha256'
+    $bannerAt = $packSource.IndexOf("Write-Host '  Not pushed.", [StringComparison]::Ordinal)
+    if ($bannerAt -lt 0) { throw 'NUGET_PRIVACY_RULES_WIRING_BANNER_ANCHOR' }
+    foreach ($kind in @('OMITTED', 'CONDITIONAL', 'LATE')) {
+        $replacement = if ($kind -eq 'CONDITIONAL') { 'if ($false) { ' + $outputCall + ' }' } else { '' }
+        $variant = Replace-WiringOnce $packSource $outputCall $replacement
+        if ($kind -eq 'LATE') { $variant += "`n" + $outputCall }
+        Require ((@(Get-NuGetPackWiringFailures $variant) -join ',') -ceq 'OUTPUT_PRIVACY') ('WIRING_OUTPUT_' + $kind)
+        $replacement = if ($kind -eq 'CONDITIONAL') { 'if ($false) { ' + $readCall + ' }' } else { '' }
+        $variant = Replace-WiringOnce $packSource $readCall $replacement
+        if ($kind -eq 'LATE') { $variant += "`nforeach (`$id in `$packageIds) { " + $readCall + ' }' }
+        Require ((@(Get-NuGetPackWiringFailures $variant) -join ',') -ceq 'PACKAGE_PRIVACY_READ') ('WIRING_READ_' + $kind)
+    }
+    $variant = Replace-WiringOnce $packSource '$freshBuilds[$id].ImageSha256' "('0' * 64)"
+    Require ((@(Get-NuGetPackWiringFailures $variant) -join ',') -ceq 'PACKAGE_PRIVACY_READ') 'WIRING_READ_FRESH_IMAGE_BINDING'
 }
 finally {
     $full = [IO.Path]::GetFullPath($owned)

@@ -752,4 +752,79 @@ Invoke-Case 'G3_SOURCELINK_TALLY' 'the success line calls a zip clean only when 
         $noLegacy.Contains('no live witness; synthetic control tests\Test-ModulePublishFreshnessRules.ps1')
 }
 
+# Execute the actual main-body refusal statements, not a second implementation of their decisions.
+# The wiring assertion also rejects moving a guarded statement under an optional/false branch.
+# This intentionally does not replay discovery, Git recency, Fortunes content or the complete main script.
+function Get-FreshnessMainDecision([string]$Source, [string]$Kind) {
+    $tokens = $null; $errors = $null
+    $root = [Management.Automation.Language.Parser]::ParseInput($Source, [ref]$tokens, [ref]$errors)
+    if ($errors.Count -ne 0) { throw 'FRESHNESS_RULES_MAIN_SOURCE_PARSE' }
+    $conditions = @{
+        'PAYLOAD' = '$stampVerdict.Problems.Count-gt0'
+        'SOURCELINK' = '$sourceLinkOffenders.Count-gt0'
+        'LEGACY' = '$legacyWithoutSourceLink.Count-gt0'
+    }
+    $wanted = $conditions[$Kind]
+    $matches = @($root.FindAll({ param($n)
+        $n -is [Management.Automation.Language.IfStatementAst] -and $n.Clauses.Count -eq 1 -and
+        ($n.Clauses[0].Item1.Extent.Text -replace '\s', '') -ceq $wanted
+    }, $true))
+    if ($matches.Count -ne 1) { return [pscustomobject]@{ Wired = $false; Statement = $null } }
+    $statement = $matches[0]
+    $wired = [object]::ReferenceEquals($statement.Parent, $root.EndBlock)
+    if ($Kind -eq 'PAYLOAD') {
+        $outer = $statement.Parent.Parent
+        $wired = $outer -is [Management.Automation.Language.IfStatementAst] -and
+            [object]::ReferenceEquals($outer.ElseClause, $statement.Parent) -and
+            [object]::ReferenceEquals($outer.Parent, $root.EndBlock) -and
+            $outer.Clauses.Count -eq 1 -and
+            ($outer.Clauses[0].Item1.Extent.Text -replace '\s', '') -ceq 'Test-AgentBrokerPayloadExempt-DeclaredVersion$agentBrokerDeclared-CommittedSha256$committedAgentBrokerSha256-Baselines(Get-LegacyModuleZipBaselines)'
+    }
+    return [pscustomobject]@{ Wired = $wired; Statement = $statement }
+}
+function Invoke-FreshnessMainDecision($Decision, [int]$Count) {
+    $problems = @(); if ($Count) { $problems = @('synthetic refusal') }
+    $stampVerdict = [pscustomobject]@{ Problems = $problems }
+    $agentBrokerVersionRequiresStamps = $true; $agentBrokerDeclared = '1.10.4'; $committedAgentBrokerSha256 = '0' * 64
+    $sourceLinkOffenders = $problems; $legacyWithoutSourceLink = $problems
+    return (Get-ThrownMessage { & ([scriptblock]::Create($Decision.Statement.Extent.Text)) 6>$null })
+}
+$mainSource = [IO.File]::ReadAllText($freshnessPath)
+$mainPrefixes = @{
+    'PAYLOAD' = 'AGENTBROKER_PAYLOAD_UNBOUND:'
+    'SOURCELINK' = '1 published DLL(s) outside the LEGACY_PRESERVED set carry a SourceLink record'
+    'LEGACY' = 'WITNESS failed: LEGACY_PRESERVED '
+}
+foreach ($mainKind in @('PAYLOAD', 'SOURCELINK', 'LEGACY')) {
+    $decision = Get-FreshnessMainDecision $mainSource $mainKind
+    Invoke-Case ('G4_MAIN_' + $mainKind + '_WIRED') 'the actual refusal is in its unconditional main-body position' {
+        $decision.Wired
+    }
+    Invoke-Case ('G4_MAIN_' + $mainKind + '_HEALTHY') 'zero findings do not throw in the actual main-body decision' {
+        $null -eq (Invoke-FreshnessMainDecision $decision 0)
+    }
+    Invoke-Case ('G4_MAIN_' + $mainKind + '_REFUSES') 'a real finding reaches the actual named main-body refusal' {
+        $message = Invoke-FreshnessMainDecision $decision 1
+        $null -ne $message -and $message.StartsWith($mainPrefixes[$mainKind], [StringComparison]::Ordinal)
+    }
+    Invoke-Case ('G4_MAIN_' + $mainKind + '_THROW_CONTROL') 'removing the actual throw loses the refusal and would fail the preceding check' {
+        $before = $decision.Statement.Extent.Text
+        if ([regex]::Matches($before, [regex]::Escape('throw (')).Count -ne 1) { return $false }
+        $variant = $mainSource.Replace($before, $before.Replace('throw (', '$null = ('))
+        $changed = Get-FreshnessMainDecision $variant $mainKind
+        $changed.Wired -and $null -eq (Invoke-FreshnessMainDecision $changed 1)
+    }
+    Invoke-Case ('G4_MAIN_' + $mainKind + '_CONDITIONAL_CONTROL') 'wrapping the refusal in if(false) fails the main-body wiring assertion' {
+        $before = $decision.Statement.Extent.Text
+        $variant = $mainSource.Replace($before, ('if ($false) { ' + $before + ' }'))
+        -not (Get-FreshnessMainDecision $variant $mainKind).Wired
+    }
+}
+Invoke-Case 'G4_MAIN_PAYLOAD_EXEMPTION_CONTROL' 'an always-true exemption condition cannot hide the refusal behind an unreachable else' {
+    $decision = Get-FreshnessMainDecision $mainSource 'PAYLOAD'
+    $condition = $decision.Statement.Parent.Parent.Clauses[0].Item1.Extent.Text
+    $variant = $mainSource.Replace($condition, ('$true -or (' + $condition + ')'))
+    -not (Get-FreshnessMainDecision $variant 'PAYLOAD').Wired
+}
+
 Write-Output ('SUMMARY: Test-ModulePublishFreshnessRules passed ' + $script:checks + ' checks under PowerShell ' + $PSVersionTable.PSVersion + '; synthetic repository removed.')

@@ -113,6 +113,19 @@ internal static class WaitLifecycleChecks
 
     private static async Task QuietAsync(Action<bool, string> check)
     {
+        // Fixture integrity, not an extra product assertion: an early timer must fail by its own name.
+        var clockProbe = new QuietRequestClock();
+        int probeFires = 0;
+        using (clockProbe.CreateTimer(_ => Interlocked.Increment(ref probeFires), null,
+            TimeSpan.FromSeconds(4), Timeout.InfiniteTimeSpan))
+        {
+            clockProbe.Advance(TimeSpan.FromSeconds(4) - TimeSpan.FromTicks(1));
+            if (Volatile.Read(ref probeFires) != 0)
+                throw new InvalidOperationException("QUIET_CLOCK_NOT_BEFORE_DUE");
+            clockProbe.Advance(TimeSpan.FromTicks(1));
+            if (Volatile.Read(ref probeFires) != 1)
+                throw new InvalidOperationException("QUIET_CLOCK_FIRES_AT_DUE");
+        }
         await using (var fixture = new ToolFixture("wait-lifecycle-no-poll", clock: TimeProvider.System))
         {
             var owner = fixture.Register("Synthetic quiet owner");

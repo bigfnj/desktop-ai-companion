@@ -1648,13 +1648,43 @@ CASES = (
         b"        shell: pwsh\n        run: .\\tests\\Test-ModuleSelfTests.ps1\n",
         "runs whenever the build step succeeded",
     ),
-    # RA-190: the pack step's run line replaced, so dotnet pack first runs on a v* tag again.
+    # RA-190: target the pack command INSIDE the two-command run block, not its old inline form.
     (
         "build.yml: the NuGet pack step no longer packs",
         BUILD_YML,
-        b"        run: .\\packaging\\New-NuGetPackages.ps1 -OutputDirectory dist\\nuget\n",
-        b"        run: Write-Host 'pack skipped'\n",
+        b"          .\\packaging\\New-NuGetPackages.ps1 -OutputDirectory dist\\nuget\n",
+        b"          Write-Host 'pack skipped'\n",
         "packs the module-author NuGet packages",
+    ),
+    (
+        "build.yml: the NuGet privacy check runs after packing",
+        BUILD_YML,
+        b"          .\\tests\\Test-NuGetPackagePrivacyRules.ps1\n"
+        b"          .\\packaging\\New-NuGetPackages.ps1 -OutputDirectory dist\\nuget\n",
+        b"          .\\packaging\\New-NuGetPackages.ps1 -OutputDirectory dist\\nuget\n"
+        b"          .\\tests\\Test-NuGetPackagePrivacyRules.ps1\n",
+        "packs the module-author NuGet packages",
+    ),
+    (
+        "build.yml: the NuGet pack step suppresses its failure",
+        BUILD_YML,
+        b"      - name: Pack the module-author NuGet packages\n",
+        b"      - name: Pack the module-author NuGet packages\n        continue-on-error: true\n",
+        "packs the module-author NuGet packages",
+    ),
+    (
+        "build.yml: the NuGet upload step suppresses its failure",
+        BUILD_YML,
+        b"      - name: Upload the ZIP, MSI and author packages\n",
+        b"      - name: Upload the ZIP, MSI and author packages\n        continue-on-error: true\n",
+        "packs the module-author NuGet packages",
+    ),
+    (
+        "release.yml: the NuGet pack step suppresses its failure",
+        RELEASE_YML,
+        b"      - name: Pack the module-author NuGet packages\n",
+        b"      - name: Pack the module-author NuGet packages\n        continue-on-error: true\n",
+        "propagates the module-author NuGet pack failure",
     ),
     # RA-002: the release notes hardcode Unsigned again while the signing scaffolding promises no edit.
     (

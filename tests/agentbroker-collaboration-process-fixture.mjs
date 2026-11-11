@@ -1,5 +1,6 @@
 import http from 'node:http';
 import fs from 'node:fs';
+import { publishFixtureReady } from './agentbroker-fixture-ready.mjs';
 
 const [readyPath, requestsPath, scenario] = process.argv.slice(2);
 const allowed = new Set(['success-empty', 'success-single', 'success-rich', 'success-string', 'tool-error',
@@ -42,25 +43,6 @@ const server = http.createServer((request, response) => {
   });
 });
 server.listen(0, '127.0.0.1', () => {
-  const pendingReadyPath = readyPath + '.pending';
-  fs.writeFileSync(pendingReadyPath, JSON.stringify({ pid: process.pid, port: server.address().port }));
-  const retryCodes = new Set(['EPERM', 'EACCES', 'EBUSY']);
-  const retryUntil = performance.now() + 1000;
-  let retries = 0;
-  const publishReady = () => {
-    try { fs.renameSync(pendingReadyPath, readyPath); }
-    catch (error) {
-      const code = retryCodes.has(error?.code) ? error.code : 'OTHER';
-      if (code !== 'OTHER' && retries < 20 && performance.now() < retryUntil) {
-        retries++;
-        setTimeout(publishReady, 25);
-        return;
-      }
-      // Fixed bounded diagnostics only; never export the error's path, message or stack.
-      try { fs.writeSync(2, 'FIXTURE_READY_PUBLISH_FAILED ' + code + '\n'); } catch {}
-      process.exit(3);
-    }
-  };
-  publishReady();
+  publishFixtureReady(readyPath, { pid: process.pid, port: server.address().port });
 });
 server.on('close', () => clearTimeout(lifetime));

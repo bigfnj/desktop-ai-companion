@@ -3,7 +3,7 @@
 .SYNOPSIS
     Run script checks with no product build, install, elevation, network or real input, and collect every
     failure: the installer's fake-caller, path-safety, checker-timeout and log-observation checks, the tray icon record
-    cleanup check, the public-commit privacy self-test and mutation-tooling self-tests.
+    cleanup check, the public-commit privacy self-test, mutation-tooling self-tests, and AgentBroker readiness/provenance checks.
 
 .DESCRIPTION
     N-installer-tests-02 (lane feature/followups, 2026-10-29). These five ran only by hand, so the reparse-tag,
@@ -19,6 +19,10 @@
     (added 2026-11-02) creates and removes a scratch key under HKCU\Software and never opens the real tray records. No
     MSI is executed and no native binary is built or launched. The mutation TEMP-budget test compiles the existing
     small C# fixture method with Add-Type; mutation restoration tests use disposable sources and fake builds.
+
+    AgentBroker provenance checks read a fixed public source/ZIP fixture from local Git history and run current
+    provenance APIs plus an in-memory metadata reader against owned copies. They require PowerShell 7 and the
+    recorded baseline commit locally, attempt no fetch, and perform no SDK build, install or payload execution.
 
     The four installer checks signal failure by throwing, so they run in this process inside a try/catch. The privacy
     self-test is `#requires -Version 7`, which Windows PowerShell refuses to run in-process, so it always runs in a
@@ -96,6 +100,8 @@ if (-not [string]::IsNullOrWhiteSpace($PythonExecutable)) {
 }
 
 $powerShellChecks = @(
+    @{ Name = 'Test-AgentBrokerReleaseProvenanceRules.ps1'; Path = (Join-Path $PSScriptRoot 'Test-AgentBrokerReleaseProvenanceRules.ps1'); Args = @(); Summary = '^PROVENANCE_RULES=19 checks passed; no SDK build; owned fixture removed$' },
+    @{ Name = 'Test-AgentBrokerFixtureReadiness.ps1'; Path = (Join-Path $PSScriptRoot 'Test-AgentBrokerFixtureReadiness.ps1'); Args = @(); Summary = '^PASS: 3 fixture readiness checks; owned children and fixture files cleaned\.$' },
     @{ Name = 'Test-ModulePublishCommit.ps1'; Path = (Join-Path $PSScriptRoot 'Test-ModulePublishCommit.ps1'); Args = @(); Summary = '^SUMMARY: Test-ModulePublishCommit passed [1-9][0-9]* checks; synthetic repository removed\.$' },
     @{ Name = 'Test-CatalogDeadChild.ps1'; Path = (Join-Path $PSScriptRoot 'Test-CatalogDeadChild.ps1'); Args = @(); Summary = '^SUMMARY: Test-CatalogDeadChild passed [1-9][0-9]* checks; owned children disposed\.$' },
     @{ Name = 'Test-GrantClaudeLocalMcpReadiness.ps1'; Path = (Join-Path $PSScriptRoot 'Test-GrantClaudeLocalMcpReadiness.ps1'); Args = @(); Summary = '^SUMMARY: Test-GrantClaudeLocalMcpReadiness passed [1-9][0-9]* checks; no live policy, CLI or settings access\.$' },
