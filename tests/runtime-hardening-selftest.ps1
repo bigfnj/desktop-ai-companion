@@ -3540,8 +3540,8 @@ Assert-True (($buildStepSlices[0] -cmatch '(?m)^        id: build\s*$') -and
 # tokens and a conservative nonnegative combined count of unquoted []/{} must close on each line.
 # Multiline flow is unsupported; plain ASCII key prefixes and leading tag/anchor/alias limits remain.
 # MappingLayout lets only an empty value or bare literal | own continuation data. The build retains
-# its legacy inline pack form; current pack blocks check privacy then pack. Later release steps may
-# use continue-on-error but may not override if/order here; arbitrary script semantics are unqualified.
+# its legacy inline pack form; current pack blocks check privacy then pack. In release, selected Pack/Assemble/Publish
+# ordering/if are judged; Assemble/Publish may use continue-on-error. Other steps/scripts are unqualified.
 function Test-NuGetMappingLayout([string]$Body, [string[]]$AllowedKeys, [string[]]$RequiredKeys, [int]$IndentWidth) {
     # Only an empty mapping or literal-block header can own more-indented data. A scalar's first line
     # cannot hide a folded shell/run continuation. Callers still judge the values they depend on.
