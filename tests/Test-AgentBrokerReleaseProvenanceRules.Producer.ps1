@@ -61,13 +61,133 @@ function Expand-OwnedZip([byte[]]$Bytes, [string]$Destination) {
     } finally { $zip.Dispose(); $memory.Dispose() }
 }
 
-$owned = Join-Path $PSScriptRoot ('provenance-api-rules-' + [Guid]::NewGuid().ToString('N'))
+# Supported current call shapes, not a general PowerShell evaluator. Each binding names its real
+# branch and the operation that must remain after it. Publishing and compression are never invoked.
+function Get-OperationalBindings([string]$PublishSource, [string]$ZipSource) {
+    $errors = $null; $tokens = $null
+    $publishAst = [Management.Automation.Language.Parser]::ParseInput($PublishSource, [ref]$tokens, [ref]$errors)
+    if ($errors.Count) { throw 'PROVENANCE_RULES_PUBLISH_SOURCE_PARSE' }
+    $zipAst = [Management.Automation.Language.Parser]::ParseInput($ZipSource, [ref]$tokens, [ref]$errors)
+    if ($errors.Count) { throw 'PROVENANCE_RULES_ZIP_SOURCE_PARSE' }
+    function Commands($Root, [string]$Name) {
+        @($Root.FindAll({ param($n) $n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -ceq $Name }, $true))
+    }
+    function Statement($Call) {
+        if ($null -eq $Call -or $Call.Parent -isnot [Management.Automation.Language.PipelineAst] -or
+            $Call.Parent.PipelineElements.Count -ne 1 -or $Call.Redirections.Count -ne 0) { return $null }
+        $value = $Call.Parent
+        if ($value.Parent -is [Management.Automation.Language.AssignmentStatementAst]) { $value = $value.Parent }
+        return $value
+    }
+    function Branch($Call, [string]$Condition, $Container) {
+        $statement = Statement $Call
+        if ($null -eq $statement) { return $null }
+        $body = $statement.Parent; $owner = $body.Parent
+        if ($owner -isnot [Management.Automation.Language.IfStatementAst] -or $owner.Clauses.Count -ne 1 -or
+            $null -ne $owner.ElseClause -or -not [object]::ReferenceEquals($owner.Clauses[0].Item2, $body) -or
+            -not [object]::ReferenceEquals($owner.Parent, $Container) -or
+            ($owner.Clauses[0].Item1.Extent.Text -replace '\s', '') -cne $Condition) { return $null }
+        return $owner
+    }
+    function CallContainer($Call) {
+        $statement = Statement $Call
+        if ($null -eq $statement -or $statement.Parent.Parent -isnot [Management.Automation.Language.IfStatementAst]) { return $null }
+        return $statement.Parent.Parent.Parent
+    }
+    $zipInvocation = @($publishAst.EndBlock.Statements | Where-Object {
+        $_ -is [Management.Automation.Language.AssignmentStatementAst] -and $_.Left.Extent.Text -ceq '$zip' -and
+        ($_.Right.Extent.Text -replace '\s', '') -ceq "&(Join-Path`$PSScriptRoot'New-ModuleDistZip.ps1')@zipArguments"
+    })
+    $commitCalls = @(Commands $publishAst 'Invoke-ModulePayloadCommit')
+    $moves = @(Commands $zipAst 'Move-Item' | Where-Object {
+        ($_.Extent.Text -replace '\s', '') -ceq 'Move-Item-LiteralPath$temporaryPath-Destination$destinationFull-Force'
+    })
+    $streams = @(Commands $zipAst 'New-Object' | Where-Object { $_.CommandElements.Count -gt 1 -and $_.CommandElements[1].Extent.Text -ceq 'IO.FileStream' })
+    $commit = if ($commitCalls.Count -eq 1) { Statement $commitCalls[0] } else { $null }
+    $commitIf = if ($null -ne $commit) { $commit.Parent.Parent } else { $null }
+    $commitBody = if ($commitIf -is [Management.Automation.Language.IfStatementAst] -and
+        ($commitIf.Clauses[0].Item1.Extent.Text -replace '\s', '') -ceq '$Commit' -and
+        $commitIf.Parent.Parent -is [Management.Automation.Language.TryStatementAst]) { $commitIf.Parent } else { $null }
+    $move = if ($moves.Count -eq 1) { Statement $moves[0] } else { $null }
+    $moveBody = if ($null -ne $move -and $move.Parent.Parent -is [Management.Automation.Language.TryStatementAst]) { $move.Parent } else { $null }
+    $compression = if ($streams.Count -eq 1) { $streams[0] } else { $null }
+    $authority = @(Commands $publishAst 'Assert-AgentBrokerPublishAuthority')
+    $outputs = @(Commands $zipAst 'Test-AgentBrokerReleaseOutput')
+    $zipChecks = @(Commands $zipAst 'Assert-AgentBrokerReleaseZip')
+    $definitions = @(
+        @{ label='PUBLISH_BEFORE_ZIP'; calls=@($authority | Where-Object { [object]::ReferenceEquals((CallContainer $_), $publishAst.EndBlock) }); condition="`$moduleId-ceq'agentbroker'"; container=$publishAst.EndBlock; text='Assert-AgentBrokerPublishAuthority'; before=if ($zipInvocation.Count -eq 1) { $zipInvocation[0] } else { $null }; after=$null; source='publish' },
+        @{ label='PUBLISH_BEFORE_COMMIT'; calls=@($authority | Where-Object { $null -ne $commitBody -and [object]::ReferenceEquals((CallContainer $_), $commitBody) }); condition="`$moduleId-ceq'agentbroker'"; container=$commitBody; text='Assert-AgentBrokerPublishAuthority$zipPath'; before=$commitIf; after=$null; source='publish' },
+        @{ label='OUTPUT_BEFORE_COMPRESSION'; calls=@($outputs | Where-Object { [object]::ReferenceEquals((CallContainer $_), $zipAst.EndBlock) }); condition='$boundAgentBroker'; container=$zipAst.EndBlock; text='Test-AgentBrokerReleaseOutput$AgentBrokerOutputReceipt$AgentBrokerOutputReceiptSha256$sourceFull'; before=$compression; after=$null; source='zip' },
+        @{ label='OUTPUT_BEFORE_MOVE'; calls=@($outputs | Where-Object { $null -ne $moveBody -and [object]::ReferenceEquals((CallContainer $_), $moveBody) }); condition='$boundAgentBroker'; container=$moveBody; text='Test-AgentBrokerReleaseOutput$AgentBrokerOutputReceipt$AgentBrokerOutputReceiptSha256$sourceFull'; before=$move; after=$compression; source='zip' },
+        @{ label='ZIP_BEFORE_MOVE'; calls=$zipChecks; condition='$boundAgentBroker'; container=$moveBody; text='Assert-AgentBrokerReleaseZip$temporaryPath$boundRecord$ExpectedAgentBrokerZipSha256'; before=$move; after=$compression; source='zip' }
+    )
+    $result = @()
+    foreach ($definition in $definitions) {
+        $call = if ($definition.calls.Count -eq 1) { $definition.calls[0] } else { $null }
+        $branch = if ($null -ne $call -and $null -ne $definition.container) { Branch $call $definition.condition $definition.container } else { $null }
+        $valid = $null -ne $branch -and $null -ne $definition.before -and
+            ($call.Extent.Text -replace '\s', '') -ceq $definition.text -and
+            $branch.Extent.EndOffset -lt $definition.before.Extent.StartOffset -and
+            ($null -eq $definition.after -or $branch.Extent.StartOffset -gt $definition.after.Extent.StartOffset)
+        if ($definition.label -ceq 'OUTPUT_BEFORE_COMPRESSION') { $valid = $valid -and (Statement $call).Extent.Text.TrimStart().StartsWith('$boundRecord = ', [StringComparison]::Ordinal) }
+        if ($definition.label -ceq 'OUTPUT_BEFORE_MOVE') { $valid = $valid -and (Statement $call).Extent.Text.TrimStart().StartsWith('$null = ', [StringComparison]::Ordinal) }
+        $result += [pscustomobject]@{ Label=$definition.label; Valid=[bool]$valid; Call=$call; Statement=if ($null -ne $call) { Statement $call } else { $null }; Branch=$branch; Barrier=if ($definition.label -ceq 'OUTPUT_BEFORE_COMPRESSION' -and $null -ne $moveBody) { $moveBody.Parent } else { $definition.before }; Source=$definition.source }
+    }
+    return $result
+}
+function Replace-OperationalNode([string]$Source, $Node, [string]$After) {
+    $length = $Node.Extent.EndOffset - $Node.Extent.StartOffset
+    if ($Source.Substring($Node.Extent.StartOffset, $length) -cne $Node.Extent.Text) { throw 'PROVENANCE_RULES_OPERATIONAL_ANCHOR' }
+    return $Source.Remove($Node.Extent.StartOffset, $length).Insert($Node.Extent.StartOffset, $After)
+}
+$publishBytes = [IO.File]::ReadAllBytes((Join-Path $ApiDirectory 'New-ModulePublish.ps1'))
+$zipBytesForWiring = [IO.File]::ReadAllBytes((Join-Path $ApiDirectory 'New-ModuleDistZip.ps1'))
+$publishSource = $utf8.GetString($publishBytes).TrimStart([char]0xfeff)
+$zipSource = $utf8.GetString($zipBytesForWiring).TrimStart([char]0xfeff)
+Write-Output ('WIRING_SOURCE packaging/New-ModulePublish.ps1 sha256 ' + [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($publishBytes)))
+Write-Output ('WIRING_SOURCE packaging/New-ModuleDistZip.ps1 sha256 ' + [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($zipBytesForWiring)))
+$bindings = @(Get-OperationalBindings $publishSource $zipSource)
+foreach ($binding in $bindings) { Require $binding.Valid ('WIRING_' + $binding.Label) }
+foreach ($binding in $bindings) {
+    foreach ($kind in @('OMITTED', 'CONDITIONAL')) {
+        $source = if ($binding.Source -ceq 'publish') { $publishSource } else { $zipSource }
+        $replacement = if ($kind -ceq 'OMITTED') { '' } else { 'if ($false) { ' + $binding.Statement.Extent.Text + ' }' }
+        $variant = Replace-OperationalNode $source $binding.Statement $replacement
+        $observed = if ($binding.Source -ceq 'publish') { @(Get-OperationalBindings $variant $zipSource) } else { @(Get-OperationalBindings $publishSource $variant) }
+        Require ((@($observed | Where-Object { -not $_.Valid } | ForEach-Object Label) -join ',') -ceq $binding.Label) ('WIRING_' + $binding.Label + '_' + $kind + '_CONTROL')
+    }
+}
+# Move whole legitimate branches after their real operation, keeping their original condition.
+foreach ($label in @('PUBLISH_BEFORE_ZIP', 'PUBLISH_BEFORE_COMMIT', 'OUTPUT_BEFORE_COMPRESSION', 'OUTPUT_BEFORE_MOVE')) {
+    $binding = @($bindings | Where-Object { $_.Label -ceq $label })[0]
+    $source = if ($binding.Source -ceq 'publish') { $publishSource } else { $zipSource }
+    $variant = $source.Insert($binding.Barrier.Extent.EndOffset, ("`n" + $binding.Branch.Extent.Text))
+    $variant = Replace-OperationalNode $variant $binding.Branch ''
+    $observed = if ($binding.Source -ceq 'publish') { @(Get-OperationalBindings $variant $zipSource) } else { @(Get-OperationalBindings $publishSource $variant) }
+    $expected = if ($label -ceq 'OUTPUT_BEFORE_MOVE') { 'OUTPUT_BEFORE_MOVE,ZIP_BEFORE_MOVE' } else { $label }
+    Require ((@($observed | Where-Object { -not $_.Valid } | ForEach-Object Label) -join ',') -ceq $expected) ('WIRING_' + $label + '_LATE_CONTROL')
+}
+
+$tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
+if ($tempRoot.Length -gt [IO.Path]::GetPathRoot($tempRoot).Length) { $tempRoot = $tempRoot.TrimEnd('\', '/') }
+try {
+    for ($walk = $tempRoot; $walk; $walk = [IO.Path]::GetDirectoryName($walk)) {
+        if (([IO.File]::GetAttributes($walk) -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'PROVENANCE_RULES_FIXTURE_ENVIRONMENT_REPARSE' }
+        foreach ($leaf in @('Directory.Build.props', 'Directory.Build.targets', 'Directory.Packages.props', 'Directory.Build.rsp', '.editorconfig', '.globalconfig')) {
+            if ([IO.File]::Exists((Join-Path $walk $leaf))) { throw 'PROVENANCE_RULES_FIXTURE_ENVIRONMENT_IMPLICIT_INPUT' }
+        }
+    }
+} catch {
+    if ($_.Exception.Message.StartsWith('PROVENANCE_RULES_FIXTURE_ENVIRONMENT_', [StringComparison]::Ordinal)) { throw }
+    throw 'PROVENANCE_RULES_FIXTURE_ENVIRONMENT_UNREADABLE'
+}
+$owned = Join-Path $tempRoot ('provenance-api-rules-' + [Guid]::NewGuid().ToString('N'))
 $fixture = Join-Path $owned 'repo'
 $apiRoot = Join-Path $owned 'api'
-[void][IO.Directory]::CreateDirectory($fixture)
-[void][IO.Directory]::CreateDirectory($apiRoot)
 $loaded = @{}
 try {
+    [void][IO.Directory]::CreateDirectory($fixture)
+    [void][IO.Directory]::CreateDirectory($apiRoot)
     try { $null = Read-GitFixture @('cat-file', '-e', ($baseline + '^{commit}')) }
     catch { throw 'PROVENANCE_RULES_BASELINE_HISTORY_REQUIRED: local history must contain b234fcd0; no fetch attempted' }
     # Archive only fixed public source paths. No checkout or shared Git object store is created.
@@ -156,21 +276,48 @@ try {
     Assert-AgentBrokerReleaseZip $zipPath $accepted $baselineZipSha
     Require $true 'ZIP_RESTORED'
 
-    $changedTool = Join-Path $apiRoot 'New-ModuleDistZip.ps1'; $toolBytes = [IO.File]::ReadAllBytes($changedTool)
-    try {
-        [IO.File]::WriteAllBytes($changedTool, [byte[]]($toolBytes + [byte]10))
-        Require (Refuses { Test-AgentBrokerReleaseOutput $receipt.OutputReceipt $receipt.OutputReceiptSha256 $payload } 'PROVENANCE_OUTPUT_AUTHORITY_CHANGED') 'TOOL_AUTHORITY_CHANGED'
-    } finally { [IO.File]::WriteAllBytes($changedTool, $toolBytes) }
-    $restored = Test-AgentBrokerReleaseOutput $receipt.OutputReceipt $receipt.OutputReceiptSha256 $payload
-    Require ($restored.inventorySha256 -ceq $accepted.inventorySha256 -and (Get-ABPFileHash $changedTool) -ceq $loaded['New-ModuleDistZip.ps1']) 'TOOL_AND_OUTPUT_RESTORED'
+    $manifestBytes = [IO.File]::ReadAllBytes($manifest)
+    foreach ($field in @('schema', 'sourceContentSha256', 'parentCommit', 'identity')) {
+        $changed = ConvertFrom-Json ($utf8.GetString($manifestBytes))
+        switch ($field) {
+            'schema' { $changed.schema = 2 }
+            'sourceContentSha256' { $changed.sourceContentSha256 = '0' * 64 }
+            'parentCommit' { $changed.parentCommit = '0' * 40 }
+            'identity' { $changed.identity.settings.configuration = 'Changed' }
+        }
+        try {
+            [IO.File]::WriteAllText($manifest, ($changed | ConvertTo-Json -Depth 14), $utf8)
+            Require (Refuses { Read-AgentBrokerReleaseManifest $manifest $sourceSha $parent '' } 'PROVENANCE_SOURCE_CHANGED') ('SOURCE_RECORD_' + $field.ToUpperInvariant())
+        } finally { [IO.File]::WriteAllBytes($manifest, $manifestBytes) }
+        $null = Read-AgentBrokerReleaseManifest $manifest $sourceSha $parent ''
+        Require ((Get-ABPFileHash $manifest) -ceq (Get-ABPHash $manifestBytes)) ('SOURCE_RECORD_' + $field.ToUpperInvariant() + '_RESTORED')
+    }
+    foreach ($authority in @(
+        @{label='MANIFEST';path=$manifest},
+        @{label='METADATA_READER';path=(Join-Path $apiRoot 'AgentBrokerReleasePayloadMetadata.cs')},
+        @{label='MODULE_PUBLISH';path=(Join-Path $apiRoot 'New-ModulePublish.ps1')},
+        @{label='MODULE_DIST_ZIP';path=(Join-Path $apiRoot 'New-ModuleDistZip.ps1')}
+    )) {
+        $authorityBytes = [IO.File]::ReadAllBytes($authority.path)
+        try {
+            # Whitespace keeps parsed manifest/tool semantics unchanged, isolating byte authority.
+            [IO.File]::WriteAllBytes($authority.path, [byte[]]($authorityBytes + [byte]10))
+            Require (Refuses { Test-AgentBrokerReleaseOutput $receipt.OutputReceipt $receipt.OutputReceiptSha256 $payload } 'PROVENANCE_OUTPUT_AUTHORITY_CHANGED') ('TOOL_AUTHORITY_' + $authority.label + '_CHANGED')
+        } finally { [IO.File]::WriteAllBytes($authority.path, $authorityBytes) }
+        $restored = Test-AgentBrokerReleaseOutput $receipt.OutputReceipt $receipt.OutputReceiptSha256 $payload
+        Require ($restored.inventorySha256 -ceq $accepted.inventorySha256 -and
+            (Get-ABPFileHash $authority.path) -ceq (Get-ABPHash $authorityBytes)) ('TOOL_AUTHORITY_' + $authority.label + '_RESTORED')
+    }
     foreach ($leaf in $apiFiles) {
         Require ((Get-ABPFileHash (Join-Path $ApiDirectory $leaf)) -ceq $loaded[$leaf]) ('ORIGINAL_UNCHANGED_' + $leaf)
     }
 } finally {
     $full = [IO.Path]::GetFullPath($owned)
-    $prefix = [IO.Path]::GetFullPath($PSScriptRoot).TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar + 'provenance-api-rules-'
-    if (-not $full.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) { throw 'PROVENANCE_RULES_CLEANUP_SCOPE' }
+    if ([IO.Path]::GetDirectoryName($full) -cne $tempRoot -or
+        [IO.Path]::GetFileName($full) -cnotmatch '^provenance-api-rules-[0-9a-f]{32}\z') { throw 'PROVENANCE_RULES_CLEANUP_SCOPE' }
     if ([IO.Directory]::Exists($full)) {
+        if (([IO.File]::GetAttributes($tempRoot) -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'PROVENANCE_RULES_CLEANUP_REPARSE' }
+        if (([IO.File]::GetAttributes($full) -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'PROVENANCE_RULES_CLEANUP_REPARSE' }
         foreach ($entry in Get-ChildItem -LiteralPath $full -Recurse -Force) {
             if (($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'PROVENANCE_RULES_CLEANUP_REPARSE' }
         }

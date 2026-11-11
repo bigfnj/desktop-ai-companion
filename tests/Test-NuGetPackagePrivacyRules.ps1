@@ -36,10 +36,15 @@ function Get-NuGetPackWiringFailures([string]$Source) {
     }
     foreach ($entry in @(@('Assert-NuGetExpectedPackages', 'PACKAGE_SET'), @('Assert-NuGetOutputPrivacy', 'OUTPUT_PRIVACY'))) {
         $commandName = $entry[0]
+        $expectedElements = if ($entry[1] -ceq 'PACKAGE_SET') { 7 } else { 3 }
         $calls = @($root.FindAll({ param($n) $n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq $commandName }, $true))
         if ($calls.Count -ne 1 -or -not [object]::ReferenceEquals($calls[0].Parent.Parent, $root.EndBlock) -or
             $calls[0].Extent.EndOffset -ge $banner[0].Extent.StartOffset -or
-            (ArgumentText $calls[0] 'OutputDirectory') -cne '$OutputDirectory') { $failures.Add($entry[1]) }
+            $calls[0].CommandElements.Count -ne $expectedElements -or $calls[0].Redirections.Count -ne 0 -or
+            $calls[0].Parent.PipelineElements.Count -ne 1 -or
+            (ArgumentText $calls[0] 'OutputDirectory') -cne '$OutputDirectory' -or
+            ($entry[1] -ceq 'PACKAGE_SET' -and ((ArgumentText $calls[0] 'Version') -cne '$version' -or
+                (ArgumentText $calls[0] 'PackageIds') -cne '$packageIds'))) { $failures.Add($entry[1]) }
     }
     $reads = @($root.FindAll({ param($n) $n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Get-NuGetPackagePrivacySummary' }, $true))
     $valid = $reads.Count -eq 1
@@ -54,7 +59,9 @@ function Get-NuGetPackWiringFailures([string]$Source) {
             $loop.Extent.EndOffset -lt $banner[0].Extent.StartOffset -and
             (ArgumentText $read 'PackagePath') -ceq '$packagePath' -and
             (ArgumentText $read 'AssemblyName') -ceq "(`$id+'.dll')" -and
-            (ArgumentText $read 'ExpectedImageSha256') -ceq '$freshBuilds[$id].ImageSha256'
+            (ArgumentText $read 'ExpectedImageSha256') -ceq '$freshBuilds[$id].ImageSha256' -and
+            $read.CommandElements.Count -eq 7 -and $read.Redirections.Count -eq 0 -and
+            $read.Parent.PipelineElements.Count -eq 1
     }
     if (-not $valid) { $failures.Add('PACKAGE_PRIVACY_READ') }
     return $failures.ToArray()
@@ -215,6 +222,18 @@ try {
     Require ($wiring -cnotcontains 'OUTPUT_PRIVACY' -and $wiring -cnotcontains 'PARSE' -and $wiring -cnotcontains 'PUSH_BANNER') 'OUTPUT_PRIVACY_WIRED_BEFORE_PUSH_BANNER'
     Require ($wiring -cnotcontains 'PACKAGE_PRIVACY_READ' -and $wiring -cnotcontains 'PARSE' -and $wiring -cnotcontains 'PUSH_BANNER') 'PACKAGE_PRIVACY_READ_WIRED_BEFORE_PUSH_BANNER'
     $outputCall = 'Assert-NuGetOutputPrivacy -OutputDirectory $OutputDirectory'
+    $packageSetCall = 'Assert-NuGetExpectedPackages -OutputDirectory $OutputDirectory -Version $version -PackageIds $packageIds'
+    foreach ($pin in @(@($outputCall, 'OUTPUT_PRIVACY'), @($packageSetCall, 'PACKAGE_SET'))) {
+        foreach ($extra in @(@(' -ErrorAction SilentlyContinue', 'SUPPRESSED'), @(' 2>$null', 'REDIRECTED'))) {
+            $variant = Replace-WiringOnce $packSource $pin[0] ($pin[0] + $extra[0])
+            Require ((@(Get-NuGetPackWiringFailures $variant) -join ',') -ceq $pin[1]) ('WIRING_' + $pin[1] + '_' + $extra[1])
+        }
+    }
+    foreach ($binding in @(@('-Version $version', '-Version $wrongVersion', 'VERSION'), @('-PackageIds $packageIds', '-PackageIds $wrongIds', 'PACKAGE_IDS'))) {
+        $changedCall = Replace-WiringOnce $packageSetCall $binding[0] $binding[1]
+        $variant = Replace-WiringOnce $packSource $packageSetCall $changedCall
+        Require ((@(Get-NuGetPackWiringFailures $variant) -join ',') -ceq 'PACKAGE_SET') ('WIRING_PACKAGE_SET_' + $binding[2] + '_BINDING')
+    }
     $readCall = '$privacy = Get-NuGetPackagePrivacySummary -PackagePath $packagePath -AssemblyName ($id + ''.dll'') -ExpectedImageSha256 $freshBuilds[$id].ImageSha256'
     $bannerAt = $packSource.IndexOf("Write-Host '  Not pushed.", [StringComparison]::Ordinal)
     if ($bannerAt -lt 0) { throw 'NUGET_PRIVACY_RULES_WIRING_BANNER_ANCHOR' }

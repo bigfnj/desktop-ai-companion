@@ -827,4 +827,98 @@ Invoke-Case 'G4_MAIN_PAYLOAD_EXEMPTION_CONTROL' 'an always-true exemption condit
     -not (Get-FreshnessMainDecision $variant 'PAYLOAD').Wired
 }
 
+# Feed actual ZIP bytes through the actual aggregation loop and all intervening main statements,
+# rather than supplying the decisions with already-populated finding lists. Discovery and the
+# unrelated recency/Fortunes sections remain outside this focused pipeline.
+function Get-FreshnessPrivacyPipeline([string]$Source) {
+    $tokens = $null; $errors = $null
+    $root = [Management.Automation.Language.Parser]::ParseInput($Source, [ref]$tokens, [ref]$errors)
+    if ($errors.Count) { throw 'FRESHNESS_RULES_PIPELINE_SOURCE_PARSE' }
+    $loops = @($root.FindAll({ param($n)
+        $n -is [Management.Automation.Language.ForEachStatementAst] -and $n.Variable.VariablePath.UserPath -ceq 'bpZip' -and
+        $n.Condition.Extent.Text -ceq '$buildPathZips'
+    }, $true))
+    $sourceLink = Get-FreshnessMainDecision $Source 'SOURCELINK'
+    $legacy = Get-FreshnessMainDecision $Source 'LEGACY'
+    if ($loops.Count -ne 1 -or $null -eq $sourceLink.Statement -or $null -eq $legacy.Statement) {
+        return [pscustomobject]@{ Wired=$false; Span=''; Loop=$null; SourceLinkAdd=$null; LegacyAdd=$null }
+    }
+    $loop = $loops[0]
+    $slAdds = @($loop.Body.Statements | Where-Object {
+        $_ -is [Management.Automation.Language.ForEachStatementAst] -and $_.Variable.VariablePath.UserPath -ceq 'slO' -and
+        $_.Condition.Extent.Text -ceq '$bpVerdict.SourceLinkOffenders' -and $_.Body.Statements.Count -eq 1 -and
+        ($_.Body.Statements[0].Extent.Text -replace '\s', '') -ceq '$sourceLinkOffenders.Add($slO)'
+    })
+    $legacyBranches = @($loop.Body.Statements | Where-Object {
+        $_ -is [Management.Automation.Language.IfStatementAst] -and $_.Clauses.Count -eq 1 -and
+        $_.Clauses[0].Item1.Extent.Text -ceq '$bpVerdict.Legacy' -and $null -eq $_.ElseClause
+    })
+    $legacyAdds = @()
+    if ($legacyBranches.Count -eq 1) {
+        $legacyAdds = @($legacyBranches[0].Clauses[0].Item2.Statements | Where-Object {
+            $_ -is [Management.Automation.Language.IfStatementAst] -and $_.Clauses.Count -eq 1 -and $null -eq $_.ElseClause -and
+            $_.Clauses[0].Item1.Extent.Text -ceq '$bpVerdict.LegacyWitnessFailed' -and $_.Clauses[0].Item2.Statements.Count -eq 1 -and
+            ($_.Clauses[0].Item2.Statements[0].Extent.Text -replace '\s', '') -ceq '$legacyWithoutSourceLink.Add($bpVerdict.Name)'
+        })
+    }
+    $ordered = $loop.Extent.EndOffset -lt $sourceLink.Statement.Extent.StartOffset -and
+        $sourceLink.Statement.Extent.EndOffset -lt $legacy.Statement.Extent.StartOffset
+    $wired = [object]::ReferenceEquals($loop.Parent, $root.EndBlock) -and $sourceLink.Wired -and $legacy.Wired -and
+        $ordered -and $slAdds.Count -eq 1 -and $legacyAdds.Count -eq 1
+    $span = if ($ordered) { $Source.Substring($loop.Extent.StartOffset, $legacy.Statement.Extent.EndOffset - $loop.Extent.StartOffset) } else { '' }
+    return [pscustomobject]@{ Wired=[bool]$wired; Span=$span; Loop=$loop; SourceLinkAdd=if ($slAdds.Count -eq 1) { $slAdds[0] } else { $null }; LegacyAdd=if ($legacyAdds.Count -eq 1) { $legacyAdds[0] } else { $null } }
+}
+function Invoke-FreshnessPrivacyPipeline($Pipeline, [string]$Kind) {
+    if ([string]::IsNullOrEmpty($Pipeline.Span)) { throw 'FRESHNESS_RULES_PIPELINE_SPAN_REQUIRED' }
+    $parent = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\')
+    $directory = Join-Path $parent ('dac-freshness-rules-' + [Guid]::NewGuid().ToString('N'))
+    try {
+        Invoke-FixtureIo 'create the privacy pipeline fixture' { [void][IO.Directory]::CreateDirectory($directory) }
+        $chosen = if ($Kind -in @('SOURCELINK', 'LEGACY_SOURCELINK')) { $sourceLinkZip } else { $cleanZip }
+        $path = Join-Path $directory 'fixture.zip'
+        Invoke-FixtureIo 'write the privacy pipeline zip' { [IO.File]::WriteAllBytes($path, $chosen) }
+        $buildPathZips = @((Get-Item -LiteralPath $path))
+        $legacyBaselines = if ($Kind -in @('LEGACY', 'LEGACY_SOURCELINK')) { Get-Baseline 'fixture.zip' $chosen } else { $unrelated }
+        $buildPathPattern = $codeViewPattern
+        $zipVerdicts = New-Object 'Collections.Generic.List[object]'
+        $legacyPreserved = New-Object 'Collections.Generic.List[object]'
+        $sourceLinkOffenders = New-Object 'Collections.Generic.List[string]'
+        $legacyWithoutSourceLink = New-Object 'Collections.Generic.List[string]'
+        $buildPathOffenders = New-Object 'Collections.Generic.List[string]'
+        $moduleKitWithoutEmbeddedPdb = New-Object 'Collections.Generic.List[string]'
+        $buildPathCount = 0; $buildPathDlls = 0; $embeddedPdbCount = 0; $embeddedDocumentCount = 0
+        return (Get-ThrownMessage { & ([scriptblock]::Create($Pipeline.Span)) 6>$null })
+    } finally { Remove-FixtureRepository -Path $directory -Parent $parent }
+}
+$pipeline = Get-FreshnessPrivacyPipeline $mainSource
+Invoke-Case 'G5_AGGREGATION_WIRED' 'the real main loop directly aggregates SourceLink and legacy witness verdicts before their decisions' { $pipeline.Wired }
+foreach ($kind in @('CLEAN', 'SOURCELINK', 'LEGACY', 'LEGACY_SOURCELINK')) {
+    Invoke-Case ('G5_AGGREGATION_' + $kind) 'actual synthetic ZIP verdicts reach the actual main aggregation and decisions' {
+        $message = Invoke-FreshnessPrivacyPipeline $pipeline $kind
+        if ($kind -eq 'SOURCELINK') { return $null -ne $message -and $message.StartsWith($mainPrefixes['SOURCELINK'], [StringComparison]::Ordinal) }
+        if ($kind -eq 'LEGACY') { return $null -ne $message -and $message.StartsWith($mainPrefixes['LEGACY'], [StringComparison]::Ordinal) }
+        return $null -eq $message
+    }
+}
+foreach ($kind in @('SOURCELINK', 'LEGACY')) {
+    Invoke-Case ('G5_AGGREGATION_' + $kind + '_OMITTED_CONTROL') 'omitting the real aggregation loses its actual ZIP-driven refusal and its direct wiring' {
+        $node = if ($kind -eq 'SOURCELINK') { $pipeline.SourceLinkAdd } else { $pipeline.LegacyAdd }
+        $variant = $mainSource.Remove($node.Extent.StartOffset, $node.Extent.EndOffset - $node.Extent.StartOffset)
+        $changed = Get-FreshnessPrivacyPipeline $variant
+        -not $changed.Wired -and $null -eq (Invoke-FreshnessPrivacyPipeline $changed $kind)
+    }
+    Invoke-Case ('G5_AGGREGATION_' + $kind + '_CLEARED_CONTROL') 'clearing a finding list between the loop and its decision loses the actual ZIP-driven refusal' {
+        $decision = Get-FreshnessMainDecision $mainSource $kind
+        $clear = if ($kind -eq 'SOURCELINK') { '$sourceLinkOffenders.Clear()' } else { '$legacyWithoutSourceLink.Clear()' }
+        $variant = $mainSource.Insert($decision.Statement.Extent.StartOffset, ($clear + "`n"))
+        $changed = Get-FreshnessPrivacyPipeline $variant
+        $changed.Wired -and $null -eq (Invoke-FreshnessPrivacyPipeline $changed $kind)
+    }
+}
+Invoke-Case 'G5_AGGREGATION_CONDITIONAL_CONTROL' 'an optional or false main loop cannot supply the unconditional decisions' {
+    $node = $pipeline.Loop
+    $variant = $mainSource.Remove($node.Extent.StartOffset, $node.Extent.EndOffset - $node.Extent.StartOffset).Insert($node.Extent.StartOffset, ('if ($false) { ' + $node.Extent.Text + ' }'))
+    -not (Get-FreshnessPrivacyPipeline $variant).Wired
+}
+
 Write-Output ('SUMMARY: Test-ModulePublishFreshnessRules passed ' + $script:checks + ' checks under PowerShell ' + $PSVersionTable.PSVersion + '; synthetic repository removed.')

@@ -3523,7 +3523,7 @@ Assert-True ($manualSpanAt -ge 0 -and $manualRunAt -gt $manualSpanAt -and $manua
 # because Test-ModuleSelfTests.ps1 throws without a build. Sliced per step like the release.yml check under
 # the fix/scripts anchor: one slice from each `- name:` to the next, comment lines dropped, the ARGUMENT of
 # the if: asserted and not the presence of one. Positive control first: both steps are still there to judge.
-$buildWorkflowText = Get-Content -LiteralPath (Join-Path $repoRoot '.github\workflows\build.yml') -Raw
+$buildWorkflowText = Get-Content -LiteralPath (Join-Path $repoRoot '.github\workflows\build.yml') -Raw -Encoding UTF8
 $buildWorkflowSteps = @([regex]::Split($buildWorkflowText, '(?m)^      - name:') | Select-Object -Skip 1 |
     ForEach-Object { $_ -replace '(?m)^[ \t]*#.*$', '' })
 $buildStepSlices = @($buildWorkflowSteps | Where-Object { $_ -cmatch '\A Build Release x64 and the portable ZIP' })
@@ -3535,17 +3535,128 @@ Assert-True (($buildStepSlices[0] -cmatch '(?m)^        id: build\s*$') -and
              ($moduleSelfTestSlices[0] -cmatch ('(?m)^' + [regex]::Escape($moduleSelfTestCondition) + '\s*$'))) (
     "build.yml's module self-test step runs whenever the build step succeeded, red product self-tests or not (RA-001)")
 
-# THE NUGET PACK RUNS ON EVERY PUSH. Judge the named build job and steps, not a filename
-# elsewhere in YAML. The supported run forms are the original inline pack and the direct privacy-check
-# then pack block. A conditional step, nested command, reversed block or step-level failure suppression
-# cannot satisfy this invariant.
+# Judge the named NuGet build/release step chains in the supported workflow source layout, not general
+# YAML semantics or workflow triggers. Canonical unique headers and the actual jobs/steps context are
+# required. Raw non-LF line separators and multiline quoted scalars are refused before comment removal.
+# The build keeps its legacy inline pack form; both current pack blocks must check privacy then pack.
+function Test-NuGetMappingLayout([string]$Body, [string[]]$AllowedKeys, [string[]]$RequiredKeys, [int]$IndentWidth) {
+    # Only an empty mapping or literal-block header can own more-indented data. A scalar's first line
+    # cannot hide a folded shell/run continuation. Callers still judge the values they depend on.
+    $seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    $prefix = ' ' * $IndentWidth
+    $open = $false
+    foreach ($line in @($Body -split '\r?\n')) {
+        if ([string]::IsNullOrWhiteSpace($line)) { continue }
+        if ($line -cmatch ('^' + $prefix + '(?<key>[a-z][a-z0-9-]*):(?<value>(?:[ \t].*)?)$')) {
+            $key = $Matches['key']; $value = $Matches['value'].Trim()
+            $open = $value.Length -eq 0 -or $value -ceq '|'
+            if ($AllowedKeys -cnotcontains $key -or -not $seen.Add($key)) { return $false }
+        } elseif (-not $open -or $line -cnotmatch ('^' + $prefix + '  ')) { return $false }
+    }
+    foreach ($key in $RequiredKeys) { if (-not $seen.Contains($key)) { return $false } }
+    return $true
+}
+function Test-NuGetPhysicalScalars([string]$Text) {
+    # Known workflow header values must close quoted tokens on their physical line. Literal run/path
+    # bodies are opaque. Token scanning includes flow wrappers, but does not evaluate YAML or expressions.
+    $literalIndent = -1
+    foreach ($line in @($Text -split "`n")) {
+        if ([string]::IsNullOrWhiteSpace($line)) { continue }
+        if ($line -cmatch '^[ \t]*#') { continue }
+        $indent = [regex]::Match($line, '^ *').Length
+        if ($literalIndent -ge 0 -and $indent -gt $literalIndent) { continue }
+        $literalIndent = -1
+        $header = [regex]::Match($line, '^(?<indent> *)(?:- )?[^:#][^:]*:[ \t]*(?<value>.*)$')
+        if (-not $header.Success) { continue }
+        $value = $header.Groups['value'].Value
+        if ($value.TrimStart() -cmatch '^[!&*]') { return $false }
+        $quote = 0; $escaped = $false; $end = $value.Length
+        for ($at = 0; $at -lt $value.Length; $at++) {
+            $character = [int][char]$value[$at]
+            if ($quote -ne 0) {
+                if ($quote -eq 34 -and $escaped) { $escaped = $false; continue }
+                if ($quote -eq 34 -and $character -eq 92) { $escaped = $true; continue }
+                if ($character -eq $quote) {
+                    if ($quote -eq 39 -and $at + 1 -lt $value.Length -and [int][char]$value[$at + 1] -eq 39) { $at++; continue }
+                    $quote = 0
+                }
+            } else {
+                if ($character -eq 35 -and ($at -eq 0 -or [char]::IsWhiteSpace($value[$at - 1]))) { $end = $at; break }
+                $tokenStart = $at -eq 0 -or [char]::IsWhiteSpace($value[$at - 1]) -or '[{,:'.Contains([string]$value[$at - 1])
+                if (($character -eq 39 -or $character -eq 34) -and $tokenStart) { $quote = $character }
+            }
+        }
+        if ($quote -ne 0) { return $false }
+        if ($value.Substring(0, $end).Trim() -cmatch '^\|[+-]?$') { $literalIndent = $header.Groups['indent'].Length }
+    }
+    return $true
+}
+function Get-NuGetWorkflowCode([string]$WorkflowText) {
+    if ($WorkflowText -cmatch '\r(?!\n)|[\u0085\u2028\u2029]') { return $null }
+    $code = $WorkflowText.TrimStart([char]0xfeff).Replace("`r`n", "`n")
+    if (-not (Test-NuGetPhysicalScalars $code)) { return $null }
+    $code = $code -replace '(?m)^[ \t]*#.*$', ''
+    if ($code -cmatch '(?m)^(?:---|\.\.\.)(?:[ \t].*)?$' -or
+        -not (Test-NuGetMappingLayout $code @('name', 'on', 'permissions', 'concurrency', 'jobs') @('on', 'jobs') 0)) { return $null }
+    return $code
+}
+function Test-NuGetPackBody([string]$Body, [bool]$AllowInline) {
+    if (-not (Test-NuGetMappingLayout $Body @('shell', 'run') @('shell', 'run') 8) -or
+        $Body -cnotmatch '(?m)^        shell: pwsh[ \t]*$') { return $false }
+    $lines = @($Body -split '\r?\n')
+    $indices = @(for ($index = 0; $index -lt $lines.Count; $index++) { if ($lines[$index] -cmatch '^        run: ') { $index } })
+    if ($indices.Count -ne 1) { return $false }
+    $runIndex = $indices[0]; $value = $lines[$runIndex].Substring(13).Trim()
+    $packCommand = '.\packaging\New-NuGetPackages.ps1 -OutputDirectory dist\nuget'
+    if ($value -cne '|') { return $AllowInline -and $value -ceq $packCommand }
+    $commands = @()
+    for ($index = $runIndex + 1; $index -lt $lines.Count; $index++) {
+        if ([string]::IsNullOrWhiteSpace($lines[$index])) { continue }
+        if ($lines[$index] -cnotmatch '^          ') { break }
+        $commands += $lines[$index].Trim()
+    }
+    return $commands.Count -eq 2 -and $commands[0] -ceq '.\tests\Test-NuGetPackagePrivacyRules.ps1' -and $commands[1] -ceq $packCommand
+}
+function Test-NuGetUploadInputs([string]$Body) {
+    $blocks = [regex]::Matches($Body, '(?ms)^        with:[ \t]*\n(?<body>.*?)(?=^        \S|\z)')
+    if ($blocks.Count -ne 1) { return $false }
+    $seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    $paths = @(); $inPaths = $false
+    foreach ($line in @($blocks[0].Groups['body'].Value -split "`n")) {
+        if ([string]::IsNullOrWhiteSpace($line)) { continue }
+        $match = [regex]::Match($line, '^          (?<key>[a-z][a-z0-9-]*):(?<value>(?:[ \t].*)?)$')
+        $quoted = $false
+        if (-not $match.Success) {
+            $match = [regex]::Match($line, "^          '(?<key>[a-z][a-z0-9-]*)':(?<value>(?:[ \t].*)?)$")
+            $quoted = $match.Success
+        }
+        if ($match.Success) {
+            $key = $match.Groups['key'].Value; $value = $match.Groups['value'].Value.Trim(); $inPaths = $false
+            if (-not $seen.Add($key) -or ($quoted -and $key -cin @('name', 'path', 'if-no-files-found'))) { return $false }
+            if ($key -ceq 'path') { if ($value -cne '|') { return $false }; $inPaths = $true }
+            elseif ($key -ceq 'name') { if ($value -cne 'DesktopAICompanion-x64') { return $false } }
+            elseif ($key -ceq 'if-no-files-found') { if ($value -cne 'error') { return $false } }
+            elseif ($value.Length -eq 0 -or $value -cmatch '^[|>!&*\[{]') { return $false }
+        } elseif ($inPaths -and $line -cmatch '^            (?<path>\S.*)$') { $paths += $Matches['path'].Trim() }
+        else { return $false }
+    }
+    return $seen.Contains('name') -and $seen.Contains('path') -and $seen.Contains('if-no-files-found') -and
+        ($paths -join '|') -ceq 'dist/DesktopAICompanion-Portable.zip|dist/DesktopAICompanion.msi|dist/nuget/*.nupkg'
+}
 function Test-NuGetBuildWorkflow([string]$WorkflowText) {
-    $raCode = $WorkflowText.Replace("`r`n", "`n") -replace '(?m)^[ \t]*#.*$', ''
-    $raJobs = [regex]::Matches($raCode, '(?ms)^  build:[ \t]*\r?\n(?<body>.*?)(?=^  [A-Za-z_][A-Za-z0-9_-]*:|\z)')
+    $raCode = Get-NuGetWorkflowCode $WorkflowText
+    if ($null -eq $raCode) { return $false }
+    $raJobBlocks = [regex]::Matches($raCode, '(?ms)^jobs:[ \t]*\r?\n(?<body>.*?)(?=^\S|\z)')
+    if ($raJobBlocks.Count -ne 1) { return $false }
+    $raJobs = [regex]::Matches($raJobBlocks[0].Groups['body'].Value, '(?ms)^  build:[ \t]*\r?\n(?<body>.*?)(?=^  \S|\z)')
     if ($raJobs.Count -ne 1) { return $false }
     $raJob = $raJobs[0].Groups['body'].Value
-    if ($raJob -cmatch '(?m)^    if:') { return $false }
-    $raSteps = @([regex]::Matches($raJob, '(?ms)^      - name: (?<name>[^\r\n]+)\r?\n(?<body>.*?)(?=^      - |\z)'))
+    if (-not (Test-NuGetMappingLayout $raJob @('name', 'runs-on', 'timeout-minutes', 'steps') @('runs-on', 'steps') 4)) { return $false }
+    # Only the actual empty-valued steps mapping contributes executable steps. A display-name scalar
+    # may contain the same text, but stops this block at its own four-space job header.
+    $raStepBlocks = [regex]::Matches($raJob, '(?ms)^    steps:[ \t]*\r?\n(?<body>.*?)(?=^    \S|\z)')
+    if ($raStepBlocks.Count -ne 1) { return $false }
+    $raSteps = @([regex]::Matches($raStepBlocks[0].Groups['body'].Value, '(?ms)^      - name: (?<name>[^\r\n]+)\r?\n(?<body>.*?)(?=^      - |\z)'))
     $raMsi = @($raSteps | Where-Object { $_.Groups['name'].Value -ceq 'Install WiX and build the MSI' })
     $raPack = @($raSteps | Where-Object { $_.Groups['name'].Value -ceq 'Pack the module-author NuGet packages' })
     $raUpload = @($raSteps | Where-Object { $_.Groups['name'].Value -ceq 'Upload the ZIP, MSI and author packages' })
@@ -3553,44 +3664,36 @@ function Test-NuGetBuildWorkflow([string]$WorkflowText) {
     if ($raMsi[0].Index -ge $raPack[0].Index -or $raPack[0].Index -ge $raUpload[0].Index) { return $false }
     $raPackBody = $raPack[0].Groups['body'].Value
     $raUploadBody = $raUpload[0].Groups['body'].Value
-    if ($raPackBody -cmatch '(?m)^        (if|working-directory|uses|continue-on-error):' -or
-        $raUploadBody -cmatch '(?m)^        (if|continue-on-error):') { return $false }
-    if ($raPackBody -cnotmatch '(?m)^        shell: pwsh[ \t]*$') { return $false }
-    $raRunLines = @($raPackBody -split '\r?\n')
-    $raRunIndices = @(for ($raIndex = 0; $raIndex -lt $raRunLines.Count; $raIndex++) {
-        if ($raRunLines[$raIndex] -cmatch '^        run: ') { $raIndex }
-    })
-    if ($raRunIndices.Count -ne 1) { return $false }
-    $raRunIndex = $raRunIndices[0]
-    $raRunValue = $raRunLines[$raRunIndex].Substring(13).Trim()
-    $raPackCommand = '.\packaging\New-NuGetPackages.ps1 -OutputDirectory dist\nuget'
-    if ($raRunValue -ceq '|') {
-        $raCommands = @()
-        for ($raIndex = $raRunIndex + 1; $raIndex -lt $raRunLines.Count; $raIndex++) {
-            if ([string]::IsNullOrWhiteSpace($raRunLines[$raIndex])) { continue }
-            if ($raRunLines[$raIndex] -cnotmatch '^          ') { break }
-            $raCommands += $raRunLines[$raIndex].Trim()
-        }
-        if ($raCommands.Count -ne 2 -or $raCommands[0] -cne '.\tests\Test-NuGetPackagePrivacyRules.ps1' -or
-            $raCommands[1] -cne $raPackCommand) { return $false }
-    } elseif ($raRunValue -cne $raPackCommand) { return $false }
+    if (-not (Test-NuGetPackBody $raPackBody $true) -or
+        -not (Test-NuGetMappingLayout $raUploadBody @('uses', 'with') @('uses', 'with') 8)) { return $false }
     return ($raUploadBody -cmatch '(?m)^        uses: actions/upload-artifact@[0-9a-f]{40}(?:[ \t]+#.*)?[ \t]*$' -and
-            $raUploadBody -cmatch '(?m)^          path: \|[ \t]*\r?\n(?:            [^\r\n]*\r?\n)*?            dist/nuget/\*\.nupkg[ \t]*(?:\r?\n|\z)' -and
-            $raUploadBody -cmatch '(?m)^          if-no-files-found: error[ \t]*$')
+            (Test-NuGetUploadInputs $raUploadBody))
 }
 Assert-True (Test-NuGetBuildWorkflow $buildWorkflowText) (
     'build.yml packs the module-author NuGet packages on every push and uploads them with the ZIP and MSI (RA-190)')
 
-$releaseWorkflowText = Get-Content -LiteralPath (Join-Path $repoRoot '.github\workflows\release.yml') -Raw
-# A release must also stop when its named pack step refuses an unsafe package. Inspect the actual
-# step body in the release job; a comment or a different step's setting is not evidence of this condition.
+$releaseWorkflowText = Get-Content -LiteralPath (Join-Path $repoRoot '.github\workflows\release.yml') -Raw -Encoding UTF8
+# The supported release pack body is exact; later Assemble/Publish steps remain after it without an if
+# override. Other steps' continue-on-error metadata is not a pack-step suppression and remains supported.
 function Test-NuGetReleasePackFailure([string]$WorkflowText) {
-    $raCode = $WorkflowText.Replace("`r`n", "`n") -replace '(?m)^[ \t]*#.*$', ''
-    $raJobs = [regex]::Matches($raCode, '(?ms)^  release:[ \t]*\r?\n(?<body>.*?)(?=^  [A-Za-z_][A-Za-z0-9_-]*:|\z)')
+    $raCode = Get-NuGetWorkflowCode $WorkflowText
+    if ($null -eq $raCode) { return $false }
+    $raJobBlocks = [regex]::Matches($raCode, '(?ms)^jobs:[ \t]*\r?\n(?<body>.*?)(?=^\S|\z)')
+    if ($raJobBlocks.Count -ne 1) { return $false }
+    $raJobs = [regex]::Matches($raJobBlocks[0].Groups['body'].Value, '(?ms)^  release:[ \t]*\r?\n(?<body>.*?)(?=^  \S|\z)')
     if ($raJobs.Count -ne 1) { return $false }
-    $raSteps = @([regex]::Matches($raJobs[0].Groups['body'].Value, '(?ms)^      - name: (?<name>[^\r\n]+)\r?\n(?<body>.*?)(?=^      - |\z)'))
+    if (-not (Test-NuGetMappingLayout $raJobs[0].Groups['body'].Value @('name', 'runs-on', 'timeout-minutes', 'steps') @('runs-on', 'steps') 4)) { return $false }
+    $raStepBlocks = [regex]::Matches($raJobs[0].Groups['body'].Value, '(?ms)^    steps:[ \t]*\r?\n(?<body>.*?)(?=^    \S|\z)')
+    if ($raStepBlocks.Count -ne 1) { return $false }
+    $raSteps = @([regex]::Matches($raStepBlocks[0].Groups['body'].Value, '(?ms)^      - name: (?<name>[^\r\n]+)\r?\n(?<body>.*?)(?=^      - |\z)'))
     $raPack = @($raSteps | Where-Object { $_.Groups['name'].Value -ceq 'Pack the module-author NuGet packages' })
-    return ($raPack.Count -eq 1 -and $raPack[0].Groups['body'].Value -cnotmatch '(?m)^        continue-on-error:')
+    $raAssemble = @($raSteps | Where-Object { $_.Groups['name'].Value -ceq 'Assemble release assets and checksums' })
+    $raPublish = @($raSteps | Where-Object { $_.Groups['name'].Value -ceq 'Publish the GitHub release' })
+    return ($raPack.Count -eq 1 -and $raAssemble.Count -eq 1 -and $raPublish.Count -eq 1 -and
+        $raPack[0].Index -lt $raAssemble[0].Index -and $raAssemble[0].Index -lt $raPublish[0].Index -and
+        (Test-NuGetPackBody $raPack[0].Groups['body'].Value $false) -and
+        (Test-NuGetMappingLayout $raAssemble[0].Groups['body'].Value @('shell', 'run', 'continue-on-error') @('shell', 'run') 8) -and
+        (Test-NuGetMappingLayout $raPublish[0].Groups['body'].Value @('env', 'shell', 'run', 'continue-on-error') @('shell', 'run') 8))
 }
 Assert-True (Test-NuGetReleasePackFailure $releaseWorkflowText) (
     'release.yml propagates the module-author NuGet pack failure (RA-190)')

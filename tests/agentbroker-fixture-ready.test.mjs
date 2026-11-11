@@ -1,71 +1,52 @@
-import fs from 'node:fs';
 import path from 'node:path';
+import fs from 'node:fs';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { publishFixtureReady } from './agentbroker-fixture-ready.mjs';
 
 const [mode, root] = process.argv.slice(2);
-const value = { pid: process.pid, port: 12345 };
 const ready = path.join(root, 'ready.json');
+const value = { pid: process.pid, port: 12345 };
 const helper = fileURLToPath(new URL('./agentbroker-fixture-ready.mjs', import.meta.url));
 console.log('READY_HELPER_SHA256=' + createHash('sha256').update(fs.readFileSync(helper)).digest('hex'));
-const refused = () => Object.assign(new Error('SYNTHETIC_DO_NOT_EXPORT'), { code: 'EPERM' });
-
-if (mode === '--persistent') {
-  let elapsed = 0;
-  publishFixtureReady(ready, value, {
-    io: { writeFileSync: fs.writeFileSync, renameSync: () => { throw refused(); } },
-    now: () => elapsed,
-    later: (callback, delay) => { elapsed += delay; callback(); },
-  });
-  console.error('FAIL: READY_PERSISTENT_CONSUMER_DIAGNOSTIC');
-  process.exit(1);
-}
-
-let current = 'READY_NOT_VISIBLE_UNTIL_CLOSED';
+const names = new Set(['READY_NOT_VISIBLE_UNTIL_CLOSED', 'READY_TRANSIENT_EPERM_RECOVERS']);
+function need(condition, label) { if (!condition) throw new Error('READINESS_ASSERT:' + label); }
 try {
-  if (mode !== '--baseline') throw new Error(current);
-  let visibleWhileOpen = false;
+  if (mode !== '--baseline') throw new Error('unexpected mode');
+  // Unit IO is entirely in memory. The real fixture check owns actual close/rename behavior.
+  const files = new Map();
+  let visibleDuringWrite = false;
   let failed = false;
   publishFixtureReady(ready, value, {
     io: {
-      writeFileSync: (name, bytes) => {
-        const handle = fs.openSync(name, 'w');
-        try {
-          fs.writeSync(handle, bytes);
-          visibleWhileOpen = fs.existsSync(ready);
-        } finally { fs.closeSync(handle); }
-      },
-      renameSync: fs.renameSync,
+      writeFileSync: (name, bytes) => { files.set(name, bytes); visibleDuringWrite = files.has(ready); },
+      renameSync: (from, to) => { need(files.has(from), 'READY_NOT_VISIBLE_UNTIL_CLOSED'); files.set(to, files.get(from)); files.delete(from); },
     },
     fail: () => { failed = true; },
   });
-  if (visibleWhileOpen || failed || !fs.existsSync(ready) ||
-      fs.readFileSync(ready, 'utf8') !== JSON.stringify(value) || fs.existsSync(ready + '.pending'))
-    throw new Error(current);
-  console.log('PASS: ' + current);
-  fs.unlinkSync(ready);
-
-  current = 'READY_TRANSIENT_EPERM_RECOVERS';
+  need(!visibleDuringWrite && !failed && files.get(ready) === JSON.stringify(value) && !files.has(ready + '.pending'), 'READY_NOT_VISIBLE_UNTIL_CLOSED');
+  console.log('PASS: READY_NOT_VISIBLE_UNTIL_CLOSED');
+  files.clear();
   let attempts = 0;
   let elapsed = 0;
   failed = false;
   publishFixtureReady(ready, value, {
     io: {
-      writeFileSync: fs.writeFileSync,
-      renameSync: (from, to) => { if (++attempts < 3) throw refused(); fs.renameSync(from, to); },
+      writeFileSync: (name, bytes) => { files.set(name, bytes); },
+      renameSync: (from, to) => {
+        if (++attempts < 3) throw Object.assign(new Error('synthetic'), { code: 'EPERM' });
+        need(files.has(from), 'READY_TRANSIENT_EPERM_RECOVERS'); files.set(to, files.get(from)); files.delete(from);
+      },
     },
     now: () => elapsed,
     later: (callback, delay) => { elapsed += delay; callback(); },
     fail: () => { failed = true; },
   });
-  if (failed || attempts !== 3 || elapsed !== 50 || !fs.existsSync(ready) ||
-      fs.readFileSync(ready, 'utf8') !== JSON.stringify(value) || fs.existsSync(ready + '.pending'))
-    throw new Error(current);
-  console.log('PASS: ' + current);
+  need(!failed && attempts === 3 && elapsed === 50 && files.get(ready) === JSON.stringify(value) && !files.has(ready + '.pending'), 'READY_TRANSIENT_EPERM_RECOVERS');
+  console.log('PASS: READY_TRANSIENT_EPERM_RECOVERS');
   console.log('READY_NODE_SELFTEST=PASS checks=2');
-} catch {
-  // Only a fixed assertion label crosses this child boundary, never an OS path or error stack.
-  console.error('FAIL: ' + current);
+} catch (error) {
+  const label = error?.message?.startsWith('READINESS_ASSERT:') ? error.message.slice('READINESS_ASSERT:'.length) : '';
+  console.error('FAIL: ' + (names.has(label) ? label : 'READY_UNEXPECTED_EXECUTION'));
   process.exitCode = 1;
 }

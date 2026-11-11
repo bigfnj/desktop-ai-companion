@@ -1,7 +1,7 @@
 #requires -Version 7
 <#
 .SYNOPSIS
-Qualify the four focused readiness/clock regressions in an isolated checkout.
+Qualify six focused readiness/clock regressions in an isolated checkout.
 .DESCRIPTION
 Default is plan-only. Execute requires an already restored and built Worker test project.
 Only test sources are temporarily changed; each is restored byte for byte before proceeding.
@@ -9,7 +9,7 @@ Keep this checkout idle while it runs. Raw captures and the summary remain under
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('all','clock-early','ready-before-close','retry-omitted','diagnostic-omitted')][string]$Case='all',
+    [ValidateSet('all','clock-early','clock-late','ready-before-close','retry-omitted','diagnostic-omitted','actual-fixture-helper-bypassed')][string]$Case='all',
     [switch]$Execute
 )
 $ErrorActionPreference='Stop'; Set-StrictMode -Version Latest
@@ -17,15 +17,18 @@ $root=[IO.Path]::GetFullPath((Split-Path $PSScriptRoot -Parent))
 $clock=Join-Path $PSScriptRoot 'AgentBroker.Worker.Tests/WaitLifecycleChecks.cs'
 $publisher=Join-Path $PSScriptRoot 'agentbroker-fixture-ready.mjs'
 $consumer=Join-Path $PSScriptRoot 'AgentBrokerFixtureStartup.ps1'
+$fixture=Join-Path $PSScriptRoot 'agentbroker-collaboration-process-fixture.mjs'
 $positive=Join-Path $PSScriptRoot 'Test-AgentBrokerFixtureReadiness.ps1'
 $project=Join-Path $PSScriptRoot 'AgentBroker.Worker.Tests/AgentBroker.Worker.Tests.csproj'
 $harness=Join-Path $PSScriptRoot 'AgentBroker.Worker.Tests/bin/Release/net10.0-windows/AgentBroker.Worker.Tests.dll'
 $utf8=[Text.UTF8Encoding]::new($false,$true)
 $cases=@(
     @{name='clock-early';path=$clock;old='timer.Due <= timestamp';new='timer.Due <= timestamp + 1';label='QUIET_CLOCK_NOT_BEFORE_DUE'},
+    @{name='clock-late';path=$clock;old='timer.Due <= timestamp';new='timer.Due < timestamp';label='QUIET_CLOCK_FIRES_AT_DUE'},
     @{name='ready-before-close';path=$publisher;old='io.writeFileSync(pendingReadyPath, JSON.stringify(value));';new='io.writeFileSync(readyPath, JSON.stringify(value));';label='READY_NOT_VISIBLE_UNTIL_CLOSED'},
     @{name='retry-omitted';path=$publisher;old="if (code !== 'OTHER' && retries < 20 && now() < retryUntil)";new="if (false && retries < 20 && now() < retryUntil)";label='READY_TRANSIENT_EPERM_RECOVERS'},
-    @{name='diagnostic-omitted';path=$consumer;old='if ($sample -cmatch ';new='if ($false -and $sample -cmatch ';label='READY_PERSISTENT_CONSUMER_DIAGNOSTIC'}
+    @{name='diagnostic-omitted';path=$consumer;old='if ($sample -cmatch ';new='if ($false -and $sample -cmatch ';label='READY_PERSISTENT_CONSUMER_DIAGNOSTIC'},
+    @{name='actual-fixture-helper-bypassed';path=$fixture;old='publishFixtureReady(readyPath, { pid: process.pid, port: server.address().port });';new='fs.writeFileSync(readyPath, JSON.stringify({ pid: process.pid, port: server.address().port }));';label='READY_NOT_VISIBLE_UNTIL_CLOSED'}
 )
 if ($Case -ne 'all') { $cases=@($cases|Where-Object { $_.name -ceq $Case }) }
 if (-not $Execute) { $cases|ForEach-Object { Write-Output ('PLAN: '+$_.name+' -> '+$_.label) }; Write-Output 'PLAN_ONLY: no files changed or children started.'; return }
@@ -71,6 +74,7 @@ function Check-Positive($Observed,[bool]$ClockCase) {
     } else {
         Need ($Observed.out -cmatch '(?m)^PASS: 3 fixture readiness checks; owned children and fixture files cleaned\.\r?$') 'READINESS_HEALTHY_THREE'
         Need ($Observed.out -cmatch ('(?m)^READY_HELPER_SHA256='+(Hash $publisher).ToLowerInvariant()+'\r?$') -and
+              $Observed.out -cmatch ('(?m)^READY_FIXTURE_SHA256='+(Hash $fixture).ToLowerInvariant()+'\r?$') -and
               $Observed.out -cmatch ('(?m)^READY_CONSUMER_SHA256='+(Hash $consumer)+'\r?$')) 'READINESS_LOADED_HELPERS'
     }
 }
@@ -84,7 +88,7 @@ function Build-Clock([string]$Name) {
 $failure=$null
 try {
     foreach ($item in $cases) {
-        $isClock=$item.name -ceq 'clock-early'
+        $isClock=$item.name -like 'clock-*'
         $exe=if ($isClock) { $dotnet } else { $pwsh }
         $arguments=if ($isClock) { @($harness,'--wait-lifecycle-core-only') } else { @('-NoProfile','-File',$positive) }
         Check-Positive (Capture ($item.name+'-healthy') $exe $arguments) $isClock
@@ -105,6 +109,9 @@ try {
                 Need ($observed.out -cmatch ('(?m)^WORKER_HARNESS_SHA256='+(Hash $harness)+'\r?$')) 'READINESS_MUTANT_LOADED_HARNESS'
             } else {
                 Need ($observed.err -cmatch ('\AFAIL: '+$item.label+'\r?\n\z') -and $observed.out -cnotmatch '(?m)^FAIL:') 'READINESS_MUTANT_SOLE_TERMINAL_LABEL'
+                if ($item.name -ceq 'actual-fixture-helper-bypassed') {
+                    Need ($observed.out -cmatch ('(?m)^READY_FIXTURE_SHA256='+(Hash $fixture).ToLowerInvariant()+'\r?$')) 'READINESS_MUTANT_LOADED_ACTUAL_FIXTURE'
+                }
             }
             Need ((Hash $item.path) -ceq $mutatedHash) 'READINESS_MUTANT_SOURCE_UNCHANGED'
         } finally {

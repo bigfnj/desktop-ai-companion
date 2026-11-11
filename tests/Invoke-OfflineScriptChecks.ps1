@@ -1,7 +1,8 @@
 #requires -Version 5
 <#
 .SYNOPSIS
-    Run script checks with no product build, install, elevation, network or real input, and collect every
+    Run script checks with no product build, install, elevation, external network requests or real input.
+    AgentBroker readiness opens loopback fixture listeners without sending requests. Collect every
     failure: the installer's fake-caller, path-safety, checker-timeout and log-observation checks, the tray icon record
     cleanup check, the public-commit privacy self-test, mutation-tooling self-tests, and AgentBroker readiness/provenance checks.
 
@@ -100,7 +101,7 @@ if (-not [string]::IsNullOrWhiteSpace($PythonExecutable)) {
 }
 
 $powerShellChecks = @(
-    @{ Name = 'Test-AgentBrokerReleaseProvenanceRules.ps1'; Path = (Join-Path $PSScriptRoot 'Test-AgentBrokerReleaseProvenanceRules.ps1'); Args = @(); Summary = '^PROVENANCE_RULES=19 checks passed; no SDK build; owned fixture removed$' },
+    @{ Name = 'Test-AgentBrokerReleaseProvenanceRules.ps1'; Path = (Join-Path $PSScriptRoot 'Test-AgentBrokerReleaseProvenanceRules.ps1'); Args = @(); Summary = '^PROVENANCE_RULES=52 checks passed; no SDK build; owned fixture removed$' },
     @{ Name = 'Test-AgentBrokerFixtureReadiness.ps1'; Path = (Join-Path $PSScriptRoot 'Test-AgentBrokerFixtureReadiness.ps1'); Args = @(); Summary = '^PASS: 3 fixture readiness checks; owned children and fixture files cleaned\.$' },
     @{ Name = 'Test-ModulePublishCommit.ps1'; Path = (Join-Path $PSScriptRoot 'Test-ModulePublishCommit.ps1'); Args = @(); Summary = '^SUMMARY: Test-ModulePublishCommit passed [1-9][0-9]* checks; synthetic repository removed\.$' },
     @{ Name = 'Test-CatalogDeadChild.ps1'; Path = (Join-Path $PSScriptRoot 'Test-CatalogDeadChild.ps1'); Args = @(); Summary = '^SUMMARY: Test-CatalogDeadChild passed [1-9][0-9]* checks; owned children disposed\.$' },

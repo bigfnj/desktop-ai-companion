@@ -115,6 +115,175 @@ def run():
     return (proc.returncode, (proc.stdout or "") + (proc.stderr or ""))
 
 
+def nuget_fake_steps_in_job_name(match):
+    """Valid display-name scalar data must never stand in for executable steps."""
+    original = match.group(0)
+    crlf = b"\r\n" in original
+    body = original.replace(b"\r\n", b"\n")
+
+    def once(old, new):
+        nonlocal body
+        if body.count(old) != 1:
+            raise ValueError("RA190_FAKE_NAME_FIXTURE_ANCHOR")
+        body = body.replace(old, new)
+
+    upload_header = b"      - name: Upload the ZIP, MSI and author packages\n"
+    if body.count(upload_header) != 1:
+        raise ValueError("RA190_FAKE_NAME_UPLOAD_ANCHOR")
+    fake_upload = body[body.index(upload_header):].rstrip(b"\n") + b"\n"
+    if re.search(rb"(?m)^      - ", fake_upload[len(upload_header):]):
+        raise ValueError("RA190_FAKE_NAME_UPLOAD_MUST_BE_LAST")
+    pack_block = (b"        run: |\n"
+                  b"          .\\tests\\Test-NuGetPackagePrivacyRules.ps1\n"
+                  b"          .\\packaging\\New-NuGetPackages.ps1 -OutputDirectory dist\\nuget\n")
+    once(b"    name: Build, test, and package x64\n", b"")
+    for name in (b"Install WiX and build the MSI", b"Pack the module-author NuGet packages", b"Upload the ZIP, MSI and author packages"):
+        once(b"      - name: " + name + b"\n", b"      - name: Actual " + name + b"\n")
+    once(pack_block, b"        run: Write-Host 'pack skipped'\n")
+    fake_name = (b"    name: |\n"
+                 b"      - name: Install WiX and build the MSI\n"
+                 b"        run: ignored\n"
+                 b"      - name: Pack the module-author NuGet packages\n"
+                 b"        shell: pwsh\n" + pack_block + fake_upload)
+    changed = body.rstrip(b"\n") + b"\n\n" + fake_name + b"\n"
+    return changed.replace(b"\n", b"\r\n") if crlf else changed
+
+
+def nuget_fake_job_in_root_name(match):
+    """A root display-name scalar cannot substitute for the jobs mapping."""
+    original = match.group(0)
+    crlf = b"\r\n" in original
+    bom = b"\xef\xbb\xbf" if original.startswith(b"\xef\xbb\xbf") else b""
+    body = original[len(bom):].replace(b"\r\n", b"\n")
+    jobs = list(re.finditer(rb"(?ms)^  build:\n.*?(?=^  \S|\Z)", body))
+    if len(jobs) != 1:
+        raise ValueError("RA190_FAKE_ROOT_JOB_ANCHOR")
+    job = jobs[0].group(0)
+    upload_header = b"      - name: Upload the ZIP, MSI and author packages\n"
+    if job.count(upload_header) != 1:
+        raise ValueError("RA190_FAKE_ROOT_UPLOAD_ANCHOR")
+    fake_upload = job[job.index(upload_header):].rstrip(b"\n") + b"\n"
+    body, names = re.subn(rb"(?m)^name: [^\n]*\n", b"", body)
+    if names != 1 or body.count(b"  build:\n") != 1:
+        raise ValueError("RA190_FAKE_ROOT_NAME_ANCHOR")
+    body = body.replace(b"  build:\n", b"  actual-build:\n")
+    pack_block = (b"        run: |\n"
+                  b"          .\\tests\\Test-NuGetPackagePrivacyRules.ps1\n"
+                  b"          .\\packaging\\New-NuGetPackages.ps1 -OutputDirectory dist\\nuget\n")
+    if body.count(pack_block) != 1:
+        raise ValueError("RA190_FAKE_ROOT_PACK_ANCHOR")
+    body = body.replace(pack_block, b"        run: Write-Host 'pack skipped'\n")
+    # Copy only the three questioned step shapes. Duplicating unrelated self-test steps would be
+    # rejected by earlier checks and would never exercise the target job-context invariant.
+    fake_job = (b"  build:\n    runs-on: windows-2025\n    steps:\n"
+                b"      - name: Install WiX and build the MSI\n        run: ignored\n"
+                b"      - name: Pack the module-author NuGet packages\n        shell: pwsh\n" +
+                pack_block + fake_upload)
+    changed = body.rstrip(b"\n") + b"\n\nname: |\n" + fake_job + b"\n"
+    return bom + (changed.replace(b"\n", b"\r\n") if crlf else changed)
+
+
+def nuget_v5_variant(match, kind):
+    """Focused source-layout variants; preserve the workflow's BOM and newline convention."""
+    original = match.group(0)
+    crlf = b"\r\n" in original
+    bom = b"\xef\xbb\xbf" if original.startswith(b"\xef\xbb\xbf") else b""
+    body = original[len(bom):].replace(b"\r\n", b"\n")
+    pack_name = b"      - name: Pack the module-author NuGet packages\n"
+    assemble_name = b"      - name: Assemble release assets and checksums\n"
+    publish_name = b"      - name: Publish the GitHub release\n"
+    pack_run = (b"        run: |\n          .\\tests\\Test-NuGetPackagePrivacyRules.ps1\n"
+                b"          .\\packaging\\New-NuGetPackages.ps1 -OutputDirectory dist\\nuget\n")
+
+    def once(old, new):
+        nonlocal body
+        if body.count(old) != 1:
+            raise ValueError("RA190_V5_VARIANT_ANCHOR_" + kind)
+        body = body.replace(old, new)
+
+    def step(name):
+        found = list(re.finditer(rb"(?ms)^" + re.escape(name.rstrip(b"\n")) + rb"\n.*?(?=^      - |\Z)", body))
+        if len(found) != 1:
+            raise ValueError("RA190_V5_STEP_ANCHOR_" + kind)
+        return found[0].group(0)
+
+    # Only questioned step shapes are copied, so unrelated workflow assertions are not duplicated.
+    fake_release = (pack_name + b"        shell: pwsh\n" + pack_run +
+                    assemble_name + b"        shell: pwsh\n        run: ignored\n" +
+                    publish_name + b"        shell: pwsh\n        run: ignored\n")
+    if kind == "quoted-root":
+        jobs = list(re.finditer(rb"(?ms)^  build:\n.*?(?=^  \S|\Z)", body))
+        if len(jobs) != 1:
+            raise ValueError("RA190_V5_BUILD_JOB_ANCHOR")
+        job = jobs[0].group(0)
+        upload = re.search(rb"(?ms)^      - name: Upload the ZIP, MSI and author packages\n.*\Z", job)
+        if upload is None:
+            raise ValueError("RA190_V5_UPLOAD_ANCHOR")
+        fake = (b"jobs:\n  build:\n    runs-on: windows-2025\n    steps:\n"
+                b"      - name: Install WiX and build the MSI\n        run: ignored\n" +
+                pack_name + b"        shell: pwsh\n" + pack_run + upload.group(0))
+        once(b"name: build\n", b"")
+        once(b"jobs:\n", b'"jobs":\n')
+        once(pack_name, pack_name + b"        continue-on-error: true\n")
+        body = body.rstrip(b"\n") + b"\n\nname: '\n" + fake.rstrip(b"\n") + b"\n'\n"
+    elif kind == "quoted-jobs":
+        body = body.rstrip(b"\n") + b'\n\n"jobs": {}\n'
+    elif kind in ("lone-cr", "nel"):
+        separator = b"\r" if kind == "lone-cr" else b"\xc2\x85"
+        once(pack_name, pack_name + b"        # source boundary" + separator + b"        continue-on-error: true\n")
+    elif kind == "folded-run":
+        once(pack_run, b"        run: .\\packaging\\New-NuGetPackages.ps1 -OutputDirectory dist\\nuget\n"
+                       b"          ; trap { continue }; exit 0\n")
+    elif kind in ("folded-shell", "release-shell"):
+        target = step(pack_name)
+        shell = b"        shell: pwsh\n"
+        replacement = (shell + b'          -Command "try {{ . \'{0}\' }} catch {{ }}; exit 0"\n'
+                       if kind == "folded-shell" else b'        shell: pwsh -Command "try {{ . \'{0}\' }} catch {{ }}; exit 0"\n')
+        if target.count(shell) != 1:
+            raise ValueError("RA190_V5_SHELL_ANCHOR")
+        once(target, target.replace(shell, replacement))
+    elif kind == "quoted-step":
+        once(pack_name, b"      - name: Actual Pack the module-author NuGet packages\n        continue-on-error: true\n")
+        actual = b"      - name: Actual Pack the module-author NuGet packages\n"
+        fake = pack_name + b"        shell: pwsh\n" + pack_run
+        once(actual, b"        env: 'unchecked\n" + fake + b"      #'\n\n" + actual)
+    elif kind == "release-job-if":
+        once(b"  release:\n", b"  release:\n    if: false\n")
+    elif kind == "release-catch":
+        once(pack_run, b"        run: |\n          try {\n            .\\tests\\Test-NuGetPackagePrivacyRules.ps1\n"
+                       b"            .\\packaging\\New-NuGetPackages.ps1 -OutputDirectory dist\\nuget\n          } catch { }\n")
+    elif kind == "exclude":
+        once(b"            dist/nuget/*.nupkg\n", b"            dist/nuget/*.nupkg\n            !dist/nuget/*.nupkg\n")
+    elif kind == "duplicate-policy":
+        once(b"          if-no-files-found: error\n", b"          if-no-files-found: error\n          if-no-files-found: ignore\n")
+    elif kind in ("assemble-always", "publish-always"):
+        target = assemble_name if kind == "assemble-always" else publish_name
+        once(target, target + b"        if: always()\n")
+    elif kind == "publish-before-pack":
+        published = step(publish_name)
+        once(published, b"")
+        once(pack_name, published + pack_name)
+    elif kind == "document":
+        once(b"jobs:\n", b"---\njobs:\n")
+    elif kind in ("release-fake-name", "release-fake-root"):
+        once(pack_name, b"      - name: Actual Pack the module-author NuGet packages\n        continue-on-error: true\n")
+        once(assemble_name, b"      - name: Actual Assemble release assets and checksums\n")
+        once(publish_name, b"      - name: Actual Publish the GitHub release\n")
+        if kind == "release-fake-name":
+            once(b"    name: Build and publish the x64 release\n", b"")
+            body = body.rstrip(b"\n") + b"\n\n    name: |\n" + fake_release
+        else:
+            once(b"name: release\n", b"")
+            once(b"  release:\n", b"  actual-release:\n")
+            body = body.rstrip(b"\n") + b"\n\nname: |\n  release:\n    runs-on: windows-2025\n    steps:\n" + fake_release
+    else:
+        raise ValueError("RA190_V5_UNKNOWN_VARIANT")
+    changed = bom + (body.replace(b"\n", b"\r\n") if crlf else body)
+    if changed == original:
+        raise ValueError("RA190_V5_UNCHANGED_VARIANT")
+    return changed
+
+
 CASES = (
     (
         "ORDER: stamp the result before fetching it",
@@ -1686,6 +1855,129 @@ CASES = (
         b"      - name: Pack the module-author NuGet packages\n        continue-on-error: true\n",
         "propagates the module-author NuGet pack failure",
     ),
+    # The source gate accepts a finite canonical header layout, not general YAML syntax. These spellings
+    # either express the same forbidden key or introduce an unsupported merge header and must fail closed.
+    (
+        "build.yml: the NuGet pack step quotes its failure-suppression key",
+        BUILD_YML,
+        b"      - name: Pack the module-author NuGet packages\n",
+        b'      - name: Pack the module-author NuGet packages\n        "continue-on-error": true\n',
+        "packs the module-author NuGet packages",
+    ),
+    (
+        "build.yml: the NuGet upload step single-quotes its failure-suppression key",
+        BUILD_YML,
+        b"      - name: Upload the ZIP, MSI and author packages\n",
+        b"      - name: Upload the ZIP, MSI and author packages\n        'continue-on-error': true\n",
+        "packs the module-author NuGet packages",
+    ),
+    (
+        "release.yml: the NuGet pack step spaces its failure-suppression colon",
+        RELEASE_YML,
+        b"      - name: Pack the module-author NuGet packages\n",
+        b"      - name: Pack the module-author NuGet packages\n        continue-on-error : true\n",
+        "propagates the module-author NuGet pack failure",
+    ),
+    (
+        "build.yml: the NuGet pack step escapes its failure-suppression key",
+        BUILD_YML,
+        b"      - name: Pack the module-author NuGet packages\n",
+        b'      - name: Pack the module-author NuGet packages\n        "continue\\u002don\\u002derror": true\n',
+        "packs the module-author NuGet packages",
+    ),
+    (
+        "release.yml: the NuGet pack step introduces an unsupported merge header",
+        RELEASE_YML,
+        b"      - name: Pack the module-author NuGet packages\n",
+        b"      - name: Pack the module-author NuGet packages\n        <<: {continue-on-error: true}\n",
+        "propagates the module-author NuGet pack failure",
+    ),
+    (
+        "build.yml: the NuGet build job quotes its conditional key",
+        BUILD_YML,
+        b"  build:\n",
+        b"  build:\n    'if': false\n",
+        "packs the module-author NuGet packages",
+    ),
+    (
+        "build.yml: the NuGet pack step suppresses failure through an expression",
+        BUILD_YML,
+        b"      - name: Pack the module-author NuGet packages\n",
+        b"      - name: Pack the module-author NuGet packages\n        continue-on-error: ${{ true }}\n",
+        "packs the module-author NuGet packages",
+    ),
+    (
+        "build.yml: the NuGet pack step uses an unsupported flow mapping",
+        BUILD_YML,
+        re.compile(rb"(?ms)^      - name: Pack the module-author NuGet packages\r?\n.*?(?=^      - name: Upload the ZIP, MSI and author packages\r?$)"),
+        b"      - {name: Pack the module-author NuGet packages, shell: pwsh, run: '.\\\\packaging\\\\New-NuGetPackages.ps1 -OutputDirectory dist\\\\nuget', continue-on-error: true}\n\n",
+        "packs the module-author NuGet packages",
+    ),
+    (
+        "build.yml: the NuGet upload step uses an unknown case key",
+        BUILD_YML,
+        b"      - name: Upload the ZIP, MSI and author packages\n",
+        b"      - name: Upload the ZIP, MSI and author packages\n        Continue-On-Error: true\n",
+        "packs the module-author NuGet packages",
+    ),
+    (
+        "release.yml: the NuGet workflow introduces an unsupported document marker",
+        RELEASE_YML,
+        b"jobs:\n",
+        b"---\njobs:\n",
+        "propagates the module-author NuGet pack failure",
+    ),
+    (
+        "build.yml: the NuGet steps exist only in a display-name scalar",
+        BUILD_YML,
+        re.compile(rb"(?ms)^  build:\r?\n.*?(?=^  [A-Za-z_][A-Za-z0-9_-]*:|\Z)"),
+        nuget_fake_steps_in_job_name,
+        "packs the module-author NuGet packages",
+    ),
+    (
+        "build.yml: the NuGet build job exists only in a root display-name scalar",
+        BUILD_YML,
+        re.compile(rb"(?s)\A.*\Z"),
+        nuget_fake_job_in_root_name,
+        "packs the module-author NuGet packages",
+    ),
+    # RA-190 v5: narrow source-layout boundaries, scalar values and the actual downstream failure chain.
+    ("build.yml: the NuGet real jobs hide behind an under-indented quoted root name",
+     BUILD_YML, re.compile(rb"(?s)\A.*\Z"), lambda match: nuget_v5_variant(match, "quoted-root"), "packs the module-author NuGet packages"),
+    ("release.yml: the NuGet root introduces a duplicate quoted jobs key",
+     RELEASE_YML, re.compile(rb"(?s)\A.*\Z"), lambda match: nuget_v5_variant(match, "quoted-jobs"), "propagates the module-author NuGet pack failure"),
+    ("build.yml: the NuGet comment hides a key after a lone carriage return",
+     BUILD_YML, re.compile(rb"(?s)\A.*\Z"), lambda match: nuget_v5_variant(match, "lone-cr"), "packs the module-author NuGet packages"),
+    ("release.yml: the NuGet comment hides a key after a UTF-8 NEL",
+     RELEASE_YML, re.compile(rb"(?s)\A.*\Z"), lambda match: nuget_v5_variant(match, "nel"), "propagates the module-author NuGet pack failure"),
+    ("build.yml: the NuGet inline pack folds an extra command",
+     BUILD_YML, re.compile(rb"(?s)\A.*\Z"), lambda match: nuget_v5_variant(match, "folded-run"), "packs the module-author NuGet packages"),
+    ("build.yml: the NuGet shell folds a suppressing command template",
+     BUILD_YML, re.compile(rb"(?s)\A.*\Z"), lambda match: nuget_v5_variant(match, "folded-shell"), "packs the module-author NuGet packages"),
+    ("build.yml: the NuGet pack exists inside a multiline quoted env value",
+     BUILD_YML, re.compile(rb"(?s)\A.*\Z"), lambda match: nuget_v5_variant(match, "quoted-step"), "packs the module-author NuGet packages"),
+    ("release.yml: the NuGet release job has a condition",
+     RELEASE_YML, re.compile(rb"(?s)\A.*\Z"), lambda match: nuget_v5_variant(match, "release-job-if"), "propagates the module-author NuGet pack failure"),
+    ("release.yml: the NuGet pack substitutes a custom shell",
+     RELEASE_YML, re.compile(rb"(?s)\A.*\Z"), lambda match: nuget_v5_variant(match, "release-shell"), "propagates the module-author NuGet pack failure"),
+    ("release.yml: the NuGet pack catches the privacy refusal",
+     RELEASE_YML, re.compile(rb"(?s)\A.*\Z"), lambda match: nuget_v5_variant(match, "release-catch"), "propagates the module-author NuGet pack failure"),
+    ("build.yml: the NuGet upload excludes the author packages",
+     BUILD_YML, re.compile(rb"(?s)\A.*\Z"), lambda match: nuget_v5_variant(match, "exclude"), "packs the module-author NuGet packages"),
+    ("build.yml: the NuGet upload duplicates its missing-file policy",
+     BUILD_YML, re.compile(rb"(?s)\A.*\Z"), lambda match: nuget_v5_variant(match, "duplicate-policy"), "packs the module-author NuGet packages"),
+    ("release.yml: the NuGet Assemble step overrides success gating",
+     RELEASE_YML, re.compile(rb"(?s)\A.*\Z"), lambda match: nuget_v5_variant(match, "assemble-always"), "propagates the module-author NuGet pack failure"),
+    ("release.yml: the NuGet Publish step overrides success gating",
+     RELEASE_YML, re.compile(rb"(?s)\A.*\Z"), lambda match: nuget_v5_variant(match, "publish-always"), "propagates the module-author NuGet pack failure"),
+    ("release.yml: the NuGet Publish step moves before packing",
+     RELEASE_YML, re.compile(rb"(?s)\A.*\Z"), lambda match: nuget_v5_variant(match, "publish-before-pack"), "propagates the module-author NuGet pack failure"),
+    ("build.yml: the NuGet workflow introduces an unsupported document marker",
+     BUILD_YML, re.compile(rb"(?s)\A.*\Z"), lambda match: nuget_v5_variant(match, "document"), "packs the module-author NuGet packages"),
+    ("release.yml: the NuGet steps exist only in a display-name scalar",
+     RELEASE_YML, re.compile(rb"(?s)\A.*\Z"), lambda match: nuget_v5_variant(match, "release-fake-name"), "propagates the module-author NuGet pack failure"),
+    ("release.yml: the NuGet release job exists only in a root display-name scalar",
+     RELEASE_YML, re.compile(rb"(?s)\A.*\Z"), lambda match: nuget_v5_variant(match, "release-fake-root"), "propagates the module-author NuGet pack failure"),
     # RA-002: the release notes hardcode Unsigned again while the signing scaffolding promises no edit.
     (
         "release.yml: the release notes hardcode Unsigned again",
@@ -3156,7 +3448,7 @@ CASES = (
     (
         "blinkingled-resume: the runner says nothing before a run that presses",
         os.path.join(REPO, "tests", "Test-ModuleSelfTests.ps1"),
-        b"if (-not $noRealInputRequested) {\n"
+        b"if (-not $noRealInputRequested -and $Covered -contains 'blinkingled') {\n"
         b"    Write-Host \"REAL INPUT:",
         b"if ($false) {\n"
         b"    Write-Host \"REAL INPUT:",
@@ -3165,7 +3457,7 @@ CASES = (
     (
         "blinkingled-resume: the runner says REAL INPUT only once a module has run",
         os.path.join(REPO, "tests", "Test-ModuleSelfTests.ps1"),
-        b"if (-not $noRealInputRequested) {\n"
+        b"if (-not $noRealInputRequested -and $Covered -contains 'blinkingled') {\n"
         b"    Write-Host \"REAL INPUT: DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT is not 1, so blinkingled's self-test makes one pair of real Scroll Lock presses\"\n"
         b"}\n"
         b"\n"
@@ -3175,7 +3467,7 @@ CASES = (
         b"$problems = @()\n"
         b"try {\n"
         b"    foreach ($id in $Covered) {\n"
-        b"if (-not $noRealInputRequested) {\n"
+        b"if (-not $noRealInputRequested -and $Covered -contains 'blinkingled') {\n"
         b"    Write-Host \"REAL INPUT: DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT is not 1, so blinkingled's self-test makes one pair of real Scroll Lock presses\"\n"
         b"}\n",
         "blinkingled-resume: Test-ModuleSelfTests.ps1 prints its REAL INPUT",
@@ -3466,8 +3758,8 @@ CASES = (
     (
         "test-infra: the shared module self-test limit moves",
         os.path.join(REPO, "tests", "Test-ModuleSelfTests.ps1"),
-        b"    [int]$TimeoutSeconds = 180\n",
-        b"    [int]$TimeoutSeconds = 240\n",
+        b"    [int]$TimeoutSeconds = 180,\n",
+        b"    [int]$TimeoutSeconds = 240,\n",
         "WITNESS test-infra: the module self-test runner was read",
     ),
     (
