@@ -3535,10 +3535,13 @@ Assert-True (($buildStepSlices[0] -cmatch '(?m)^        id: build\s*$') -and
              ($moduleSelfTestSlices[0] -cmatch ('(?m)^' + [regex]::Escape($moduleSelfTestCondition) + '\s*$'))) (
     "build.yml's module self-test step runs whenever the build step succeeded, red product self-tests or not (RA-001)")
 
-# Judge the named NuGet build/release step chains in the supported workflow source layout, not general
-# YAML semantics or workflow triggers. Canonical unique headers and the actual jobs/steps context are
-# required. Raw non-LF line separators and multiline quoted scalars are refused before comment removal.
-# The build keeps its legacy inline pack form; both current pack blocks must check privacy then pack.
+# Closed source policy for these canonical workflows, not YAML parsing or trigger validation. LF/CRLF
+# are supported; lone CR, NEL, LS and PS are refused. Outside recognized opaque block bodies, quoted
+# tokens and a conservative nonnegative combined count of unquoted []/{} must close on each line.
+# Multiline flow is unsupported; plain ASCII key prefixes and leading tag/anchor/alias limits remain.
+# MappingLayout lets only an empty value or bare literal | own continuation data. The build retains
+# its legacy inline pack form; current pack blocks check privacy then pack. Later release steps may
+# use continue-on-error but may not override if/order here; arbitrary script semantics are unqualified.
 function Test-NuGetMappingLayout([string]$Body, [string[]]$AllowedKeys, [string[]]$RequiredKeys, [int]$IndentWidth) {
     # Only an empty mapping or literal-block header can own more-indented data. A scalar's first line
     # cannot hide a folded shell/run continuation. Callers still judge the values they depend on.
@@ -3557,8 +3560,10 @@ function Test-NuGetMappingLayout([string]$Body, [string[]]$AllowedKeys, [string[
     return $true
 }
 function Test-NuGetPhysicalScalars([string]$Text) {
-    # Scan every noncomment physical line outside plain literal/folded block bodies. Strip only
-    # plain ASCII key prefixes; quoted keys and bare/sequence continuations remain in the value.
+    # Closed lexical precheck: recognized plain |/> block bodies are opaque. Other lines must close
+    # quoted tokens and a nonnegative combined unquoted delimiter count. Multiline flow is unsupported.
+    # Plain ASCII key-prefix removal needs no space after its colon. Leading tag/anchor/alias markers
+    # are refused; tokenStart below defines recognized quotes. This is not YAML nesting or parsing.
     $literalIndent = -1
     foreach ($line in @($Text -split "`n")) {
         if ([string]::IsNullOrWhiteSpace($line)) { continue }
@@ -3569,7 +3574,7 @@ function Test-NuGetPhysicalScalars([string]$Text) {
         $header = [regex]::Match($line, '^(?<indent> *)(?<dash>- )?(?:(?<key>[A-Za-z0-9_-]+):[ \t]*)?(?<value>.*)$')
         $value = $header.Groups['value'].Value
         if ($value.TrimStart() -cmatch '^[!&*]') { return $false }
-        $quote = 0; $escaped = $false; $end = $value.Length
+        $quote = 0; $escaped = $false; $end = $value.Length; $depth = 0
         for ($at = 0; $at -lt $value.Length; $at++) {
             $character = [int][char]$value[$at]
             if ($quote -ne 0) {
@@ -3580,12 +3585,17 @@ function Test-NuGetPhysicalScalars([string]$Text) {
                     $quote = 0
                 }
             } else {
-                if ($character -eq 35 -and ($at -eq 0 -or [char]::IsWhiteSpace($value[$at - 1]))) { $end = $at; break }
+                if ($character -eq 35 -and ($at -eq 0 -or " `t".Contains([string]$value[$at - 1]))) { $end = $at; break }
                 $tokenStart = $at -eq 0 -or [char]::IsWhiteSpace($value[$at - 1]) -or '[{,:'.Contains([string]$value[$at - 1])
                 if (($character -eq 39 -or $character -eq 34) -and $tokenStart) { $quote = $character }
+                elseif ($character -eq 91 -or $character -eq 123) { $depth++ }
+                elseif ($character -eq 93 -or $character -eq 125) {
+                    if ($depth -eq 0) { return $false }
+                    $depth--
+                }
             }
         }
-        if ($quote -ne 0) { return $false }
+        if ($quote -ne 0 -or $depth -ne 0) { return $false }
         if ($value.Substring(0, $end).Trim() -cmatch '^[|>][+-]?$') {
             $literalIndent = $header.Groups['indent'].Length
             if ($header.Groups['key'].Success) { $literalIndent += $header.Groups['dash'].Length }
@@ -3699,8 +3709,9 @@ function Test-NuGetReleasePackFailure([string]$WorkflowText) {
 }
 Assert-True (Test-NuGetReleasePackFailure $releaseWorkflowText) (
     'release.yml propagates the module-author NuGet pack failure (RA-190)')
-# The narrow physical-line policy must preserve opaque scalar data while refusing quoted headers
-# that could hide the selected jobs or steps. These are data samples, not executable workflow commands.
+# Recorded lexical cases for this closed source policy, not a complete multiline or YAML class proof.
+# Opaque block data stays opaque; unsupported flow, quoted continuations and comment boundaries are
+# judged by the samples below. They are data, not executable workflow commands or Build arguments.
 $nugetScalarContract = & {
     foreach ($style in @('|', '|-', '|+', '>', '>-', '>+')) {
         foreach ($quote in @([string][char]39, [string][char]34)) {
@@ -3712,12 +3723,39 @@ $nugetScalarContract = & {
             if (Test-NuGetPhysicalScalars $sibling) { return $false }
         }
     }
+    foreach ($quote in @([string][char]39, [string][char]34)) {
+        $bareQuoted = "name:`n  " + $quote + "open`n  close" + $quote + "`n"
+        if (Test-NuGetPhysicalScalars $bareQuoted) { return $false }
+        $explicitQuoted = '? ' + $quote + "open`n  close" + $quote + ": value`n"
+        if (Test-NuGetPhysicalScalars $explicitQuoted) { return $false }
+        $sequenceQuoted = '- ' + $quote + "open`n  close" + $quote + "`n"
+        if (Test-NuGetPhysicalScalars $sequenceQuoted) { return $false }
+        $closedQuoted = 'name: ' + $quote + 'open close' + $quote + "`n"
+        if (-not (Test-NuGetPhysicalScalars $closedQuoted)) { return $false }
+        $closedExplicit = '? ' + $quote + 'open close' + $quote + ": value`n"
+        if (-not (Test-NuGetPhysicalScalars $closedExplicit)) { return $false }
+        $closedSequence = '- ' + $quote + 'open close' + $quote + "`n"
+        if (-not (Test-NuGetPhysicalScalars $closedSequence)) { return $false }
+        $openFlow = "env: {A: one`n  >`n    , B: " + $quote + "unfinished`n"
+        if (Test-NuGetPhysicalScalars $openFlow) { return $false }
+        $cancelledFlow = "env:`n  NOTE]: {A: one`n    >`n      , B: " + $quote + "unfinished`n"
+        if (Test-NuGetPhysicalScalars $cancelledFlow) { return $false }
+        $nbspComment = "env:`n  NOTE: prefix" + [char]0x00A0 + "#, " + $quote + "unfinished`n"
+        if (Test-NuGetPhysicalScalars $nbspComment) { return $false }
+        $spaceComment = "env:`n  NOTE: prefix #, " + $quote + "unfinished`n"
+        if (-not (Test-NuGetPhysicalScalars $spaceComment)) { return $false }
+        $tabComment = "env:`n  NOTE: prefix`t#, " + $quote + "unfinished`n"
+        if (-not (Test-NuGetPhysicalScalars $tabComment)) { return $false }
+    }
+    foreach ($closedFlow in @("NOTE: [one]`n", "NOTE: {A: one}`n", "NOTE: ']'`n")) {
+        if (-not (Test-NuGetPhysicalScalars $closedFlow)) { return $false }
+    }
     $quotedKey = [string][char]34 + "RE:MARK 'x" + [char]34 + ": 'unfinished`n"
     if (Test-NuGetPhysicalScalars ("env:`n  " + $quotedKey)) { return $false }
     return $true
 }
 Assert-True $nugetScalarContract (
-    'NuGet source policy preserves opaque scalar blocks and refuses multiline quoted headers (RA-190)')
+    'NuGet source policy preserves opaque scalar blocks and refuses multiline quoted headers in the recorded cases (RA-190)')
 # THE RELEASE NOTES SAY SIGNED OR UNSIGNED FROM THE THUMBPRINT. release.yml hardcoded "Unsigned" in the notes
 # while its own header promised the first signed release needs no workflow edit (RA-002). The publish step's
 # env maps the thumbprint (the F002 route) and the --notes text is built from $signedWord; the old literal is

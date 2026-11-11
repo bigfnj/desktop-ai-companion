@@ -679,6 +679,143 @@ def nuget_v6_variant(match, kind):
     return changed
 
 
+def nuget_v7_span_variant(match, kind):
+    """Exact recorded fixtures; retain input newline convention and each fixture's recorded BOM shape."""
+    original = match.group(0)
+    crlf = b"\r\n" in original
+    input_bom = b"\xef\xbb\xbf" if original.startswith(b"\xef\xbb\xbf") else b""
+    body = original[len(input_bom):].replace(b"\r\n", b"\n")
+    variants = {
+        'keyless-flow': (b'\xef\xbb\xbf', (
+            ((
+                    b'          .\\tests\\Test-IsolatedMsiLifecycle.ps1 -IncludeLegacyFixture\n'
+                    b'          .\\installer\\build-installer.ps1 -Config Release\n'
+                    b'\n'
+                    b'      - name: Pack the module-author NuGet packages\n'
+                    b'        # release.yml packs these on a v* tag, and until 2026-09-30 nothing else ever did: dotnet pack,\n'
+                    b'        # the README/lib assertions and the dependency-free check were the one release-only build step,\n'
+                ), (
+                    b'          .\\tests\\Test-IsolatedMsiLifecycle.ps1 -IncludeLegacyFixture\n'
+                    b'          .\\installer\\build-installer.ps1 -Config Release\n'
+                    b'        env: {A: one\n'
+                    b'          >\n'
+                    b"            , HIDE: 'x\n"
+                    b'      - name: Pack the module-author NuGet packages\n'
+                    b'        shell: pwsh\n'
+                    b'        run: |\n'
+                    b'          .\\tests\\Test-NuGetPackagePrivacyRules.ps1\n'
+                    b'          .\\packaging\\New-NuGetPackages.ps1 -OutputDirectory dist\\nuget\n'
+                    b"      #'}\n"
+                    b'\n'
+                    b'      - name: Pack NuGet packages\n'
+                    b'        continue-on-error: true\n'
+                    b'        # release.yml packs these on a v* tag, and until 2026-09-30 nothing else ever did: dotnet pack,\n'
+                    b'        # the README/lib assertions and the dependency-free check were the one release-only build step,\n'
+                )),
+        )),
+        'colon-flow': (b'\xef\xbb\xbf', (
+            ((
+                    b'          .\\tests\\Test-IsolatedMsiLifecycle.ps1 -IncludeLegacyFixture\n'
+                    b'          .\\installer\\build-installer.ps1 -Config Release\n'
+                    b'\n'
+                    b'      - name: Pack the module-author NuGet packages\n'
+                    b'        # release.yml packs these on a v* tag, and until 2026-09-30 nothing else ever did: dotnet pack,\n'
+                    b'        # the README/lib assertions and the dependency-free check were the one release-only build step,\n'
+                ), (
+                    b'          .\\tests\\Test-IsolatedMsiLifecycle.ps1 -IncludeLegacyFixture\n'
+                    b'          .\\installer\\build-installer.ps1 -Config Release\n'
+                    b'        env: {NOTE: a,\n'
+                    b'          x:>\n'
+                    b"            , B: 'hide\n"
+                    b'      - name: Pack the module-author NuGet packages\n'
+                    b'        shell: pwsh\n'
+                    b'        run: |\n'
+                    b'          .\\tests\\Test-NuGetPackagePrivacyRules.ps1\n'
+                    b'          .\\packaging\\New-NuGetPackages.ps1 -OutputDirectory dist\\nuget\n'
+                    b"      #'}\n"
+                    b'      - name: Actual Pack the module-author NuGet packages\n'
+                    b'        continue-on-error: true\n'
+                    b'        # release.yml packs these on a v* tag, and until 2026-09-30 nothing else ever did: dotnet pack,\n'
+                    b'        # the README/lib assertions and the dependency-free check were the one release-only build step,\n'
+                )),
+        )),
+        'nbsp-release': (b'', (
+            ((
+                    b'\n'
+                    b'jobs:\n'
+                    b'  release:\n'
+                    b'    name: Build and publish the x64 release\n'
+                    b'    runs-on: windows-2025\n'
+                ), (
+                    b'\n'
+                    b'jobs:\n'
+                    b'  decoy:\n'
+                    b'    if: false\n'
+                    b'    steps:\n'
+                    b'      - run: echo\n'
+                    b"    runs-on: [windows-2025\xc2\xa0#, 'hide\n"
+                    b'  release:\n'
+                    b'    runs-on: windows-2025\n'
+                    b'    steps:\n'
+                    b'      - name: Pack the module-author NuGet packages\n'
+                    b'        shell: pwsh\n'
+                    b'        run: |\n'
+                    b'          .\\tests\\Test-NuGetPackagePrivacyRules.ps1\n'
+                    b'          .\\packaging\\New-NuGetPackages.ps1 -OutputDirectory dist\\nuget\n'
+                    b'      - name: Assemble release assets and checksums\n'
+                    b'        shell: pwsh\n'
+                    b'        run: x\n'
+                    b'      - name: Publish the GitHub release\n'
+                    b'        env:\n'
+                    b'          SIGNING_THUMBPRINT: ${{ steps.signing.outputs.thumbprint }}\n'
+                    b'        shell: pwsh\n'
+                    b'        run: |\n'
+                    b'          gh release create --notes "$signedWord x64 build for $tag"\n'
+                    b"  #']\n"
+                    b'  actual-release:\n'
+                    b'    name: Build and publish the x64 release\n'
+                    b'    runs-on: windows-2025\n'
+                )),
+            ((
+                    b'\n'
+                    b'      - name: Pack the module-author NuGet packages\n'
+                    b'        # Attached to the release rather than pushed to nuget.org. That keeps a third-party author unblocked\n'
+                    b"        # -- point a local package source at the downloaded .nupkg files and the template's --standalone mode\n"
+                ), (
+                    b'\n'
+                    b'      - name: Pack the module-author NuGet packages\n'
+                    b'        continue-on-error: true\n'
+                    b'        # Attached to the release rather than pushed to nuget.org. That keeps a third-party author unblocked\n'
+                    b"        # -- point a local package source at the downloaded .nupkg files and the template's --standalone mode\n"
+                )),
+            ((
+                    b'          Pop-Location\n'
+                    b'\n'
+                    b'      - name: Publish the GitHub release\n'
+                    b'        env:\n'
+                    b'          GH_TOKEN: ${{ github.token }}\n'
+                ), (
+                    b'          Pop-Location\n'
+                    b'\n'
+                    b'      - name: Publish release\n'
+                    b'        env:\n'
+                    b'          GH_TOKEN: ${{ github.token }}\n'
+                )),
+        )),
+    }
+    if kind not in variants:
+        raise ValueError("RA190_V7_UNKNOWN_SPAN_VARIANT")
+    output_bom, replacements = variants[kind]
+    for old, new in replacements:
+        if body.count(old) != 1:
+            raise ValueError("RA190_V7_EXACT_SPAN_ANCHOR_" + kind)
+        body = body.replace(old, new)
+    changed = output_bom + (body.replace(b"\n", b"\r\n") if crlf else body)
+    if changed == original:
+        raise ValueError("RA190_V7_UNCHANGED_SPAN_VARIANT")
+    return changed
+
+
 CASES = (
     (
         "ORDER: stamp the result before fetching it",
@@ -4711,6 +4848,40 @@ CASES = (
         b"output.PlayClip(owner, audio, false, volume)",
         "shimeji-host-wav: a tick clip reaches the audio output with the format its document declared",
     ),
+    # Recorded source-policy mechanisms and small span fixtures; no generic YAML-parser claim.
+    ('the NuGet physical-line scanner skips colon-free continuation lines',
+     HARDENING, b'        $header = [regex]::Match($line,', b"        if ($line -notmatch ':') { continue }\n        $header = [regex]::Match($line,",
+     'preserves opaque scalar blocks and refuses multiline quoted headers'),
+    ('the NuGet physical-line scanner skips explicit quoted-key lines',
+     HARDENING, b'        $header = [regex]::Match($line,', b"        if ($line -cmatch '^ *\\? ') { continue }\n        $header = [regex]::Match($line,",
+     'preserves opaque scalar blocks and refuses multiline quoted headers'),
+    ('the NuGet physical-line scanner skips colon-free bare lines',
+     HARDENING, b'        $header = [regex]::Match($line,', b"        if ($line -notmatch ':' -and $line -notmatch '^ *- ') { continue }\n        $header = [regex]::Match($line,",
+     'preserves opaque scalar blocks and refuses multiline quoted headers'),
+    ('the NuGet physical-line scanner skips colon-free quoted sequence lines',
+     HARDENING, b'        $header = [regex]::Match($line,', b"        if ($line -notmatch ':' -and $line -cmatch '^ *- [^|>]') { continue }\n        $header = [regex]::Match($line,",
+     'preserves opaque scalar blocks and refuses multiline quoted headers'),
+    ('the NuGet physical-line scanner drops the compact mapping key window',
+     HARDENING, b"            if ($header.Groups['key'].Success) { $literalIndent += $header.Groups['dash'].Length }", b'',
+     'preserves opaque scalar blocks and refuses multiline quoted headers'),
+    ('the NuGet physical-line scanner restores the greedy key prefix',
+     HARDENING, b'(?<key>[A-Za-z0-9_-]+)', b'(?<key>[^:#][^:]*)',
+     'preserves opaque scalar blocks and refuses multiline quoted headers'),
+    ('the NuGet physical-line scanner permits an open flow collection at line end',
+     HARDENING, b'        if ($quote -ne 0 -or $depth -ne 0) { return $false }', b'        if ($quote -ne 0) { return $false }',
+     'preserves opaque scalar blocks and refuses multiline quoted headers'),
+    ('the NuGet physical-line scanner permits flow counter underflow',
+     HARDENING, b'                    if ($depth -eq 0) { return $false }', b'',
+     'preserves opaque scalar blocks and refuses multiline quoted headers'),
+    ('the NuGet physical-line scanner treats NBSP as an inline comment separator',
+     HARDENING, b'                if ($character -eq 35 -and ($at -eq 0 -or " `t".Contains([string]$value[$at - 1]))) { $end = $at; break }', b'                if ($character -eq 35 -and ($at -eq 0 -or [char]::IsWhiteSpace($value[$at - 1]))) { $end = $at; break }',
+     'preserves opaque scalar blocks and refuses multiline quoted headers'),
+    ('build.yml: the NuGet pack exists inside a keyless multiline flow scalar',
+     BUILD_YML, re.compile(rb"(?s)\A.*\Z"), lambda match: nuget_v7_span_variant(match, 'keyless-flow'), 'packs the module-author NuGet packages'),
+    ('build.yml: the NuGet pack exists inside a colon-adjacent flow scalar',
+     BUILD_YML, re.compile(rb"(?s)\A.*\Z"), lambda match: nuget_v7_span_variant(match, 'colon-flow'), 'packs the module-author NuGet packages'),
+    ('release.yml: the NuGet release job exists behind an NBSP comment boundary',
+     RELEASE_YML, re.compile(rb"(?s)\A.*\Z"), lambda match: nuget_v7_span_variant(match, 'nbsp-release'), 'propagates the module-author NuGet pack failure'),
 )
 
 
