@@ -25319,28 +25319,37 @@ CASES = (
     # scheme from reading as a drive, the reader stops finding the compilation-options record, or a rooted path in that
     # record goes unreported. No build input reaches that record with a path, so the last case puts one there.
     # "bd-w13-contracts-1:" for one --only.
-    ("bd-w13-contracts-1: ModuleKit keeps the SDK's default Source Link record again (N-bd-w12-converter-1-01)",
+    # Re-pointed by bd-w14-tests-core-1 (N-bd-w13-review-02), the way bd-w13-converter-1 re-pointed the engine's case:
+    # deleting EnableSourceLink fired only where the SDK writes a record, a git checkout with a GitHub origin, and
+    # SURVIVED in a snapshot copy with the guard intact (measured: Contracts built Release outside any repository with
+    # the line deleted carries no Source Link record). Same intent, a Source Link record in the library's dll, now put
+    # in by the compiler's SourceLink property naming the synthetic map under tools\ShimejiConvert\fixtures\symbols,
+    # so it fires in any copy of the repository. The two rooted-path cases below follow the test's new share-root
+    # pattern (same intent, new bytes); the new legs are under burndown/w14-tests-core-1.
+    ("bd-w13-contracts-1: ModuleKit keeps the SDK's default Source Link record again (N-bd-w12-converter-1-01); bd-w14-tests-core-1: re-pointed at a record the build puts in directly (N-bd-w13-review-02)",
      MODULEKIT_CSPROJ,
      b"    <EnableSourceLink>false</EnableSourceLink>\n",
-     b"",
+     b"    <EnableSourceLink>false</EnableSourceLink>\n"
+     b"    <SourceLink>$(MSBuildThisFileDirectory)..\\..\\tools\\ShimejiConvert\\fixtures\\symbols\\sourcelink.json</SourceLink>\n",
      CORETESTS_CSPROJ, CORETESTS_MODULEKIT_DLL,
      CORETESTS, None, "ModuleKit: the shipped symbols carry a Source Link record"),
-    ("bd-w13-contracts-1: Contracts keeps the SDK's default Source Link record again (N-bd-w12-converter-1-01)",
+    ("bd-w13-contracts-1: Contracts keeps the SDK's default Source Link record again (N-bd-w12-converter-1-01); bd-w14-tests-core-1: re-pointed at a record the build puts in directly (N-bd-w13-review-02)",
      os.path.join(REPO, "src", "DesktopAICompanion.Contracts", "DesktopAICompanion.Contracts.csproj"),
      b"    <EnableSourceLink>false</EnableSourceLink>\n",
-     b"",
+     b"    <EnableSourceLink>false</EnableSourceLink>\n"
+     b"    <SourceLink>$(MSBuildThisFileDirectory)..\\..\\tools\\ShimejiConvert\\fixtures\\symbols\\sourcelink.json</SourceLink>\n",
      CORETESTS_CSPROJ, os.path.join(os.path.dirname(CORETESTS_MODULEKIT_DLL), "DesktopAICompanion.Contracts.dll"),
      CORETESTS, None, "Contracts: the shipped symbols carry a Source Link record"),
-    ("bd-w13-contracts-1: the rooted-path test misses a forward-slash drive (N-bd-w12-converter-1-01)",
+    ("bd-w13-contracts-1: the rooted-path test misses a forward-slash drive (N-bd-w12-converter-1-01); bd-w14-tests-core-1: re-pointed at the share-root pattern (N-bd-w13-review-02)",
      MODULEKIT_TESTS,
-     b":[\\\\/]|\\\\\\\\\");",
-     b":[\\\\]|\\\\\\\\\");",
+     b":[\\\\/]|(?<![:",
+     b":[\\\\]|(?<![:",
      CORETESTS_CSPROJ, CORETESTS_DLL,
      CORETESTS, None, "WITNESS the rooted-path test misses a drive path written with a forward slash"),
-    ("bd-w13-contracts-1: the rooted-path test misses a UNC root (N-bd-w12-converter-1-01)",
+    ("bd-w13-contracts-1: the rooted-path test misses a UNC root (N-bd-w12-converter-1-01); bd-w14-tests-core-1: re-pointed at the share-root pattern (N-bd-w13-review-02)",
      MODULEKIT_TESTS,
-     b":[\\\\/]|\\\\\\\\\");",
-     b":[\\\\/]\");",
+     b"(\\\\\\\\|//)[^",
+     b"(//)[^",
      CORETESTS_CSPROJ, CORETESTS_DLL,
      CORETESTS, None, "WITNESS the rooted-path test misses a UNC path"),
     ("bd-w13-contracts-1: the rooted-path test reads a URL's scheme as a drive (N-bd-w12-converter-1-01)",
@@ -25522,6 +25531,24 @@ CASES = (
      b"    return [bool]($info.Attributes -band [IO.FileAttributes]::ReparsePoint)\n",
      None, None, PRIVACY, None,
      "folder that is gone was reported as staying"),
+    # ---- burndown/w14-tests-core-1 ----
+    # N-bd-w13-review-02, graded through CoreTests' "ModuleKit shipped symbols": the rooted-path test takes the
+    # converter's share-root pattern, so it loses the forward-slash share root again (//server/share passed it), or
+    # loses the lookbehind that keeps a URL's two slashes from reading as a share root. The two Source Link cases and
+    # the two older rooted-path cases this entry re-pointed stay under burndown/w13-contracts-1 and carry this lane's
+    # name too, so one "--only=bd-w14-tests-core-1:" runs all six.
+    ("bd-w14-tests-core-1: the rooted-path test misses a forward-slash share root again (N-bd-w13-review-02)",
+     MODULEKIT_TESTS,
+     b"(\\\\\\\\|//)[^",
+     b"(\\\\\\\\)[^",
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "WITNESS the rooted-path test misses a share root written with forward slashes"),
+    ("bd-w14-tests-core-1: the rooted-path test reads a URL's two slashes as a share root (N-bd-w13-review-02)",
+     MODULEKIT_TESTS,
+     b"|(?<![:\\\\/])(\\\\\\\\|//)",
+     b"|(\\\\\\\\|//)",
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "the rooted-path test reads a URL's two slashes as a share root"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

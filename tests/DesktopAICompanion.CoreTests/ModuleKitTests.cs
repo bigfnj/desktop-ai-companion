@@ -407,6 +407,11 @@ namespace DesktopAICompanion
             AssertTrue(NamesRootedPath("output-kind\0x\0C:\\build\\obj"), "WITNESS the rooted-path test misses a drive path written with a backslash");
             AssertTrue(NamesRootedPath("output-kind\0x\0c:/build/obj"), "WITNESS the rooted-path test misses a drive path written with a forward slash");
             AssertTrue(NamesRootedPath("output-kind\0x\0\\\\server\\share\\obj"), "WITNESS the rooted-path test misses a UNC path");
+            AssertTrue(NamesRootedPath("output-kind\0x\0//server/share/obj"), "WITNESS the rooted-path test misses a share root written with forward slashes");
+            // A URL is not a share root. "https://" leans on BOTH lookbehinds (its "s:/" on the drive's, its "//" on
+            // the share's), so on its own it cannot say which one broke. A scheme that ends in a digit is no drive
+            // under any pattern, so only the share root's lookbehind keeps this one out; it runs first.
+            AssertFalse(NamesRootedPath("s3://example.invalid/x"), "the rooted-path test reads a URL's two slashes as a share root");
             AssertFalse(NamesRootedPath("https://example.invalid/x"), "the rooted-path test reads a URL's scheme as a drive");
             AssertShippedSymbolsCarryNoBuildPath(typeof(KitAtomicFile).Assembly, "ModuleKit");
             AssertShippedSymbolsCarryNoBuildPath(typeof(IModule).Assembly, "Contracts");
@@ -417,11 +422,14 @@ namespace DesktopAICompanion
         private static readonly Guid SourceLinkRecordKind = new Guid("CC110556-A091-4D38-9FEC-25AB9A351A6A");
         private static readonly Guid CompilationOptionsRecordKind = new Guid("B5FEEC05-8CD0-4A83-96DA-466284BB4BD8");
 
-        // A drive with either slash, or a UNC root, anywhere in the text. The lookbehind keeps a URL's scheme
-        // ("https:/") from reading as a drive.
+        // A drive with either slash, or a share (UNC) root with either slash, anywhere in the text: the pattern of the
+        // converter's Program.RecordNamesAbsolutePath, which reads the same record from its own two dlls.
+        // N-bd-w13-review-02: this copy took a backslash share only, so //server/share passed here while the converter
+        // caught it. The lookbehinds keep a URL out: "https:" has a letter before its colon, and its two slashes follow
+        // a colon. A run of slashes, or two followed by a slash or a space, names no share.
         private static bool NamesRootedPath(string text)
         {
-            return System.Text.RegularExpressions.Regex.IsMatch(text, @"(?<![A-Za-z])[A-Za-z]:[\\/]|\\\\");
+            return System.Text.RegularExpressions.Regex.IsMatch(text, @"(?<![A-Za-z])[A-Za-z]:[\\/]|(?<![:\\/])(\\\\|//)[^\\/\s]");
         }
 
         private static string Clip(string text)
