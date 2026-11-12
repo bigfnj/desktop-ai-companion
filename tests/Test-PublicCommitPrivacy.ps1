@@ -306,6 +306,10 @@ function Get-IndexedPrivacyOffenders([psobject]$Needles, [string]$Repository = $
     # unmerged path has one entry per stage (1 base, 2 ours, 3 theirs) and no stage 0; each stage of a regular file is
     # named to git grep as :<stage>:<path>, unless the path has a protected shape, which the grep's own exclusions do not
     # reach in that form (the refusal before this function already stops a protected path, unmerged or not).
+    # A symbolic link (mode 120000) is a blob holding its target's text, which the range mode reads as an added line, but
+    # git grep --cached reads regular files only, so a link whose target carried an identifier or a profile path passed
+    # this mode and failed -Range (N-bd-w13-review-07). Every stage of a link is named the same way, :0:<path> once it is
+    # resolved, so git grep applies its text rule to the link's blob as to any stage, and the one cat-file reads it.
     $resolved = [Collections.Generic.Dictionary[string, string]]::new([StringComparer]::Ordinal)
     $stages = [Collections.Generic.Dictionary[string, string[]]]::new([StringComparer]::Ordinal)
     foreach ($record in $staged.Output.Split([char]0, [StringSplitOptions]::RemoveEmptyEntries)) {
@@ -314,8 +318,9 @@ function Get-IndexedPrivacyOffenders([psobject]$Needles, [string]$Repository = $
         $path = $record.Substring($tab + 1)
         if ($entry[2] -ceq '0') { $resolved[$path] = $entry[1] }
         elseif ($entry[0].StartsWith('100') -and -not (Get-ProtectedPattern $path)) { $stages[':' + $entry[2] + ':' + $path] = @($path, $entry[1]) }
+        if ($entry[0] -ceq '120000' -and -not (Get-ProtectedPattern $path)) { $stages[':' + $entry[2] + ':' + $path] = @($path, $entry[1]) }
     }
-    # (path, blob) pairs to read: the resolved text files the grep named, then the unmerged stages it calls text.
+    # (path, blob) pairs to read: the resolved text files the grep named, then the unmerged stages and links it calls text.
     $candidates = New-Object 'Collections.Generic.List[string[]]'
     foreach ($path in $paths) {
         if (-not $resolved.ContainsKey($path)) { throw 'An indexed text file had no index entry. No matching contents were printed.' }
@@ -339,10 +344,10 @@ function Get-IndexedPrivacyOffenders([psobject]$Needles, [string]$Repository = $
     }
 }
 
-# The unmerged stages, named :<stage>:<path>, that git grep -I calls text (N-bd-w12-review-05). Given such a name, git
-# grep reads that stage as a blob under its path, so it applies the rule it applies to a resolved file (the path's diff
-# attributes, then a NUL byte near the start) and the two cannot disagree about which files are text. Names go in
-# batches, as one command line cannot hold every stage of a large merge.
+# The unmerged stages, and the stages of symbolic links (N-bd-w13-review-07), named :<stage>:<path>, that git grep -I
+# calls text (N-bd-w12-review-05). Given such a name, git grep reads that stage as a blob under its path, so it applies
+# the rule it applies to a resolved file (the path's diff attributes, then a NUL byte near the start) and the two cannot
+# disagree about which files are text. Names go in batches, as one command line cannot hold every stage of a large merge.
 function Select-IndexedTextStages([string[]]$Names, [string]$Repository) {
     $text = New-Object 'Collections.Generic.List[string]'
     $next = 0
@@ -880,7 +885,17 @@ if ($SelfTest) {
             @('certs/PrivateKey-Backup.txt', 'owner=Contoso', 'protected'),
             @('vault/old.pem/readme.txt', 'owner=Contoso', 'protected')
         )
+        # Two symbolic links (mode 120000) too (N-bd-w13-review-07): git grep --cached reads regular files only, so the
+        # default mode passed a link whose target is a profile path, which -Range reads as an added line and refused. The
+        # protected one is the WITNESS that a link's protected shape still keeps it unread when it is named by its stage,
+        # where the grep's exclusions do not reach. Each is staged straight into the index, as this file system may refuse
+        # to make a link, with core.symlinks off, so the working file holds the target's text as git writes it then.
+        $indexLinks = @(
+            @('src/ProfileLink', 'C:\Users\ExampleProfile\AppData', 'found'),
+            @('certs/Link.PEM', 'owner=Contoso', 'protected')
+        )
         [void](Step @('init', '-q') $indexRepo)
+        [void](Step @('config', 'core.symlinks', 'false') $indexRepo)
         foreach ($entry in $indexFiles) {
             $file = Join-Path $indexRepo $entry[0]
             [void][IO.Directory]::CreateDirectory((Split-Path $file -Parent))
@@ -888,14 +903,28 @@ if ($SelfTest) {
             # -f: a global excludes file that ignores *.pem or .env must not shrink the fixture.
             [void](Step @('add', '-f', '--', $entry[0]) $indexRepo)
         }
-        $protectedFixture = @($indexFiles | Where-Object { $_[2] -ceq 'protected' } | ForEach-Object { $_[0] } | Sort-Object)
-        $foundFixture = (@($indexFiles | Where-Object { $_[2] -ceq 'found' } | ForEach-Object { $_[0] } | Sort-Object)) -join '|'
+        foreach ($entry in $indexLinks) {
+            [IO.File]::WriteAllText((Join-Path $indexRepo $entry[0]), $entry[1])
+            $linkBlob = Step @('hash-object', '-w', '--', $entry[0]) $indexRepo
+            [void](Step @('update-index', '--add', '--cacheinfo', ('120000,' + $linkBlob + ',' + $entry[0])) $indexRepo)
+        }
+        $protectedFixture = @(@($indexFiles) + @($indexLinks) | Where-Object { $_[2] -ceq 'protected' } | ForEach-Object { $_[0] } | Sort-Object)
+        $foundFixture = (@(@($indexFiles) + @($indexLinks) | Where-Object { $_[2] -ceq 'found' } | ForEach-Object { $_[0] } | Sort-Object)) -join '|'
+        if ((Step @('ls-files', '-s', '--', 'src/ProfileLink') $indexRepo) -cnotlike '120000 *') {
+            throw 'Synthetic repository step failed: the link the index case needs was not staged as a symbolic link.'
+        }
         $blocked = Get-IndexPrivacyFindings $needles $indexRepo
         if ($blocked.Scanned -or (@($blocked.Protected | ForEach-Object { $_.Path } | Sort-Object) -join '|') -cne ($protectedFixture -join '|')) {
             throw 'Public privacy index self-test failed: the protected indexed paths were not all refused before the grep.'
         }
         $count++
         $grep = Get-IndexedPrivacyOffenders $needles $indexRepo
+        if (-not (@($grep.Offenders) -ccontains 'src/ProfileLink')) {
+            throw 'Public privacy index self-test failed: a symbolic link whose target is a profile path was not read.'
+        }
+        if (@($grep.Offenders) -ccontains 'certs/Link.PEM') {
+            throw 'Public privacy index self-test failed: a symbolic link with a protected shape was read.'
+        }
         if (-not $grep.Matched -or (@($grep.Offenders) -join '|') -cne $foundFixture) {
             throw ('Public privacy index self-test failed: git grep did not report exactly the identifier in another case and the profile paths and roots, nothing excluded, no longer name and no bare user name: ' +
                 (@($grep.Offenders) -join ', '))
@@ -969,7 +998,9 @@ if ($SelfTest) {
         # stage 3 only, or one that kept the stages by path so the last one listed replaced the others, passed every check
         # here. blob.bin's stage 3 carries it after a NUL byte, so git grep -I calls that stage binary, as it would the
         # same file resolved (the WITNESS that git still picks the text files), and site.pem has a protected shape.
-        # resolved.txt changes on one side only, so it merges cleanly, at stage 0.
+        # resolved.txt changes on one side only, so it merges cleanly, at stage 0. link is a symbolic link whose target
+        # changes on both sides and only theirs names the identifier (N-bd-w13-review-07): the index case above reads a
+        # resolved link, so a mode that named a link by stage 0 only passed there. It is staged as that case stages its links.
         $conflictRepo = Join-Path $fixtureRoot 'conflict'
         [void][IO.Directory]::CreateDirectory($conflictRepo)
         $conflictFiles = @('theirs.txt', 'ours.txt', 'base.txt', 'both.txt', 'clean.txt', 'blob.bin', 'site.pem')
@@ -977,14 +1008,19 @@ if ($SelfTest) {
             @('shared line', 'shared line', 'shared line for Contoso', 'shared line', 'shared line', "shared`0", 'shared line'),
             @('trunk wording', 'trunk wording for Contoso', 'trunk wording', 'trunk wording for CONTOSO', 'trunk wording', "trunk`0", 'trunk wording'),
             @('side wording for Contoso', 'side wording', 'side wording', 'side wording for Contoso', 'side wording', "side`0 for Contoso", 'side for Contoso'))
+        $conflictLinks = @('shared target', 'trunk target', 'side target for Contoso')
         function Save-ConflictSide([int]$Side, [string]$Message) {
             for ($i = 0; $i -lt $conflictFiles.Count; $i++) {
                 [IO.File]::WriteAllText((Join-Path $conflictRepo $conflictFiles[$i]), $conflictSides[$Side][$i] + "`n")
             }
             [void](Step (@('add', '-f', '--') + $conflictFiles + @('resolved.txt')) $conflictRepo)
+            [IO.File]::WriteAllText((Join-Path $conflictRepo 'link'), $conflictLinks[$Side])
+            $linkBlob = Step @('hash-object', '-w', '--', 'link') $conflictRepo
+            [void](Step @('update-index', '--add', '--cacheinfo', ('120000,' + $linkBlob + ',link')) $conflictRepo)
             [void](Step ($identity + @('commit', '-q', '-m', $Message)) $conflictRepo)
         }
         [void](Step @('init', '-q') $conflictRepo)
+        [void](Step @('config', 'core.symlinks', 'false') $conflictRepo)
         [IO.File]::WriteAllText((Join-Path $conflictRepo 'resolved.txt'), "shared line`n")
         Save-ConflictSide 0 'base'
         $conflictTrunk = Step @('symbolic-ref', '--short', 'HEAD') $conflictRepo
@@ -994,8 +1030,9 @@ if ($SelfTest) {
         [void](Step @('checkout', '-q', $conflictTrunk) $conflictRepo)
         Save-ConflictSide 1 'trunk edit'
         if ((Invoke-IndexedGit ($identity + @('merge', '-q', '--no-edit', 'side')) $conflictRepo).ExitCode -eq 0 -or
-            @((Step @('ls-files', '-u') $conflictRepo).Split("`n")).Count -ne 3 * $conflictFiles.Count) {
-            throw 'Synthetic repository step failed: the merge did not leave every conflicting file unmerged at three stages.'
+            @((Step @('ls-files', '-u') $conflictRepo).Split("`n")).Count -ne 3 * ($conflictFiles.Count + 1) -or
+            @((Step @('ls-files', '-u', '--', 'link') $conflictRepo).Split("`n") | Where-Object { $_ -clike '120000 *' }).Count -ne 3) {
+            throw 'Synthetic repository step failed: the merge did not leave every conflicting file and the link unmerged at three stages.'
         }
         $conflictBlocked = Get-IndexPrivacyFindings $needles $conflictRepo
         if ($conflictBlocked.Scanned -or @($conflictBlocked.Protected).Count -ne 1 -or $conflictBlocked.Protected[0].Path -cne 'site.pem') {
@@ -1016,13 +1053,16 @@ if ($SelfTest) {
         if (-not (@($conflictGrep.Offenders) -ccontains 'base.txt')) {
             throw 'Public privacy index self-test failed: an unmerged file whose identifier only the merge base (stage 1) carries was not reported.'
         }
-        if (-not $conflictGrep.Matched -or $conflictSeen -cne 'base.txt|both.txt|ours.txt|resolved.txt|theirs.txt') {
+        if (-not (@($conflictGrep.Offenders) -ccontains 'link')) {
+            throw 'Public privacy index self-test failed: an unmerged symbolic link whose target only theirs (stage 3) gives carries the identifier was not reported.'
+        }
+        if (-not $conflictGrep.Matched -or $conflictSeen -cne 'base.txt|both.txt|link|ours.txt|resolved.txt|theirs.txt') {
             throw ('Public privacy index self-test failed: the unmerged text files were not each reported once from their stages: ' + $conflictSeen)
         }
         $count++
         [void](Step @('rm', '-q', '--cached', '--', 'site.pem') $conflictRepo)
         $conflictScan = Get-IndexPrivacyFindings $needles $conflictRepo
-        if (-not $conflictScan.Scanned -or ((@($conflictScan.Offenders)) -join '|') -cne 'base.txt|both.txt|ours.txt|resolved.txt|theirs.txt') {
+        if (-not $conflictScan.Scanned -or ((@($conflictScan.Offenders)) -join '|') -cne 'base.txt|both.txt|link|ours.txt|resolved.txt|theirs.txt') {
             throw 'Public privacy index self-test failed: the default mode did not read the unmerged stages once nothing protected was indexed.'
         }
         $count++

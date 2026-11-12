@@ -25416,6 +25416,33 @@ CASES = (
      b"elseif ($entry[0].StartsWith('100') -and $entry[2] -cne '1' -and -not (Get-ProtectedPattern $path)) {",
      None, None, PRIVACY, None,
      "an unmerged file whose identifier only the merge base (stage 1) carries was not reported"),
+    # N-bd-w13-review-07, graded through PRIVACY: the default mode skips symbolic links again (git grep --cached reads
+    # regular files only), names a link by stage 0 only (so an unmerged link goes unread) or by its unmerged stages only
+    # (so a committed one does), or reads a link whose path has a protected shape.
+    ("bd-w14-tests-scripts-1: the default mode skips symbolic links again (N-bd-w13-review-07)",
+     PRIVACY_PS1,
+     b"        if ($entry[0] -ceq '120000' -and -not (Get-ProtectedPattern $path)) { $stages[':' + $entry[2] + ':' + $path] = @($path, $entry[1]) }\n",
+     b"",
+     None, None, PRIVACY, None,
+     "a symbolic link whose target is a profile path was not read"),
+    ("bd-w14-tests-scripts-1: the default mode reads a resolved symbolic link only (N-bd-w13-review-07)",
+     PRIVACY_PS1,
+     b"if ($entry[0] -ceq '120000' -and -not (Get-ProtectedPattern $path)) {",
+     b"if ($entry[0] -ceq '120000' -and $entry[2] -ceq '0' -and -not (Get-ProtectedPattern $path)) {",
+     None, None, PRIVACY, None,
+     "an unmerged symbolic link whose target only theirs (stage 3) gives carries the identifier was not reported"),
+    ("bd-w14-tests-scripts-1: the default mode reads unmerged symbolic links only (N-bd-w13-review-07)",
+     PRIVACY_PS1,
+     b"if ($entry[0] -ceq '120000' -and -not (Get-ProtectedPattern $path)) {",
+     b"if ($entry[0] -ceq '120000' -and $entry[2] -cne '0' -and -not (Get-ProtectedPattern $path)) {",
+     None, None, PRIVACY, None,
+     "a symbolic link whose target is a profile path was not read"),
+    ("bd-w14-tests-scripts-1: a symbolic link with a protected shape is read (N-bd-w13-review-07)",
+     PRIVACY_PS1,
+     b"if ($entry[0] -ceq '120000' -and -not (Get-ProtectedPattern $path)) {",
+     b"if ($entry[0] -ceq '120000') {",
+     None, None, PRIVACY, None,
+     "a symbolic link with a protected shape was read"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
