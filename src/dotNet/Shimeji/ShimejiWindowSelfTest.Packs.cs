@@ -198,6 +198,8 @@ namespace DesktopAICompanion.Shimeji
             CheckUninstallSelection(check);
             // ---- burndown/w12-host-1 ----
             CheckUninstallPendingBirth(check, log, scratch);
+            // ---- burndown/w14-host-1 ----
+            CheckUninstallTransformedCompanion(check, log, scratch);
         }
 
         /// <summary>
@@ -300,8 +302,10 @@ namespace DesktopAICompanion.Shimeji
                 forms.Add(tosserWindow);
                 TickMascot tosser = host.Spawn(alpha.Name, new TickPoint(work.Left + work.Width / 4, work.Bottom), false, "Toss", tosserWindow);
 
-                // WITNESS: another type's uninstall leaves the birth queued.
-                int other = StartUp.RemovePendingBirthsOfInstalledType(host, tickEntries, "sp-alpha");
+                // WITNESS: another type's uninstall leaves the birth queued. An id with no companion here: an uninstall retires the
+                // type it names (TickHost.RetireTypes) and no later birth of it gets a window (N-bd-w13-review-04), so naming the
+                // kept Alpha would refuse the window its fallback birth below must take.
+                int other = StartUp.RemovePendingBirthsOfInstalledType(host, tickEntries, "sp-other");
                 check(other == 0 && child.InManager && spawnedBall != null && spawnedBall.InManager && tosser != null && tosser.InManager,
                     "uninstall: WITNESS a birth queued for the next step is found, and removing another type leaves it pending (dropped " + other + ")");
 
@@ -339,6 +343,177 @@ namespace DesktopAICompanion.Shimeji
                 foreach (FormCompanion f in forms) { try { if (!f.IsDisposed) f.Close(); } catch { } }
                 if (alphaEntry != null) registry.Decrement(alphaEntry);
                 registry.DisposeAll();
+                foreach (string l in lines) log.AppendLine("LOG: " + l);
+            }
+        }
+
+        /// <summary>
+        /// An uninstall of a type a KEPT companion had transformed into (N-bd-w13-review-04, N-bd-w13-review-05). A window keeps
+        /// the registry entry it was made with (StartUp.PetsOfInstalledType), so the uninstall leaves an Alpha that became a
+        /// Ball running in its own window, and that companion's hold keeps Ball's registry entry and host type alive. Ball here
+        /// is a library copy that shadows a bundled copy with the same id, so the id is still installed afterwards: the pane
+        /// deletes the library folder, and the reader then finds the bundled copy, drawn in another colour. Through the real
+        /// tick host, the real registry and the app's pack binding, in the uninstall's order (StartUp.RemoveEveryPetOfType).
+        ///
+        /// First the transformed companion breeds with no BornMascot, which falls back to its own type, the one uninstalled:
+        /// that birth must get no window (review-04). Then a second kept Alpha's Toss names Ball: it must stage the bundled
+        /// copy afresh, never take back the deleted library copy's entry, which the transformed companion still holds under
+        /// the same id (review-05).
+        /// </summary>
+        private static void CheckUninstallTransformedCompanion(Action<bool, string> check, StringBuilder log, string scratch)
+        {
+            var registry = new CompanionTypeRegistry();
+            var lines = new List<string>();
+            var docs = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                { "sp-alpha", Serialize(AlphaShiftDoc(), Color.Red) },
+                { "sp-ball", Serialize(BallLayDoc(), Color.Blue) },   // the library copy
+            };
+            var sizes = new LocalData(new AppSettingsStore(Path.Combine(scratch, "uninstall-shift-sizes.json"), null));
+            ActiveCompanionSource.PackReader read = delegate (string id, out string xml, out string error)
+            {
+                error = docs.ContainsKey(id) ? null : "not a member of the synthetic pack";
+                return docs.TryGetValue(id, out xml);
+            };
+            Func<string, CompanionTypeRegistry.Entry> stageType = id => StartUp.StageExtraType(registry, id, read, sizes, line => lines.Add(line));
+            CompanionPackIndex index = CompanionPackIndex.Build(new[]
+            {
+                IndexEntry("sp-alpha", "Alpha", "main", false), IndexEntry("sp-ball", "Ball", "helper", true),
+            });
+            var tickEntries = new Dictionary<string, CompanionTypeRegistry.Entry>(StringComparer.Ordinal);
+
+            TickHost host = null;
+            var forms = new List<FormCompanion>();
+            CompanionTypeRegistry.Entry alphaEntry = null, ballEntry = null;
+            int alphaHeld = 0;
+            // The registry id of the type each birth's window was opened for, in order.
+            var openedFor = new List<string>();
+            try
+            {
+                host = new TickHost(t =>
+                    {
+                        // As StartUp.OpenBornTickPet: a birth's window, recorded by the type it is opened for.
+                        openedFor.Add(t.Id);
+                        var form = new FormCompanion(t.Animations, t.Sprites);
+                        form.OpenHiddenForTick(t.Type.CellWidth, t.Type.CellHeight);
+                        forms.Add(form);
+                        return form;
+                    },
+                    form => form.Close(),
+                    message => lines.Add(message)) { RenderOpacity = 0.0 };
+                host.Environment.SearchesWindows = false;
+                TickPackBinding binding = StartUp.BindTickPacks(host, registry, stageType, () => index, id => false, tickEntries,
+                    line => lines.Add(line));
+
+                alphaEntry = stageType("sp-alpha");
+                TickType alpha = TickStaging.Of(alphaEntry.Xml);
+                host.AddType(binding.Describe(alphaEntry, alpha));
+                tickEntries[alpha.Name] = alphaEntry;
+                Rectangle work = System.Windows.Forms.Screen.PrimaryScreen.WorkingArea;
+                // The user's Alphas, each in its own window holding Alpha's entry, as StartUp.SpawnTickPet and petEntries hold it.
+                var windowEntries = new Dictionary<FormCompanion, CompanionTypeRegistry.Entry>();
+                Func<int, string, TickMascot> spawnAlpha = (x, behaviour) =>
+                {
+                    var w = new FormCompanion(alphaEntry.Animations, alphaEntry.Xml);
+                    w.OpenHiddenForTick(64, 64);
+                    forms.Add(w);
+                    registry.Increment(alphaEntry);
+                    alphaHeld++;
+                    windowEntries[w] = alphaEntry;
+                    return host.Spawn(alpha.Name, new TickPoint(x, work.Bottom), false, behaviour, w);
+                };
+
+                // The first Alpha becomes a Ball at its first step; Ball stages on demand, from the library copy.
+                TickMascot shifted = spawnAlpha(work.Left + work.Width / 2, "Become");
+                TickType ball = null;
+                for (int i = 0; i < 6 && ball == null; i++)
+                {
+                    host.Step();
+                    if (registry.TryGet("sp-ball", out ballEntry) && ballEntry.Xml != null
+                        && ReferenceEquals(shifted.Type, TickStaging.Of(ballEntry.Xml)))
+                        ball = shifted.Type;
+                }
+                FormCompanion shiftedWindow = host.FormOf(shifted);
+                if (ball == null || shiftedWindow == null)
+                {
+                    check(false, "uninstall: WITNESS a kept Alpha became the Ball in its own window (ball " + (ball != null) + ", window "
+                        + (shiftedWindow != null) + ")");
+                    return;
+                }
+
+                // Ball's library copy is uninstalled, in StartUp.RemoveEveryPetOfType's order: its births still queued go, then
+                // every window of the type, which the transformed companion's is not (its window holds Alpha's entry), then the
+                // type's registry entry leaves its id.
+                StartUp.RemovePendingBirthsOfInstalledType(host, tickEntries, "sp-ball");
+                var windows = new List<FormCompanion>(windowEntries.Keys).ToArray();
+                List<FormCompanion> taken = StartUp.PetsOfInstalledType(windows, windows.Length, windowEntries, "sp-ball");
+                StartUp.ForgetInstalledEntry(registry, "SP-Ball");
+                // The pane deletes the library folder next: the reader and the pack index now find the bundled copy (green).
+                docs["sp-ball"] = Serialize(BallLayDoc(), Color.Green);
+                PackIndexEntry bundledBall = IndexEntry("sp-ball", "Ball", "helper", true);
+                bundledBall.FromLibrary = false;
+                index = CompanionPackIndex.Build(new[] { IndexEntry("sp-alpha", "Alpha", "main", false), bundledBall });
+                check(taken.Count == 0 && shifted.InManager && ReferenceEquals(host.FormOf(shifted), shiftedWindow)
+                      && ballEntry.RefCount > 0 && ballEntry.Xml != null,
+                    "uninstall: WITNESS a kept window whose companion became the uninstalled type stays, and its hold keeps the type's entry alive (took "
+                    + taken.Count + ", refs " + ballEntry.RefCount + ")");
+
+                // N-bd-w13-review-04: the transformed companion's Lay breeds with no BornMascot, so its child is of its own type.
+                int openedBefore = openedFor.Count;
+                TickMascot fallback = null;
+                for (int i = 0; i < 8 && fallback == null; i++)
+                {
+                    host.Step();
+                    foreach (TickMascot p in host.World.Pending) if (host.FormOf(p) == null) fallback = p;
+                }
+                check(fallback != null && ReferenceEquals(fallback.Type, ball),
+                    "uninstall: WITNESS the transformed companion bred with no BornMascot, and its birth fell back to the uninstalled type ("
+                    + (fallback == null ? "no birth" : fallback.Type.Name) + ")");
+                host.Step();   // the birth activates
+                List<string> afterFallback = openedFor.GetRange(openedBefore, openedFor.Count - openedBefore);
+                int ofUninstalled = afterFallback.FindAll(id => string.Equals(id, "sp-ball", StringComparison.OrdinalIgnoreCase)).Count;
+                check(fallback != null && ofUninstalled == 0 && host.FormOf(fallback) == null,
+                    "uninstall: a birth that falls back to the uninstalled type, from a kept companion that became it, gets no window (windows "
+                    + ofUninstalled + ")");
+
+                // N-bd-w13-review-05: a second kept Alpha tosses a Ball. The id is still installed (the bundled copy), so the Toss
+                // stages it afresh; the deleted library copy's entry, still alive for the transformed companion, is not it.
+                TickMascot tosser = spawnAlpha(work.Left + work.Width / 4, "Toss");
+                TickMascot tossed = null;
+                for (int i = 0; i < 4 && tossed == null; i++)
+                {
+                    host.Step();
+                    foreach (TickMascot p in host.World.Pending) if (p != fallback && host.FormOf(p) == null) tossed = p;
+                }
+                host.Step();   // the toss's birth activates in its own window
+                FormCompanion tossedWindow = tossed == null ? null : host.FormOf(tossed);
+                check(tosser != null && tossed != null && tossedWindow != null,
+                    "uninstall: WITNESS a kept Alpha's Toss of the id still installed bred a Ball that took a window (birth " + (tossed != null) + ")");
+                CompanionTypeRegistry.Entry current;
+                registry.TryGet("sp-ball", out current);
+                int colour = tossedWindow == null ? 0 : FrameColour(tossedWindow);
+                check(tossedWindow != null && colour == Color.Green.ToArgb() && current != null && !ReferenceEquals(current, ballEntry)
+                      && tossed.Type != ball,
+                    "uninstall: a Breed of an id whose library copy was uninstalled stages the bundled copy afresh, never the deleted copy's entry a kept companion holds ("
+                    + (colour == Color.Green.ToArgb() ? "bundled" : colour == Color.Blue.ToArgb() ? "deleted library copy" : "colour " + colour.ToString("X8"))
+                    + ", entry " + (current == null ? "none" : ReferenceEquals(current, ballEntry) ? "the deleted copy's" : "fresh") + ")");
+            }
+            catch (Exception e)
+            {
+                check(false, "uninstall: the transformed companion checks ran without an exception: " + e);
+            }
+            finally
+            {
+                if (host != null) host.Dispose();
+                foreach (FormCompanion f in forms) { try { if (!f.IsDisposed) f.Close(); } catch { } }
+                for (int i = 0; i < alphaHeld && alphaEntry != null; i++) registry.Decrement(alphaEntry);
+                registry.DisposeAll();
+                // An entry the uninstall took off its id is out of DisposeAll's reach: a companion's hold still owned it.
+                if (ballEntry != null && ballEntry.Xml != null)
+                {
+                    if (ballEntry.Animations != null) ballEntry.Animations.Dispose();
+                    ballEntry.Xml.Dispose();
+                }
                 foreach (string l in lines) log.AppendLine("LOG: " + l);
             }
         }
@@ -888,6 +1063,36 @@ namespace DesktopAICompanion.Shimeji
             nodes.Add(PackAct(23, "Morph", null, new[] { PackParam("Duration", "500") }, new XmlData.PoseNode { Frame = 0, Ticks = 1 }));
             doc.Animations.Animation = nodes.ToArray();
             return doc;
+        }
+
+        /// <summary>Alpha that becomes a Ball and tosses one: Stand (the route's choice); Become, a one-tick Transform into
+        /// Ball entering its Lay; Toss, a one-tick Breed of a Ball entering its Wait. The route chooses neither, and nothing
+        /// here is posed from a second frame.</summary>
+        private static XmlData.RootNode AlphaShiftDoc()
+        {
+            return PackMember("Alpha", "main", null, 1, new[]
+            {
+                PackRoute(1, 0, 0), PackBehaviour(10, "Stand"), PackBehaviour(11, "Become"), PackBehaviour(12, "Toss"),
+                PackAct(20, "Stand", null, new[] { PackParam("Duration", "500") }, new XmlData.PoseNode { Frame = 0, Ticks = 1 }),
+                PackAct(21, "Become", "Transform", new[] { PackParam("TransformMascot", "Ball"), PackParam("TransformBehavior", "Lay") },
+                    new XmlData.PoseNode { Frame = 0, Ticks = 1 }),
+                PackAct(22, "Toss", "Breed", new[] { PackParam("BornX", "80"), PackParam("BornMascot", "Ball"), PackParam("BornBehavior", "Wait") },
+                    new XmlData.PoseNode { Frame = 0, Ticks = 1 }),
+            });
+        }
+
+        /// <summary>Ball that lays: Wait (the route's choice, a still pose) and Lay, a four-tick Breed with no BornMascot, so
+        /// its child is of the Ball's own type, entering Wait. One frame, in the caller's colour.</summary>
+        private static XmlData.RootNode BallLayDoc()
+        {
+            return PackMember("Ball", "helper", null, 1, new[]
+            {
+                PackRoute(1, 0), PackBehaviour(10, "Wait"), PackBehaviour(11, "Lay"),
+                PackAct(20, "Wait", null, new[] { PackParam("Duration", "500") }, new XmlData.PoseNode { Frame = 0, Ticks = 1 }),
+                PackAct(21, "Lay", "Breed", new[] { PackParam("BornX", "80"), PackParam("BornBehavior", "Wait") },
+                    new XmlData.PoseNode { Frame = 0, Ticks = 1 }, new XmlData.PoseNode { Frame = 0, Ticks = 1 },
+                    new XmlData.PoseNode { Frame = 0, Ticks = 1 }, new XmlData.PoseNode { Frame = 0, Ticks = 1 }),
+            });
         }
 
         /// <summary>Egg: Laid (yellow, then gold) hatches into Alpha, entering Throw.</summary>

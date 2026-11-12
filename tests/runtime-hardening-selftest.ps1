@@ -7023,6 +7023,20 @@ Assert-True ($w13Runner.Length -gt 0 -and $w13Unfolded -ge 0 -and $w13Plain -ge 
 Assert-True ($w13Scan -gt $w13Unfolded -and $w13Said -gt $w13Scan -and $w13Verdict -gt $w13Said -and $w13Plain -gt $w13Verdict) (
     'w13-shimeji-host-1: the self-test runner reads DEGRADED lines from a green marker and names them beside the verdict, before any plain ok (N-bd-w12-review-02)')
 
+# ---- burndown/w14-host-1 ----
+# AN UNINSTALL TAKES THE TYPE'S REGISTRY ENTRY OFF ITS ID (N-bd-w13-review-05). A companion can still hold the entry after
+# the uninstall (a kept window whose companion had transformed into the type), and StageExtraType answered every later
+# stage of the id with that live entry, so when the deleted library copy shadowed a bundled copy with the same id, a Breed
+# or an Add of the id drew the deleted copy's sprites. --shimeji-window-selftest drives StartUp.ForgetInstalledEntry
+# through the real tick host and registry; StartUp's live desktop is out of a self-test's reach, so the wiring is pinned
+# here: the forget follows the window walk directly, unconditional, with the app's registry and the uninstalled id, and the
+# method returns right after it. WITNESS: the method was located and still walks the windows PetsOfInstalledType selects.
+$w14Every = Get-MethodBody $startUpCodeHost 'internal int RemoveEveryPetOfType(string id)' @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($w14Every.Length -gt 0 -and $w14Every -cmatch 'foreach \(FormCompanion pet in PetsOfInstalledType\(sheeps, iSheeps, petEntries, id\)\)') (
+    'w14-host-1: WITNESS RemoveEveryPetOfType was located and walks the windows PetsOfInstalledType selects')
+Assert-True ($w14Every -cmatch 'if \(RemovePetInstance\(pet\)\) removed\+\+;\s*ForgetInstalledEntry\(registry, id\);\s*return removed;') (
+    'w14-host-1: an uninstall takes the type''s registry entry off its id after its windows, through the app''s registry (N-bd-w13-review-05)')
+
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever

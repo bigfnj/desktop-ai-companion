@@ -25393,6 +25393,45 @@ CASES = (
      rb'@"[A-Za-z]:[\\/]|',
      SHIMEJI_CSPROJ, os.path.join(os.path.dirname(SHIMEJI_ENGINE_DLL), 'ShimejiConvert.dll'), SHIMEJI, 'cli-roundtrip',
      "CLI_SYMBOLS_RECORD_TEST_WITNESS: the compilation-options test reads a mapped root or a URL"),
+    # ---- burndown/w14-host-1 ----
+    # N-bd-w13-review-04: an uninstall marks no host type retired, or Step stops asking, so a kept companion that had
+    # transformed into the uninstalled type breeds with no BornMascot, its birth falls back to its own type, and the
+    # birth gets a window of the uninstalled type. N-bd-w13-review-05: the uninstall leaves a held registry entry on its
+    # id, so the next stage of that id (a kept Alpha's Toss) takes the deleted library copy's entry back instead of
+    # staging the bundled copy. --shimeji-window-selftest drives both through the real tick host, registry and pack
+    # binding. "bd-w14-host-1:" for one --only.
+    ("bd-w14-host-1: an uninstall marks no host type retired (N-bd-w13-review-04)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickHost.Packs.cs"),
+     b'            foreach (TickHostType t in retired) t.Retired = true;\n',
+     b'',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'uninstall: a birth that falls back to the uninstalled type, from a kept companion that became it, gets no window'),
+    ("bd-w14-host-1: a birth of a retired type gets a window again (N-bd-w13-review-04)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickHost.cs"),
+     b'                    if (t.Retired)\n',
+     b'                    if (t.Retired && m.Disposing)\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'uninstall: a birth that falls back to the uninstalled type, from a kept companion that became it, gets no window'),
+    ("bd-w14-host-1: an uninstall leaves a held entry on its id (N-bd-w13-review-05)",
+     os.path.join(REPO, "src", "dotNet", "StartUp.cs"),
+     b'                registry.Forget(entry);\n',
+     b'                registry.DropIfUnused(entry);\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'uninstall: a Breed of an id whose library copy was uninstalled stages the bundled copy afresh'),
+    ("bd-w14-host-1: the registry keeps a held entry on its id when told to forget it (N-bd-w13-review-05)",
+     os.path.join(REPO, "src", "dotNet", "CompanionTypeRegistry.cs"),
+     b'        internal void Forget(Entry entry)\n'
+     b'        {\n'
+     b'            if (entry == null) return;\n',
+     b'        internal void Forget(Entry entry)\n'
+     b'        {\n'
+     b'            if (entry == null || entry.RefCount > 0) return;\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'uninstall: a Breed of an id whose library copy was uninstalled stages the bundled copy afresh'),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

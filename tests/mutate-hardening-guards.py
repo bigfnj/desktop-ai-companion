@@ -5287,8 +5287,10 @@ CASES = (
     (
         "bd-w11-options-ui-1: RemoveEveryPetOfType passes born companions over (N-bd-w10-host-1-01)",
         os.path.join(REPO, "src", "dotNet", "StartUp.cs"),
-        b'                if (RemovePetInstance(pet)) removed++;\n            return removed;\n',
-        b'                if (!bornPets.Contains(pet) && RemovePetInstance(pet)) removed++;\n            return removed;\n',
+        # Re-pointed by burndown/w14-host-1, which put ForgetInstalledEntry between the window walk and the return
+        # (N-bd-w13-review-05): the walk's line with the statement that now follows it, the born test put back as before.
+        b'                if (RemovePetInstance(pet)) removed++;\n            ForgetInstalledEntry(registry, id);\n',
+        b'                if (!bornPets.Contains(pet) && RemovePetInstance(pet)) removed++;\n            ForgetInstalledEntry(registry, id);\n',
         "w11-options-ui-1: RemoveEveryPetOfType removes every window the selection takes, with no born test of its own",
     ),
     # ---- burndown/w11-tests-scripts-1 ----
@@ -5390,6 +5392,24 @@ CASES = (
         b"            if ($degraded.Count -gt 0) {\n",
         b"            if ($false) {\n",
         "w13-shimeji-host-1: the self-test runner reads DEGRADED lines from a green marker and names them beside the verdict",
+    ),
+    # ---- burndown/w14-host-1 ----
+    # N-bd-w13-review-05: RemoveEveryPetOfType stops taking the type's registry entry off its id, or does it only when a
+    # window was removed, so a kept companion's hold leaves the deleted library copy's entry answering the next stage of
+    # the id. "bd-w14-host-1:" for one --only.
+    (
+        "bd-w14-host-1: an uninstall leaves the type's registry entry on its id (N-bd-w13-review-05)",
+        os.path.join(REPO, "src", "dotNet", "StartUp.cs"),
+        b"            ForgetInstalledEntry(registry, id);\n",
+        b"",
+        "w14-host-1: an uninstall takes the type's registry entry off its id after its windows",
+    ),
+    (
+        "bd-w14-host-1: an uninstall forgets the entry only when it removed a window (N-bd-w13-review-05)",
+        os.path.join(REPO, "src", "dotNet", "StartUp.cs"),
+        b"            ForgetInstalledEntry(registry, id);\n",
+        b"            if (removed > 0) ForgetInstalledEntry(registry, id);\n",
+        "w14-host-1: an uninstall takes the type's registry entry off its id after its windows",
     ),
 )
 
