@@ -37,7 +37,7 @@ namespace DesktopAICompanion
         /// <summary>Enter a behaviour by name between steps, as a hotspot or a partner does.</summary>
         private static void SocialEnter(TickWorld w, TickMascot m, string behaviour)
         {
-            m.SetBehaviour(w.BuildBehaviourByName(m.Type, behaviour, m), "forced");
+            w.EnterBehaviourByName(m, m.Type, behaviour, "forced");
         }
 
         private static XmlData.ParamNode[] SocialParams(string behaviour, string targetBehaviour, bool targetLook, params XmlData.ParamNode[] more)
@@ -403,6 +403,56 @@ namespace DesktopAICompanion
         }
 
         // ---- Interact
+
+        private static void TestTickSocialFallbackCause()
+        {
+            // N-bd-anchors-02 for the social callers: a Behavior or TargetBehavior the companion has turned off drops that
+            // companion in and enters Fall, and CONTRACT section 3 labels it `fallback`, ahead of `partner` for the target
+            // (V1ScenarioRunner tests the drop-in first). The arrival of ScanMove (seeker's own, then the target's) and
+            // Interact's end-of-animation Behavior. WITNESS: the same arrival with both on stays forced and partner.
+            foreach (bool on in new[] { true, false })
+            {
+                TickType t = SocialType("Seek", SocialSeek(SocialParams("Hugging", "Hugged", false)));
+                var switches = new TickSwitches();
+                if (!on)
+                {
+                    switches.BehavioursOff.Add("Hugging");
+                    switches.BehavioursOff.Add("Hugged");
+                }
+                var log = new TickLog();
+                TickWorld w = MotionWorld(new TickDesk(), log, null, switches, t);
+                TickMascot m1 = w.CreateAtStart("m1", t, new TickPoint(640, 680), false, "Stand");
+                w.CreateAtStart("m2", t, new TickPoint(630, 680), false, "Offer");
+                w.StepOnce();
+                SocialEnter(w, m1, "Seek");
+                w.StepOnce();
+                w.StepOnce();
+                string own = on ? "m1 behaviour Seek>Hugging forced" : "m1 behaviour Seek>Fall fallback";
+                string theirs = on ? "m2 behaviour Offer>Hugged partner" : "m2 behaviour Offer>Fall fallback";
+                AssertTrue(log.Events.Contains(own) && log.Events.Contains(theirs),
+                    (on ? "WITNESS: an enabled arrival did not enter forced and partner" : "A turned-off arrival transition did not fall in labelled fallback")
+                    + " (arrival): " + string.Join("; ", log.Events));
+            }
+
+            // Interact's Behavior at the end of its animation. WITNESS: with Hugging on it is entered forced.
+            foreach (bool on in new[] { true, false })
+            {
+                TickType meet = SocialType("Meet", MAct(30, "Meet", "Embedded", "Interact", "Floor", new[] { TParam("Behavior", "Hugging") },
+                    MVar(null, false, TPose(0, 5))));
+                var switches = new TickSwitches();
+                if (!on) switches.BehavioursOff.Add("Hugging");
+                var meetLog = new TickLog();
+                TickWorld b = MotionWorld(new TickDesk(), meetLog, null, switches, meet);
+                TickMascot b1 = b.CreateAtStart("m1", meet, new TickPoint(640, 680), false, "Stand");
+                b.CreateAtStart("m2", meet, new TickPoint(640, 680), false, "Stand");
+                b.StepOnce();
+                SocialEnter(b, b1, "Meet");
+                for (int i = 0; i < 5; i++) b.StepOnce();
+                AssertTrue(meetLog.Events.Contains(on ? "m1 behaviour Meet>Hugging forced" : "m1 behaviour Meet>Fall fallback"),
+                    (on ? "WITNESS: an enabled Interact Behavior was not entered forced" : "Interact's Behavior, turned off, did not fall in labelled fallback")
+                    + " (interact): " + string.Join("; ", meetLog.Events));
+            }
+        }
 
         private static void TestTickSocialInteract()
         {

@@ -16830,7 +16830,7 @@ CASES = (
      CORETESTS, None, 'Tick input press drags, release throws only a dragged companion'),
     ('shimeji-host: a held hotspot is not re-entered',
      os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
-     b'hotspotEntered = true;\n                            _mascot.SetBehaviour(_world.BuildBehaviourByName(Type, h.Behaviour, _mascot), "forced");',
+     b'hotspotEntered = true;\n                            _world.EnterBehaviourByName(_mascot, Type, h.Behaviour, "forced");',
      b'hotspotEntered = true;',
      CORETESTS_CSPROJ, CORETESTS_DLL,
      CORETESTS, None, 'Tick input hotspots hold, re-enter and mirror'),
@@ -17662,8 +17662,8 @@ CASES = (
      CORETESTS, None, 'Tick social ScanMove: picks the first offering companion in manager order, once, and reserves nothing'),
     ("shimeji-social: the target's transition runs before the seeker's",
      os.path.join(REPO, "src", "dotNet", "Shimeji", "TickSocialFamily.cs"),
-     b'                string own = action.EvalString("Behavior", null, "");\n                mascot.SetBehaviour(world.BuildBehaviourByName(mascot.Type, own, mascot), "forced");\n                if (target == null) throw new TickCantBeAliveException("there is no target to enter a behaviour", TickFaultCause.OfMissingScanTarget(action));\n                // ScanInteract reads TargetBehavior twice, once to test it and once to build it (ScanInteract.java:119-121).\n                if (!skipBlankTarget || !IsBlank(action.EvalString("TargetBehavior", null, ""), action, "TargetBehavior"))\n                    target.SetBehaviour(world.BuildBehaviourByName(target.Type, action.EvalString("TargetBehavior", null, ""), target), "partner");\n',
-     b'                if (target == null) throw new TickCantBeAliveException("there is no target to enter a behaviour", TickFaultCause.OfMissingScanTarget(action));\n                // ScanInteract reads TargetBehavior twice, once to test it and once to build it (ScanInteract.java:119-121).\n                if (!skipBlankTarget || !IsBlank(action.EvalString("TargetBehavior", null, ""), action, "TargetBehavior"))\n                    target.SetBehaviour(world.BuildBehaviourByName(target.Type, action.EvalString("TargetBehavior", null, ""), target), "partner");\n                string own = action.EvalString("Behavior", null, "");\n                mascot.SetBehaviour(world.BuildBehaviourByName(mascot.Type, own, mascot), "forced");\n',
+     b'                string own = action.EvalString("Behavior", null, "");\n                world.EnterBehaviourByName(mascot, mascot.Type, own, "forced");\n                if (target == null) throw new TickCantBeAliveException("there is no target to enter a behaviour", TickFaultCause.OfMissingScanTarget(action));\n                // ScanInteract reads TargetBehavior twice, once to test it and once to build it (ScanInteract.java:119-121).\n                if (!skipBlankTarget || !IsBlank(action.EvalString("TargetBehavior", null, ""), action, "TargetBehavior"))\n                    // A turned-off one drops the target in and enters Fall as `fallback`, not `partner` (EnterBehaviourByName).\n                    world.EnterBehaviourByName(target, target.Type, action.EvalString("TargetBehavior", null, ""), "partner");\n',
+     b'                if (target == null) throw new TickCantBeAliveException("there is no target to enter a behaviour", TickFaultCause.OfMissingScanTarget(action));\n                // ScanInteract reads TargetBehavior twice, once to test it and once to build it (ScanInteract.java:119-121).\n                if (!skipBlankTarget || !IsBlank(action.EvalString("TargetBehavior", null, ""), action, "TargetBehavior"))\n                    // A turned-off one drops the target in and enters Fall as `fallback`, not `partner` (EnterBehaviourByName).\n                    world.EnterBehaviourByName(target, target.Type, action.EvalString("TargetBehavior", null, ""), "partner");\n                string own = action.EvalString("Behavior", null, "");\n                world.EnterBehaviourByName(mascot, mascot.Type, own, "forced");\n',
      CORETESTS_CSPROJ, CORETESTS_DLL,
      CORETESTS, None, "Tick social ScanMove: exact arrival enters its Behavior, then the target's TargetBehavior, then TargetLook"),
     ('shimeji-social: TargetLook turns only a target already facing away',
@@ -17680,8 +17680,8 @@ CASES = (
      CORETESTS, None, "Tick social ScanMove: exact arrival enters its Behavior, then the target's TargetBehavior, then TargetLook"),
     ("shimeji-social: the target's transition is reported as forced, not partner",
      os.path.join(REPO, "src", "dotNet", "Shimeji", "TickSocialFamily.cs"),
-     b'action.EvalString("TargetBehavior", null, ""), target), "partner");',
-     b'action.EvalString("TargetBehavior", null, ""), target), "forced");',
+     b'action.EvalString("TargetBehavior", null, ""), "partner");',
+     b'action.EvalString("TargetBehavior", null, ""), "forced");',
      CORETESTS_CSPROJ, CORETESTS_DLL,
      CORETESTS, None, "Tick social ScanMove: exact arrival enters its Behavior, then the target's TargetBehavior, then TargetLook"),
     ('shimeji-social: a failed partner transition ends the seeker',
@@ -17692,14 +17692,14 @@ CASES = (
      CORETESTS, None, 'Tick social ScanMove: a missing name is reported and leaves its companion as it was'),
     ("shimeji-social: TargetLook runs before the target's transition",
      os.path.join(REPO, "src", "dotNet", "Shimeji", "TickSocialFamily.cs"),
-     b'                // ScanInteract reads TargetBehavior twice, once to test it and once to build it (ScanInteract.java:119-121).\n                if (!skipBlankTarget || !IsBlank(action.EvalString("TargetBehavior", null, ""), action, "TargetBehavior"))\n                    target.SetBehaviour(world.BuildBehaviourByName(target.Type, action.EvalString("TargetBehavior", null, ""), target), "partner");\n                if (action.EvalBool("TargetLook", null, false) && target.LookRight == mascot.LookRight)\n                    target.LookRight = !mascot.LookRight;\n',
-     b'                if (action.EvalBool("TargetLook", null, false) && target.LookRight == mascot.LookRight)\n                    target.LookRight = !mascot.LookRight;\n                // ScanInteract reads TargetBehavior twice, once to test it and once to build it (ScanInteract.java:119-121).\n                if (!skipBlankTarget || !IsBlank(action.EvalString("TargetBehavior", null, ""), action, "TargetBehavior"))\n                    target.SetBehaviour(world.BuildBehaviourByName(target.Type, action.EvalString("TargetBehavior", null, ""), target), "partner");\n',
+     b'                // ScanInteract reads TargetBehavior twice, once to test it and once to build it (ScanInteract.java:119-121).\n                if (!skipBlankTarget || !IsBlank(action.EvalString("TargetBehavior", null, ""), action, "TargetBehavior"))\n                    // A turned-off one drops the target in and enters Fall as `fallback`, not `partner` (EnterBehaviourByName).\n                    world.EnterBehaviourByName(target, target.Type, action.EvalString("TargetBehavior", null, ""), "partner");\n                if (action.EvalBool("TargetLook", null, false) && target.LookRight == mascot.LookRight)\n                    target.LookRight = !mascot.LookRight;\n',
+     b'                if (action.EvalBool("TargetLook", null, false) && target.LookRight == mascot.LookRight)\n                    target.LookRight = !mascot.LookRight;\n                // ScanInteract reads TargetBehavior twice, once to test it and once to build it (ScanInteract.java:119-121).\n                if (!skipBlankTarget || !IsBlank(action.EvalString("TargetBehavior", null, ""), action, "TargetBehavior"))\n                    // A turned-off one drops the target in and enters Fall as `fallback`, not `partner` (EnterBehaviourByName).\n                    world.EnterBehaviourByName(target, target.Type, action.EvalString("TargetBehavior", null, ""), "partner");\n',
      CORETESTS_CSPROJ, CORETESTS_DLL,
      CORETESTS, None, 'Tick social ScanMove: a missing name is reported and leaves its companion as it was'),
     ('shimeji-social: a blank own Behavior is skipped and the target still changes',
      os.path.join(REPO, "src", "dotNet", "Shimeji", "TickSocialFamily.cs"),
-     b'                mascot.SetBehaviour(world.BuildBehaviourByName(mascot.Type, own, mascot), "forced");\n',
-     b'                if (own.Length > 0) mascot.SetBehaviour(world.BuildBehaviourByName(mascot.Type, own, mascot), "forced");\n',
+     b'                world.EnterBehaviourByName(mascot, mascot.Type, own, "forced");\n',
+     b'                if (own.Length > 0) world.EnterBehaviourByName(mascot, mascot.Type, own, "forced");\n',
      CORETESTS_CSPROJ, CORETESTS_DLL,
      CORETESTS, None, 'Tick social ScanMove: a missing name is reported and leaves its companion as it was'),
     ('shimeji-social: ScanMove ignores whether its target still offers',
@@ -18390,7 +18390,7 @@ CASES = (
      b'            // instead.\n'
      b'            try\n'
      b'            {\n'
-     b'                mascot.SetBehaviour(BuildBehaviourByName(target, behaviour, mascot), "forced");\n'
+     b'                EnterBehaviourByName(mascot, target, behaviour, "forced");\n'
      b'            }\n'
      b'            catch (TickCantBeAliveException e)\n'
      b'            {\n'
@@ -18400,7 +18400,7 @@ CASES = (
      b'            Observer.Transformed(mascot, from, target.Name, behaviour);\n'
      b'            try\n'
      b'            {\n'
-     b'                mascot.SetBehaviour(BuildBehaviourByName(target, behaviour, mascot), "forced");\n'
+     b'                EnterBehaviourByName(mascot, target, behaviour, "forced");\n'
      b'            }\n'
      b'            catch (TickCantBeAliveException e)\n'
      b'            {\n'
@@ -24350,8 +24350,8 @@ CASES = (
      "parity error: a blank TransformBehavior is behavior-missing in the target member, via transform"),
     ("bd-parity-host-2: error a failed Transform restores the behaviour it was in (CH4)",
      os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
-     b'            try\n            {\n                mascot.SetBehaviour(BuildBehaviourByName(target, behaviour, mascot), "forced");\n            }\n            catch (TickCantBeAliveException e)\n            {\n                ReportFault(mascot, "Transform into " + target.Name + ": " + e.Message, e.Cause, TickFaultVia.Transform);\n',
-     b'            TickBehaviour kept = mascot.Behaviour;\n            try\n            {\n                mascot.SetBehaviour(BuildBehaviourByName(target, behaviour, mascot), "forced");\n            }\n            catch (TickCantBeAliveException e)\n            {\n                ReportFault(mascot, "Transform into " + target.Name + ": " + e.Message, e.Cause, TickFaultVia.Transform);\n                mascot.Behaviour = kept;\n',
+     b'            try\n            {\n                EnterBehaviourByName(mascot, target, behaviour, "forced");\n            }\n            catch (TickCantBeAliveException e)\n            {\n                ReportFault(mascot, "Transform into " + target.Name + ": " + e.Message, e.Cause, TickFaultVia.Transform);\n',
+     b'            TickBehaviour kept = mascot.Behaviour;\n            try\n            {\n                EnterBehaviourByName(mascot, target, behaviour, "forced");\n            }\n            catch (TickCantBeAliveException e)\n            {\n                ReportFault(mascot, "Transform into " + target.Name + ": " + e.Message, e.Cause, TickFaultVia.Transform);\n                mascot.Behaviour = kept;\n',
      HOST_CSPROJ, EXE,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
      "parity error: a Transform whose new behaviour fails in Init writes the behavior event, then the error, and keeps the new behaviour"),
@@ -24437,8 +24437,8 @@ CASES = (
     # foreign exception given a typed cause). --only="bd-parity-host-2: error, part 3:" runs exactly these.
     ("bd-parity-host-2: error, part 3: a partial arrival turns its target before the target's transition (CH5)",
      os.path.join(REPO, "src", "dotNet", "Shimeji", "TickSocialFamily.cs"),
-     b'                // ScanInteract reads TargetBehavior twice, once to test it and once to build it (ScanInteract.java:119-121).\n                if (!skipBlankTarget || !IsBlank(action.EvalString("TargetBehavior", null, ""), action, "TargetBehavior"))\n                    target.SetBehaviour(world.BuildBehaviourByName(target.Type, action.EvalString("TargetBehavior", null, ""), target), "partner");\n                if (action.EvalBool("TargetLook", null, false) && target.LookRight == mascot.LookRight)\n                    target.LookRight = !mascot.LookRight;\n',
-     b'                if (action.EvalBool("TargetLook", null, false) && target.LookRight == mascot.LookRight)\n                    target.LookRight = !mascot.LookRight;\n                // ScanInteract reads TargetBehavior twice, once to test it and once to build it (ScanInteract.java:119-121).\n                if (!skipBlankTarget || !IsBlank(action.EvalString("TargetBehavior", null, ""), action, "TargetBehavior"))\n                    target.SetBehaviour(world.BuildBehaviourByName(target.Type, action.EvalString("TargetBehavior", null, ""), target), "partner");\n',
+     b'                // ScanInteract reads TargetBehavior twice, once to test it and once to build it (ScanInteract.java:119-121).\n                if (!skipBlankTarget || !IsBlank(action.EvalString("TargetBehavior", null, ""), action, "TargetBehavior"))\n                    // A turned-off one drops the target in and enters Fall as `fallback`, not `partner` (EnterBehaviourByName).\n                    world.EnterBehaviourByName(target, target.Type, action.EvalString("TargetBehavior", null, ""), "partner");\n                if (action.EvalBool("TargetLook", null, false) && target.LookRight == mascot.LookRight)\n                    target.LookRight = !mascot.LookRight;\n',
+     b'                if (action.EvalBool("TargetLook", null, false) && target.LookRight == mascot.LookRight)\n                    target.LookRight = !mascot.LookRight;\n                // ScanInteract reads TargetBehavior twice, once to test it and once to build it (ScanInteract.java:119-121).\n                if (!skipBlankTarget || !IsBlank(action.EvalString("TargetBehavior", null, ""), action, "TargetBehavior"))\n                    // A turned-off one drops the target in and enters Fall as `fallback`, not `partner` (EnterBehaviourByName).\n                    world.EnterBehaviourByName(target, target.Type, action.EvalString("TargetBehavior", null, ""), "partner");\n',
      HOST_CSPROJ, EXE,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
      "parity error: a partial arrival keeps the seeker's transition"),
@@ -25393,6 +25393,82 @@ CASES = (
      rb'@"[A-Za-z]:[\\/]|',
      SHIMEJI_CSPROJ, os.path.join(os.path.dirname(SHIMEJI_ENGINE_DLL), 'ShimejiConvert.dll'), SHIMEJI, 'cli-roundtrip',
      "CLI_SYMBOLS_RECORD_TEST_WITNESS: the compilation-options test reads a mapped root or a URL"),
+    # ---- burndown/w14-shimeji-host-1 ----
+    # N-bd-anchors-01 (anchor packet note D1): the next choice reads the HOLDING type's switches again, for both lists or
+    # for one. N-bd-anchors-02 (note D2): the disabled-by-name drop-in loses its fallback label, centrally or because a
+    # caller goes back to building without the enabled check (each caller's own leg of the CoreTests group). Every case
+    # runs CoreTests, whose new groups build the retained state of a failed Transform in code. "bd-w14-shimeji-host-1:"
+    # for one --only.
+    ("bd-w14-shimeji-host-1: the next choice reads the holding type's switches (N-bd-anchors-01)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'            string switchesOf = mascot.Type.Name;\n',
+     b'            string switchesOf = type.Name;\n',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "Tick settings retained state: a root candidate is filtered by the companion's current type's switches"),
+    ("bd-w14-shimeji-host-1: a root candidate reads the holding type's switches (N-bd-anchors-01)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'            foreach (TickEdgeDef e in type.Root)\n'
+     b'                if (EdgeHolds(e, context, mascot) && Settings.IsBehaviourEnabled(e.Target, switchesOf))\n',
+     b'            foreach (TickEdgeDef e in type.Root)\n'
+     b'                if (EdgeHolds(e, context, mascot) && Settings.IsBehaviourEnabled(e.Target, type.Name))\n',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "Tick settings retained state: a root candidate is filtered by the companion's current type's switches"),
+    ("bd-w14-shimeji-host-1: a next-list candidate reads the holding type's switches (N-bd-anchors-01)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'                foreach (TickEdgeDef e in previous.Next)\n'
+     b'                    if (EdgeHolds(e, context, mascot) && Settings.IsBehaviourEnabled(e.Target, switchesOf))\n',
+     b'                foreach (TickEdgeDef e in previous.Next)\n'
+     b'                    if (EdgeHolds(e, context, mascot) && Settings.IsBehaviourEnabled(e.Target, type.Name))\n',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "Tick settings retained state: a next-list candidate is filtered by the companion's current type's switches"),
+    ("bd-w14-shimeji-host-1: a disabled-by-name drop-in keeps the caller's cause (N-bd-anchors-02)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'mascot.SetBehaviour(behaviour, droppedIn ? "fallback" : cause);',
+     b'mascot.SetBehaviour(behaviour, cause);',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "did not fall in labelled fallback (startup)"),
+    ("bd-w14-shimeji-host-1: the hotspot press builds without the enabled check (N-bd-anchors-02)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'\n                _world.EnterBehaviourByName(_mascot, Type, h.Behaviour, "forced");\n',
+     b'\n                _mascot.SetBehaviour(_world.BuildBehaviourByName(Type, h.Behaviour), "forced");\n',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "did not fall in labelled fallback (hotspot press)"),
+    ("bd-w14-shimeji-host-1: a held hotspot's re-entry builds without the enabled check (N-bd-anchors-02)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'                            _world.EnterBehaviourByName(_mascot, Type, h.Behaviour, "forced");\n',
+     b'                            _mascot.SetBehaviour(_world.BuildBehaviourByName(Type, h.Behaviour), "forced");\n',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "did not fall in labelled fallback on its re-entry (held re-entry)"),
+    ("bd-w14-shimeji-host-1: an explicit startup builds without the enabled check (N-bd-anchors-02)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'                else EnterBehaviourByName(m, type, behaviour, "forced");\n',
+     b'                else m.SetBehaviour(BuildBehaviourByName(type, behaviour), "forced");\n',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "did not fall in labelled fallback (startup)"),
+    ("bd-w14-shimeji-host-1: the Transform builds without the enabled check (N-bd-anchors-02)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'                EnterBehaviourByName(mascot, target, behaviour, "forced");\n',
+     b'                mascot.SetBehaviour(BuildBehaviourByName(target, behaviour), "forced");\n',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "did not fall in labelled fallback (Transform)"),
+    ("bd-w14-shimeji-host-1: an arrival's own Behavior builds without the enabled check (N-bd-anchors-02)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickSocialFamily.cs"),
+     b'world.EnterBehaviourByName(mascot, mascot.Type, own, "forced");',
+     b'mascot.SetBehaviour(world.BuildBehaviourByName(mascot.Type, own), "forced");',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "A turned-off arrival transition did not fall in labelled fallback (arrival)"),
+    ("bd-w14-shimeji-host-1: an arrival's TargetBehavior builds without the enabled check (N-bd-anchors-02)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickSocialFamily.cs"),
+     b'world.EnterBehaviourByName(target, target.Type, action.EvalString("TargetBehavior", null, ""), "partner");',
+     b'target.SetBehaviour(world.BuildBehaviourByName(target.Type, action.EvalString("TargetBehavior", null, "")), "partner");',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "A turned-off arrival transition did not fall in labelled fallback (arrival)"),
+    ("bd-w14-shimeji-host-1: Interact's Behavior builds without the enabled check (N-bd-anchors-02)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickSocialFamily.cs"),
+     b'World.EnterBehaviourByName(Mascot, Mascot.Type, EvalString("Behavior", null, ""), "forced");',
+     b'Mascot.SetBehaviour(World.BuildBehaviourByName(Mascot.Type, EvalString("Behavior", null, "")), "forced");',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "did not fall in labelled fallback (interact)"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

@@ -444,7 +444,7 @@ namespace DesktopAICompanion.Shimeji
             TickMascot partner = world.CreateAtStart("m4", par, new TickPoint(900, 680), false, "Stand");
             world.ActivateStartup();
             // Interact cannot start before its companion has a manager (TickInteract.HasNext), so m3 enters it once active.
-            meet.SetBehaviour(world.BuildBehaviourByName(par, "Meet", meet), "forced");
+            world.EnterBehaviourByName(meet, par, "Meet", "forced");
             w.Tick = 1;
             world.StepOnce();
             List<string> stepErrors = Errors(t, emitted);
@@ -503,7 +503,7 @@ namespace DesktopAICompanion.Shimeji
             writer.Tick = 1;
             world.StepOnce();
             // ScanMove scans at Init, and only an active companion's offer is seen: the target offers once it has stepped.
-            seeker.SetBehaviour(world.BuildBehaviourByName(seek, "Seek", seeker), "forced");
+            world.EnterBehaviourByName(seeker, seek, "Seek", "forced");
             writer.Tick = 2;
             world.StepOnce();
             return trace;
@@ -674,7 +674,7 @@ namespace DesktopAICompanion.Shimeji
             world.ActivateStartup();
             writer.Tick = 1;
             world.StepOnce();
-            seeker.SetBehaviour(world.BuildBehaviourByName(seek, "Seek", seeker), "forced");
+            world.EnterBehaviourByName(seeker, seek, "Seek", "forced");
             for (int tick = 2; tick <= 8 && !seeker.Disposing; tick++)
             {
                 writer.Tick = tick;

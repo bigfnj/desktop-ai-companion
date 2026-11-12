@@ -240,6 +240,266 @@ namespace DesktopAICompanion
                 "A Transform entered a behaviour its TARGET type has turned off (" + m2.Type.Name + ", " + m2.Behaviour.Name + ").");
         }
 
+        /// <summary>
+        /// The retained state of a failed Transform: Alpha's Morph transforms into Beta with a blank behaviour, which
+        /// cannot be built, so the companion is a Beta while Morph, built from Alpha, stays (Transform.java:51-65). The
+        /// step after, Morph ends and chooses its next behaviour through Alpha's configuration. <paramref name="morph"/>
+        /// is Morph's behaviour node (id 10); the route lists it at weight 0 and then <paramref name="route"/>.
+        /// </summary>
+        private static TickType RetainedAlpha(XmlData.AnimationNode morph, XmlData.NextNode[] route, params XmlData.AnimationNode[] more)
+        {
+            var edges = new List<XmlData.NextNode> { TEdge(10, 0) };
+            edges.AddRange(route);
+            var nodes = new List<XmlData.AnimationNode> { TRoute(edges.ToArray()), morph };
+            nodes.AddRange(more);
+            nodes.Add(TAct(30, "Morph", "Embedded", "Transform", new[] { TParam("TransformMascot", "Beta"), TParam("TransformBehavior", "") },
+                TPose(0, 1), TPose(1, 1)));
+            nodes.Add(TAct(31, "Stand", "Stay", null, new[] { TParam("Duration", "500") }, TPose(0, 1)));
+            return TickType.Compile("Alpha", WithToggles(TickDoc(nodes.ToArray()), new XmlData.ToggleNode { Id = "Waving", Label = "Waving" }));
+        }
+
+        private static TickType RetainedBeta()
+        {
+            return TickType.Compile("Beta", TickDoc(
+                TRoute(TEdge(10, 1)),
+                TBeh(10, "Stand", "Stand", 1, null),
+                TAct(30, "Stand", "Stay", null, new[] { TParam("Duration", "500") }, TPose(2, 1))));
+        }
+
+        /// <summary>Runs <paramref name="alpha"/>'s Morph to its next choice in the retained state, with Waving set
+        /// differently for the two types, and answers what it chose; asserts the retained state was reached.</summary>
+        private static string RetainedChoice(TickType alpha, bool alphaWaves, bool betaWaves, TickLog log)
+        {
+            var settings = new SwitchSettings();
+            settings.Store.Set("Alpha", "toggle:Waving", alphaWaves);
+            settings.Store.Set("Beta", "toggle:Waving", betaWaves);
+            var tape = new TickTape();
+            tape.Values.Enqueue(0.25);
+            var world = new TickWorld(new TickDesk(), tape, settings, log);
+            world.AddType(alpha);
+            world.AddType(RetainedBeta());
+            world.Start();
+            TickMascot m = world.CreateAtStart("m1", alpha, new TickPoint(640, 680), false, "Morph");
+            world.StepOnce();
+            world.StepOnce();
+            AssertTrue(m.Type.Name == "Beta" && m.Behaviour.Name == "Morph" && ReferenceEquals(m.Behaviour.Type, alpha)
+                       && log.Faults.Count == 1 && log.Faults[0].Contains("Transform into Beta"),
+                "WITNESS: the failed Transform did not leave the companion a Beta in Alpha's Morph (" + m.Type.Name + ", "
+                + (m.Behaviour == null ? "none" : m.Behaviour.Name) + "; " + string.Join("; ", log.Faults) + ").");
+            world.StepOnce();
+            AssertTrue(ReferenceEquals(m.Behaviour.Type, alpha),
+                "WITNESS: Morph's next behaviour was not built from Alpha, the configuration that holds it (" + m.Behaviour.Type.Name + ").");
+            return m.Behaviour.Name;
+        }
+
+        private static void TestTickSettingsRetainedRoot()
+        {
+            // N-bd-anchors-01 (receiver/Mute anchor packet note D1), a ROOT candidate. Morph's list adds to the route, so
+            // Wave (toggle Waving, weight 1) and Stand (weight 1) are candidates; the draw 0.25 lands in Wave when it is
+            // one and in Stand when it is not. The source checks each candidate with the companion, so the disabled list
+            // is the CURRENT type's (Beta's), though the candidate's toggle is Alpha's definition. Both directions: Alpha
+            // allows Wave and Beta does not, then the reverse; reading the holding type's switches fails both.
+            TickType alpha = RetainedAlpha(TBeh(10, "Morph", "Morph", 0, null), new[] { TEdge(11, 1), TEdge(12, 1), TEdge(13, 0) },
+                Toggled(TBeh(11, "Wave", "Stand", 1, null), "Waving"),
+                TBeh(12, "Stand", "Stand", 1, null),
+                TBeh(13, "Fall", "Stand", 0, null));
+            foreach (bool betaWaves in new[] { false, true })
+            {
+                var log = new TickLog();
+                string chosen = RetainedChoice(alpha, !betaWaves, betaWaves, log);
+                AssertEqual(betaWaves ? "Wave" : "Stand", chosen,
+                    "In the retained state a root candidate was filtered by the HOLDING type's switches, not the companion's current type's (Alpha "
+                    + (betaWaves ? "off" : "on") + ", Beta " + (betaWaves ? "on" : "off") + "): " + string.Join("; ", log.Events));
+                AssertTrue(log.Events.Contains("m1 behaviour Morph>" + chosen + " select"),
+                    "The retained state's root choice was not entered as 'select': " + string.Join("; ", log.Events));
+            }
+        }
+
+        private static void TestTickSettingsRetainedNext()
+        {
+            // N-bd-anchors-01, a NEXT-LIST candidate: Morph's list replaces the route (add false) with Wave (toggle Waving)
+            // and Rest, weight 1 each, neither of them a route edge. The draw 0.25 lands in Wave when it is a candidate and
+            // in Rest when it is not; as for a root candidate, the companion's current type decides.
+            TickType alpha = RetainedAlpha(TBeh(10, "Morph", "Morph", 0, false, TEdge(14, 1), TEdge(15, 1)), new[] { TEdge(12, 1), TEdge(13, 0) },
+                TBeh(12, "Stand", "Stand", 1, null),
+                TBeh(13, "Fall", "Stand", 0, null),
+                Toggled(TBeh(14, "Wave", "Stand", 1, null), "Waving"),
+                TBeh(15, "Rest", "Stand", 1, null));
+            foreach (bool betaWaves in new[] { false, true })
+            {
+                var log = new TickLog();
+                string chosen = RetainedChoice(alpha, !betaWaves, betaWaves, log);
+                AssertEqual(betaWaves ? "Wave" : "Rest", chosen,
+                    "In the retained state a next-list candidate was filtered by the HOLDING type's switches, not the companion's current type's (Alpha "
+                    + (betaWaves ? "off" : "on") + ", Beta " + (betaWaves ? "on" : "off") + "): " + string.Join("; ", log.Events));
+                AssertTrue(log.Events.Contains("m1 behaviour Morph>" + chosen + " next"),
+                    "The retained state's next-list choice was not entered as 'next': " + string.Join("; ", log.Events));
+            }
+        }
+
+        private static void TestTickSettingsFallbackCause()
+        {
+            // N-bd-anchors-02 (anchor packet note D2): a behaviour entered by name that this companion has turned off drops
+            // it in and enters Fall, and CONTRACT section 3 labels that entry `fallback`, whoever asked for the behaviour
+            // (V1ScenarioRunner marks it on the drop-in draw). Each caller that builds by name with the enabled check is
+            // driven once with the behaviour off and once (WITNESS) with it on, where the entry stays `forced`.
+            const string drop = "builtin:disabled-behavior-drop-x";
+            TickType alpha = TickType.Compile("Alpha", WithToggles(TickDoc(
+                    TRoute(TEdge(10, 1), TEdge(11, 0), TEdge(12, 0)),
+                    TBeh(10, "Stand", "Stand", 1, null),
+                    Toggled(TBeh(11, "Wave", "Stand", 0, null), "Waving"),
+                    TBeh(12, "Fall", "Stand", 0, null),
+                    TAct(30, "Stand", "Stay", null, new[] { TParam("Duration", "500") }, TPose(0, 1))),
+                new XmlData.ToggleNode { Id = "Waving", Label = "Waving" }));
+
+            // Explicit startup (Main.createMascot): the first behaviour, named.
+            foreach (bool on in new[] { true, false })
+            {
+                var settings = new SwitchSettings();
+                settings.Store.Set("Alpha", "toggle:Waving", on);
+                var log = new TickLog();
+                var world = new TickWorld(new TickDesk(), new TickTape(), settings, log);
+                world.AddType(alpha);
+                world.Start();
+                world.CreateAtStart("m1", alpha, new TickPoint(640, 680), false, "Wave");
+                string want = on ? "m1 behaviour ->Wave forced" : "m1 behaviour ->Fall fallback";
+                AssertTrue(log.Events.Contains(want) && log.Draws.Contains(drop) != on,
+                    (on ? "WITNESS: an enabled startup behaviour named for a start companion was not entered forced"
+                        : "A start companion's named startup behaviour, turned off, did not fall in labelled fallback")
+                    + " (startup): " + string.Join("; ", log.Events) + " | " + string.Join("|", log.Draws));
+            }
+
+            // The Transform build (Transform.java:55): the target type's behaviour, checked against the target's switches.
+            TickType egg = TickType.Compile("Egg", TickDoc(
+                TRoute(TEdge(10, 1)),
+                TBeh(10, "Laid", "Laid", 1, null),
+                TAct(30, "Laid", "Embedded", "Transform", new[] { TParam("TransformMascot", "Alpha"), TParam("TransformBehavior", "Wave") },
+                    TPose(0, 1), TPose(1, 1))));
+            foreach (bool on in new[] { true, false })
+            {
+                var settings = new SwitchSettings();
+                settings.Store.Set("Alpha", "toggle:Waving", on);
+                var log = new TickLog();
+                var world = new TickWorld(new TickDesk(), new TickTape(), settings, log);
+                world.AddType(egg);
+                world.AddType(alpha);
+                world.Start();
+                TickMascot m = world.CreateAtStart("m1", egg, new TickPoint(640, 680), false, "Laid");
+                world.StepOnce();
+                world.StepOnce();
+                string want = on ? "m1 behaviour Laid>Wave forced" : "m1 behaviour Laid>Fall fallback";
+                AssertTrue(m.Type.Name == "Alpha" && log.Events.Contains(want) && log.Draws.Contains(drop) != on,
+                    (on ? "WITNESS: an enabled behaviour a Transform names was not entered forced"
+                        : "A behaviour a Transform names, turned off for the target, did not fall in labelled fallback")
+                    + " (Transform): " + string.Join("; ", log.Events) + " | " + string.Join("|", log.Draws));
+            }
+
+            // A held hotspot's re-entry (UserBehavior.next while the hotspot is held): no eligibility check comes first,
+            // so a behaviour turned off while it is held is built with the enabled check and falls. The press (enabled)
+            // and the first re-entry stay forced; the re-entry after Petting is turned off is the fallback.
+            {
+                TickType held = TickType.Compile("Alpha", WithToggles(TickDoc(
+                        TRoute(TEdge(10, 1), TEdge(12, 0), TEdge(13, 0)),
+                        TBeh(10, "Stand", "Stand", 1, null),
+                        TBeh(12, "Fall", "Hold", 0, null),
+                        Toggled(TBeh(13, "Petted", "Stand", 0, null), "Petting"),
+                        HotspotAct(TAct(30, "Stand", "Stay", null, new[] { TParam("Duration", "500") }, TPose(0, 1)), "Petted"),
+                        TAct(31, "Hold", "Stay", null, new[] { TParam("Duration", "500") }, TPose(1, 1))),
+                    new XmlData.ToggleNode { Id = "Petting", Label = "Petting" }));
+                var settings = new SwitchSettings();
+                var log = new TickLog();
+                var desk = new TickDesk();
+                desk.Script[2] = new List<TickInput> { new TickInput(TickInputKind.Press, "m1", new TickPoint(618, 626)) };
+                var world = new TickWorld(desk, new TickTape(), settings, log);
+                world.AddType(held);
+                world.Start();
+                TickMascot m = world.CreateAtStart("m1", held, new TickPoint(640, 680), false, "Stand");
+                world.StepOnce();
+                world.StepOnce();
+                AssertTrue(m.IsHotspotClicked && log.Events.Contains("m1 behaviour Stand>Petted forced") && log.Events.Contains("m1 behaviour Petted>Petted forced"),
+                    "WITNESS: the enabled hotspot press and its held re-entry were not entered forced (held re-entry): " + string.Join("; ", log.Events));
+                settings.Store.Set("Alpha", "toggle:Petting", false);
+                world.StepOnce();
+                AssertTrue(log.Events.Contains("m1 behaviour Petted>Fall fallback") && log.Draws.Contains(drop),
+                    "A held hotspot's behaviour, turned off while held, did not fall in labelled fallback on its re-entry (held re-entry): "
+                    + string.Join("; ", log.Events) + " | " + string.Join("|", log.Draws));
+            }
+
+            // The hotspot press itself (UserBehavior.mousePressed), which reaches the drop-in only in the retained state:
+            // eligibility looks the name up in the CURRENT type (Beta's H, no toggle), construction in the HOLDING type
+            // (Alpha's H, toggle Hing) with the current type's switches, where Beta has Hing off (packet leg L6).
+            foreach (bool on in new[] { true, false })
+            {
+                TickType ra = RetainedAlpha(TBeh(10, "Morph", "Morph", 0, false, TEdge(15, 1)), new[] { TEdge(12, 0), TEdge(13, 0), TEdge(14, 0), TEdge(15, 0) },
+                    TBeh(12, "Fall", "Hold", 0, null),
+                    TBeh(13, "Dragged", "Hold", 0, null),
+                    Toggled(TBeh(14, "H", "Hold", 0, null), "Hing"),
+                    TBeh(15, "Pat", "Patting", 0, null),
+                    HotspotAct(TAct(32, "Patting", "Stay", null, new[] { TParam("Duration", "500") }, TPose(0, 1)), "H"),
+                    TAct(33, "Hold", "Stay", null, new[] { TParam("Duration", "500") }, TPose(1, 1)));
+                TickType rb = TickType.Compile("Beta", TickDoc(
+                    TRoute(TEdge(10, 1), TEdge(11, 0)),
+                    TBeh(10, "Stand", "Stand", 1, null),
+                    TBeh(11, "H", "Stand", 0, null),
+                    TAct(30, "Stand", "Stay", null, new[] { TParam("Duration", "500") }, TPose(2, 1))));
+                var settings = new SwitchSettings();
+                settings.Store.Set("Beta", "toggle:Hing", on);
+                var log = new TickLog();
+                var desk = new TickDesk();
+                desk.Script[6] = new List<TickInput> { new TickInput(TickInputKind.Press, "m1", new TickPoint(618, 626)) };
+                var world = new TickWorld(desk, new TickTape(), settings, log);
+                world.AddType(ra);
+                world.AddType(rb);
+                world.Start();
+                TickMascot m = world.CreateAtStart("m1", ra, new TickPoint(640, 680), false, "Morph");
+                for (int i = 0; i < 5; i++) world.StepOnce();
+                AssertTrue(m.Type.Name == "Beta" && m.Behaviour.Name == "Pat" && ReferenceEquals(m.Behaviour.Type, ra) && m.Hotspots.Count == 1,
+                    "WITNESS: the retained state before the press is not a Beta in Alpha's Pat with its hotspot (" + m.Type.Name + ", "
+                    + m.Behaviour.Name + ", " + m.Hotspots.Count + " hotspot(s)): " + string.Join("; ", log.Events));
+                world.StepOnce();
+                string want = on ? "m1 behaviour Pat>H forced" : "m1 behaviour Pat>Fall fallback";
+                AssertTrue(log.Events.Contains("m1 hotspot press H") && log.Events.Contains(want) && log.Draws.Contains(drop) != on
+                           && ReferenceEquals(m.Behaviour.Type, ra),
+                    (on ? "WITNESS: an enabled hotspot behaviour pressed in the retained state was not entered forced through the holding type"
+                        : "A hotspot behaviour the current type's switches turn off for the holding type's definition did not fall in labelled fallback")
+                    + " (hotspot press): " + string.Join("; ", log.Events) + " | " + string.Join("|", log.Draws));
+            }
+
+            // Kept as it is (policy:breed-parent-reposition): a born behaviour turned off moves no one and the child
+            // enters Fall forced, with no drop-in draw, because the host does not drop the PARENT in as the source does.
+            {
+                TickType breeder = TickType.Compile("Alpha", WithToggles(TickDoc(
+                        TRoute(TEdge(10, 1), TEdge(11, 0), TEdge(12, 0)),
+                        TBeh(10, "Throw", "Throw", 1, null),
+                        Toggled(TBeh(11, "Wave", "Stand", 0, null), "Waving"),
+                        TBeh(12, "Fall", "Stand", 0, null),
+                        TAct(30, "Throw", "Embedded", "Breed",
+                            new[] { TParam("BornX", "40"), TParam("BornBehavior", "Wave"), TParam("BornMascot", "Alpha") },
+                            TPose(0, 1), TPose(1, 1)),
+                        TAct(31, "Stand", "Stay", null, new[] { TParam("Duration", "500") }, TPose(0, 1))),
+                    new XmlData.ToggleNode { Id = "Waving", Label = "Waving" }));
+                var settings = new SwitchSettings();
+                settings.Store.Set("Alpha", "toggle:Waving", false);
+                var log = new TickLog();
+                var world = new TickWorld(new TickDesk(), new TickTape(), settings, log);
+                world.AddType(breeder);
+                world.Start();
+                world.CreateAtStart("m1", breeder, new TickPoint(640, 680), false, "Throw");
+                world.StepOnce();
+                world.StepOnce();
+                AssertTrue(log.Events.Contains("m1.b1 behaviour ->Fall forced") && !log.Draws.Contains(drop),
+                    "WITNESS: a born behaviour turned off no longer enters Fall forced with no drop-in (policy:breed-parent-reposition): "
+                    + string.Join("; ", log.Events) + " | " + string.Join("|", log.Draws));
+            }
+        }
+
+        /// <summary>An action whose one variant carries a 20x20 hotspot at the cell's top left naming <paramref name="behaviour"/>.</summary>
+        private static XmlData.AnimationNode HotspotAct(XmlData.AnimationNode act, string behaviour)
+        {
+            act.Act.Variants.Variant[0].Hotspots = new XmlData.HotspotsNode { Hotspot = new[] { THotspot(behaviour) } };
+            return act;
+        }
+
         private static void TestTickSettingsRows()
         {
             // The type the report names: Breed (BornTransient unset), Transform, WalkWithIE and two header toggles.

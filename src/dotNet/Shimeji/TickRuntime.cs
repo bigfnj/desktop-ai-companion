@@ -1128,7 +1128,7 @@ namespace DesktopAICompanion.Shimeji
                         if (h.Behaviour != null)
                         {
                             hotspotEntered = true;
-                            _mascot.SetBehaviour(_world.BuildBehaviourByName(Type, h.Behaviour, _mascot), "forced");
+                            _world.EnterBehaviourByName(_mascot, Type, h.Behaviour, "forced");
                         }
                         break;
                     }
@@ -1186,8 +1186,9 @@ namespace DesktopAICompanion.Shimeji
                 _mascot.CursorPosition = local;
                 _world.Observer.Hotspot(_mascot, "press", h.Behaviour);
                 // h.Behaviour is never null here: IsBehaviourEnabledByName refuses a null name, so such a hotspot
-                // never takes the press.
-                _mascot.SetBehaviour(_world.BuildBehaviourByName(Type, h.Behaviour, _mascot), "forced");
+                // never takes the press. Built through the holding type with the current type's switches, so in the
+                // retained state of a failed Transform it can still be turned off here and fall (EnterBehaviourByName).
+                _world.EnterBehaviourByName(_mascot, Type, h.Behaviour, "forced");
                 break;
             }
             if (!handled) handled = !Action.IsDraggable();
@@ -1488,8 +1489,8 @@ namespace DesktopAICompanion.Shimeji
             var m = new TickMascot(this, sid, type) { Anchor = anchor, LookRight = lookRight, IsStartup = true };
             try
             {
-                m.SetBehaviour(string.IsNullOrEmpty(behaviour) ? BuildNextBehaviour(type, m, null) : BuildBehaviourByName(type, behaviour, m),
-                    string.IsNullOrEmpty(behaviour) ? LastSelectionCause : "forced");
+                if (string.IsNullOrEmpty(behaviour)) m.SetBehaviour(BuildNextBehaviour(type, m, null), LastSelectionCause);
+                else EnterBehaviourByName(m, type, behaviour, "forced");
             }
             catch (Exception e)
             {
@@ -1651,15 +1652,36 @@ namespace DesktopAICompanion.Shimeji
         }
 
         /// <summary>Configuration.buildBehavior(name, mascot): a behaviour turned off for this companion drops it in
-        /// and enters Fall instead.</summary>
-        public TickBehaviour BuildBehaviourByName(TickType type, string name, TickMascot mascot)
+        /// and enters Fall instead, and <paramref name="droppedIn"/> says so. Callers enter it through
+        /// <see cref="EnterBehaviourByName"/>, which labels that entry.</summary>
+        private TickBehaviour BuildBehaviourByName(TickType type, string name, TickMascot mascot, out bool droppedIn)
         {
             TickBehaviourDef def;
+            droppedIn = false;
             if (!type.RootByName.TryGetValue(name ?? "", out def))
                 throw new TickCantBeAliveException("no behaviour named '" + name + "' in " + type.Name, TickFaultCause.OfMissingBehaviour(type, name));
             if (Settings.IsBehaviourEnabled(def, mascot.Type.Name)) return Build(type, def);
             DropIn(mascot, "builtin:disabled-behavior-drop-x");
+            droppedIn = true;
             return BuildBehaviourByName(type, "Fall");
+        }
+
+        /// <summary>
+        /// Builds <paramref name="name"/> in <paramref name="type"/> with the enabled check (Configuration.buildBehavior(name,
+        /// mascot)) and enters it with <paramref name="cause"/>; when this companion has it turned off, the Fall it was
+        /// dropped in for is entered as `fallback` instead, whatever the caller asked with (N-bd-anchors-02, anchor packet
+        /// note D2): CONTRACT section 3 gives `fallback` to the disabled-by-name drop-in, and the oracle marks it on the
+        /// drop-in draw ahead of `partner` (V1ScenarioRunner). Every caller of the enabled-check build comes through here:
+        /// the hotspot press and its held re-entry, an explicit startup, the Transform, and the social transitions. Each
+        /// passed its own "forced" (or "partner") beside the build and so labelled the Fall with it; the build is private
+        /// now, so a caller cannot take the behaviour without the label. A birth does not come here
+        /// (<see cref="EnterBirthBehaviour"/>, policy:breed-parent-reposition: no drop-in, so its Fall stays forced).
+        /// </summary>
+        public void EnterBehaviourByName(TickMascot mascot, TickType type, string name, string cause)
+        {
+            bool droppedIn;
+            TickBehaviour behaviour = BuildBehaviourByName(type, name, mascot, out droppedIn);
+            mascot.SetBehaviour(behaviour, droppedIn ? "fallback" : cause);
         }
 
         /// <summary>A born companion's entry behaviour. The source builds it for the PARENT, so a turned-off one
@@ -1686,8 +1708,15 @@ namespace DesktopAICompanion.Shimeji
             var candidates = new List<TickEdgeDef>();
             var fromNext = new List<bool>();
             long total = 0;
+            // Each candidate's enabled check: its toggle is the definition's in <paramref name="type"/>, the configuration
+            // that holds the ending behaviour, but the switches are the companion's CURRENT type's, because the source asks
+            // with the companion and keys the disabled list by its image set (N-bd-anchors-01, anchor packet note D1). The
+            // two differ only in the retained state of a failed Transform, where Alpha's behaviour runs on a Beta; keyed by
+            // the holding type, a candidate the user turned off for Beta was still chosen there. Same receiver as
+            // IsBehaviourEnabledByName and the drop-in below.
+            string switchesOf = mascot.Type.Name;
             foreach (TickEdgeDef e in type.Root)
-                if (EdgeHolds(e, context, mascot) && Settings.IsBehaviourEnabled(e.Target, type.Name))
+                if (EdgeHolds(e, context, mascot) && Settings.IsBehaviourEnabled(e.Target, switchesOf))
                 {
                     candidates.Add(e);
                     fromNext.Add(false);
@@ -1703,7 +1732,7 @@ namespace DesktopAICompanion.Shimeji
                     fromNext.Clear();
                 }
                 foreach (TickEdgeDef e in previous.Next)
-                    if (EdgeHolds(e, context, mascot) && Settings.IsBehaviourEnabled(e.Target, type.Name))
+                    if (EdgeHolds(e, context, mascot) && Settings.IsBehaviourEnabled(e.Target, switchesOf))
                     {
                         candidates.Add(e);
                         fromNext.Add(true);
@@ -1760,7 +1789,7 @@ namespace DesktopAICompanion.Shimeji
             // instead.
             try
             {
-                mascot.SetBehaviour(BuildBehaviourByName(target, behaviour, mascot), "forced");
+                EnterBehaviourByName(mascot, target, behaviour, "forced");
             }
             catch (TickCantBeAliveException e)
             {
