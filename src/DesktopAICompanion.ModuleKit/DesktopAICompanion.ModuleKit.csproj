@@ -59,10 +59,13 @@
       every modules-dist\*.zip and Contracts into none, so a path in its symbols ships in every
       published module payload rather than only in the release.
 
-      Do not re-add IncludeSymbols alongside this. Unlike Contracts, `dotnet pack` here does not
-      fail NU5017: the symbol package's nuspec repeats the dependency on DesktopAICompanion.Contracts,
-      which satisfies NuGet's no-dependencies-nor-content check, so pack succeeds and writes a
-      .snupkg holding no symbols at all (measured), which release.yml would then discard.
+      Do not re-add IncludeSymbols alongside this. Measured on SDK 10.0.302 with the pair this project
+      set before embedding, IncludeSymbols and SymbolPackageFormat=snupkg (passed on the command line,
+      since nothing in the repo sets either now), `dotnet pack` here does not fail NU5017 as Contracts
+      does: the symbol package's nuspec repeats the dependency on DesktopAICompanion.Contracts, which
+      satisfies NuGet's no-dependencies-nor-content check, so pack succeeds and writes a .snupkg
+      holding no symbols at all, which release.yml would then discard. With IncludeSymbols alone the
+      symbol package takes NuGet's default format, and what pack writes then was not measured.
 
       What embedding did NOT remove (RA-208, 2026-10-01): the document table INSIDE the embedded PDB
       named every source file by the maintainer's absolute path, fifteen D:\...\src\...\*.cs strings in
