@@ -578,6 +578,20 @@ Write-Host ("fortunes.zip embeds all $($expectedPairs.Count) current pack-to-col
 # EVERY DLL IN EVERY ZIP, deliberately, not the two files that were once wrong. The failure this
 # guards is a NEW assembly arriving without the setting, and a check scoped to where the problem
 # already was is exactly the kind that cannot fail.
+#
+# A THIRD VECTOR, A BUILD MACHINE'S IDENTITY (N-bd-w13-contracts-1-02). The two above read the CodeView
+# string and the Document table, and both were clean in all eight committed zips while every
+# ModuleKit.dll in them carried a Source Link record mapping the absolute folder it was built in, one
+# of them under a user profile. Get-BuildIdentityFindings (EmbeddedPortablePdb.ps1) fails on ANY Source
+# Link record and on a rooted user-profile path or a UNC root in a PDB record, the inflated PDB or the
+# DLL's raw bytes, ASCII and UTF-16. It is proved on synthetic images first, because the committed zips
+# are its only real input and a broken rule reads a clean zip as clean. NOTHING THIS SECTION FINDS IS
+# PRINTED AS TEXT: each line names the zip, the DLL and the kind of hit, because CI publishes this
+# output and the path is the account name. The CodeView and document lines below used to quote it.
+#
+# SCOPED TO OUR OWN DLLs like the rest of this section, not every DLL in the zips: one run under
+# Windows PowerShell 5.1 on 2026-11-12 took about 96 s over the 188 MB of DLLs in the eight zips and
+# about 4 s over the 6.5 MB of ours, and no package DLL in them carries an embedded PDB at all.
 . (Join-Path $PSScriptRoot 'EmbeddedPortablePdb.ps1')
 $buildPathZips = @(Get-ChildItem -LiteralPath (Join-Path $repoRoot 'modules-dist') -Filter '*.zip' -ErrorAction SilentlyContinue)
 if ($buildPathZips.Count -eq 0) { throw 'No modules-dist/*.zip to scan for embedded build paths.' }
@@ -625,6 +639,17 @@ foreach ($proj in Get-ChildItem -LiteralPath $repoRoot -Recurse -Filter '*.cspro
 }
 if ($ourAssemblies.Count -eq 0) { throw 'No .csproj found, so the build-path scan would check nothing.' }
 
+$buildIdentityOffenders = [System.Collections.Generic.List[string]]::new()
+$identityProof = @(Test-BuildIdentityScan)
+$identityProofFailed = @($identityProof | Where-Object { -not $_.Passed })
+if ($identityProof.Count -eq 0 -or $identityProofFailed.Count -gt 0) {
+    Write-Host ''
+    foreach ($leg in $identityProofFailed) { Write-Host "  build-identity proof failed: $($leg.Name), $($leg.Detail)" }
+    throw ("The build-identity scan failed its own proof on synthetic images ($($identityProofFailed.Count) of " +
+           "$($identityProof.Count) leg(s)), so a clean result over the committed zips would mean nothing. Fix " +
+           "packaging\EmbeddedPortablePdb.ps1 before trusting this section.")
+}
+
 # ENTRY STREAMS, not Expand-Archive. Every zip used to be expanded whole into a scratch directory under
 # TEMP -- the 32 MB ONNX model, the 15 MB runtime and the 24 MB WinRT projection included -- to read the
 # handful of sub-megabyte first-party DLLs this scan is scoped to; with the fortunes block above doing
@@ -636,36 +661,58 @@ foreach ($bpZip in $buildPathZips) {
         # Latin-1, so every byte maps to exactly one char. A UTF-8 decode can merge or drop bytes
         # and a path could slip through the gap.
         $bpText = [Text.Encoding]::GetEncoding(28591).GetString($bpDll.Bytes)
+        # The kind, never the match: the path names the account (N-bd-w13-contracts-1-02).
         foreach ($bpMatch in $buildPathPattern.Matches($bpText)) {
-            $buildPathOffenders.Add($bpZip.Name + " -> " + $bpDll.Name + " : CodeView " + $bpMatch.Value)
+            $buildPathOffenders.Add($bpZip.Name + " -> " + $bpDll.FullName + " : a CodeView record naming an absolute .pdb path")
         }
-        # The second vector: the Document table of an embedded portable PDB, parsed rather than grepped.
-        $embeddedInfo = Get-EmbeddedPortablePdbDocumentNames -Image $bpDll.Bytes
-        $embeddedPdbCount += $embeddedInfo.EmbeddedPdbCount
-        if ($bpDll.Name -ieq 'DesktopAICompanion.ModuleKit.dll' -and $embeddedInfo.EmbeddedPdbCount -eq 0) {
+        # The second vector: the Document table of an embedded portable PDB, parsed rather than grepped,
+        # read in the same pass as the third, the build identity.
+        $identity = Get-BuildIdentityFindings -Image $bpDll.Bytes
+        $embeddedPdbCount += $identity.EmbeddedPdbCount
+        if ($bpDll.Name -ieq 'DesktopAICompanion.ModuleKit.dll' -and $identity.EmbeddedPdbCount -eq 0) {
             $moduleKitWithoutEmbeddedPdb.Add($bpZip.Name)
         }
-        foreach ($documentName in $embeddedInfo.DocumentNames) {
+        foreach ($documentName in $identity.DocumentNames) {
             $embeddedDocumentCount++
             if ($absoluteDocumentPattern.IsMatch($documentName)) {
-                $buildPathOffenders.Add($bpZip.Name + " -> " + $bpDll.Name + " : embedded PDB document " + $documentName)
+                $buildPathOffenders.Add($bpZip.Name + " -> " + $bpDll.FullName + " : an absolute embedded PDB document name")
             }
         }
+        foreach ($kind in $identity.Findings) { $buildIdentityOffenders.Add($bpZip.Name + ' -> ' + $bpDll.FullName + ' : ' + $kind) }
     }
 }
 
+# Both lists are printed before one throw, so a CodeView path cannot hide a Source Link record (the
+# shape N-bd-converter-1-02 removed from the verdicts above).
+$scanVerdicts = New-Object 'Collections.Generic.List[string]'
 if ($buildPathOffenders.Count -gt 0) {
     Write-Host ''
     foreach ($bpO in $buildPathOffenders | Select-Object -Unique | Select-Object -First 12) {
         Write-Host "  embedded build path: $bpO"
     }
-    throw ("$($buildPathOffenders.Count) embedded build path(s) found in published DLLs, which names the " +
+    $scanVerdicts.Add("$($buildPathOffenders.Count) embedded build path(s) found in published DLLs, which names the " +
            "machine, account and directory of whoever built them. For a CodeView path set " +
            "<DebugType>embedded</DebugType> in the offending project -- and do NOT add IncludeSymbols, which " +
            "fails dotnet pack with NU5017. For an embedded PDB document, set " +
            "<DeterministicSourcePaths>true</DeterministicSourcePaths> (or a <PathMap>) in that project so the " +
            "document names are rooted at /_/ instead of the build machine. Then rebuild, re-zip, COMMIT the " +
            "zip and regenerate the catalog.")
+}
+if ($buildIdentityOffenders.Count -gt 0) {
+    Write-Host ''
+    foreach ($biO in $buildIdentityOffenders | Select-Object -Unique | Select-Object -First 24) {
+        Write-Host "  build identity: $biO"
+    }
+    $scanVerdicts.Add("$($buildIdentityOffenders.Count) build-identity finding(s) in published DLLs: a Source Link " +
+           "record maps the folder the assembly was built in, and a user-profile path or a UNC root names the " +
+           "account or the machine. For a Source Link record set <EnableSourceLink>false</EnableSourceLink> in " +
+           "the offending project, as ModuleKit and Contracts do. For a path in a self-test fixture, use a " +
+           "stand-in packaging\EmbeddedPortablePdb.ps1 lists. Then rebuild, re-zip, COMMIT the zip and " +
+           "regenerate the catalog. Only the zip, the DLL and the kind are printed here, never the text.")
+}
+if ($scanVerdicts.Count -gt 0) {
+    Write-Host ''
+    throw ($scanVerdicts -join ' ')
 }
 if ($buildPathDlls -eq 0) {
     throw ('The build-path scan examined ZERO DLLs, so it proved nothing. Either the zips contain none ' +
@@ -679,4 +726,5 @@ if ($moduleKitWithoutEmbeddedPdb.Count -gt 0) {
            "vacuous) or the payload was built without the setting; fix the one or record the other.")
 }
 Write-Host ("no embedded build paths in $buildPathDlls of our own published DLL(s) across $($buildPathZips.Count) zip(s): " +
-            "CodeView records scanned, $embeddedPdbCount embedded PDB(s) parsed with $embeddedDocumentCount document name(s) inspected.") 
+            "CodeView records scanned, $embeddedPdbCount embedded PDB(s) parsed with $embeddedDocumentCount document name(s) inspected; " +
+            "no build identity, $($identityProof.Count) synthetic leg(s) proved first.")

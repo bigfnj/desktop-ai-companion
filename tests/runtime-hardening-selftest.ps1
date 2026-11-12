@@ -7023,6 +7023,49 @@ Assert-True ($w13Runner.Length -gt 0 -and $w13Unfolded -ge 0 -and $w13Plain -ge 
 Assert-True ($w13Scan -gt $w13Unfolded -and $w13Said -gt $w13Scan -and $w13Verdict -gt $w13Said -and $w13Plain -gt $w13Verdict) (
     'w13-shimeji-host-1: the self-test runner reads DEGRADED lines from a green marker and names them beside the verdict, before any plain ok (N-bd-w12-review-02)')
 
+# ---- burndown/w14-packaging-ci-1 ----
+# A BUILD MACHINE'S IDENTITY IN A COMMITTED ZIP (N-bd-w13-contracts-1-02). The freshness check's shipped-DLL scan read the
+# CodeView string and the embedded PDB's Document table, so all eight committed zips passed while every ModuleKit.dll in
+# them carried a Source Link record mapping its build folder, one under a user profile. Get-BuildIdentityFindings in
+# packaging\EmbeddedPortablePdb.ps1 now judges the PDB's records, the inflated PDB and the DLL bytes too.
+# BEHAVIOUR first, unlike the rest of this file: the committed zips are the scan's only real input and stay red until the
+# release republishes them, so the oracle for its rules is Test-BuildIdentityScan's synthetic images, one assertion per
+# leg with the leg's name in the label. Dot-sourced inside a child scope so its helpers stay out of this file's.
+# Then the WIRING, comment-stripped and in ORDER: the freshness check proves the scan before the zip loop and refuses on
+# a failed leg; inside the loop each DLL's findings become lines naming the zip, the DLL and the kind; a finding adds a
+# verdict that the one throw carries; and no line quotes a path the scan found (the CodeView and document lines did).
+# WITNESS: the legs ran, and the loop still reads every zip's own DLLs and still scans the CodeView string.
+$w14Legs = @(& { . (Join-Path $repoRoot 'packaging\EmbeddedPortablePdb.ps1'); Test-BuildIdentityScan })
+Assert-True ($w14Legs.Count -gt 0) "w14-packaging-ci-1: WITNESS the build-identity scan's synthetic proof ran ($($w14Legs.Count) legs)"
+foreach ($w14Leg in $w14Legs) {
+    Assert-True ($w14Leg.Passed) ("w14-packaging-ci-1: the build-identity scan proves the leg: $($w14Leg.Name) ($($w14Leg.Detail))")
+}
+$w14Fresh = Remove-PsLineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'packaging\Test-ModulePublishFreshness.ps1') -Raw)
+$w14Loop = $w14Fresh.IndexOf('foreach ($bpZip in $buildPathZips) {', [StringComparison]::Ordinal)
+$w14Entries = $w14Fresh.IndexOf('foreach ($bpDll in @(Read-ZipEntryBytes -ZipPath $bpZip.FullName -EntryNames @($ourAssemblies))) {', [StringComparison]::Ordinal)
+$w14CodeView = $w14Fresh.IndexOf('foreach ($bpMatch in $buildPathPattern.Matches($bpText)) {', [StringComparison]::Ordinal)
+$w14Proof = $w14Fresh.IndexOf('$identityProof = @(Test-BuildIdentityScan)', [StringComparison]::Ordinal)
+$w14Refuse = $w14Fresh.IndexOf('if ($identityProof.Count -eq 0 -or $identityProofFailed.Count -gt 0) {', [StringComparison]::Ordinal)
+$w14Judge = $w14Fresh.IndexOf('$identity = Get-BuildIdentityFindings -Image $bpDll.Bytes', [StringComparison]::Ordinal)
+$w14Add = $w14Fresh.IndexOf('foreach ($kind in $identity.Findings) { $buildIdentityOffenders.Add($bpZip.Name + '' -> '' + $bpDll.FullName + '' : '' + $kind) }', [StringComparison]::Ordinal)
+$w14Verdict = $w14Fresh.IndexOf('if ($buildIdentityOffenders.Count -gt 0) {', [StringComparison]::Ordinal)
+$w14VerdictAdd = $w14Fresh.IndexOf('$scanVerdicts.Add("$($buildIdentityOffenders.Count) build-identity finding(s)', [StringComparison]::Ordinal)
+$w14Throw = $w14Fresh.IndexOf('throw ($scanVerdicts -join '' '')', [StringComparison]::Ordinal)
+Assert-True ($w14Fresh.Length -gt 0 -and $w14Loop -ge 0 -and $w14Entries -gt $w14Loop -and $w14CodeView -gt $w14Entries) (
+    'w14-packaging-ci-1: WITNESS the freshness check was read, and its loop still reads every zip''s own DLLs and scans the CodeView string')
+Assert-True ($w14Proof -ge 0 -and $w14Refuse -gt $w14Proof -and $w14Loop -gt $w14Refuse -and
+             $w14Fresh.Substring($w14Refuse, $w14Loop - $w14Refuse) -cmatch '(?m)^[ \t]*throw \("The build-identity scan failed its own proof') (
+    'w14-packaging-ci-1: the freshness check proves the build-identity scan on synthetic images before the zip loop and refuses on a failed leg')
+Assert-True ($w14Judge -gt $w14Entries -and $w14Add -gt $w14Judge -and $w14Verdict -gt $w14Add) (
+    'w14-packaging-ci-1: every one of our DLLs in every zip is judged for a build identity, each finding a line naming the zip, the DLL and the kind')
+# The first throw after the identity block IS the one throw: the block must not throw its own sentence.
+Assert-True ($w14VerdictAdd -gt $w14Verdict -and $w14Throw -gt $w14VerdictAdd -and
+             $w14Fresh.IndexOf('throw', $w14Verdict, $w14Throw + 5 - $w14Verdict, [StringComparison]::Ordinal) -eq $w14Throw) (
+    'w14-packaging-ci-1: a build-identity finding adds a verdict that the shipped-DLL scan''s one throw carries')
+Assert-True ($w14Fresh -cnotmatch '\$bpMatch\.Value' -and $w14Fresh -cnotmatch '\+ \$documentName\)' -and
+             $w14Fresh -cmatch '\$buildPathOffenders\.Add\(\$bpZip\.Name \+ " -> " \+ \$bpDll\.FullName \+ " : a CodeView record naming an absolute \.pdb path"\)') (
+    'w14-packaging-ci-1: the shipped-DLL scan prints no path it found, neither a CodeView path nor a document name')
+
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever

@@ -5391,6 +5391,94 @@ CASES = (
         b"            if ($false) {\n",
         "w13-shimeji-host-1: the self-test runner reads DEGRADED lines from a green marker and names them beside the verdict",
     ),
+    # ---- burndown/w14-packaging-ci-1 ----
+    # N-bd-w13-contracts-1-02: the shipped-DLL scan loses a build-identity rule (graded by the synthetic leg that rule
+    # serves, the first leg to fail), or the freshness check stops proving, recording, throwing or redacting what it
+    # finds. "bd-w14-packaging-ci-1:" for one --only.
+    (
+        "bd-w14-packaging-ci-1: a Source Link record is no longer a finding (N-bd-w13-contracts-1-02)",
+        os.path.join(REPO, "packaging", "EmbeddedPortablePdb.ps1"),
+        b"        if ($record.Kind -eq $script:SourceLinkRecordKind) { $findings.Add('a Source Link record in the embedded PDB') }\n",
+        b"        if ($false) { $findings.Add('a Source Link record in the embedded PDB') }\n",
+        "w14-packaging-ci-1: the build-identity scan proves the leg: a Source Link record is reported",
+    ),
+    (
+        "bd-w14-packaging-ci-1: the stand-in accounts are no longer waived (N-bd-w13-contracts-1-02)",
+        os.path.join(REPO, "packaging", "EmbeddedPortablePdb.ps1"),
+        b"        if (@($script:BuildIdentityStandInAccounts | Where-Object { $_ -ieq $account }).Count -gt 0) { continue }\n",
+        b"\n",
+        "w14-packaging-ci-1: the build-identity scan proves the leg: the clean control",
+    ),
+    (
+        "bd-w14-packaging-ci-1: an escaped drive path reads as a UNC root (N-bd-w13-contracts-1-02)",
+        os.path.join(REPO, "packaging", "EmbeddedPortablePdb.ps1"),
+        rb"$script:UncRootPattern = [regex] '(?<![\\/:A-Za-z0-9])",
+        rb"$script:UncRootPattern = [regex] '(?<![\\/A-Za-z0-9])",
+        "w14-packaging-ci-1: the build-identity scan proves the leg: the clean control",
+    ),
+    (
+        "bd-w14-packaging-ci-1: a finding quotes the profile path it matched (N-bd-w13-contracts-1-02)",
+        os.path.join(REPO, "packaging", "EmbeddedPortablePdb.ps1"),
+        b"        $kinds.Add('user-profile path')\n",
+        b"        $kinds.Add('user-profile path ' + $match.Value)\n",
+        "w14-packaging-ci-1: the build-identity scan proves the leg: a user-profile path in a document name is reported",
+    ),
+    (
+        "bd-w14-packaging-ci-1: the DLL bytes are no longer read (N-bd-w13-contracts-1-02)",
+        os.path.join(REPO, "packaging", "EmbeddedPortablePdb.ps1"),
+        b"    foreach ($view in @(Get-ByteTextViews $Image)) {\n",
+        b"    foreach ($view in @()) {\n",
+        "w14-packaging-ci-1: the build-identity scan proves the leg: a user-profile path in the ASCII DLL bytes is reported",
+    ),
+    (
+        "bd-w14-packaging-ci-1: UTF-16 at an even offset is no longer read (N-bd-w13-contracts-1-02)",
+        os.path.join(REPO, "packaging", "EmbeddedPortablePdb.ps1"),
+        b"    $views.Add([pscustomobject]@{ Encoding = 'UTF-16'; Text = [Text.Encoding]::Unicode.GetString($Bytes) })\n",
+        b"    $null = 0\n",
+        "w14-packaging-ci-1: the build-identity scan proves the leg: a user-profile path in the UTF-16 DLL bytes at an even offset",
+    ),
+    (
+        "bd-w14-packaging-ci-1: UTF-16 at an odd offset is no longer read (N-bd-w13-contracts-1-02)",
+        os.path.join(REPO, "packaging", "EmbeddedPortablePdb.ps1"),
+        b"        $views.Add([pscustomobject]@{ Encoding = 'UTF-16'; Text = [Text.Encoding]::Unicode.GetString($Bytes, 1, $Bytes.Length - 1) })\n",
+        b"        $null = 0\n",
+        "w14-packaging-ci-1: the build-identity scan proves the leg: a UNC root in the UTF-16 DLL bytes at an odd offset",
+    ),
+    (
+        "bd-w14-packaging-ci-1: the freshness check trusts the scan unproved (N-bd-w13-contracts-1-02)",
+        os.path.join(REPO, "packaging", "Test-ModulePublishFreshness.ps1"),
+        b"$identityProof = @(Test-BuildIdentityScan)\n",
+        b"$identityProof = @([pscustomobject]@{ Name = 'skipped'; Passed = $true; Detail = '' })\n",
+        "w14-packaging-ci-1: the freshness check proves the build-identity scan on synthetic images before the zip loop",
+    ),
+    (
+        "bd-w14-packaging-ci-1: each DLL's build-identity findings are dropped (N-bd-w13-contracts-1-02)",
+        os.path.join(REPO, "packaging", "Test-ModulePublishFreshness.ps1"),
+        b"        foreach ($kind in $identity.Findings) { $buildIdentityOffenders.Add($bpZip.Name + ' -> ' + $bpDll.FullName + ' : ' + $kind) }\n",
+        b"        foreach ($kind in $identity.Findings) { $null = $kind }\n",
+        "w14-packaging-ci-1: every one of our DLLs in every zip is judged for a build identity",
+    ),
+    (
+        "bd-w14-packaging-ci-1: a build-identity finding is printed, never thrown (N-bd-w13-contracts-1-02)",
+        os.path.join(REPO, "packaging", "Test-ModulePublishFreshness.ps1"),
+        b'    $scanVerdicts.Add("$($buildIdentityOffenders.Count) build-identity finding(s) in published DLLs: a Source Link " +\n',
+        b'    Write-Host ("$($buildIdentityOffenders.Count) build-identity finding(s) in published DLLs: a Source Link " +\n',
+        "w14-packaging-ci-1: a build-identity finding adds a verdict",
+    ),
+    (
+        "bd-w14-packaging-ci-1: the CodeView line quotes the path again (N-bd-w13-contracts-1-02)",
+        os.path.join(REPO, "packaging", "Test-ModulePublishFreshness.ps1"),
+        b'            $buildPathOffenders.Add($bpZip.Name + " -> " + $bpDll.FullName + " : a CodeView record naming an absolute .pdb path")\n',
+        b'            $buildPathOffenders.Add($bpZip.Name + " -> " + $bpDll.FullName + " : CodeView " + $bpMatch.Value)\n',
+        "w14-packaging-ci-1: the shipped-DLL scan prints no path it found",
+    ),
+    (
+        "bd-w14-packaging-ci-1: the document line quotes the name again (N-bd-w13-contracts-1-02)",
+        os.path.join(REPO, "packaging", "Test-ModulePublishFreshness.ps1"),
+        b'                $buildPathOffenders.Add($bpZip.Name + " -> " + $bpDll.FullName + " : an absolute embedded PDB document name")\n',
+        b'                $buildPathOffenders.Add($bpZip.Name + " -> " + $bpDll.FullName + " : embedded PDB document " + $documentName)\n',
+        "w14-packaging-ci-1: the shipped-DLL scan prints no path it found",
+    ),
 )
 
 
