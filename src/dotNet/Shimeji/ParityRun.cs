@@ -1416,8 +1416,14 @@ namespace DesktopAICompanion.Shimeji
         /// <summary>The file or folder a trace path's final name puts a data stream on ("scenario.json:t" is the stream t of
         /// scenario.json), or null when that name holds no colon (<see cref="TraceClaim.Claim"/> says why it is refused).
         /// Read on the full path, so "." and ".." and a trailing separator are gone and a drive's own colon (D:, \\?\D:) is
-        /// in the root, not in the name. Only the final name: a colon in a folder part names no folder a file can be made
-        /// in, and the open refuses that path as unwritable.</summary>
+        /// in the root, not in the name. Only the final name. A colon in a folder part mostly names a stream, which no file
+        /// can be made under, and the open refuses that path as unwritable. On NTFS one such part is the folder itself:
+        /// "pets::$INDEX_ALLOCATION" (or "pets:$I30:$INDEX_ALLOCATION") names the pets folder's own index, so a new file
+        /// can be made through it, inside pets. Nothing is added here for that: ResolvedPath opens the existing part
+        /// (File.GetAttributes reads it as the folder), GetFinalPathNameByHandle answers the real folder, and Overlap
+        /// compares that with the input folders, so a trace spelled through pets::$INDEX_ALLOCATION is refused as inside
+        /// the pets folder. Where that part cannot be read or opened, the claim says so as DEGRADED (the unresolved note)
+        /// and compares the path as written.</summary>
         private static string StreamOwnerOf(string tracePath)
         {
             string full = FullPathOrNull(tracePath);
