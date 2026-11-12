@@ -25393,6 +25393,50 @@ CASES = (
      rb'@"[A-Za-z]:[\\/]|',
      SHIMEJI_CSPROJ, os.path.join(os.path.dirname(SHIMEJI_ENGINE_DLL), 'ShimejiConvert.dll'), SHIMEJI, 'cli-roundtrip',
      "CLI_SYMBOLS_RECORD_TEST_WITNESS: the compilation-options test reads a mapped root or a URL"),
+    # ---- burndown/w14-converter-1 ----
+    # N-bd-w13-review-03, graded through the converter's cli-roundtrip selftest. The walk over the real Release dlls had
+    # no grader: neither record holds a path, so grading an empty string instead of the record's text, a wrong kind GUID,
+    # or a RECORD_PATH branch that never fires all passed. Program.CheckAssemblySymbols now witnesses the walk (one
+    # compilation-options record naming language C#) and grades the real record again with a drive path planted in it.
+    # The fourth case is the coverage the wave-13 re-point took from the CLI_SYMBOLS_RECORD_PATH line: the walk hands
+    # the grader a record that names a drive path. The last two kill the share lookbehind and the // alternative of the
+    # pattern, against the synthetic records Program.CheckRecordPathTest feeds it. "bd-w14-converter-1:" for one --only.
+    ("bd-w14-converter-1: the walk grades an empty string, not the compilation-options record's text (N-bd-w13-review-03)",
+     os.path.join(REPO, "tools", "ShimejiConvert", "Program.cs"),
+     b"RecordNamesAbsolutePath(text)",
+     b'RecordNamesAbsolutePath("")',
+     SHIMEJI_CSPROJ, os.path.join(os.path.dirname(SHIMEJI_ENGINE_DLL), 'ShimejiConvert.dll'), SHIMEJI, 'cli-roundtrip',
+     "CLI_SYMBOLS_RECORD_PLANTED: ShimejiConvert.dll"),
+    ("bd-w14-converter-1: the walk looks for the compilation-options record under the wrong kind GUID (N-bd-w13-review-03)",
+     os.path.join(REPO, "tools", "ShimejiConvert", "Program.cs"),
+     b'CompilationOptionsRecord = new Guid("B5FEEC05-8CD0-4A83-96DA-466284BB4BD8");',
+     b'CompilationOptionsRecord = new Guid("B5FEEC05-8CD0-4A83-96DA-466284BB4BD9");',
+     SHIMEJI_CSPROJ, os.path.join(os.path.dirname(SHIMEJI_ENGINE_DLL), 'ShimejiConvert.dll'), SHIMEJI, 'cli-roundtrip',
+     "CLI_SYMBOLS_RECORD_WITNESS: ShimejiConvert.dll"),
+    ("bd-w14-converter-1: the CLI_SYMBOLS_RECORD_PATH rung never fires (N-bd-w13-review-03)",
+     os.path.join(REPO, "tools", "ShimejiConvert", "Program.cs"),
+     b"            else if (rootedRecord != null)\n",
+     b"            else if (rootedRecord != null && rootedRecord.Length < 0)\n",
+     SHIMEJI_CSPROJ, os.path.join(os.path.dirname(SHIMEJI_ENGINE_DLL), 'ShimejiConvert.dll'), SHIMEJI, 'cli-roundtrip',
+     "CLI_SYMBOLS_RECORD_PLANTED: ShimejiConvert.dll"),
+    ("bd-w14-converter-1: the walk hands the grader a compilation-options record naming a drive path (N-bd-w13-review-03)",
+     os.path.join(REPO, "tools", "ShimejiConvert", "Program.cs"),
+     rb"else read.OptionsRecords.Add(text);",
+     rb'else read.OptionsRecords.Add(text + "\0D:\\obj");',
+     SHIMEJI_CSPROJ, os.path.join(os.path.dirname(SHIMEJI_ENGINE_DLL), 'ShimejiConvert.dll'), SHIMEJI, 'cli-roundtrip',
+     "CLI_SYMBOLS_RECORD_PATH: ShimejiConvert.dll"),
+    ("bd-w14-converter-1: the compilation-options test loses the share lookbehind, so a URL reads as a share (N-bd-w13-review-03)",
+     os.path.join(REPO, "tools", "ShimejiConvert", "Program.cs"),
+     rb'|(?<![:\\/])(\\\\|//)',
+     rb'|(\\\\|//)',
+     SHIMEJI_CSPROJ, os.path.join(os.path.dirname(SHIMEJI_ENGINE_DLL), 'ShimejiConvert.dll'), SHIMEJI, 'cli-roundtrip',
+     "CLI_SYMBOLS_RECORD_TEST_WITNESS: the compilation-options test reads a mapped root or a URL"),
+    ("bd-w14-converter-1: the compilation-options test loses the forward-slash share path (N-bd-w13-review-03)",
+     os.path.join(REPO, "tools", "ShimejiConvert", "Program.cs"),
+     rb'(\\\\|//)[^\\/\s]',
+     rb'(\\\\)[^\\/\s]',
+     SHIMEJI_CSPROJ, os.path.join(os.path.dirname(SHIMEJI_ENGINE_DLL), 'ShimejiConvert.dll'), SHIMEJI, 'cli-roundtrip',
+     "CLI_SYMBOLS_RECORD_TEST: the compilation-options test misses a forward-slash share path"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

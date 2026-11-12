@@ -569,7 +569,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
         /// record names no absolute path. WITNESS: the engine's table names a src\ file it compiles by link, the axis
         /// a map keyed on the project directory alone would leave absolute. The compilation-options test runs on
         /// synthetic records in every configuration first; a Debug build keeps its full separate PDB on purpose and
-        /// says so.
+        /// says so. Each Release dll that passes then grades its own walk (N-bd-w13-review-03): the walk read exactly
+        /// one compilation-options record naming language C#, and that record with a drive path planted in it fails
+        /// with CLI_SYMBOLS_RECORD_PATH.
         /// </summary>
         private static string CheckSymbolsNameNoBuildFolder(List<string> failures)
         {
@@ -600,10 +602,12 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
 
         /// <summary>
         /// The compilation-options test on synthetic records, in every configuration. No build input this repository
-        /// sets puts a path in that record (measured on both dlls: language, source-file-count, output-kind,
-        /// optimization, platform, runtime-version, language-version, define), so the walk over the real dlls alone
-        /// never shows the test catching anything. One record per root shape, and a WITNESS record in the shape the
-        /// build writes, with a mapped root and a URL beside it, that must read as naming none.
+        /// sets puts a path in that record (measured on both dlls: version, compiler-version, language,
+        /// source-file-count, output-kind, optimization, platform, runtime-version, language-version, define), so the
+        /// walk over the real dlls alone never shows the test catching anything. One record per root shape, and a
+        /// WITNESS record in the shape the build writes, with a mapped root and a URL beside it, that must read as
+        /// naming none. This grades the pattern; CheckAssemblySymbols grades its use on the record each real dll
+        /// carries.
         /// </summary>
         private static void CheckRecordPathTest(List<string> failures)
         {
@@ -631,32 +635,69 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                 return;
             }
             string name = Path.GetFileName(location);
-            string codeView = null;
-            bool embedded = false;
-            var documents = new List<string>();
-            string sourceLink = null, rootedRecord = null;
+            SymbolsRead read = ReadSymbols(location);
+            int before = failures.Count;
+            GradeSymbols(name, read, linkedWitness, failures);
+            if (failures.Count != before) return;
+            // The walk's own grader (N-bd-w13-review-03). Neither real record holds a path, so a walk that skipped the
+            // record (a wrong kind GUID) or graded something other than its text passed exactly like one that read it.
+            // WITNESS first: the walk read one compilation-options record and it holds the pair language = C#. Measured
+            // on both Release dlls: each carries exactly one such record, NUL-terminated, and one other module record,
+            // the binary metadata-references list, which does not hold that pair (a Source Link map, the other text
+            // kind the walk reads, is JSON with no NUL in it). Then the same grader, given that record with one more
+            // key whose value is a drive path, in the record's own key NUL value NUL shape, must answer
+            // CLI_SYMBOLS_RECORD_PATH and nothing else. Run only on a dll that passed, so a mutation that already fails
+            // one rung reports that rung once. Rejected: a planted record built from scratch, which would grade the
+            // grader but not its use on the text the walk read.
+            if (read.OptionsRecords.Count != 1 || !("\0" + read.OptionsRecords[0]).Contains("\0language\0C#\0"))
+            {
+                failures.Add("CLI_SYMBOLS_RECORD_WITNESS: " + name + " gave the walk no single compilation-options record naming language C#; records read: "
+                    + read.OptionsRecords.Count.ToString(CultureInfo.InvariantCulture));
+                return;
+            }
+            var planted = new List<string>();
+            read.OptionsRecords[0] += "planted\0D:\\obj\\Release\\planted.cs\0";
+            GradeSymbols(name, read, linkedWitness, planted);
+            if (planted.Count != 1 || !planted[0].StartsWith("CLI_SYMBOLS_RECORD_PATH: " + name + " ", StringComparison.Ordinal))
+                failures.Add("CLI_SYMBOLS_RECORD_PLANTED: " + name + "'s own compilation-options record passed the record check with a drive path planted in it");
+        }
+
+        /// <summary>What the walk read from one dll's debug directory, kept apart from the verdict so the self-test can
+        /// grade the real record again with a path planted in it (N-bd-w13-review-03).</summary>
+        private sealed class SymbolsRead
+        {
+            public string CodeView;
+            public bool Embedded;
+            public readonly List<string> Documents = new List<string>();
+            public string SourceLink;
+            public readonly List<string> OptionsRecords = new List<string>();
+        }
+
+        private static SymbolsRead ReadSymbols(string location)
+        {
+            var read = new SymbolsRead();
             using (FileStream file = File.OpenRead(location))
             using (var pe = new System.Reflection.PortableExecutable.PEReader(file))
             {
                 foreach (System.Reflection.PortableExecutable.DebugDirectoryEntry entry in pe.ReadDebugDirectory())
                 {
                     if (entry.Type == System.Reflection.PortableExecutable.DebugDirectoryEntryType.CodeView)
-                        codeView = pe.ReadCodeViewDebugDirectoryData(entry).Path;
+                        read.CodeView = pe.ReadCodeViewDebugDirectoryData(entry).Path;
                     else if (entry.Type == System.Reflection.PortableExecutable.DebugDirectoryEntryType.EmbeddedPortablePdb)
                     {
-                        embedded = true;
+                        read.Embedded = true;
                         using (System.Reflection.Metadata.MetadataReaderProvider provider = pe.ReadEmbeddedPortablePdbDebugDirectoryData(entry))
                         {
                             System.Reflection.Metadata.MetadataReader pdb = provider.GetMetadataReader();
                             foreach (System.Reflection.Metadata.DocumentHandle handle in pdb.Documents)
-                                documents.Add(pdb.GetString(pdb.GetDocument(handle).Name));
+                                read.Documents.Add(pdb.GetString(pdb.GetDocument(handle).Name));
                             // The module's TEXT records. A Source Link record fails by its PRESENCE (N-bd-w12-review-04):
                             // both projects set EnableSourceLink false, and a record whose keys never name the build
                             // folder still carries the commit in its URLs, which the witness must not hash. Keys mapped
                             // to /_/ (ContinuousIntegrationBuild with Source Link on), forward-slash and share keys all
-                            // passed the drive-path test this record had. The compilation options are read for an
-                            // absolute path. The binary records are not read as text, where a stray byte run could look
-                            // like a drive.
+                            // passed the drive-path test this record had. The compilation options are kept as text for
+                            // GradeSymbols to read for an absolute path. The binary records are not read as text, where a
+                            // stray byte run could look like a drive.
                             foreach (System.Reflection.Metadata.CustomDebugInformationHandle handle in pdb.CustomDebugInformation)
                             {
                                 System.Reflection.Metadata.CustomDebugInformation record = pdb.GetCustomDebugInformation(handle);
@@ -664,29 +705,43 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                                 Guid kind = pdb.GetGuid(record.Kind);
                                 if (kind != SourceLinkRecord && kind != CompilationOptionsRecord) continue;
                                 string text = Encoding.UTF8.GetString(pdb.GetBlobBytes(record.Value));
-                                string shown = (text.Length > 160 ? text.Substring(0, 160) : text).Replace('\0', ' ');
-                                if (kind == SourceLinkRecord) { if (sourceLink == null) sourceLink = shown; }
-                                else if (rootedRecord == null && RecordNamesAbsolutePath(text)) rootedRecord = shown;
+                                if (kind == SourceLinkRecord) { if (read.SourceLink == null) read.SourceLink = text; }
+                                else read.OptionsRecords.Add(text);
                             }
                         }
                     }
                 }
             }
+            return read;
+        }
+
+        /// <summary>One verdict per dll from what the walk read, the first failing rung only.</summary>
+        private static void GradeSymbols(string name, SymbolsRead read, string linkedWitness, List<string> failures)
+        {
+            string rootedRecord = null;
+            foreach (string text in read.OptionsRecords)
+                if (rootedRecord == null && RecordNamesAbsolutePath(text)) rootedRecord = ShownRecord(text);
+            string codeView = read.CodeView;
             bool rootedCodeView = codeView != null
                 && ((codeView.Length >= 2 && char.IsLetter(codeView[0]) && codeView[1] == ':') || codeView.StartsWith(@"\\", StringComparison.Ordinal));
-            string unmapped = documents.FirstOrDefault(d => !d.StartsWith("/_/", StringComparison.Ordinal));
+            string unmapped = read.Documents.FirstOrDefault(d => !d.StartsWith("/_/", StringComparison.Ordinal));
             if (rootedCodeView)
                 failures.Add("CLI_SYMBOLS_BUILD_PATH: " + name + " names its PDB by an absolute build path: " + codeView);
-            else if (!embedded || documents.Count == 0)
+            else if (!read.Embedded || read.Documents.Count == 0)
                 failures.Add("CLI_SYMBOLS_NOT_EMBEDDED: " + name + " carries no embedded portable PDB with documents, the Release shape both converter projects set");
             else if (unmapped != null)
                 failures.Add("CLI_SYMBOLS_DOCUMENT_PATH: " + name + " names a source document outside the mapped /_/ root: " + unmapped);
-            else if (sourceLink != null)
-                failures.Add("CLI_SYMBOLS_SOURCE_LINK: " + name + " carries a Source Link record, which both converter projects turn off: " + sourceLink);
+            else if (read.SourceLink != null)
+                failures.Add("CLI_SYMBOLS_SOURCE_LINK: " + name + " carries a Source Link record, which both converter projects turn off: " + ShownRecord(read.SourceLink));
             else if (rootedRecord != null)
                 failures.Add("CLI_SYMBOLS_RECORD_PATH: " + name + " names an absolute path in its compilation options record: " + rootedRecord);
-            else if (linkedWitness != null && !documents.Any(d => d.EndsWith(linkedWitness, StringComparison.Ordinal)))
+            else if (linkedWitness != null && !read.Documents.Any(d => d.EndsWith(linkedWitness, StringComparison.Ordinal)))
                 failures.Add("CLI_SYMBOLS_WITNESS: " + name + " names no document ending " + linkedWitness + ", so the linked-source axis went unread");
+        }
+
+        private static string ShownRecord(string text)
+        {
+            return (text.Length > 160 ? text.Substring(0, 160) : text).Replace('\0', ' ');
         }
 
         private static void CheckCliPreflight(string parent, List<string> failures)
