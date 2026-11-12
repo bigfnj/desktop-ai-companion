@@ -25443,6 +25443,34 @@ CASES = (
      b"if ($entry[0] -ceq '120000') {",
      None, None, PRIVACY, None,
      "a symbolic link with a protected shape was read"),
+    # N-bd-w13-review-08, graded through PRIVACY: the fixture removal deletes a build\privacy-selftest junction again (a
+    # non-recursive delete takes a link whatever its target holds), or deletes it once its target is empty; the leftover
+    # check counts the junction it keeps; or the clearing tests the parent and then lists it outside any catch again, so a
+    # parent gone in between throws.
+    ("bd-w14-tests-scripts-1: the fixture removal deletes a junction parent again (N-bd-w13-review-08)",
+     PRIVACY_PS1,
+     b"        if (Test-PrivacyReparsePoint $dir) { return }\n",
+     b"",
+     None, None, PRIVACY, None,
+     "junction while another run's fixture was inside its target"),
+    ("bd-w14-tests-scripts-1: the fixture removal deletes a junction parent once its target is empty (N-bd-w13-review-08)",
+     PRIVACY_PS1,
+     b"        if (Test-PrivacyReparsePoint $dir) { return }\n",
+     b"        if ((Test-PrivacyReparsePoint $dir) -and @([IO.Directory]::GetFileSystemEntries($dir)).Count -gt 0) { return }\n",
+     None, None, PRIVACY, None,
+     "junction was deleted once its target was empty"),
+    ("bd-w14-tests-scripts-1: the leftover check counts a junction parent (N-bd-w13-review-08)",
+     PRIVACY_PS1,
+     b"[IO.Directory]::Exists($_) -and -not (Test-PrivacyReparsePoint $_) -and",
+     b"[IO.Directory]::Exists($_) -and",
+     None, None, PRIVACY, None,
+     "junction the removal keeps was counted as left behind"),
+    ("bd-w14-tests-scripts-1: the clearing lists a parent gone since its test uncaught again (N-bd-w13-review-08)",
+     PRIVACY_PS1,
+     b"    try { $dirs = [IO.DirectoryInfo]::new($Parent).GetDirectories() } catch [IO.DirectoryNotFoundException] { return }\n",
+     b"    if (-not [IO.Directory]::Exists($Parent)) { return }\n    $dirs = [IO.DirectoryInfo]::new($Parent).GetDirectories()\n",
+     None, None, PRIVACY, None,
+     "that went away after its existence was tested threw"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

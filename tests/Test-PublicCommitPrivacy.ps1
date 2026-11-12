@@ -487,8 +487,11 @@ function Remove-ClaimedPrivacyFixture([string]$Root, [IO.FileStream]$Claim) {
 # without the marker and a link stay, and so does a root whose removal fails here (it is counted in the line after the
 # summary). New-PrivacyFixtureRoot runs it before it makes its own root.
 function Clear-StalePrivacyFixtures([string]$Parent) {
-    if (-not [IO.Directory]::Exists($Parent)) { return }
-    foreach ($dir in [IO.DirectoryInfo]::new($Parent).GetDirectories()) {
+    # A missing parent has nothing to clear. Caught rather than tested first (N-bd-w13-review-08): another run can delete
+    # the emptied parent between a test and the listing, and a junction whose target is gone passes Directory.Exists and
+    # then fails the listing the same way, both as an uncaught DirectoryNotFoundException.
+    try { $dirs = [IO.DirectoryInfo]::new($Parent).GetDirectories() } catch [IO.DirectoryNotFoundException] { return }
+    foreach ($dir in $dirs) {
         if ($dir.Attributes -band [IO.FileAttributes]::ReparsePoint) { continue }
         $marker = Join-Path $dir.FullName $script:PrivacyFixtureMarker
         if (-not [IO.File]::Exists($marker)) { continue }
@@ -503,15 +506,36 @@ function Clear-StalePrivacyFixtures([string]$Parent) {
 # each folder above the parent that this run created, deepest first, once it is empty; a folder above it that was
 # already there stays. Each delete is not recursive, so a parent that another run's fixture is still inside refuses it
 # and stays, with everything above it; testing for emptiness first instead would race that run between the test and the
-# delete.
+# delete. A junction or symbolic link is never deleted, and everything above it stays (N-bd-w13-review-08): a
+# non-recursive delete of a link removes the link however full its target is, so a build\privacy-selftest junction went
+# while another run's fixture lived in its target, and that run lost the path to it. A link is someone's redirection of
+# the folder, not this script's folder.
 function Remove-PrivacyFixtureRoot([psobject]$Fixture) {
     if ([IO.Directory]::Exists($Fixture.Root)) { Remove-ClaimedPrivacyFixture $Fixture.Root $Fixture.Claim } else { $Fixture.Claim.Dispose() }
     $Fixture.Removed = $true
     $above = @($Fixture.Created | Where-Object { $_.Length -lt $Fixture.Parent.Length })
     foreach ($dir in @($Fixture.Parent) + $above) {
         if (-not [IO.Directory]::Exists($dir)) { continue }
+        if (Test-PrivacyReparsePoint $dir) { return }
         try { [IO.Directory]::Delete($dir, $false) } catch [IO.IOException], [UnauthorizedAccessException] { return }
     }
+}
+
+# True when Path is a junction or symbolic link, a dangling one included. DirectoryInfo reads its state once, so Exists
+# and Attributes describe the same moment; a missing path reports every attribute bit set, which is why Exists comes first.
+function Test-PrivacyReparsePoint([string]$Path) {
+    $info = [IO.DirectoryInfo]::new($Path)
+    return ($info.Exists -and [bool]($info.Attributes -band [IO.FileAttributes]::ReparsePoint))
+}
+
+# What a removed fixture left that it owns: its root, or an emptied folder among its parent and the folders above it that
+# the run made. A junction or symbolic link is not counted (N-bd-w13-review-08): Remove-PrivacyFixtureRoot never deletes
+# one, so a build\privacy-selftest junction whose target the run left empty stays, as it must.
+function Get-PrivacyFixtureLeftovers([psobject]$Fixture) {
+    $left = @(@($Fixture.Root) | Where-Object { [IO.Directory]::Exists($_) })
+    $left += @(@($Fixture.Parent) + @($Fixture.Created) | Where-Object {
+        [IO.Directory]::Exists($_) -and -not (Test-PrivacyReparsePoint $_) -and @([IO.Directory]::GetFileSystemEntries($_)).Count -eq 0 })
+    return $left
 }
 
 if ($SelfTest) {
@@ -698,6 +722,47 @@ if ($SelfTest) {
         }
         if (-not $othersKept) {
             throw 'Public privacy fixture self-test failed: the sweep removed a folder without the fixture marker, or a junction.'
+        }
+        $count++
+        # A build\privacy-selftest that is a junction (N-bd-w13-review-08). Its removal deleted the link however full the
+        # target was, so a run whose fixture lived there lost the path to it. The link now stays, after the last run too,
+        # and a run that left its target empty does not count it as left behind; the link staying is what makes that
+        # last check able to fail. Observed first and the link removed before any verdict, as in the sweep case above.
+        $linkTarget = Join-Path $cleanup 'junction-target'
+        $linkParent = Join-Path $cleanup 'junction\build\privacy-selftest'
+        [void][IO.Directory]::CreateDirectory($linkTarget)
+        [void][IO.Directory]::CreateDirectory((Split-Path $linkParent -Parent))
+        [void](New-Item -ItemType Junction -Path $linkParent -Target $linkTarget)
+        $other = New-PrivacyFixtureRoot $linkParent
+        Remove-PrivacyFixtureRoot (New-PrivacyFixtureRoot $linkParent)
+        $otherKept = [IO.File]::Exists((Join-Path $other.Root $script:PrivacyFixtureMarker))
+        Remove-PrivacyFixtureRoot $other
+        $linkKept = Test-PrivacyReparsePoint $linkParent
+        $linkCounted = @(Get-PrivacyFixtureLeftovers $other).Count -ne 0
+        if ($linkKept) { [IO.Directory]::Delete($linkParent, $false) }
+        if (-not $otherKept) {
+            throw 'Public privacy fixture self-test failed: removing a fixture deleted a build\privacy-selftest junction while another run''s fixture was inside its target.'
+        }
+        if (-not $linkKept) {
+            throw 'Public privacy fixture self-test failed: a build\privacy-selftest junction was deleted once its target was empty.'
+        }
+        if ($linkCounted) {
+            throw 'Public privacy fixture self-test failed: a build\privacy-selftest junction the removal keeps was counted as left behind.'
+        }
+        $count++
+        # A parent that goes away after its existence is tested (N-bd-w13-review-08), as another run deleting the emptied
+        # parent does, is cleared as a missing one. A junction whose target is gone stands in for that run, as it passes
+        # Directory.Exists and then fails the listing the same way; the clearing used to throw there, uncaught.
+        $goneTarget = Join-Path $cleanup 'gone-target'
+        $dangling = Join-Path $cleanup 'dangling'
+        [void][IO.Directory]::CreateDirectory($goneTarget)
+        [void](New-Item -ItemType Junction -Path $dangling -Target $goneTarget)
+        [IO.Directory]::Delete($goneTarget, $false)
+        if (-not [IO.Directory]::Exists($dangling)) { throw 'Synthetic step failed: a junction whose target is gone no longer passes Directory.Exists.' }
+        try { Clear-StalePrivacyFixtures $dangling; $raced = $false } catch { $raced = $true }
+        [IO.Directory]::Delete($dangling, $false)
+        if ($raced) {
+            throw 'Public privacy fixture self-test failed: clearing a build\privacy-selftest folder that went away after its existence was tested threw.'
         }
         $count++
         function Step([string[]]$Arguments, [string]$Repository = $synthetic) {
@@ -1074,12 +1139,13 @@ if ($SelfTest) {
     # above it that the run made, unless another run's fixture is inside now. Read after the finally, so it sees what the
     # finally left. When the parent stays, the line after the summary says how much is inside it.
     if (-not $fixture.Removed) { throw 'Public privacy fixture self-test failed: the real fixture was not removed by Remove-PrivacyFixtureRoot.' }
-    $leftBehind = @(@($fixture.Parent) + @($fixture.Created) | Where-Object { [IO.Directory]::Exists($_) -and @([IO.Directory]::GetFileSystemEntries($_)).Count -eq 0 })
-    if ([IO.Directory]::Exists($fixture.Root) -or $leftBehind.Count -gt 0) {
+    if (@(Get-PrivacyFixtureLeftovers $fixture).Count -gt 0) {
         throw 'Public privacy fixture self-test failed: the run left its fixture root, or an emptied folder it owns, behind.'
     }
     Write-Host "Public privacy self-test passed: $count cases (path policy, matchers, range mode with merges and the default index mode on synthetic repositories, removed again)."
-    if ([IO.Directory]::Exists($fixture.Parent)) {
+    if (Test-PrivacyReparsePoint $fixture.Parent) {
+        Write-Host 'Its build\privacy-selftest folder stays: it is a junction or symbolic link, which the self-test never removes.'
+    } elseif ([IO.Directory]::Exists($fixture.Parent)) {
         Write-Host ('Its build\privacy-selftest folder stays: it holds ' + @([IO.Directory]::GetFileSystemEntries($fixture.Parent)).Count +
             ' item(s) this run did not remove (a fixture another run still holds, anything without the fixture marker, or a fixture whose removal failed).')
     }
