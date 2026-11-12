@@ -7835,6 +7835,54 @@ alternative, a faster cold warm for about one more core, refused: nobody waits o
 finishes, and Pick serves the warmed prefix as it grows), so its duration is invisible and its CPU is not. No timing is
 quoted for either setting because none was measured cold against the other.
 
+#### burndown/w14-packaging-ci-1
+
+**The shipped-DLL scan fails on any Source Link record and on a build machine's profile or UNC path, and prints only
+the kind of hit (N-bd-w13-contracts-1-02, 2026-11-12).** The scan in `packaging/Test-ModulePublishFreshness.ps1` read
+the CodeView string and the embedded PDB's Document table, and all eight committed zips passed it while every
+ModuleKit.dll in them carried a Source Link record mapping the folder it was built in, one of them under a user profile
+(read at 60480d4b by `packaging/EmbeddedPortablePdb.ps1` and, independently, by System.Reflection.Metadata).
+`Get-BuildIdentityFindings` now reads the CustomDebugInformation table as well and judges three places: the records,
+the inflated PDB with its document names, and the DLL's raw bytes as ASCII and as UTF-16 at both alignments. Decisions
+a later reader could take for defects:
+
+- ANY Source Link record is a finding, not only one whose map names a profile. A workstation build's record maps the
+  absolute folder the build ran in, which PathMap does not reach. With `CI=true` or `DeterministicSourcePaths` the
+  record's one key is `/_/*` instead (measured by the contracts lane on 2026-11-12), but that record still names the
+  repository and the commit, and the zips are built by `packaging/New-ModulePublish.ps1`, which no workflow runs, so CI
+  is not set there (`src/Directory.Build.props` sets `ContinuousIntegrationBuild` only under CI). The cure is
+  `EnableSourceLink` false, which ModuleKit and Contracts already set.
+- Only our own DLLs are scanned (the set the section already derives from the `.csproj` files), not every DLL in the
+  zips. One run under Windows PowerShell 5.1 took about 96 s over the 188 MB of DLLs in the eight zips and about 4 s
+  over the 6.5 MB of ours; no package DLL in them carries an embedded PDB, and a package's Source Link record maps its
+  own public repository.
+- Module self-tests ship inside the module DLLs, so their fixtures' profile and UNC paths are in the bytes. Three
+  stand-in accounts, two stand-in shares on one stand-in host and any host under `.invalid` are waved through, and an
+  escaped drive path (`C:\\Users\\...` in a JSON fixture) is not a UNC root. A new fixture naming anything else fails:
+  rename it rather than widen the list, which is the one place a real name could pass. The stand-in is the host and the
+  share together, because a host-only entry waved through every share on that host (the review's fix round).
+- The forward-slash UNC form is exactly `//host/share` and never after `+`, while the backslash form takes doubled
+  separators. A looser forward form flagged base64 image data, an iCalendar PRODID and binary in three of our DLLs on
+  the committed zips; base64 puts only a letter, a digit, `+` or `/` before a `//`, and the clean synthetic leg carries
+  all three shapes so a loosening fails.
+- The CustomDebugInformation read has a real-input witness: every embedded PDB of ours must read back one C#
+  compilation options record, in the hardening self-test over the committed zips and in the freshness check's loop.
+  The synthetic image holds only the Document and CustomDebugInformation tables, so a width misread in a table between
+  them shifts every record of a real PDB and passes every leg; with Source Link off, a clean scan and a misread one
+  look the same without it.
+- Nothing found is printed as text, only the zip, the DLL and the kind, because CI publishes the gate's output and the
+  path is the account name. The CodeView and document lines, which quoted the path, print their kind now too.
+- The rules are proved on synthetic images (`Test-BuildIdentityScan`, exactly eleven legs) twice: by the freshness
+  check before it trusts a clean scan, and by `tests/runtime-hardening-selftest.ps1`, which is what the mutation harness
+  grades. That self-test also cuts the shipped-DLL section out of the freshness check and RUNS it over planted DLLs, so
+  the verdict and proof conditions and the redaction are judged on what the section does, not on how its source reads. The committed
+  zips are the scan's only real input and they fail it until the release republishes them (nine findings at
+  60480d4b: the eight Source Link records and the profile path), while a ModuleKit.dll built at this commit passes.
+- The section still runs after the freshness verdicts' one throw, so a run with a stale module never reaches it. Moving
+  it above that throw was refused: `packaging/New-ModulePublish.ps1` runs this whole file as its verify step after
+  every publish, so the scan judges every zip as soon as the last stale module is republished, and the verdict order
+  above it is pinned by its own invariant.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. None of
