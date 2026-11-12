@@ -5411,6 +5411,17 @@ CASES = (
         b"            if (removed > 0) ForgetInstalledEntry(registry, id);\n",
         "w14-host-1: an uninstall takes the type's registry entry off its id after its windows",
     ),
+    # The w14 WITNESS (w14 review): ForgetInstalledEntry hands the entry to DropIfUnused, the defect's shape, which leaves a
+    # held entry on its id. No assertion before the witness reads ForgetInstalledEntry, so the witness must be the failure
+    # the run reports; the witness it replaced re-checked what the w11-options-ui-1 block asserts first and never could be.
+    # mutate-selftest-guards grades the same mutant through --shimeji-window-selftest.
+    (
+        "bd-w14-host-1: ForgetInstalledEntry leaves a held entry on its id, the WITNESS (N-bd-w13-review-05)",
+        os.path.join(REPO, "src", "dotNet", "StartUp.cs"),
+        b"                registry.Forget(entry);\n",
+        b"                registry.DropIfUnused(entry);\n",
+        "w14-host-1: WITNESS ForgetInstalledEntry was located",
+    ),
 )
 
 
