@@ -78,15 +78,16 @@
          and its record is clean (measured with CI=true: one /_/* key), so what OFF costs is automatic source fetch
          for an author stepping into this assembly from a published package, which release.yml packs in CI; the
          document names stay the repository-relative /_/src/....
-         The alternative (its reasoning corrected by N-bd-w13-review-01) is DeterministicSourcePaths on every build,
-         which keeps that fetch and gives a workstation build the same clean record (measured). The commit in that
-         record's URL is no objection here, although it was the converter's: the converter's dll carries no version
-         stamp (GenerateAssemblyInfo false), but this library and ModuleKit already carry the full commit in AssemblyInformationalVersion and again
-         in the version resource's ProductVersion (the version, a plus sign and the commit, read back from Release
-         builds on SDK 10.0.302), so two commits with identical code build different bytes either way. What the
-         alternative does run into is the check: CoreTests ("ModuleKit shipped symbols") fails on ANY Source Link
-         record in this dll or ModuleKit's, mapped or not, so a mapped record would still be refused, and taking the
-         alternative means narrowing that check to accept a record whose only key is /_/. -->
+         The alternative is Source Link ON with DeterministicSourcePaths on every build, which keeps that fetch and
+         gives a workstation build the same clean record (measured). It is not refused for the converter's reason
+         (N-bd-w13-review-01). The converter's dll carries no version stamp (GenerateAssemblyInfo false), so there
+         the commit in the record's URL would have made two commits with identical code build different bytes. This
+         library and ModuleKit already carry the full commit in AssemblyInformationalVersion and again in the
+         version resource's ProductVersion (the version, a plus sign and the commit, read back from Release builds
+         on SDK 10.0.302), so they differ per commit with Source Link on or off. What the alternative runs into is
+         the check: CoreTests ("ModuleKit shipped symbols") fails on ANY Source Link record in this dll or
+         ModuleKit's, mapped or not, so a mapped record would still be refused. Taking it means relaxing that check
+         to accept a record whose only key is /_/*, and until that is decided this line stays OFF. -->
     <EnableSourceLink>false</EnableSourceLink>
   </PropertyGroup>
 
