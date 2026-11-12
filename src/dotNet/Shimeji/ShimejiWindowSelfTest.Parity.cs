@@ -985,6 +985,8 @@ namespace DesktopAICompanion.Shimeji
                 try { Directory.Delete(convLink); } catch { }
             }
 
+            CheckTraceClaimLimits(check, root, log, goodScenario, goodPets, Path.GetFullPath(pack), codeless, build, fresh, intoInputs);
+
             // CONTRACT v1.1 section 1: a left-button edge for a companion not active at dispatch is scenario-invalid.
             string[] absent = go(goodMap, ",{\"tick\":2,\"sid\":\"m1.b1\",\"press\":\"left\"}", xml, false);
             check(absent[0] == "2" && absent[1] != null && absent[1].Contains("\"type\":\"footer\",\"ticks\":8,\"status\":\"aborted\"")
@@ -1042,6 +1044,139 @@ namespace DesktopAICompanion.Shimeji
             string[] outrunOff = go(goodMap, "", xml, true);
             rng = directed;
             CheckTraceOffProof(check, on[1], off[1], outrun[1], outrunOff[1]);
+        }
+
+        /// <summary>
+        /// N-bd-w13-review-09, the limits of the trace claim's input-folder comparison: a data stream of an input is
+        /// refused, a share and a path the resolution cannot read or find say DEGRADED, and each branch of
+        /// ParityRun.LongPathForm and of ParityRun.FinalPathOrNull's failures is reached. <paramref name="fresh"/> is the
+        /// caller's leg: exit 2, nothing made at the trace path (a leg that made it takes it back out), the wanted line
+        /// on the log and no DEGRADED note.
+        /// </summary>
+        private static void CheckTraceClaimLimits(Action<bool, string> check, string root, StringBuilder log, string goodScenario, string goodPets,
+            string packFull, string codeless, Dictionary<string, string> build, Func<string, string, string, string, string> fresh, string intoInputs)
+        {
+            // A colon in the trace's final name names a data stream of the file or folder before it, so a trace there went
+            // INTO that input (its content as it was, its time stamp moved), past the occupant check (the stream was new)
+            // and the folder comparison. Each input kind: the scenario file, a converter dll, the pack folder and the pets
+            // folder, through the run and the command. A stream a leg made is taken back out by its leg (File.Delete on a
+            // stream path deletes that stream only).
+            string streams = "";
+            foreach (string owner in new[] { goodScenario, Path.Combine(codeless, "stand-in.dll"), packFull, goodPets })
+            {
+                string streamTrace = owner + ":t";
+                DateTime stamp = File.GetLastWriteTimeUtc(owner);
+                string want = "refused " + streamTrace + ": the colon in its name names a data stream of " + owner + ", not a file of its own;";
+                string legs = fresh(goodPets, streamTrace, null, want) + fresh(goodPets, streamTrace, codeless, want);
+                if (File.GetLastWriteTimeUtc(owner) != stamp) legs += "its time stamp moved; ";
+                if (legs.Length > 0) streams += Path.GetFileName(owner) + ": " + legs;
+            }
+            check(streams.Length == 0,
+                "parity run: a trace path naming a data stream of an input (scenario:t, a converter dll:t, pack:t, pets:t) is refused by name and nothing is written into the input (exit 2, "
+                + (streams.Length == 0 ? "run and command, four inputs" : OneLine(streams)) + ")");
+
+            // LongPathForm's device branches: a new trace inside the pets folder spelled in the \\.\ or the \\?\ form is
+            // inside it only as resolved (as written it starts with the prefix, the pets folder with its drive), so it is
+            // refused only when the resolution opened it, which a broken branch (\\.\ handed over as a share, \\?\
+            // prefixed again) cannot: that leg says DEGRADED and the run writes into the pets folder.
+            string inPets = Path.Combine(Path.GetFullPath(goodPets), "Par", "new-trace-device.jsonl");
+            string devices = "";
+            foreach (string prefix in new[] { @"\\.\", @"\\?\" })
+            {
+                string deviceTrace = prefix + inPets;
+                devices += fresh(goodPets, deviceTrace, null, "refused " + deviceTrace + ": the trace path is inside the pets folder " + goodPets + intoInputs);
+            }
+            check(devices.Length == 0,
+                @"parity run: a new trace path inside the pets folder spelled in the \\.\ or the \\?\ form is refused by name with no DEGRADED note, the resolution having opened it (exit 2, "
+                + (devices.Length == 0 ? "both forms" : OneLine(devices)) + ")");
+
+            // A trace path that resolves to a share says so on every run: the comparison cannot see behind a share, so one
+            // that leads back to this machine reaches an input folder unrefused. Here a loopback share that does not exist,
+            // which no box answers: no part of the path exists, which says DEGRADED too, and the open refuses it unwritten.
+            string noShare = @"\\localhost\parity-no-such-share-" + Guid.NewGuid().ToString("N").Substring(0, 8) + @"\new-trace.jsonl";
+            var noShareLog = new StringWriter();
+            int noShareExit;
+            try { noShareExit = ParityRun.Run(goodScenario, goodPets, noShare, build, noShareLog); }
+            catch (Exception e)
+            {
+                noShareExit = -1;
+                noShareLog.Write("threw " + e.GetType().Name + ": " + e.Message);
+            }
+            string noShareText = noShareLog.ToString();
+            check(noShareExit == 2 && noShareText.Contains("DEGRADED: parity run: the trace path resolves to the share " + noShare + ",")
+                  && noShareText.Contains("DEGRADED: parity run: " + noShare + " (no part of it exists)")
+                  && noShareText.Contains("refused " + noShare + ": the trace cannot be written: "),
+                "parity run: a trace path on a loopback share no part of which exists says DEGRADED for the share and for the missing path, and is refused unwritten (exit "
+                + noShareExit + ", " + OneLine(noShareText) + ")");
+
+            // LongPathForm's share branch: the pets folder spelled through this machine's administrative share. The claim
+            // alone runs (nothing is opened or written): it says the share, and the share's \\?\UNC\ form resolved, so no
+            // "could not be resolved" note. A box with no administrative share says DEGRADED instead.
+            string fullPets = Path.GetFullPath(goodPets);
+            string adminPets = fullPets.Length > 2 && fullPets[1] == ':' && char.IsLetter(fullPets[0])
+                ? @"\\localhost\" + fullPets[0] + "$" + fullPets.Substring(2) : null;
+            if (adminPets == null || !Directory.Exists(adminPets))
+                log.AppendLine("DEGRADED: parity run: the loopback share leg is not exercised (no administrative share answers here)");
+            else
+            {
+                string shareTrace = Path.Combine(adminPets, "Par", "new-trace-share.jsonl");
+                var shareLog = new StringWriter();
+                bool claimed = ParityRun.TraceClaim.Claim(ParityRun.ScenarioFile.Read(goodScenario), goodPets, shareTrace, null, shareLog) != null;
+                string shareText = shareLog.ToString();
+                check(shareText.IndexOf("DEGRADED: parity run: the trace path resolves to the share " + shareTrace + ",", StringComparison.OrdinalIgnoreCase) >= 0
+                      && shareText.IndexOf("could not be resolved", StringComparison.Ordinal) < 0 && !File.Exists(shareTrace),
+                    "parity run: a new trace path in the pets folder spelled through this machine's administrative share says DEGRADED, naming the share, which resolved (claimed "
+                    + claimed + ", " + OneLine(shareText) + ")");
+            }
+
+            // FinalPathOrNull's second failure: a handle that opens and has no final path name. The pipe namespace answers
+            // as a folder and opens, and GetFinalPathNameByHandle refuses it; the log names it as DEGRADED and the open
+            // refuses the trace unwritten (no pipe of that name).
+            const string pipes = @"\\.\pipe\";
+            if (!Directory.Exists(pipes))
+                log.AppendLine("DEGRADED: parity run: the no-final-path leg is not exercised (the pipe namespace does not answer as a folder here)");
+            else
+            {
+                string pipeTrace = pipes + "parity-trace-" + Guid.NewGuid().ToString("N").Substring(0, 8) + ".jsonl";
+                var pipeLog = new StringWriter();
+                int pipeExit;
+                try { pipeExit = ParityRun.Run(goodScenario, goodPets, pipeTrace, build, pipeLog); }
+                catch (Exception e)
+                {
+                    pipeExit = -1;
+                    pipeLog.Write("threw " + e.GetType().Name + ": " + e.Message);
+                }
+                string pipeText = pipeLog.ToString();
+                check(pipeExit == 2 && pipeText.Contains("DEGRADED: parity run: " + pipes + " (Win32 error ")
+                      && pipeText.Contains("refused " + pipeTrace + ": the trace cannot be written: "),
+                    "parity run: a trace path whose existing part opens with no final path name says DEGRADED, naming it, and is refused unwritten (exit "
+                    + pipeExit + ", " + OneLine(pipeText) + ")");
+            }
+
+            // A part whose attributes cannot be read was taken for absent in silence (File.Exists says no). Here a malformed
+            // name, which takes the same branch as a folder this account may not read: DEGRADED, naming it, and the open
+            // refuses the trace unwritten.
+            string malformed = Path.Combine(root, "bad?name"), malformedTrace = Path.Combine(malformed, "new-trace.jsonl");
+            var malformedLog = new StringWriter();
+            int malformedExit;
+            try { malformedExit = ParityRun.Run(goodScenario, goodPets, malformedTrace, build, malformedLog); }
+            catch (Exception e)
+            {
+                malformedExit = -1;
+                malformedLog.Write("threw " + e.GetType().Name + ": " + e.Message);
+            }
+            string malformedText = malformedLog.ToString();
+            check(malformedExit == 2 && malformedText.Contains("DEGRADED: parity run: " + malformed + " (its attributes could not be read: Win32 error ")
+                  && malformedText.Contains("refused " + malformedTrace + ": the trace cannot be written: "),
+                "parity run: a trace path through a part whose attributes cannot be read says DEGRADED, naming it, and is refused unwritten (exit "
+                + malformedExit + ", " + OneLine(malformedText) + ")");
+        }
+
+        /// <summary>A run's log on one line for a check's detail: a second line starting DEGRADED would read on the marker
+        /// as the self-test's own DEGRADED report (tests/Invoke-SelfTests.ps1 prints those beside the verdict).</summary>
+        private static string OneLine(string text)
+        {
+            return text.Trim().Replace("\r\n", " | ").Replace("\n", " | ");
         }
 
         /// <summary>A tape of <paramref name="values"/> values, each 0.25 (any value in [0, 1) serves the directed pet).</summary>

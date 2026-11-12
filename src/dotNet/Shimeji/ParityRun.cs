@@ -1280,7 +1280,14 @@ namespace DesktopAICompanion.Shimeji
             /// bytes, so the scenario is read before this, and its "pack" is read even when the scenario will be refused for
             /// something else: the folder it names is still the caller's. The converter is null for the in-process callers,
             /// which have none. A path the comparison could not resolve is said on the log as DEGRADED, every time, ahead of
-            /// the claim's answer: that comparison then ran on the path as written only.
+            /// the claim's answer: that comparison then ran on the path as written only. So is a trace path that resolves to
+            /// a share, which the comparison cannot see behind (<see cref="InputFolderAtTracePath"/>).
+            ///
+            /// N-bd-w13-review-09: a trace path whose final name holds a colon is refused right after the occupant check.
+            /// On Windows a colon there is no part of a name: scenario.json:t names the data stream t of scenario.json, so
+            /// a trace written there goes INTO that file or folder (its content as it was, its time stamp moved), and the
+            /// stream is new, so neither the occupant check nor the folder comparison saw it. Refused whatever the file or
+            /// folder before the colon is, input or not: a trace is a file of its own (<see cref="StreamOwnerOf"/>).
             /// </summary>
             internal static TraceClaim Claim(ScenarioFile scenario, string petsDir, string tracePath, string converter, TextWriter log)
             {
@@ -1290,11 +1297,23 @@ namespace DesktopAICompanion.Shimeji
                     log.WriteLine(AlreadyThere(tracePath, occupant));
                     return null;
                 }
+                string streamOwner = StreamOwnerOf(tracePath);
+                if (streamOwner != null)
+                {
+                    log.WriteLine("refused " + tracePath + ": the colon in its name names a data stream of " + streamOwner
+                        + ", not a file of its own; a parity run writes its trace only as a new file");
+                    return null;
+                }
                 var unresolved = new List<string>();
-                string input = InputFolderAtTracePath(scenario, petsDir, tracePath, converter, unresolved);
+                string share;
+                string input = InputFolderAtTracePath(scenario, petsDir, tracePath, converter, unresolved, out share);
                 foreach (string path in unresolved)
                     log.WriteLine("DEGRADED: parity run: " + path + " could not be resolved through its links, so the trace path is compared"
                         + " with the input folders there as written only");
+                if (share != null)
+                    log.WriteLine("DEGRADED: parity run: the trace path resolves to the share " + share + ", so it is compared with the input"
+                        + " folders as a share only: an input folder reached through a share that leads back to this machine (a loopback"
+                        + " name, or a drive mapped to one) is not seen as the folder it is");
                 if (input != null)
                 {
                     log.WriteLine("refused " + tracePath + ": the trace path is " + input + "; a parity run never writes into its inputs");
@@ -1319,19 +1338,23 @@ namespace DesktopAICompanion.Shimeji
         /// is refused later by its own line.
         ///
         /// What this comparison does NOT catch, said plainly: a path through a share that leads back to this machine
-        /// (\\localhost\D\..., \\127.0.0.1\..., or a drive letter mapped to such a share), which Windows resolves to the
+        /// (\\localhost\D$\..., \\127.0.0.1\..., or a drive letter mapped to such a share), which Windows resolves to the
         /// share's \\server\share form and never to the local path; and an existing part of a path no handle can be opened
-        /// on (no access, a dangling link), which is then compared as written and said on the log as DEGRADED. That is now
-        /// harmless, because nothing that exists is ever replaced (the claim refuses an occupied path and the open creates
-        /// only a new file): the worst a spelling this misses can do is put a NEW file inside an input folder, one the
-        /// next run's pack hash or pets listing then sees, never change or remove a file the run read.
+        /// on (no access, a dangling link) or whose attributes cannot be read, which is then compared as written. Each is
+        /// said on the log as DEGRADED, every time (N-bd-w13-review-09 added the share, whose spelling of the trace path
+        /// <paramref name="share"/> answers, the part that cannot be read, and a path no part of which exists). That is
+        /// now harmless, because nothing that exists is ever replaced (the claim refuses an occupied path and the open
+        /// creates only a new file): the worst a spelling this misses can do is put a NEW file inside an input folder, one
+        /// the next run's pack hash or pets listing then sees, never change or remove a file the run read.
         /// </summary>
-        private static string InputFolderAtTracePath(ScenarioFile scenario, string petsDir, string tracePath, string converter, List<string> unresolved)
+        private static string InputFolderAtTracePath(ScenarioFile scenario, string petsDir, string tracePath, string converter, List<string> unresolved, out string share)
         {
             // A trace path no full path can be made of names no file: nothing can be put inside an input folder there, and
             // opening it is refused below as an unwritable trace, as it was.
+            share = null;
             string[] trace = Spellings(tracePath, unresolved);
             if (trace == null) return null;
+            share = ShareOf(trace);
             string named;
             if (converter != null && (named = Overlap(trace, converter, "the converter ", unresolved)) != null) return named;
             if ((named = Overlap(trace, petsDir, "the pets folder ", unresolved)) != null) return named;
@@ -1370,6 +1393,41 @@ namespace DesktopAICompanion.Shimeji
             string written = FullPathOrNull(path);
             if (written == null) return null;
             return new[] { written, ResolvedPath(written, unresolved) };
+        }
+
+        /// <summary>The trace's spelling that names a share, the resolved one first (<see cref="Spellings"/> puts it
+        /// second), or null when neither does (N-bd-w13-review-09). The resolved one is what a drive mapped to a share
+        /// becomes; the written one stands when no part of a share path exists (an unknown server or share).</summary>
+        private static string ShareOf(string[] spellings)
+        {
+            for (int i = spellings.Length - 1; i >= 0; i--)
+                if (IsShare(spellings[i])) return spellings[i];
+            return null;
+        }
+
+        /// <summary>A share path: \\server\share..., or its device form \\?\UNC\ or \\.\UNC\. Any other \\?\ or \\.\ path
+        /// is a local device path (a drive, a volume, the pipe namespace), not a share.</summary>
+        private static bool IsShare(string path)
+        {
+            if (path.StartsWith(@"\\?\UNC\", StringComparison.OrdinalIgnoreCase) || path.StartsWith(@"\\.\UNC\", StringComparison.OrdinalIgnoreCase)) return true;
+            return path.StartsWith(@"\\", StringComparison.Ordinal) && !path.StartsWith(@"\\?\", StringComparison.Ordinal) && !path.StartsWith(@"\\.\", StringComparison.Ordinal);
+        }
+
+        /// <summary>The file or folder a trace path's final name puts a data stream on ("scenario.json:t" is the stream t of
+        /// scenario.json), or null when that name holds no colon (<see cref="TraceClaim.Claim"/> says why it is refused).
+        /// Read on the full path, so "." and ".." and a trailing separator are gone and a drive's own colon (D:, \\?\D:) is
+        /// in the root, not in the name. Only the final name: a colon in a folder part names no folder a file can be made
+        /// in, and the open refuses that path as unwritable.</summary>
+        private static string StreamOwnerOf(string tracePath)
+        {
+            string full = FullPathOrNull(tracePath);
+            if (full == null) return null;
+            string root = Path.GetPathRoot(full) ?? "";
+            if (full.Length <= root.Length) return null;
+            string name = Path.GetFileName(full);
+            int colon = name.IndexOf(':');
+            if (colon < 0) return null;
+            return full.Substring(0, full.Length - name.Length + colon);
         }
 
         /// <summary>
@@ -1451,15 +1509,25 @@ namespace DesktopAICompanion.Shimeji
         /// says why that is harmless now). Where no handle can be opened (no access, a dangling link) the existing part
         /// stands as written and is added to <paramref name="unresolved"/>, which the claim says on its log as DEGRADED:
         /// two spellings only that resolution would join are then compared as written, and the log says so every time.
+        /// N-bd-w13-review-09: so is a part whose attributes cannot be read (no access to it or its folder, a malformed
+        /// name), which File.Exists and Directory.Exists answered as absent, so the walk went past it in silence and put
+        /// it back as written; and a path no part of which exists (no such drive, server or share), which came back as
+        /// written with no note. The walk itself is as it was: such a part is still passed and put back as written.
         /// </summary>
         private static string ResolvedPath(string full, List<string> unresolved)
         {
             string existing = full;
             var missing = new Stack<string>();
-            while (!File.Exists(existing) && !Directory.Exists(existing))
+            int unread;
+            while (!PartExists(existing, out unread))
             {
+                if (unread != 0) Note(unresolved, existing + " (its attributes could not be read: Win32 error " + unread.ToString(CultureInfo.InvariantCulture) + ")");
                 string parent = Path.GetDirectoryName(existing);
-                if (parent == null) return full;
+                if (parent == null)
+                {
+                    Note(unresolved, full + " (no part of it exists)");
+                    return full;
+                }
                 missing.Push(Path.GetFileName(existing));
                 existing = parent;
             }
@@ -1473,6 +1541,41 @@ namespace DesktopAICompanion.Shimeji
             }
             foreach (string name in missing) resolved = Path.Combine(resolved, name);
             return WithoutTrailingSeparator(resolved);
+        }
+
+        /// <summary>
+        /// Whether a part of a path is there, read as <see cref="OccupantOf"/> reads the trace path (File.GetAttributes,
+        /// the entry itself, so a dangling link is there). False with <paramref name="unread"/> 0 when Windows says the
+        /// name is not there: no such file or folder, no such drive (DriveNotFoundException), no such server or share
+        /// (ERROR_BAD_NETPATH 53, ERROR_BAD_NETNAME 67). False with the Win32 error in <paramref name="unread"/> when the
+        /// attributes could not be read at all (ERROR_ACCESS_DENIED 5 where neither the entry nor its folder may be read,
+        /// ERROR_INVALID_NAME 123 for a malformed one): not known to be absent, which the caller says.
+        /// </summary>
+        private static bool PartExists(string path, out int unread)
+        {
+            unread = 0;
+            try
+            {
+                File.GetAttributes(path);
+                return true;
+            }
+            catch (Exception e) when (e is FileNotFoundException || e is DirectoryNotFoundException || e is DriveNotFoundException)
+            {
+                return false;
+            }
+            catch (Exception e) when (IsArgumentFault(e) || e is NotSupportedException)
+            {
+                // A Win32 error is carried as 0x8007xxxx; anything else (no Win32 error behind it) is said as -1.
+                int code = (e.HResult & 0x1FFF0000) == 0x00070000 ? e.HResult & 0xFFFF : -1;
+                if (code != 53 && code != 67) unread = code == 0 ? -1 : code;
+                return false;
+            }
+        }
+
+        /// <summary>Adds one DEGRADED note for the claim's log, once however many spellings reach it.</summary>
+        private static void Note(List<string> unresolved, string note)
+        {
+            if (!unresolved.Contains(note)) unresolved.Add(note);
         }
 
         private static string WithoutTrailingSeparator(string full)
