@@ -455,7 +455,8 @@ function New-PrivacyFixtureRoot([string]$Parent) {
     $note = [Text.Encoding]::ASCII.GetBytes("A fixture root of tests/Test-PublicCommitPrivacy.ps1 -SelfTest. A later run removes it once no run holds this file open.`n")
     $claim.Write($note, 0, $note.Length)
     $claim.Flush()
-    return [pscustomobject]@{ Root = $root; Parent = [IO.Path]::GetDirectoryName($root); Created = $created.ToArray(); Claim = $claim; Removed = $false }
+    return [pscustomobject]@{ Root = $root; Parent = [IO.Path]::GetDirectoryName($root); Created = $created.ToArray(); Claim = $claim; Removed = $false
+        Waited = [TimeSpan]::Zero; RemovalError = $null }
 }
 
 # Removes everything inside Path, deepest first, except the top-level entry named Keep. A reparse point is removed as a
@@ -472,15 +473,43 @@ function Remove-PrivacyFixtureContents([string]$Path, [string]$Keep = '') {
     }
 }
 
+# How long a fixture removal waits for another process to let go of what it is deleting (Remove-ClaimedPrivacyFixture).
+$script:PrivacyFixturePatience = [TimeSpan]::FromSeconds(15)
+
 # Removes a fixture root whose marker the caller holds open as Claim: the contents, then the marker, then the root. The
 # marker is deleted while the claim is still open (it is shared for deletion), so no other run can claim the root between
-# this run's last use of it and its removal.
+# this run's last use of it and its removal. Returns how long it waited for another process, zero when it did not.
+# The contents wait out another process for up to PrivacyFixturePatience (wave-14 review). An editor open on a folder
+# above the checkout found each synthetic repository as it appeared, and its git integration ran git with that repository
+# as the working directory, which refuses the folder's deletion with a sharing violation; git writing a lock file in the
+# meantime leaves a folder not empty. With VS Code open on the parent workspace two runs in three failed so, after every
+# case had passed. Each try lists what is left again, as a lock file can appear after the listing. Only a sharing or lock
+# violation and a folder not empty wait; anything else fails at once, as before. A hold that outlasts the patience fails
+# as an IOException naming the cause, and the root keeps its marker for the next run's sweep. Rejected: keeping the
+# repositories out of an editor's reach (a git folder not named .git) would change how every fixture command finds its
+# repository, and a slow editor would still meet the rest of the fixture.
 function Remove-ClaimedPrivacyFixture([string]$Root, [IO.FileStream]$Claim) {
+    $waited = [Diagnostics.Stopwatch]::new()
     try {
-        Remove-PrivacyFixtureContents $Root $script:PrivacyFixtureMarker
+        for ($pause = 50; ; $pause = [Math]::Min(2 * $pause, 400)) {
+            try { Remove-PrivacyFixtureContents $Root $script:PrivacyFixtureMarker; break }
+            catch [IO.IOException] {
+                # ERROR_SHARING_VIOLATION, ERROR_LOCK_VIOLATION and ERROR_DIR_NOT_EMPTY, in the HRESULT's low word.
+                $cause = $_.Exception.GetBaseException()
+                if (($cause.HResult -band 0xFFFF) -notin @(32, 33, 145)) { throw }
+                if ($waited.Elapsed -ge $script:PrivacyFixturePatience) {
+                    throw [IO.IOException]::new(('Another process kept part of the fixture root ' + $Root + ' in use for ' +
+                        [Math]::Round($waited.Elapsed.TotalSeconds, 1) + ' s, so it stays, marked, for the next run to remove (an ' +
+                        'editor whose git integration opened a synthetic repository there, usually): ' + $cause.Message), $cause)
+                }
+                $waited.Start()
+                Start-Sleep -Milliseconds $pause
+            }
+        }
         [IO.File]::Delete($Claim.Name)
     } finally { $Claim.Dispose() }
     [IO.Directory]::Delete($Root, $false)
+    return $waited.Elapsed
 }
 
 # Removes the fixture roots earlier runs left under Parent (N-bd-w12-review-06): a run that was killed, or a firing mutant
@@ -499,7 +528,7 @@ function Clear-StalePrivacyFixtures([string]$Parent) {
         if (-not [IO.File]::Exists($marker)) { continue }
         try { $claim = [IO.FileStream]::new($marker, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Delete) }
         catch [IO.IOException], [UnauthorizedAccessException] { continue }
-        try { Remove-ClaimedPrivacyFixture $dir.FullName $claim } catch [IO.IOException], [UnauthorizedAccessException] { continue }
+        try { [void](Remove-ClaimedPrivacyFixture $dir.FullName $claim) } catch [IO.IOException], [UnauthorizedAccessException] { continue }
     }
 }
 
@@ -512,9 +541,15 @@ function Clear-StalePrivacyFixtures([string]$Parent) {
 # non-recursive delete of a link removes the link however full its target is, so a build\privacy-selftest junction went
 # while another run's fixture lived in its target, and that run lost the path to it. A link is someone's redirection of
 # the folder, not this script's folder.
+# A root that cannot be removed is recorded as RemovalError, never thrown, and everything above it stays (wave-14 review):
+# the real fixture is removed in a finally, where a thrown removal error replaced the verdict of the case that failed, so a
+# firing mutant reported the removal instead of its case. The self-test reports RemovalError itself.
 function Remove-PrivacyFixtureRoot([psobject]$Fixture) {
-    if ([IO.Directory]::Exists($Fixture.Root)) { Remove-ClaimedPrivacyFixture $Fixture.Root $Fixture.Claim } else { $Fixture.Claim.Dispose() }
     $Fixture.Removed = $true
+    if ([IO.Directory]::Exists($Fixture.Root)) {
+        try { $Fixture.Waited = Remove-ClaimedPrivacyFixture $Fixture.Root $Fixture.Claim }
+        catch [IO.IOException], [UnauthorizedAccessException] { $Fixture.RemovalError = $_.Exception.Message; return }
+    } else { $Fixture.Claim.Dispose() }
     $above = @($Fixture.Created | Where-Object { $_.Length -lt $Fixture.Parent.Length })
     foreach ($dir in @($Fixture.Parent) + $above) {
         if (-not [IO.Directory]::Exists($dir)) { continue }
@@ -536,8 +571,26 @@ function Test-PrivacyReparsePoint([string]$Path) {
 function Get-PrivacyFixtureLeftovers([psobject]$Fixture) {
     $left = @(@($Fixture.Root) | Where-Object { [IO.Directory]::Exists($_) })
     $left += @(@($Fixture.Parent) + @($Fixture.Created) | Where-Object {
-        [IO.Directory]::Exists($_) -and -not (Test-PrivacyReparsePoint $_) -and @([IO.Directory]::GetFileSystemEntries($_)).Count -eq 0 })
+        -not (Test-PrivacyReparsePoint $_) -and (Get-PrivacyFolderEntryCount $_) -eq 0 })
     return $left
+}
+
+# How many entries the folder holds, or -1 once it is gone. Caught rather than tested first (wave-14 review, as
+# N-bd-w13-review-08 did for the clearing): when two runs overlap, the other one can delete an emptied
+# build\privacy-selftest between a test and the listing, which threw after every case of this run had passed.
+function Get-PrivacyFolderEntryCount([string]$Path) {
+    try { return @([IO.Directory]::GetFileSystemEntries($Path)).Count } catch [IO.DirectoryNotFoundException] { return -1 }
+}
+
+# The line after the summary when the build\privacy-selftest folder stays, or nothing once it is gone.
+function Get-PrivacyFixtureParentNote([psobject]$Fixture) {
+    if (Test-PrivacyReparsePoint $Fixture.Parent) {
+        return 'Its build\privacy-selftest folder stays: it is a junction or symbolic link, which the self-test never removes.'
+    }
+    $entries = Get-PrivacyFolderEntryCount $Fixture.Parent
+    if ($entries -lt 0) { return $null }
+    return ('Its build\privacy-selftest folder stays: it holds ' + $entries +
+        ' item(s) this run did not remove (a fixture another run still holds, anything without the fixture marker, or a fixture whose removal failed).')
 }
 
 if ($SelfTest) {
@@ -641,6 +694,7 @@ if ($SelfTest) {
     $indexRepo = Join-Path $fixtureRoot 'index'
     [void][IO.Directory]::CreateDirectory($synthetic)
     [void][IO.Directory]::CreateDirectory($indexRepo)
+    $casesPassed = $false
     try {
         # The fixture's own removal (N-bd-w11-tests-scripts-1-03, N-bd-w12-review-06), on synthetic folders inside this
         # run's root: the build\privacy-selftest parent goes once it is empty, even when it was already there, and a folder
@@ -765,6 +819,92 @@ if ($SelfTest) {
         [IO.Directory]::Delete($dangling, $false)
         if ($raced) {
             throw 'Public privacy fixture self-test failed: clearing a build\privacy-selftest folder that went away after its existence was tested threw.'
+        }
+        $count++
+        # Another process holding part of a fixture for a moment (wave-14 review), as an editor's git integration does when
+        # it runs git in a synthetic repository it found: the removal waits and then finishes, where the first refusal used
+        # to throw. A child process whose working directory is a folder of the fixture stands in for that git, and it says
+        # when it holds the folder, so the removal meets the hold; Waited is the WITNESS that it did.
+        $heldFixture = New-PrivacyFixtureRoot (Join-Path $cleanup 'held\build\privacy-selftest')
+        $heldDir = Join-Path $heldFixture.Root 'repository'
+        [void][IO.Directory]::CreateDirectory($heldDir)
+        $holdStart = [Diagnostics.ProcessStartInfo]::new([Diagnostics.Process]::GetCurrentProcess().MainModule.FileName)
+        $holdStart.UseShellExecute = $false
+        $holdStart.CreateNoWindow = $true
+        $holdStart.RedirectStandardOutput = $true
+        $holdStart.WorkingDirectory = $heldDir
+        foreach ($argument in @('-NoProfile', '-NonInteractive', '-Command', "[Console]::Out.WriteLine('held'); [Console]::Out.Flush(); Start-Sleep -Milliseconds 800")) {
+            $holdStart.ArgumentList.Add($argument)
+        }
+        $holder = [Diagnostics.Process]::Start($holdStart)
+        try {
+            $signal = $holder.StandardOutput.ReadLineAsync()
+            if (-not $signal.Wait(30000) -or $signal.Result -cne 'held') { throw 'Synthetic step failed: the process that holds a fixture folder did not start.' }
+            try { Remove-PrivacyFixtureRoot $heldFixture; $heldThrew = $false } catch { $heldThrew = $true }
+        } finally {
+            [void]$holder.WaitForExit(30000)
+            $holder.Dispose()
+        }
+        if ($heldThrew -or $heldFixture.RemovalError -or [IO.Directory]::Exists($heldFixture.Root)) {
+            throw 'Public privacy fixture self-test failed: a fixture folder another process held for a moment stopped the removal.'
+        }
+        if ($heldFixture.Waited -le [TimeSpan]::Zero) { throw 'Synthetic step failed: the fixture removal never met the hold the wait case needs.' }
+        # A hold that outlasts the patience: the removal fails and says why, as RemovalError rather than as a throw, since the
+        # real fixture is removed in a finally where a throw replaced the failing case's verdict; and the root keeps its
+        # marker, so a later run's sweep removes it. A file this run holds open, unshared for deletion, stands in for the
+        # other process, with a short patience.
+        $stuckFixture = New-PrivacyFixtureRoot (Join-Path $cleanup 'stuck\build\privacy-selftest')
+        $stuckFile = Join-Path $stuckFixture.Root 'locked'
+        [IO.File]::WriteAllText($stuckFile, "synthetic`n")
+        $lock = [IO.FileStream]::new($stuckFile, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+        $patience = $script:PrivacyFixturePatience
+        $script:PrivacyFixturePatience = [TimeSpan]::FromMilliseconds(300)
+        try { Remove-PrivacyFixtureRoot $stuckFixture; $stuckThrew = $false } catch { $stuckThrew = $true }
+        finally { $script:PrivacyFixturePatience = $patience; $lock.Dispose() }
+        if ($stuckThrew) {
+            throw 'Public privacy fixture self-test failed: a fixture removal that could not finish threw, which replaces a failing case''s verdict.'
+        }
+        if (-not ([string]$stuckFixture.RemovalError).StartsWith('Another process kept part of the fixture root ' + $stuckFixture.Root + ' in use', [StringComparison]::Ordinal)) {
+            throw 'Public privacy fixture self-test failed: a fixture removal that could not finish did not say why.'
+        }
+        if (-not [IO.File]::Exists((Join-Path $stuckFixture.Root $script:PrivacyFixtureMarker))) {
+            throw 'Public privacy fixture self-test failed: a fixture removal that could not finish took the marker, so no later run removes the root.'
+        }
+        $count++
+        # The leftover check and the line after the summary, on a build\privacy-selftest that another run deletes while this
+        # one looks at it (wave-14 review): after this run tested the folder and before it listed it, the other run removed
+        # its root and the emptied folder, and the listing threw after every case had passed. A Test-PrivacyReparsePoint that
+        # deletes the folder and then answers stands in for that run, in a scope of its own. A folder that is gone stays
+        # nowhere, and is no junction either, though a missing path reports every attribute bit, the reparse point's among
+        # them. WITNESS: while the folder stays, the line counts what is inside it.
+        $raceParent = Join-Path $cleanup 'race\build\privacy-selftest'
+        $raceOther = Join-Path $raceParent 'other'
+        [void][IO.Directory]::CreateDirectory($raceOther)
+        $raceFixture = New-PrivacyFixtureRoot $raceParent
+        Remove-PrivacyFixtureRoot $raceFixture
+        $raceNote = [string](Get-PrivacyFixtureParentNote $raceFixture)
+        $raceSeen = @(& {
+            function Test-PrivacyReparsePoint([string]$Path) {
+                if ([IO.Directory]::Exists($raceOther)) { [IO.Directory]::Delete($raceOther, $false); [IO.Directory]::Delete($raceParent, $false) }
+                return $false
+            }
+            try { 'left ' + @(Get-PrivacyFixtureLeftovers $raceFixture).Count } catch { 'threw' }
+            [void][IO.Directory]::CreateDirectory($raceOther)
+            try { 'note ' + [string](Get-PrivacyFixtureParentNote $raceFixture) } catch { 'threw' }
+        })
+        if (-not $raceNote.StartsWith('Its build\privacy-selftest folder stays: it holds 1 item(s) ', [StringComparison]::Ordinal)) {
+            throw 'Public privacy fixture self-test failed: WITNESS the line after the summary did not count the one item a build\privacy-selftest folder kept.'
+        }
+        if ($raceSeen[0] -cne 'left 0') {
+            throw 'Public privacy fixture self-test failed: the leftover check threw on a build\privacy-selftest folder another run deleted while it looked.'
+        }
+        if ($raceSeen[1] -cne 'note ') {
+            throw 'Public privacy fixture self-test failed: the line after the summary threw on a build\privacy-selftest folder another run deleted while it looked.'
+        }
+        # Read only after the verdicts above, as a listing that throws here would replace them.
+        $goneNote = [string](Get-PrivacyFixtureParentNote $raceFixture)
+        if ($goneNote -cne '') {
+            throw 'Public privacy fixture self-test failed: a build\privacy-selftest folder that is gone was reported as staying.'
         }
         $count++
         function Step([string[]]$Arguments, [string]$Repository = $synthetic) {
@@ -1133,24 +1273,29 @@ if ($SelfTest) {
             throw 'Public privacy index self-test failed: the default mode did not read the unmerged stages once nothing protected was indexed.'
         }
         $count++
+        $casesPassed = $true
     } finally {
         Remove-PrivacyFixtureRoot $fixture
+        # A failing case's verdict goes on past this finally, as the removal records its own failure rather than throwing
+        # it in the verdict's place (wave-14 review); it is said here, and when every case passed the run fails on it below.
+        if ($fixture.RemovalError -and -not $casesPassed) { Write-Host ('The fixture removal failed too: ' + $fixture.RemovalError) }
     }
     # The real fixture went through that removal, and what this run made is gone (N-bd-w11-tests-scripts-1-03,
     # N-bd-w12-review-06): the root, the build\privacy-selftest parent once it is empty, whoever made it, and each folder
     # above it that the run made, unless another run's fixture is inside now. Read after the finally, so it sees what the
     # finally left. When the parent stays, the line after the summary says how much is inside it.
     if (-not $fixture.Removed) { throw 'Public privacy fixture self-test failed: the real fixture was not removed by Remove-PrivacyFixtureRoot.' }
+    if ($fixture.RemovalError) { throw ('Public privacy fixture self-test failed: the real fixture could not be removed. ' + $fixture.RemovalError) }
     if (@(Get-PrivacyFixtureLeftovers $fixture).Count -gt 0) {
         throw 'Public privacy fixture self-test failed: the run left its fixture root, or an emptied folder it owns, behind.'
     }
     Write-Host "Public privacy self-test passed: $count cases (path policy, matchers, range mode with merges and the default index mode on synthetic repositories, removed again)."
-    if (Test-PrivacyReparsePoint $fixture.Parent) {
-        Write-Host 'Its build\privacy-selftest folder stays: it is a junction or symbolic link, which the self-test never removes.'
-    } elseif ([IO.Directory]::Exists($fixture.Parent)) {
-        Write-Host ('Its build\privacy-selftest folder stays: it holds ' + @([IO.Directory]::GetFileSystemEntries($fixture.Parent)).Count +
-            ' item(s) this run did not remove (a fixture another run still holds, anything without the fixture marker, or a fixture whose removal failed).')
+    if ($fixture.Waited -gt [TimeSpan]::Zero) {
+        Write-Host ('Its removal waited ' + [Math]::Round($fixture.Waited.TotalSeconds, 1) +
+            ' s for another process to let go of part of the fixture (an editor whose git integration opened a synthetic repository, usually).')
     }
+    $parentNote = Get-PrivacyFixtureParentNote $fixture
+    if ($parentNote) { Write-Host $parentNote }
     exit 0
 }
 
