@@ -5,9 +5,11 @@
 .DESCRIPTION
     Refuses protected paths before reading any contents. Git grep, which chooses the indexed
     text files to read, also receives explicit case-insensitive exclusions. During an unresolved
-    merge every stage of a conflicted text file (base, ours and theirs) is read too. Both modes
-    compare with one matcher, case-insensitively in every script. Only offending file paths,
-    commits and counts are printed, never the matched text.
+    merge every stage of a conflicted text file (base, ours and theirs) is read too. A symbolic
+    link is read as the text of its target, as -Range reads it, resolved or at each unmerged
+    stage, unless its path has a protected shape. Both modes compare with one matcher,
+    case-insensitively in every script. Only offending file paths, commits and counts are
+    printed, never the matched text.
 
     Identifiers come from the run, never from this file: -Identifier and -EmployerName, plus
     the business OneDrive folder and the employer it names when OneDriveCommercial is set.
@@ -327,7 +329,7 @@ function Get-IndexedPrivacyOffenders([psobject]$Needles, [string]$Repository = $
         $candidates.Add(@($path, $resolved[$path]))
     }
     foreach ($name in (Select-IndexedTextStages ([string[]]@($stages.Keys)) $Repository)) {
-        if (-not $stages.ContainsKey($name)) { throw 'An unmerged text stage had no index entry. No matching contents were printed.' }
+        if (-not $stages.ContainsKey($name)) { throw 'An unmerged text stage or a symbolic link had no index entry. No matching contents were printed.' }
         $candidates.Add($stages[$name])
     }
     if ($candidates.Count -gt 0) {
@@ -360,7 +362,7 @@ function Select-IndexedTextStages([string[]]$Names, [string]$Repository) {
             $next++
         }
         $listed = Invoke-IndexedGit (@('grep', '--no-textconv', '-I', '-l', '-z', '-e', '', '--end-of-options') + $batch) $Repository
-        if ($listed.ExitCode -gt 1) { throw 'Indexed git grep failed on the unmerged stages. No matching contents were printed.' }
+        if ($listed.ExitCode -gt 1) { throw 'Indexed git grep failed on the unmerged stages or the symbolic links. No matching contents were printed.' }
         $text.AddRange([string[]]$listed.Output.Split([char]0, [StringSplitOptions]::RemoveEmptyEntries))
     }
     return ,$text.ToArray()
