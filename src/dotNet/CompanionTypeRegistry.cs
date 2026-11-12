@@ -113,6 +113,27 @@ namespace DesktopAICompanion
                 DisposeEntry(entry);
         }
 
+        /// <summary>
+        /// Take an entry off its id, so the next stage of that id reads its file afresh: the app's uninstall
+        /// (N-bd-w13-review-05), after which the id may name another copy (the bundled one a deleted library copy
+        /// shadowed). A companion still holding the entry keeps it alive, exactly as an entry displaced in Add is kept:
+        /// its last Decrement disposes the pair, and DisposeEntry's identity check finds no mapping of it to remove.
+        /// Nothing holding it: it is disposed now, as DropIfUnused would. Disposing a held entry was the rejected
+        /// alternative, since FormCompanion borrows the pair and a live window would draw from a disposed sheet.
+        /// </summary>
+        internal void Forget(Entry entry)
+        {
+            if (entry == null) return;
+            if (entry.RefCount <= 0)
+            {
+                DisposeEntry(entry);
+                return;
+            }
+            Entry current;
+            if (_byId.TryGetValue(entry.Id ?? "", out current) && ReferenceEquals(current, entry))
+                _byId.Remove(entry.Id ?? "");
+        }
+
         /// <summary>Drop a type that was staged but never spawned (e.g. the spawn slot was full).</summary>
         internal void DropIfUnused(Entry entry)
         {

@@ -98,13 +98,17 @@ namespace DesktopAICompanion.Shimeji
         /// the type, so a companion still running or drawing it keeps its sprites until its window closes and the entry's
         /// disposal forgets the rest. Marking the registry entry retired was the rejected alternative: the world's index
         /// answers before the stager or OpenBornTickPet is asked, so the type had to leave the index whatever else knew.
-        /// The count of host types retired.
+        ///
+        /// Each is also marked retired (N-bd-w13-review-04), and Step gives no birth of it a window: a kept companion that
+        /// had transformed into the type still runs it, and its Breed with an empty or unresolvable BornMascot falls back to
+        /// its own type without asking the index. The count of host types retired.
         /// </summary>
         public int RetireTypes(Func<TickHostType, bool> ofType)
         {
             if (ofType == null) return 0;
             var retired = new List<TickHostType>();
             foreach (TickHostType t in _byType.Values) if (ofType(t)) retired.Add(t);
+            foreach (TickHostType t in retired) t.Retired = true;
             foreach (TickHostType t in retired) _world.RemoveType(t.Type);
             return retired.Count;
         }

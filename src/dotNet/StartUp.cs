@@ -1778,6 +1778,8 @@ namespace DesktopAICompanion
         /// next step it activated and OpenBornTickPet opened a window for it from the type whose folder had just been
         /// deleted. Dropping it at the source was preferred to refusing its window in OpenBornTickPet, which would have needed
         /// a record of uninstalled ids that a reinstall under the same id must then clear.
+        ///
+        /// The type's registry entry leaves its id last (N-bd-w13-review-05, ForgetInstalledEntry).
         /// </summary>
         internal int RemoveEveryPetOfType(string id)
         {
@@ -1785,7 +1787,25 @@ namespace DesktopAICompanion
             int removed = 0;
             foreach (FormCompanion pet in PetsOfInstalledType(sheeps, iSheeps, petEntries, id))
                 if (RemovePetInstance(pet)) removed++;
+            ForgetInstalledEntry(registry, id);
             return removed;
+        }
+
+        /// <summary>
+        /// Take the installed type <paramref name="typeId"/>'s registry entry off its id (N-bd-w13-review-05):
+        /// RemoveEveryPetOfType's last step. A companion can still hold the entry after the uninstall, one in a kept window
+        /// that had transformed into the type, or one whose hold the next step's UpdateHolds has not released yet, and
+        /// StageExtraType answered every later stage of the id with that live entry. When the deleted copy was a library copy
+        /// that shadowed a bundled one with the same id, the id is still installed, so a Breed or an Add of it drew the
+        /// deleted copy's sprites, not the bundled one's. Off its id, the entry stays alive for whatever still holds it
+        /// (CompanionTypeRegistry.Forget) and the next stage reads the file the id names now. Static, for
+        /// --shimeji-window-selftest.
+        /// </summary>
+        internal static void ForgetInstalledEntry(CompanionTypeRegistry registry, string typeId)
+        {
+            CompanionTypeRegistry.Entry entry;
+            if (registry != null && registry.TryGet(typeId, out entry) && IsOfInstalledType(entry, typeId))
+                registry.Forget(entry);
         }
 
         /// <summary>

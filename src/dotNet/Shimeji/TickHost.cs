@@ -153,6 +153,11 @@ namespace DesktopAICompanion.Shimeji
         /// while a companion runs or draws as this type (TickHost.RetainType / ReleaseType).</summary>
         public object Owner;
 
+        /// <summary>Set when the app uninstalled this type (<see cref="TickHost.RetireTypes"/>): a companion still running it
+        /// keeps drawing it, and no birth of it is given a window (N-bd-w13-review-04). On the object, never by id, so a
+        /// reinstall under the same id, which stages a new type, is not refused.</summary>
+        public bool Retired { get; internal set; }
+
         public TickHostType(string id, TickType type, Xml sprites, Animations animations = null)
         {
             Id = id;
@@ -357,6 +362,19 @@ namespace DesktopAICompanion.Shimeji
                     // a companion still running the old type would get a window of the new one.
                     TickHostType t = HostTypeOf(m.Type);
                     if (t == null) continue;
+                    // A birth of a type the app uninstalled leaves without a window (N-bd-w13-review-04). The uninstall keeps a
+                    // window that was made as another type even when its companion has since transformed into this one
+                    // (StartUp.PetsOfInstalledType), so that companion still runs it, and a Breed of it with an empty or
+                    // unresolvable BornMascot falls back to the parent's type, which the world's index is never asked for
+                    // (RetireTypes takes the type out of the index, not out of the companions that run it). Refused here, by
+                    // the host type object, rather than in the app's window opener by id, which would have needed a record
+                    // of uninstalled ids that a reinstall under the same id must clear.
+                    if (t.Retired)
+                    {
+                        _log("tick companion " + m.Sid + " (" + m.Type.Name + "): its type was uninstalled, so it gets no window; removed");
+                        m.Dispose("type-removed");
+                        continue;
+                    }
                     form = _openForm(t);
                     if (form == null)
                     {
