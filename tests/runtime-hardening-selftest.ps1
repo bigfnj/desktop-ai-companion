@@ -7036,7 +7036,9 @@ Assert-True ($w13Scan -gt $w13Unfolded -and $w13Said -gt $w13Scan -and $w13Verdi
 # verdict that the one throw carries; and no line quotes a path the scan found (the CodeView and document lines did).
 # WITNESS: the legs ran, and the loop still reads every zip's own DLLs and still scans the CodeView string.
 $w14Legs = @(& { . (Join-Path $repoRoot 'packaging\EmbeddedPortablePdb.ps1'); Test-BuildIdentityScan })
-Assert-True ($w14Legs.Count -gt 0) "w14-packaging-ci-1: WITNESS the build-identity scan's synthetic proof ran ($($w14Legs.Count) legs)"
+# EXACTLY eleven legs, not "some": a leg deleted from Test-BuildIdentityScan leaves its rule with no grader and every
+# remaining leg green, and only the count can see that.
+Assert-True ($w14Legs.Count -eq 11) "w14-packaging-ci-1: WITNESS the build-identity scan's synthetic proof ran exactly its 11 legs (ran $($w14Legs.Count))"
 foreach ($w14Leg in $w14Legs) {
     Assert-True ($w14Leg.Passed) ("w14-packaging-ci-1: the build-identity scan proves the leg: $($w14Leg.Name) ($($w14Leg.Detail))")
 }
@@ -7065,6 +7067,123 @@ Assert-True ($w14VerdictAdd -gt $w14Verdict -and $w14Throw -gt $w14VerdictAdd -a
 Assert-True ($w14Fresh -cnotmatch '\$bpMatch\.Value' -and $w14Fresh -cnotmatch '\+ \$documentName\)' -and
              $w14Fresh -cmatch '\$buildPathOffenders\.Add\(\$bpZip\.Name \+ " -> " \+ \$bpDll\.FullName \+ " : a CodeView record naming an absolute \.pdb path"\)') (
     'w14-packaging-ci-1: the shipped-DLL scan prints no path it found, neither a CodeView path nor a document name')
+# THE SECTION RUN, NOT ONLY READ (the review of N-bd-w13-contracts-1-02). The order checks above cannot see a CONDITION
+# that stops firing ("if ($scanVerdicts.Count -gt 1)", or a proof refusal fed "@()"), and a redaction check over source
+# text bans only the spellings it names. So the shipped-DLL section's own text, cut from the comment-stripped freshness
+# check in three pieces (the setup, the proof refusal, then the zip loop with its verdicts and witnesses), is RUN in a
+# child scope over planted input: one zip holding one ModuleKit.dll, handed over by a stubbed Read-ZipEntryBytes, with the
+# proof stubbed to pass (its legs are graded above) or, for the refusal, to fail one leg of two. What the section prints
+# (Write-Host is stream 6) and the message it throws are captured and judged; a planted path must appear in neither.
+$w14SetupAt = $w14Fresh.IndexOf('$buildPathPattern = [regex]', [StringComparison]::Ordinal)
+$w14SetupEnd = $w14Fresh.IndexOf('$ourAssemblies = New-Object', [StringComparison]::Ordinal)
+$w14ProofAt = $w14Fresh.IndexOf('$buildIdentityOffenders = [System.Collections.Generic.List[string]]::new()', [StringComparison]::Ordinal)
+$w14Cut = ($w14SetupAt -ge 0 -and $w14SetupEnd -gt $w14SetupAt -and $w14ProofAt -gt $w14SetupEnd -and $w14Loop -gt $w14ProofAt)
+$w14SetupText = ''; $w14ProofText = ''; $w14LoopText = ''
+if ($w14Cut) {
+    $w14SetupText = $w14Fresh.Substring($w14SetupAt, $w14SetupEnd - $w14SetupAt)
+    $w14ProofText = $w14Fresh.Substring($w14ProofAt, $w14Loop - $w14ProofAt)
+    $w14LoopText = $w14Fresh.Substring($w14Loop)
+}
+$w14Whole = $w14SetupText + "`n" + $w14ProofText + "`n" + $w14LoopText
+$w14RunSection = {
+    param([string]$Text, [object[]]$Images, [bool]$ProofFails)
+    . (Join-Path $repoRoot 'packaging\EmbeddedPortablePdb.ps1')
+    $stubLegs = @([pscustomobject]@{ Name = 'stub leg'; Passed = $true; Detail = '' })
+    if ($ProofFails) { $stubLegs += [pscustomobject]@{ Name = 'stub failing leg'; Passed = $false; Detail = 'found []' } }
+    function Test-BuildIdentityScan { $stubLegs }
+    function Read-ZipEntryBytes {
+        param($ZipPath, $EntryNames)
+        foreach ($image in $Images) {
+            [pscustomobject]@{ Name = 'DesktopAICompanion.ModuleKit.dll'; FullName = 'lib/DesktopAICompanion.ModuleKit.dll'; Bytes = $image }
+        }
+    }
+    $buildPathZips = @([pscustomobject]@{ Name = 'planted.zip'; FullName = 'planted.zip' })
+    $ourAssemblies = @('DesktopAICompanion.ModuleKit.dll')
+    $printed = New-Object 'Collections.Generic.List[string]'
+    $message = ''
+    try { . ([scriptblock]::Create($Text)) 6>&1 | ForEach-Object { $printed.Add([string]$_) } }
+    catch { $message = $_.Exception.Message }
+    [pscustomobject]@{ Threw = ($message.Length -gt 0); Message = $message; Printed = ($printed -join "`n") }
+}
+$w14Planted = 'Zq7PlantedAccount'
+$w14Images = & {
+    . (Join-Path $repoRoot 'packaging\EmbeddedPortablePdb.ps1')
+    $options = @{ Kind = $script:CompilationOptionsRecordKind; Text = "language`0C#" }
+    $sourceLink = @{ Kind = $script:SourceLinkRecordKind; Text = '{"documents":{"/_/*":"https://example.invalid/*"}}' }
+    @{
+        Clean        = (New-PortablePdbTestImage -Documents @('/_/src/Kit/A.cs') -Records @($options))
+        IdentityOnly = (New-PortablePdbTestImage -Documents @('/_/src/Kit/A.cs') -Records @($options, $sourceLink))
+        Planted      = (New-PortablePdbTestImage -Documents @("C:\Users\$w14Planted\src\Kit\A.cs") -Records @($options) -AsciiTail "C:\Users\$w14Planted\obj\Kit.pdb")
+        NoOptions    = (New-PortablePdbTestImage -Documents @('/_/src/Kit/A.cs') -Records @())
+    }
+}
+$w14Clean = & $w14RunSection $w14Whole (, $w14Images.Clean) $false
+Assert-True ($w14Cut -and -not $w14Clean.Threw -and $w14Clean.Printed -cmatch 'no embedded build paths in 1 of our own published DLL\(s\) across 1 zip\(s\)') (
+    "w14-packaging-ci-1: WITNESS the shipped-DLL section, cut from the freshness check and run on a clean planted DLL, passes it ($($w14Clean.Message))")
+$w14Refused = & $w14RunSection ($w14SetupText + "`n" + $w14ProofText) (, $w14Images.Clean) $true
+Assert-True ($w14Refused.Threw -and $w14Refused.Message -cmatch 'failed its own proof on synthetic images \(1 of 2 leg\(s\)\)' -and
+             $w14Refused.Printed -cmatch 'build-identity proof failed: stub failing leg') (
+    "w14-packaging-ci-1: run with one proof leg of two failing, the freshness check refuses before the zip loop ($($w14Refused.Message))")
+$w14IdOnly = & $w14RunSection $w14Whole (, $w14Images.IdentityOnly) $false
+Assert-True ($w14IdOnly.Threw -and $w14IdOnly.Message -cmatch '^1 build-identity finding\(s\) in published DLLs' -and
+             $w14IdOnly.Printed -cmatch 'build identity: planted\.zip -> lib/DesktopAICompanion\.ModuleKit\.dll : a Source Link record in the embedded PDB' -and
+             $w14IdOnly.Printed -cnotmatch 'no embedded build paths') (
+    "w14-packaging-ci-1: run on a DLL whose only finding is a Source Link record, the shipped-DLL section throws its verdict and prints no success line ($($w14IdOnly.Message))")
+$w14Path = & $w14RunSection $w14Whole (, $w14Images.Planted) $false
+$w14PathSaid = $w14Path.Printed + "`n" + $w14Path.Message
+Assert-True ($w14Path.Threw -and
+             $w14Path.Printed -cmatch 'embedded build path: planted\.zip -> lib/DesktopAICompanion\.ModuleKit\.dll : a CodeView record naming an absolute \.pdb path' -and
+             $w14Path.Printed -cmatch 'embedded build path: planted\.zip -> lib/DesktopAICompanion\.ModuleKit\.dll : an absolute embedded PDB document name' -and
+             $w14PathSaid.IndexOf($w14Planted, [StringComparison]::OrdinalIgnoreCase) -lt 0) (
+    'w14-packaging-ci-1: run on a DLL planted with a profile path, the shipped-DLL section reports it on the CodeView and document lines and prints none of it, in any spelling')
+$w14NoOptions = & $w14RunSection $w14Whole (, $w14Images.NoOptions) $false
+Assert-True ($w14NoOptions.Threw -and
+             $w14NoOptions.Message -cmatch '^WITNESS failed: the embedded PDB of planted\.zip -> lib/DesktopAICompanion\.ModuleKit\.dll did not read back one C# compilation options record per PDB') (
+    "w14-packaging-ci-1: run on a DLL whose embedded PDB reads back no compilation options record, the freshness check refuses it as a misread ($($w14NoOptions.Message))")
+# REAL INPUT for the CustomDebugInformation read (same review). The synthetic PDB holds only the Document and
+# CustomDebugInformation tables, so a width misread in any of the six tables between them (LocalScope's, sized from the
+# assembly's MethodDef count) passes every leg and shifts every record of a real PDB; with Source Link off, a clean scan
+# then looks exactly like a misread one. So each DLL of ours (the freshness check's .csproj-derived set) in each committed
+# zip that carries an embedded PDB must read back one C# compilation options record per PDB. Ours only: reading every
+# DLL in the eight zips took 49 to 63 s in three runs under 5.1 on 2026-11-12 (a probe that also scanned ours in full),
+# where this whole block takes about 5 to 8 s, and none of the package DLLs there embeds a PDB.
+$w14Real = @(& {
+    . (Join-Path $repoRoot 'packaging\EmbeddedPortablePdb.ps1')
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $ours = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    foreach ($proj in Get-ChildItem -LiteralPath $repoRoot -Recurse -Filter '*.csproj') {
+        if ($proj.FullName -like '*\obj\*' -or $proj.FullName -like '*\bin\*') { continue }
+        $declared = [regex]::Match((Get-Content -LiteralPath $proj.FullName -Raw), '<AssemblyName>\s*([^<]+?)\s*</AssemblyName>')
+        if ($declared.Success) { $null = $ours.Add($declared.Groups[1].Value + '.dll') }
+        else { $null = $ours.Add([IO.Path]::GetFileNameWithoutExtension($proj.Name) + '.dll') }
+    }
+    foreach ($zip in Get-ChildItem -LiteralPath (Join-Path $repoRoot 'modules-dist') -Filter '*.zip') {
+        $archive = [IO.Compression.ZipFile]::OpenRead($zip.FullName)
+        try {
+            foreach ($entry in $archive.Entries) {
+                if (-not $ours.Contains($entry.Name)) { continue }
+                $buffer = New-Object IO.MemoryStream
+                $stream = $entry.Open()
+                try { $stream.CopyTo($buffer) } finally { $stream.Dispose() }
+                $where = $zip.Name + ' -> ' + $entry.FullName
+                try {
+                    $content = Get-EmbeddedPortablePdbContent -Image $buffer.ToArray()
+                    if ($content.EmbeddedPdbCount -eq 0) { continue }
+                    $languages = @(Get-CompilationOptionsLanguages -Records $content.Records)
+                    [pscustomobject]@{ Where = $where; Pdbs = $content.EmbeddedPdbCount; Records = $languages.Count
+                                       CSharp = @($languages | Where-Object { $_ -ceq 'C#' }).Count; Error = '' }
+                }
+                catch { [pscustomobject]@{ Where = $where; Pdbs = -1; Records = 0; CSharp = 0; Error = $_.Exception.Message } }
+            }
+        }
+        finally { $archive.Dispose() }
+    }
+})
+Assert-True ($w14Real.Count -gt 0) "w14-packaging-ci-1: WITNESS the committed zips hold DLLs of ours with an embedded PDB to read ($($w14Real.Count))"
+foreach ($w14R in $w14Real) {
+    Assert-True ($w14R.Error -eq '' -and $w14R.Records -eq $w14R.Pdbs -and $w14R.CSharp -eq $w14R.Pdbs) (
+        "w14-packaging-ci-1: the CustomDebugInformation read finds one C# compilation options record per embedded PDB in a committed zip: $($w14R.Where) ($($w14R.Records) of $($w14R.Pdbs), $($w14R.Error))")
+}
 
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that

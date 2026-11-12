@@ -5479,6 +5479,101 @@ CASES = (
         b'                $buildPathOffenders.Add($bpZip.Name + " -> " + $bpDll.FullName + " : embedded PDB document " + $documentName)\n',
         "w14-packaging-ci-1: the shipped-DLL scan prints no path it found",
     ),
+    # Fix round after the review of N-bd-w13-contracts-1-02: the verdict and proof CONDITIONS, the redaction of any
+    # spelling, the exact leg count, the real-input witness for the CustomDebugInformation read, and the pattern gaps.
+    (
+        "bd-w14-packaging-ci-1: an identity-only failure no longer throws, -gt 1 (N-bd-w13-contracts-1-02)",
+        os.path.join(REPO, "packaging", "Test-ModulePublishFreshness.ps1"),
+        b"if ($scanVerdicts.Count -gt 0) {\n",
+        b"if ($scanVerdicts.Count -gt 1) {\n",
+        "w14-packaging-ci-1: run on a DLL whose only finding is a Source Link record",
+    ),
+    (
+        "bd-w14-packaging-ci-1: the shipped-DLL verdicts never throw (N-bd-w13-contracts-1-02)",
+        os.path.join(REPO, "packaging", "Test-ModulePublishFreshness.ps1"),
+        b"if ($scanVerdicts.Count -gt 0) {\n",
+        b"if ($false -and $scanVerdicts.Count -gt 0) {\n",
+        "w14-packaging-ci-1: run on a DLL whose only finding is a Source Link record",
+    ),
+    (
+        "bd-w14-packaging-ci-1: the freshness check trusts a failed proof leg (N-bd-w13-contracts-1-02)",
+        os.path.join(REPO, "packaging", "Test-ModulePublishFreshness.ps1"),
+        b"$identityProofFailed = @($identityProof | Where-Object { -not $_.Passed })\n",
+        b"$identityProofFailed = @()\n",
+        "w14-packaging-ci-1: run with one proof leg of two failing, the freshness check refuses before the zip loop",
+    ),
+    (
+        "bd-w14-packaging-ci-1: the document line prints the name by interpolation (N-bd-w13-contracts-1-02)",
+        os.path.join(REPO, "packaging", "Test-ModulePublishFreshness.ps1"),
+        b'                $buildPathOffenders.Add($bpZip.Name + " -> " + $bpDll.FullName + " : an absolute embedded PDB document name")\n',
+        b'                $buildPathOffenders.Add($bpZip.Name + " -> " + $bpDll.FullName + " : embedded PDB document $documentName")\n',
+        "w14-packaging-ci-1: run on a DLL planted with a profile path",
+    ),
+    (
+        "bd-w14-packaging-ci-1: a misread compilation options count is no longer refused (N-bd-w13-contracts-1-02)",
+        os.path.join(REPO, "packaging", "Test-ModulePublishFreshness.ps1"),
+        b"            $compilationOptionsMisread.Add($bpZip.Name + ' -> ' + $bpDll.FullName)\n",
+        b"            $null = 0\n",
+        "w14-packaging-ci-1: run on a DLL whose embedded PDB reads back no compilation options record",
+    ),
+    (
+        "bd-w14-packaging-ci-1: a LocalScope row is misread four bytes short (N-bd-w13-contracts-1-02)",
+        os.path.join(REPO, "packaging", "EmbeddedPortablePdb.ps1"),
+        b"        ($methodDef + $width[5] + $width[3] + $width[4] + 8),    # 0x32 LocalScope",
+        b"        ($methodDef + $width[5] + $width[3] + $width[4] + 4),    # 0x32 LocalScope",
+        "w14-packaging-ci-1: the CustomDebugInformation read finds one C# compilation options record per embedded PDB",
+    ),
+    (
+        "bd-w14-packaging-ci-1: the CustomDebugInformation parent index is misread as wide (N-bd-w13-contracts-1-02)",
+        os.path.join(REPO, "packaging", "EmbeddedPortablePdb.ps1"),
+        b"    if ($largest -ge 0x800) { $hasCustomDebugInformation = 4 }\n",
+        b"    if ($largest -ge 0x8) { $hasCustomDebugInformation = 4 }\n",
+        "w14-packaging-ci-1: the CustomDebugInformation read finds one C# compilation options record per embedded PDB",
+    ),
+    (
+        "bd-w14-packaging-ci-1: a proof leg is deleted (N-bd-w13-contracts-1-02)",
+        os.path.join(REPO, "packaging", "EmbeddedPortablePdb.ps1"),
+        b"        @('a Source Link record is reported', @{ Documents = $clean.Documents; Records = @($clean.Records[0],\n"
+        b"          @{ Kind = $script:SourceLinkRecordKind; Text = '{\"documents\":{\"/_/*\":\"https://example.invalid/*\"}}' }) },\n"
+        b"          '', '', @('a Source Link record in the embedded PDB'), $false),\n",
+        b"",
+        "w14-packaging-ci-1: WITNESS the build-identity scan's synthetic proof ran exactly its 11 legs",
+    ),
+    (
+        "bd-w14-packaging-ci-1: an account segment ended by a control byte passes again (N-bd-w13-contracts-1-02)",
+        os.path.join(REPO, "packaging", "EmbeddedPortablePdb.ps1"),
+        rb"""(?![^\\/\x00-\x1f"*:<>?|])'""",
+        rb"""(?=[\\/"\x00]|$)'""",
+        "w14-packaging-ci-1: the build-identity scan proves the leg: a user-profile path whose account segment ends at a control byte",
+    ),
+    (
+        "bd-w14-packaging-ci-1: a forward-slash UNC root passes again (N-bd-w13-contracts-1-02)",
+        os.path.join(REPO, "packaging", "EmbeddedPortablePdb.ps1"),
+        rb"""|(?<!\+)//(?<host>[A-Za-z0-9][A-Za-z0-9._$-]{0,62})/(?<share>[A-Za-z0-9._$ -]{0,79}[A-Za-z0-9_$]))'""",
+        rb""")'""",
+        "w14-packaging-ci-1: the build-identity scan proves the leg: a forward-slash UNC root in the ASCII DLL bytes",
+    ),
+    (
+        "bd-w14-packaging-ci-1: the forward-slash UNC rule reads base64 as a root (N-bd-w13-contracts-1-02)",
+        os.path.join(REPO, "packaging", "EmbeddedPortablePdb.ps1"),
+        rb"""|(?<!\+)//(?<host>""",
+        rb"""|//(?<host>""",
+        "w14-packaging-ci-1: the build-identity scan proves the leg: the clean control",
+    ),
+    (
+        "bd-w14-packaging-ci-1: a long-form UNC root passes again (N-bd-w13-contracts-1-02)",
+        os.path.join(REPO, "packaging", "EmbeddedPortablePdb.ps1"),
+        rb"""(?:[?.]\\+UNC\\+)?""",
+        b"",
+        "w14-packaging-ci-1: the build-identity scan proves the leg: a long-form UNC root in the UTF-16 DLL bytes",
+    ),
+    (
+        "bd-w14-packaging-ci-1: the stand-in host waives every share again (N-bd-w13-contracts-1-02)",
+        os.path.join(REPO, "packaging", "EmbeddedPortablePdb.ps1"),
+        b"        $root = $hostName + '" + bytes([92]) + b"' + $match.Groups['share'].Value\n",
+        b"        $root = $hostName + '" + bytes([92]) + b"home'\n",
+        "w14-packaging-ci-1: the build-identity scan proves the leg: a UNC root on the stand-in host under another share",
+    ),
 )
 
 

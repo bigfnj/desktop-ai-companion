@@ -559,8 +559,11 @@ Write-Host ("fortunes.zip embeds all $($expectedPairs.Count) current pack-to-col
 #
 # An embedded PDB path names the machine, the account and the directory layout of whoever built the
 # assembly. DebugType=embedded is what keeps the CodeView path out, set in ModuleKit.csproj and
-# Contracts.csproj with a comment on each warning against re-adding IncludeSymbols (which fails dotnet
-# pack with NU5017). The setting was fixed and the zips rebuilt on 2026-09-17; what did not exist until
+# Contracts.csproj with a comment on each warning against re-adding IncludeSymbols. Measured by the
+# contracts lane on 2026-11-12: with IncludeSymbols back, Contracts' dotnet pack fails NU5017 (a symbol
+# package with no content and no dependency), while ModuleKit's pack succeeds and writes a .snupkg that
+# holds no PDB, because its nuspec carries the Contracts dependency; release.yml discards every *.snupkg
+# either way. The setting was fixed and the zips rebuilt on 2026-09-17; what did not exist until
 # now is anything that would NOTICE it being reverted, so the fix had no regression net.
 #
 # TWO VECTORS, and the check used to see one. A path reaches a DLL through the CodeView entry of the
@@ -609,6 +612,12 @@ $embeddedDocumentCount = 0
 # EmbeddedPortablePdb entry. A ModuleKit.dll in which the reader finds none means the reader is blind
 # to the entry or the payload was built without it, and either is a red, not a clean scan.
 $moduleKitWithoutEmbeddedPdb = [System.Collections.Generic.List[string]]::new()
+# WITNESS for the CustomDebugInformation read, the table the Source Link rule judges: every embedded PDB
+# of ours carries one C# compilation options record (Get-CompilationOptionsLanguages says why and what
+# was measured). Any other count means the rows were shifted by a misread width in a table before it, so
+# a clean Source Link verdict over that DLL means nothing. The synthetic legs cannot see that: their PDB
+# holds only the Document and CustomDebugInformation tables.
+$compilationOptionsMisread = [System.Collections.Generic.List[string]]::new()
 
 # SCOPED TO ASSEMBLIES THIS REPO BUILDS, and derived from the .csproj files rather than a hardcoded
 # list -- so a NEW project of ours arriving without the setting is caught automatically, which is the
@@ -672,6 +681,10 @@ foreach ($bpZip in $buildPathZips) {
         if ($bpDll.Name -ieq 'DesktopAICompanion.ModuleKit.dll' -and $identity.EmbeddedPdbCount -eq 0) {
             $moduleKitWithoutEmbeddedPdb.Add($bpZip.Name)
         }
+        $csharpOptions = @($identity.CompilationOptionsLanguages | Where-Object { $_ -ceq 'C#' }).Count
+        if ($identity.CompilationOptionsRecords -ne $identity.EmbeddedPdbCount -or $csharpOptions -ne $identity.EmbeddedPdbCount) {
+            $compilationOptionsMisread.Add($bpZip.Name + ' -> ' + $bpDll.FullName)
+        }
         foreach ($documentName in $identity.DocumentNames) {
             $embeddedDocumentCount++
             if ($absoluteDocumentPattern.IsMatch($documentName)) {
@@ -692,8 +705,9 @@ if ($buildPathOffenders.Count -gt 0) {
     }
     $scanVerdicts.Add("$($buildPathOffenders.Count) embedded build path(s) found in published DLLs, which names the " +
            "machine, account and directory of whoever built them. For a CodeView path set " +
-           "<DebugType>embedded</DebugType> in the offending project -- and do NOT add IncludeSymbols, which " +
-           "fails dotnet pack with NU5017. For an embedded PDB document, set " +
+           "<DebugType>embedded</DebugType> in the offending project, without IncludeSymbols: beside it Contracts' " +
+           "dotnet pack fails NU5017 and ModuleKit's writes a .snupkg with no PDB, which release.yml discards. " +
+           "For an embedded PDB document, set " +
            "<DeterministicSourcePaths>true</DeterministicSourcePaths> (or a <PathMap>) in that project so the " +
            "document names are rooted at /_/ instead of the build machine. Then rebuild, re-zip, COMMIT the " +
            "zip and regenerate the catalog.")
@@ -724,6 +738,12 @@ if ($moduleKitWithoutEmbeddedPdb.Count -gt 0) {
            " carries no embedded portable PDB, yet DesktopAICompanion.ModuleKit.csproj embeds its symbols. " +
            "Either the embedded-PDB reader has gone blind to the entry (then every document check above was " +
            "vacuous) or the payload was built without the setting; fix the one or record the other.")
+}
+if ($compilationOptionsMisread.Count -gt 0) {
+    throw ("WITNESS failed: the embedded PDB of " + ($compilationOptionsMisread -join ', ') + " did not read back " +
+           "one C# compilation options record per PDB, which the SDK writes into every portable PDB of a C# " +
+           "assembly. The CustomDebugInformation table was misread, so the Source Link rule judged shifted rows; " +
+           "fix packaging\EmbeddedPortablePdb.ps1 before trusting this section.")
 }
 Write-Host ("no embedded build paths in $buildPathDlls of our own published DLL(s) across $($buildPathZips.Count) zip(s): " +
             "CodeView records scanned, $embeddedPdbCount embedded PDB(s) parsed with $embeddedDocumentCount document name(s) inspected; " +

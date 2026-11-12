@@ -400,19 +400,30 @@ function Get-EmbeddedPortablePdbContent {
 # scan to package DLLs has to stop judging Source Link for them; the profile and UNC rules hold for any image.
 
 # A drive, one or more separators of either kind (so the doubled "\\" of an escaped string or a JSON value reads as
-# one), Users, separators, then the account segment, which must end at a separator, a quote, a NUL or the end.
-$script:UserProfilePathPattern = [regex] '(?i)(?<![A-Za-z0-9])[A-Za-z]:[\\/]+Users[\\/]+(?<account>[^\\/\x00-\x1f"*:<>?|]{1,128})(?=[\\/"\x00]|$)'
-# Two or more backslashes that start a token, a host, separators, then a share. Not after a drive's colon: an escaped
-# drive path ("C:\\\\work\\\\demo") holds the same doubled backslashes, and the self-tests carry several.
-$script:UncRootPattern = [regex] '(?<![\\/:A-Za-z0-9])\\{2,}(?<host>[A-Za-z0-9][A-Za-z0-9._$-]{0,62})\\+(?<share>[A-Za-z0-9._$ -]{0,79}[A-Za-z0-9_$])'
+# one), Users, separators, then the account segment, which ends wherever an account character cannot follow: a
+# separator, a quote, any control byte, a character no file name may hold, or the end. The end was once a list (a
+# separator, a quote, NUL), so a profile root whose account segment met any other control byte, as the end of a field in
+# a binary record can, gave no finding (the review of N-bd-w13-contracts-1-02, measured under 5.1).
+$script:UserProfilePathPattern = [regex] '(?i)(?<![A-Za-z0-9])[A-Za-z]:[\\/]+Users[\\/]+(?<account>[^\\/\x00-\x1f"*:<>?|]{1,128})(?![^\\/\x00-\x1f"*:<>?|])'
+# Two or more backslashes that start a token, optionally the long form's "?\UNC\" (or "."), a host, separators, then a
+# share; or the forward-slash form, exactly "//host/share". Windows takes "\\?\UNC\host\share" and "//host/share" for the
+# same root as "\\host\share", and both once passed (same review). Not after a drive's colon: an escaped drive path
+# ("C:\\\\work\\\\demo") holds the same doubled backslashes, and the self-tests carry several. The colon also keeps a
+# URL ("https://host/x") clean. The forward form is held to single separators and refused after "+" because the DLL
+# bytes hold text that is not a path: measured on the committed zips on 2026-11-12, a looser "[\\/]{2,}...[\\/]+" form
+# flagged base64 image data in PetStudio ("+//91qP//..."), an iCalendar PRODID in Reminder ("-//Name//Product//EN")
+# and binary in AgentBroker.Worker ("///Q/e"); base64 puts only a letter, a digit, "+" or "/" before a "//".
+$script:UncRootPattern = [regex] '(?<![\\/:A-Za-z0-9])(?:\\{2,}(?:[?.]\\+UNC\\+)?(?<host>[A-Za-z0-9][A-Za-z0-9._$-]{0,62})\\+(?<share>[A-Za-z0-9._$ -]{0,79}[A-Za-z0-9_$])|(?<!\+)//(?<host>[A-Za-z0-9][A-Za-z0-9._$-]{0,62})/(?<share>[A-Za-z0-9._$ -]{0,79}[A-Za-z0-9_$]))'
 # STAND-INS. Module self-tests ship inside the module DLLs (each module's public static SelfTest), and their fixtures
 # hold profile and UNC paths as string literals, so the DLL bytes carry them: measured over the committed zips on
-# 2026-11-12, the accounts below in Remembrance, AiBrain, PetStudio, Fortunes and AgentFlow, the host below in
+# 2026-11-12, the accounts below in Remembrance, AiBrain, PetStudio, Fortunes and AgentFlow, the two shares below in
 # Remembrance and a .invalid host in AiBrain. None is a machine or a person. A host under .invalid (RFC 6761) can never
-# resolve. A new fixture that names any other account or host fails this check: rename it to one of these rather than
-# widening the list, which is the one place a real name could be waved through.
+# resolve. A new fixture that names any other account, host or share fails this check: rename it to one of these rather
+# than widening the list, which is the one place a real name could be waved through. The stand-in is the host AND the
+# share, not the host alone: a host-only entry waved through every share on a machine that happened to share its name
+# (same review).
 $script:BuildIdentityStandInAccounts = @('someone', 'x', "O'Brien")
-$script:BuildIdentityStandInHosts = @('server')
+$script:BuildIdentityStandInShares = @('server\home', 'server\share')
 
 function Find-BuildIdentityInText {
     param([AllowEmptyString()][string]$Text)
@@ -426,7 +437,8 @@ function Find-BuildIdentityInText {
     foreach ($match in $script:UncRootPattern.Matches($Text)) {
         $hostName = $match.Groups['host'].Value
         if ($hostName.EndsWith('.invalid', [StringComparison]::OrdinalIgnoreCase)) { continue }
-        if (@($script:BuildIdentityStandInHosts | Where-Object { $_ -ieq $hostName }).Count -gt 0) { continue }
+        $root = $hostName + '\' + $match.Groups['share'].Value
+        if (@($script:BuildIdentityStandInShares | Where-Object { $_ -ieq $root }).Count -gt 0) { continue }
         $kinds.Add('UNC root')
         break
     }
@@ -456,8 +468,12 @@ function Get-BuildIdentityFindings {
 
     $content = Get-EmbeddedPortablePdbContent -Image $Image
     $findings = New-Object 'Collections.Generic.List[string]'
-    # ANY Source Link record, not one whose map names a profile: every record this SDK writes maps the absolute folder
-    # the build ran in, so its presence is the finding. EnableSourceLink false is the cure (ModuleKit and Contracts).
+    # ANY Source Link record, not one whose map names a profile. A workstation build maps the absolute folder it ran in
+    # (outside PathMap's reach); only CI=true or DeterministicSourcePaths turns the key into a single /_/*, measured by
+    # the contracts lane on 2026-11-12, and the zips are built by packaging\New-ModulePublish.ps1, which no workflow
+    # runs, so CI is not set (src\Directory.Build.props sets ContinuousIntegrationBuild only under CI). Even the /_/*
+    # record names the repository and the commit. So its presence is the finding, and EnableSourceLink false is the cure (ModuleKit and
+    # Contracts).
     foreach ($record in $content.Records) {
         if ($record.Kind -eq $script:SourceLinkRecordKind) { $findings.Add('a Source Link record in the embedded PDB') }
     }
@@ -472,13 +488,37 @@ function Get-BuildIdentityFindings {
     foreach ($view in @(Get-ByteTextViews $Image)) {
         foreach ($kind in @(Find-BuildIdentityInText $view.Text)) { $findings.Add("a $kind in the DLL bytes ($($view.Encoding))") }
     }
-    $compilationOptions = @($content.Records | Where-Object { $_.ParentTag -eq 7 -and $_.Kind -eq $script:CompilationOptionsRecordKind }).Count
+    $languages = @(Get-CompilationOptionsLanguages -Records $content.Records)
     return [pscustomobject]@{
-        EmbeddedPdbCount          = $content.EmbeddedPdbCount
-        DocumentNames             = $content.DocumentNames
-        CompilationOptionsRecords = $compilationOptions
-        Findings                  = @($findings | Select-Object -Unique)
+        EmbeddedPdbCount            = $content.EmbeddedPdbCount
+        DocumentNames               = $content.DocumentNames
+        CompilationOptionsRecords   = $languages.Count
+        CompilationOptionsLanguages = $languages
+        Findings                    = @($findings | Select-Object -Unique)
     }
+}
+
+# The 'language' value of every module-level compilation options record, one entry per record ('' when the key is
+# missing). The value is NUL-separated UTF-8 key and value pairs. The SDK writes one such record into every portable
+# PDB, so for the C# assemblies this repository builds, one 'C#' per embedded PDB is what a correct read of the
+# CustomDebugInformation table returns: the WITNESS that the rows were not shifted by a misread width in one of the six
+# tables before it, which the synthetic image (Document and CustomDebugInformation only) cannot exercise. Measured over
+# the eight committed zips on 2026-11-12: one record per embedded PDB, keys version, compiler-version, language,
+# source-file-count, output-kind, optimization, platform, runtime-version, language-version and define.
+function Get-CompilationOptionsLanguages {
+    param([object[]]$Records)
+    $languages = New-Object 'Collections.Generic.List[string]'
+    foreach ($record in @($Records)) {
+        if ($null -eq $record -or $record.ParentTag -ne 7 -or $record.Kind -ne $script:CompilationOptionsRecordKind) { continue }
+        $pairs = [Text.Encoding]::UTF8.GetString([byte[]]$record.Value).Split([char]0)
+        $language = ''
+        for ($i = 0; ($i + 1) -lt $pairs.Length; $i += 2) {
+            if ($pairs[$i] -ceq 'language') { $language = $pairs[$i + 1]; break }
+        }
+        $languages.Add($language)
+    }
+    # Enumerated on output; the caller wraps the call in @(). See Read-PeDebugDirectoryEntries.
+    return $languages.ToArray()
 }
 
 # ---------------------------------------------------------------------------------------------------
@@ -618,9 +658,14 @@ function Test-BuildIdentityScan {
     $real = 'C:\Users\ExampleProfile\src\repo'
     $clean = @{ Documents = @('/_/src/Kit/A.cs'); Records = @(@{ Kind = $script:CompilationOptionsRecordKind; Text = "language`0C#" }) }
     # Name, PDB content, ASCII tail, UTF-16 tail, the findings wanted, and whether the UTF-16 tail sits at an odd offset.
+    # The last four legs are the pattern gaps the review of N-bd-w13-contracts-1-02 measured under 5.1, each one a leg
+    # the earlier patterns failed: an account segment ended by a control byte other than NUL, a forward-slash UNC root,
+    # the long form of a UNC root, and another share on the stand-in host. The clean control carries what the
+    # forward-slash rule must leave alone: a URL, and the base64, PRODID and binary shapes measured in the zips.
     $legs = @(
         @('the clean control, a mapped document and stand-in fixtures, is free of findings', $clean,
-          ('\\server.invalid\share\x \\server\home\a ' + $standIn), "C:\\Users\\O'Brien\\i.md \\.\pipe\x", @(), $false),
+          ('\\server.invalid\share\x \\server\home\a https://buildhost/drop/x +//91qP/x -//Owner//Product//EN ///Q/e ' + $standIn),
+          "C:\\Users\\O'Brien\\i.md \\.\pipe\x", @(), $false),
         @('a Source Link record is reported', @{ Documents = $clean.Documents; Records = @($clean.Records[0],
           @{ Kind = $script:SourceLinkRecordKind; Text = '{"documents":{"/_/*":"https://example.invalid/*"}}' }) },
           '', '', @('a Source Link record in the embedded PDB'), $false),
@@ -634,7 +679,15 @@ function Test-BuildIdentityScan {
         @('a user-profile path in the UTF-16 DLL bytes at an even offset is reported', $clean, '', ($real + '\B.cs'),
           @('a user-profile path in the DLL bytes (UTF-16)'), $false),
         @('a UNC root in the UTF-16 DLL bytes at an odd offset is reported', $clean, '', '\\buildhost\drop\B.cs',
-          @('a UNC root in the DLL bytes (UTF-16)'), $true)
+          @('a UNC root in the DLL bytes (UTF-16)'), $true),
+        @('a user-profile path whose account segment ends at a control byte is reported', $clean, ('C:\Users\ExampleProfile' + [char]0x0C), '',
+          @('a user-profile path in the DLL bytes (ASCII)'), $false),
+        @('a forward-slash UNC root in the ASCII DLL bytes is reported', $clean, '//buildhost/drop/B.cs', '',
+          @('a UNC root in the DLL bytes (ASCII)'), $false),
+        @('a long-form UNC root in the UTF-16 DLL bytes is reported', $clean, '', '\\?\UNC\buildhost\drop\B.cs',
+          @('a UNC root in the DLL bytes (UTF-16)'), $false),
+        @('a UNC root on the stand-in host under another share is reported', $clean, '\\server\builds\B.cs', '',
+          @('a UNC root in the DLL bytes (ASCII)'), $false)
     )
     $results = New-Object 'Collections.Generic.List[object]'
     foreach ($leg in $legs) {
