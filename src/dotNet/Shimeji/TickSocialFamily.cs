@@ -78,11 +78,12 @@ namespace DesktopAICompanion.Shimeji
             try
             {
                 string own = action.EvalString("Behavior", null, "");
-                mascot.SetBehaviour(world.BuildBehaviourByName(mascot.Type, own, mascot), "forced");
+                world.EnterBehaviourByName(mascot, mascot.Type, own, "forced");
                 if (target == null) throw new TickCantBeAliveException("there is no target to enter a behaviour", TickFaultCause.OfMissingScanTarget(action));
                 // ScanInteract reads TargetBehavior twice, once to test it and once to build it (ScanInteract.java:119-121).
                 if (!skipBlankTarget || !IsBlank(action.EvalString("TargetBehavior", null, ""), action, "TargetBehavior"))
-                    target.SetBehaviour(world.BuildBehaviourByName(target.Type, action.EvalString("TargetBehavior", null, ""), target), "partner");
+                    // A turned-off one drops the target in and enters Fall as `fallback`, not `partner` (EnterBehaviourByName).
+                    world.EnterBehaviourByName(target, target.Type, action.EvalString("TargetBehavior", null, ""), "partner");
                 if (action.EvalBool("TargetLook", null, false) && target.LookRight == mascot.LookRight)
                     target.LookRight = !mascot.LookRight;
             }
@@ -398,7 +399,7 @@ namespace DesktopAICompanion.Shimeji
             {
                 try
                 {
-                    Mascot.SetBehaviour(World.BuildBehaviourByName(Mascot.Type, EvalString("Behavior", null, ""), Mascot), "forced");
+                    World.EnterBehaviourByName(Mascot, Mascot.Type, EvalString("Behavior", null, ""), "forced");
                 }
                 catch (TickCantBeAliveException e)
                 {

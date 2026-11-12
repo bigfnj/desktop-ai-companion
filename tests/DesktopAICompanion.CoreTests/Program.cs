@@ -140,6 +140,7 @@ namespace DesktopAICompanion
                 Run("Tick social ScanInteract: on its last tick a non-blank Behavior enters both; a blank one blocks the target's", TestTickSocialScanInteractEnd);
                 Run("Tick social ScanInteract: Condition and Duration end it (policy:scaninteract-precedence)", TestTickSocialScanInteractPolicy);
                 Run("Tick social Interact: holds while two or more companions share its anchor", TestTickSocialInteract);
+                Run("Tick social fallback: a turned-off arrival or Interact behaviour falls in labelled fallback, ahead of partner", TestTickSocialFallbackCause);
                 Run("Tick social ComplexMove: Characteristics split exactly; it breeds (not while turning) and scans as named", TestTickSocialComplexMove);
                 Run("Tick social ComplexMove: arrival is guarded when scanning is off (policy:complexmove-guarded)", TestTickSocialComplexMovePolicy);
                 Run("Tick social ComplexMove: scanning, it ends when its target stops offering", TestTickSocialComplexMoveLost);
@@ -167,6 +168,9 @@ namespace DesktopAICompanion
                 Run("Tick settings defaults: lifecycle on, window actions off, a toggle its header default, anything else off", TestTickSettingsDefaults);
                 Run("Tick settings toggles: a turned-off toggle keeps its behaviour from being chosen or entered", TestTickSettingsToggleOff);
                 Run("Tick settings transform: a transformed companion reads its new type's switches", TestTickSettingsTransform);
+                Run("Tick settings retained state: a root candidate is filtered by the companion's current type's switches", TestTickSettingsRetainedRoot);
+                Run("Tick settings retained state: a next-list candidate is filtered by the companion's current type's switches", TestTickSettingsRetainedNext);
+                Run("Tick settings fallback: a turned-off behaviour entered by name falls in labelled fallback, an enabled one forced", TestTickSettingsFallbackCause);
                 Run("Tick settings rows: the pane offers only what the type uses", TestTickSettingsRows);
                 Run("Tick packs resolution: a member key resolves inside its own pack, never another pack's", TestTickPacksResolveInScope);
                 Run("Tick packs fallback: a missing member keeps the current type, one diagnostic per (type, reference)", TestTickPacksFallback);
