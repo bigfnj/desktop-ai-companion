@@ -75,11 +75,21 @@
          The SDK adds it by default, and its record inside the embedded PDB maps the checkout folder, by absolute
          path and outside PathMap's reach, to a raw URL carrying the commit, so every workstation build named the
          folder it was built in; ModuleKit's copy in every modules-dist zip did. A CI build maps that folder to /_/
-         and its record was clean, so the cost is automatic source fetch for an author stepping into this assembly
-         from a published package; the document names stay the repository-relative /_/src/.... Not
-         DeterministicSourcePaths on every build, which also gives a clean record (measured): that record still
-         carries the commit, so two commits with identical code build different bytes, the converter's reason.
-         CoreTests ("ModuleKit shipped symbols") fails on any Source Link record in this dll or ModuleKit's. -->
+         and its record is clean (measured with CI=true: one /_/* key), so what OFF costs is automatic source fetch
+         for an author stepping into this assembly from a published package, which release.yml packs in CI; the
+         document names stay the repository-relative /_/src/....
+         The alternative is Source Link ON with DeterministicSourcePaths on every build, which keeps that fetch and
+         gives a workstation build the same clean record (measured). It is not refused for the converter's reason
+         (N-bd-w13-review-01). The converter's dll carries no version stamp (GenerateAssemblyInfo false), so there
+         the commit in the record's URL would have made two commits with identical code build different bytes. This
+         library and ModuleKit already carry the full commit in AssemblyInformationalVersion and again in the
+         version resource's ProductVersion (the version, a plus sign and the commit, read back from Release builds
+         on SDK 10.0.302), so they differ per commit with Source Link on or off. What the alternative runs into is
+         two checks, each failing on ANY Source Link record, mapped or not: CoreTests ("ModuleKit shipped symbols")
+         reads this dll and ModuleKit's, and the build-identity scan in packaging/Test-ModulePublishFreshness.ps1
+         (N-bd-w13-contracts-1-02) reads the ModuleKit.dll in every modules-dist zip, none of which carries this
+         dll. So a mapped record would still be refused. Taking it means relaxing both to accept a record whose
+         only key is /_/*, and until that is decided this line stays OFF. -->
     <EnableSourceLink>false</EnableSourceLink>
   </PropertyGroup>
 

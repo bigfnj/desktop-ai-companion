@@ -48,14 +48,24 @@
       Symbols live INSIDE the dll, and there is no .snupkg. See the matching comment in
       DesktopAICompanion.Contracts.csproj for the full reasoning; the short version is that
       release.yml discards every '*.snupkg', so the separate symbol package was built and never
-      delivered, while the separate PDB left an absolute build path in the CodeView record.
+      delivered. The separate PDB's CodeView record is no reason to embed (N-bd-w13-review-01): it
+      named an absolute build path only while unmapped, and PathMap alone rewrites it. Measured on
+      SDK 10.0.302, a separate-PDB build with the PathMap below names
+      /_/src/DesktopAICompanion.ModuleKit/obj/.../DesktopAICompanion.ModuleKit.pdb in that record.
+      Embedding costs about 14 KB on the dll (61,952 bytes against 47,616 for the separate-PDB
+      build, measured 2026-11-12).
 
-      It matters more here than for Contracts: ModuleKit is copied into all six modules-dist\*.zip,
-      so that path shipped in every published module payload rather than only in the release.
-      +14 KB on the assembly, which is the whole cost.
+      A build path in these symbols matters more here than for Contracts: ModuleKit is copied into
+      every modules-dist\*.zip and Contracts into none, so a path in its symbols ships in every
+      published module payload rather than only in the release.
 
-      Do not re-add IncludeSymbols alongside this: `dotnet pack` fails NU5017 when the symbol
-      package has nothing to carry.
+      Do not re-add IncludeSymbols alongside this. Measured on SDK 10.0.302 with the pair this project
+      set before embedding, IncludeSymbols and SymbolPackageFormat=snupkg (passed on the command line,
+      since nothing in the repo sets either now), `dotnet pack` here does not fail NU5017 as Contracts
+      does: the symbol package's nuspec repeats the dependency on DesktopAICompanion.Contracts, which
+      satisfies NuGet's no-dependencies-nor-content check, so pack succeeds and writes a .snupkg
+      holding no symbols at all, which release.yml would then discard. With IncludeSymbols alone the
+      symbol package takes NuGet's default format, and what pack writes then was not measured.
 
       What embedding did NOT remove (RA-208, 2026-10-01): the document table INSIDE the embedded PDB
       named every source file by the maintainer's absolute path, fifteen D:\...\src\...\*.cs strings in
@@ -67,7 +77,7 @@
     -->
     <DebugType>embedded</DebugType>
     <PathMap>$(MSBuildProjectDirectory)=/_/src/DesktopAICompanion.ModuleKit</PathMap>
-    <!-- Source Link OFF (N-bd-w12-converter-1-01); the reasoning and the rejected alternative are beside the same
+    <!-- Source Link OFF (N-bd-w12-converter-1-01); the trade-off and the alternative not taken are beside the same
          line in DesktopAICompanion.Contracts.csproj. Here it is the record that reached users: the SDK's default
          Source Link record maps the absolute checkout folder, outside PathMap's reach, and this dll ships in every
          modules-dist zip. CoreTests ("ModuleKit shipped symbols") fails on any Source Link record. -->
