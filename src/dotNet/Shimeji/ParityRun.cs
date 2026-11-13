@@ -1855,20 +1855,11 @@ namespace DesktopAICompanion.Shimeji
                 return 2;
             }
             byte[] scenarioBytes = scenarioFile.Bytes;
-            // K5 "read" (Codex, 2026-11-13: scenario file I/O AND UTF-8 decode failure). The bytes are decoded strictly
-            // before JSON parsing, so invalid UTF-8 anywhere in the file is this read diagnostic, exit 2 and no trace. Left
-            // to JsonDocument.Parse, the same bytes became a syntax diagnostic, a schema-string or scenario-invalid
-            // refusal, a run error, or nothing at all when they sat in a string the run never decodes, depending on where
-            // they were. A byte order mark decodes (to U+FEFF) and stays the parser's to judge.
-            try
-            {
-                StrictUtf8.GetCharCount(scenarioBytes);
-            }
-            catch (DecoderFallbackException e)
-            {
-                log.WriteLine(ScenarioInputUnreadableLine("read", "refused " + scenarioPath + ": the scenario cannot be read: it is not UTF-8: " + e.Message));
-                return 2;
-            }
+            // No whole-file strict UTF-8 decode before the parse (Codex's correction of round 5, 2026-11-13, b49851f2): it
+            // was a new validator, and it refused no-candidate legacy files the old reader accepts, such as an invalid byte
+            // inside a string the run never decodes (signed revision H :49). K5's detail names the operation that actually
+            // failed: the file read is read, the parse below is syntax, a guarded string getter is schema-string or string.
+            // A raw invalid byte does not by itself select read, and no decoder is added only to obtain that detail.
             // N-bd-w10-shimeji-host-1-01: a scenario that is not JSON, lacks a field or holds one the run cannot read is
             // scenario-invalid (CONTRACT sections 1 and 6), refused here with exit 2, its line and no trace, before the
             // pets and the pack are read. The oracle refuses the same scenario before it writes anything (oracle.py v1_run
@@ -1991,9 +1982,6 @@ namespace DesktopAICompanion.Shimeji
         /// so an adopted respelling is a one-line change.
         /// </summary>
         internal const string ScenarioInputUnreadable = "scenario-input-unreadable";
-
-        /// <summary>UTF-8 that throws on an invalid byte sequence instead of decoding it as U+FFFD: K5's read check.</summary>
-        private static readonly UTF8Encoding StrictUtf8 = new UTF8Encoding(false, true);
 
         /// <summary>The K5 line: the token and its detail IN FRONT of the line the run wrote before, which follows byte for
         /// byte, so every existing reader of that line still finds it and a checker finds the token at the start.</summary>

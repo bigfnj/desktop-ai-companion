@@ -7995,11 +7995,11 @@ command's branch of `Main` has no outer catch. One guarded read per site rather 
 site has its own mutant. `PackFolderOf` catches only the pack value's decode failure and treats it as no usable pack
 folder (H :45); the run then refuses the scenario by its existing line. Refused: a new refusal for any input the run
 accepted before (a surrogate imageSet or timeline sid still ends the run in error, as it did), and a detail beyond the
-three Codex agreed. One exception, by Codex's definition of read (scenario file I/O and UTF-8 decode failure): the
-scenario bytes are decoded strictly before JSON parsing, so invalid UTF-8 anywhere in the file is "scenario-input-unreadable
-read: refused <path>: the scenario cannot be read: it is not UTF-8: ...", exit 2 and no trace, including bytes in a string
-no reader decodes, which the run used to accept. Left to the parser, the same bytes became syntax, schema-string,
-scenario-invalid, a run error or nothing, depending on where they sat. A byte order mark decodes and stays the parser's.
+three Codex agreed. Refused, and reverted: a whole-file strict UTF-8 decode before the parse, which round 5 added so that
+invalid UTF-8 anywhere would be "read". Codex corrected that request (2026-11-13, b49851f2): it was a new validator that
+refused no-candidate legacy files the old reader accepts (an invalid byte inside a string the run never decodes ran to a
+complete trace at the base, H :49), and K5's detail names the operation that actually failed, so a raw invalid byte does
+not by itself select read and no decoder is added only to obtain that detail. Such a file runs as at the base again.
 
 **An abort after a reconciliation failure ends in error and logs its incomplete coverage (Codex Q-e, 2026-11-13).** A
 scenario-invalid edge that aborts a run whose ledger already failed keeps its diagnostic and the refusal's exit 2, and the

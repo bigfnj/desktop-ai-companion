@@ -26345,14 +26345,16 @@ CASES = (
      HOST_CSPROJ, EXE,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
      'parity proof: window carry with WindowActions on reconciles its moves, traced and trace-off ('),
-    # Fix 3: K5 read covers UTF-8 decode failure (Codex). A lenient decoder lets the byte through to the parser.
-    ('bd-host-policy-1: input invalid UTF-8 decoded leniently before the parse',
+    # Round 6 (brief section 20, Codex's correction b49851f2): round 5's whole-file strict UTF-8 prepass is reverted, and
+    # its case with it. This one re-adds a strict decode of the scenario bytes before the parse, the prepass's shape, so
+    # the legacy file with an invalid byte in a string no reader decodes no longer runs as at the base.
+    ('bd-host-policy-1: input whole-file strict UTF-8 decode before the parse',
      os.path.join(REPO, "src", "dotNet", "Shimeji", 'ParityRun.cs'),
-     b'        private static readonly UTF8Encoding StrictUtf8 = new UTF8Encoding(false, true);\n',
-     b'        private static readonly UTF8Encoding StrictUtf8 = new UTF8Encoding(false, false);\n',
+     b'                doc = JsonDocument.Parse(scenarioBytes);\n',
+     b'                new UTF8Encoding(false, true).GetCharCount(scenarioBytes);\n                doc = JsonDocument.Parse(scenarioBytes);\n',
      HOST_CSPROJ, EXE,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
-     'parity policy: invalid UTF-8 in a string no reader decodes gives the named read diagnostic, exit 2, no trace ('),
+     "parity policy: invalid UTF-8 in a string no reader decodes runs as at the base, exit 0, the plain run's records ("),
     # Codex Q-c: the loaded-engine line at the core run's entry, so a refused run names its engine; the output claim
     # keeps its precedence, so a refusal there names none.
     ('bd-host-policy-1: policy refused run omits the loaded-engine line, scenario-invalid',

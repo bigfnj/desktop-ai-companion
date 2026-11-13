@@ -325,16 +325,19 @@ namespace DesktopAICompanion.Shimeji
                   && named(syntax, ParityRun.ScenarioInputUnreadable + " syntax: refused " + syntax[3] + ": scenario-invalid: the scenario is not JSON: "),
                 "parity policy: the read fault and the syntax fault carry the token (" + said(absent) + " | " + said(syntax) + ")");
 
-            // K5 read covers UTF-8 decode failure (Codex): one 0xFF byte inside the description, a string no reader decodes,
-            // which JsonDocument.Parse alone let through to a complete run.
+            // Codex's correction of round 5 (2026-11-13): no whole-file strict UTF-8 prepass, so one 0xFF byte inside the
+            // description, a string no reader decodes, runs as it did at the base: exit 0 and a complete trace, the plain
+            // run's records after the header (signed revision H :49, a legacy file the old reader accepts stays accepted).
             byte[] badBytes = new UTF8Encoding(false).GetBytes(plainText.Replace("\"description\":\"generated\"", "\"description\":\"gen#rated\""));
             int hash = Array.IndexOf(badBytes, (byte)'#');
             badBytes[hash] = 0xFF;
             File.WriteAllBytes(Path.Combine(root, "S-input-utf8.json"), badBytes);
             string[] utf8 = run("S-input-utf8", null);
-            check(hash > 0 && Array.LastIndexOf(badBytes, (byte)'#') < 0
-                  && named(utf8, ParityRun.ScenarioInputUnreadable + " read: refused " + utf8[3] + ": the scenario cannot be read: it is not UTF-8: "),
-                "parity policy: invalid UTF-8 in a string no reader decodes gives the named read diagnostic, exit 2, no trace (" + said(utf8) + ")");
+            string[] utf8Plain = run("S-input-utf8-plain", plainText);
+            Func<string, string> afterHeader = t => t == null || t.IndexOf('\n') < 0 ? null : t.Substring(t.IndexOf('\n') + 1);
+            check(hash > 0 && Array.LastIndexOf(badBytes, (byte)'#') < 0 && utf8[0] == "0" && utf8Plain[0] == "0" && utf8[1] != null
+                  && utf8[1].Contains("\"status\":\"complete\"") && afterHeader(utf8[1]) != null && afterHeader(utf8[1]) == afterHeader(utf8Plain[1]),
+                "parity policy: invalid UTF-8 in a string no reader decodes runs as at the base, exit 0, the plain run's records (" + said(utf8) + ")");
 
             // A pack value with an unpaired surrogate: no usable pack folder at the claim (no exception there), and the run
             // still refuses the scenario by its own scenario-invalid line.
