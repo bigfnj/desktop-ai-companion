@@ -33,6 +33,7 @@ namespace DesktopAICompanion.Shimeji
                 CheckParityBuildRevision(check, Path.Combine(scratch, "parity-revision"));
                 CheckParityErrors(check);
                 CheckParityMapSound(check, Path.Combine(scratch, "parity-sound"));
+                CheckParityMuteTrace(check);
             }
             catch (Exception e)
             {
@@ -708,6 +709,334 @@ namespace DesktopAICompanion.Shimeji
             catch (Exception e)
             {
                 check(false, "parity map/3: the sound reader checks ran without an exception: " + e);
+            }
+        }
+
+        // ---- burndown/host-mute-1 commit 5a: the trace writer's Mute dispositions (CONTRACT v1.4 P2-C, FC-2, FC-3, FC-6) ----
+
+        private const string ParMuteAction = "Mu|conf/actions.xml|/Mascot[1]/ActionList[1]/Action[";
+
+        /// <summary>The Mute fixture: Go (behaviour 10) runs the sequence Go (20) of Hush (30, an Embedded Mute holding
+        /// <paramref name="own"/>) then Stand (31, Stay 50, one pose), and child 20:0, the reference to Hush, binds
+        /// <paramref name="incoming"/> when given. Starting a companion in Go initialises Hush, which reads Sound once.</summary>
+        private static XmlData.RootNode ParMuteDocument(XmlData.BindNode[] incoming, params XmlData.ParamNode[] own)
+        {
+            var still = new XmlData.MovingNode { X = "0", Y = "0", Interval = "40" };
+            Func<int, string, XmlData.AnimationNode> node = (id, name) => new XmlData.AnimationNode
+            {
+                Id = id, Name = name, Start = still, End = still,
+                Sequence = new XmlData.SequenceNode { RepeatCount = "0", Next = new XmlData.NextNode[0] },
+            };
+            XmlData.AnimationNode route = node(1, "route");
+            route.Route = new XmlData.RouteNode();
+            route.Sequence.Next = new[] { new XmlData.NextNode { Value = 10, Probability = 1 } };
+            XmlData.AnimationNode go = node(10, "beh:Go");
+            go.Behaviour = new XmlData.BehaviourNode { Name = "Go", Runs = "Go", Frequency = 1 };
+            XmlData.AnimationNode sequence = node(20, "Go");
+            sequence.Act = new XmlData.ActNode
+            {
+                Type = "Sequence",
+                Children = new XmlData.ChildrenNode
+                {
+                    Mode = "sequence",
+                    Child = new[] { new XmlData.CompositeChildNode { Animation = "Hush", Bind = incoming }, new XmlData.CompositeChildNode { Animation = "Stand" } },
+                },
+            };
+            XmlData.AnimationNode hush = node(30, "Hush");
+            hush.Act = new XmlData.ActNode { Type = "Embedded", Class = "Mute", Params = own.Length == 0 ? null : own };
+            XmlData.AnimationNode stand = node(31, "Stand");
+            stand.Act = new XmlData.ActNode
+            {
+                Type = "Stay", Border = "Floor",
+                Params = new[] { new XmlData.ParamNode { Name = "Duration", Value = "50", Cache = "none" } },
+                Variants = new XmlData.VariantsNode { Variant = new[] { new XmlData.VariantNode { Pose = new[] { new XmlData.PoseNode { Frame = 0, Ticks = 1 } } } } },
+            };
+            return new XmlData.RootNode
+            {
+                Header = new XmlData.HeaderNode { Title = "Mu", Features = "tick actions behaviours expressions", Clock = "tick" },
+                Image = new XmlData.ImageNode
+                {
+                    TilesX = 2, TilesY = 1, Png = PngHeader(128, 64),
+                    AnchorX = 32, AnchorXSpecified = true, AnchorY = 64, AnchorYSpecified = true,
+                },
+                Animations = new XmlData.AnimationsNode { Animation = new[] { route, go, sequence, hush, stand } },
+            };
+        }
+
+        /// <summary>A map/3 for <see cref="ParMuteDocument"/>, <paramref name="soundRows"/> its raw soundParameters.</summary>
+        private static string ParMuteMap(string soundRows)
+        {
+            return "{\"schema\":" + JsonLine.Quote(ParityMap.Schema) + ",\"imageSet\":\"Mu\","
+                + "\"frames\":[{\"frame\":0,\"image\":\"img/Mu/a.png\"},{\"frame\":1,\"image\":\"img/Mu/b.png\"}],"
+                + "\"actions\":{\"20\":" + JsonLine.Quote(ParMuteAction + "1]") + ",\"30\":" + JsonLine.Quote(ParMuteAction + "2]") + ",\"31\":" + JsonLine.Quote(ParMuteAction + "3]") + "},"
+                + "\"children\":{\"20:0\":" + JsonLine.Quote(ParMuteAction + "1]/ActionReference[1]") + ",\"20:1\":" + JsonLine.Quote(ParMuteAction + "1]/ActionReference[2]") + "},"
+                + "\"behaviours\":{\"10\":" + JsonLine.Quote("Mu|conf/behaviors.xml|/Mascot[1]/BehaviorList[1]/Behavior[1]") + "},"
+                + "\"sourceNames\":{},\"poses\":{\"31:0:0\":" + ParPoseValue("Mu", 3, 1, 1) + "},\"soundParameters\":" + soundRows + "}";
+        }
+
+        /// <summary>A soundParameters row for Hush's own Sound (action 30) or, with <paramref name="child"/>, child 20:0's
+        /// bind: literal (cache none) when <paramref name="source"/> is given, else evaluated with <paramref name="cache"/>.</summary>
+        private static string ParMuteRow(string emitted, string source, string sourceKind, string cache = "none", bool child = false)
+        {
+            return "{\"kind\":" + (child ? "\"child\",\"nodeId\":20,\"childIndex\":0" : "\"action\",\"nodeId\":30") + ",\"sourceRefKey\":"
+                + JsonLine.Quote(ParMuteAction + (child ? "1]/ActionReference[1]" : "2]")) + ",\"emittedValue\":" + JsonLine.Quote(emitted)
+                + ",\"emittedCache\":" + JsonLine.Quote(source == null ? cache : "none") + ",\"mode\":"
+                + (source == null ? "\"evaluated\"" : "\"literal\",\"sourceValue\":" + JsonLine.Quote(source) + ",\"sourceKind\":" + JsonLine.Quote(sourceKind)) + "}";
+        }
+
+        /// <summary>A scenario desktop with the global Sounds setting on or off.</summary>
+        private static TickWorld ParMuteWorld(ITickObserver observer, bool soundsOn, ITickRandom random)
+        {
+            using (JsonDocument doc = JsonDocument.Parse("{\"screens\":[{\"x\":0,\"y\":0,\"w\":1280,\"h\":720}],\"workArea\":{\"x\":0,\"y\":0,\"w\":1280,\"h\":680},"
+                + "\"rng\":{\"kind\":\"none\"},\"settings\":{\"Sounds\":" + (soundsOn ? "true" : "false") + "}}"))
+            {
+                JsonElement s = doc.RootElement;
+                return new TickWorld(new ParityEnvironment(s), random ?? new ParityRandom(s.GetProperty("rng")), new ParitySettings(s), observer);
+            }
+        }
+
+        /// <summary>An ITickRandom that counts every draw (control 7).</summary>
+        private sealed class ParCountingRandom : ITickRandom
+        {
+            public int Draws;
+            public double Next() { Draws++; return 0.5; }
+        }
+
+        /// <summary>One <see cref="ParMuteRun"/>, for a leg's hooks: the world, the compiled Mu, m1, the writer and the
+        /// applied map (null for none).</summary>
+        private sealed class ParMute
+        {
+            public TickWorld World;
+            public TickType Type;
+            public TickMascot Mascot;
+            public ParityTraceWriter Writer;
+            public ParityMap Map;
+            public bool TraceOff;
+
+            /// <summary>More Mute reads on m1 at <paramref name="tick"/>: Hush built for <paramref name="owner"/> (Mu when
+            /// null), or with no owner type at all, a local Sound put first when <paramref name="local"/> has a value, then
+            /// initialised <paramref name="times"/> times (each Init reads Sound once).</summary>
+            public void Again(int tick, ScriptValue? local = null, TickType owner = null, bool noOwner = false, int times = 1)
+            {
+                Writer.Tick = tick;
+                TickAction hush = noOwner ? TickInstantFamily.TryCreate(World, Type, Type.ActionsById[30], null) : World.BuildAction(owner ?? Type, "Hush", null);
+                if (local.HasValue) hush.Vars.Put("Sound", local.Value);
+                for (int i = 0; i < times; i++) hush.Init(Mascot);
+            }
+
+            /// <summary>A pose provenance fault at <paramref name="tick"/>: m1 shows a pose of Old, a member the writer has no
+            /// map for, and the writer forms the tick's states (a trace-off writer forms them once, at the end).</summary>
+            public void PoseFault(int tick)
+            {
+                TickType old = TickType.Compile("Old", ParDocument(false));
+                Writer.Tick = tick;
+                Mascot.ApplyPose(old.ActionsById[30].Variants[0].Poses[0], old);
+                Writer.States(World);
+                if (TraceOff) Writer.FinalStates(World);
+            }
+        }
+
+        /// <summary>
+        /// One Mute leg through the engine and this lane's writer: compiles <paramref name="document"/> as Mu, applies
+        /// ParMuteMap(<paramref name="soundRows"/>) to it (null: the writer has no map for Mu; with
+        /// <paramref name="foreignMap"/> the map is applied to a second compile of the same document, so it binds no
+        /// definition the engine reads), runs <paramref name="before"/>, starts m1 in Go (one Mute read), runs
+        /// <paramref name="after"/>, and ends through ParityRun.Finish. Gives the trace, the log and the exit code.
+        /// </summary>
+        private static string[] ParMuteRun(XmlData.RootNode document, string soundRows, bool soundsOn, Action<ParMute> after = null, bool traceOff = false,
+            ITickRandom random = null, ParityRandom finishRandom = null, bool foreignMap = false, Action<ParMute> before = null)
+        {
+            var mute = new ParMute { Type = TickType.Compile("Mu", document), TraceOff = traceOff };
+            var maps = new Dictionary<string, ParityMap>(StringComparer.Ordinal);
+            if (soundRows != null)
+            {
+                mute.Map = ParityMap.Parse(ParMuteMap(soundRows));
+                mute.Map.Apply(foreignMap ? TickType.Compile("Mu", document) : mute.Type, document);
+                maps["Mu"] = mute.Map;
+            }
+            var trace = new StringWriter { NewLine = "\n" };
+            mute.Writer = new ParityTraceWriter(trace, maps, traceOff);
+            mute.World = ParMuteWorld(mute.Writer, soundsOn, random);
+            mute.World.AddType(mute.Type);
+            mute.World.Start();
+            if (before != null) before(mute);
+            mute.Mascot = mute.World.CreateAtStart("m1", mute.Type, new TickPoint(640, 680), false, "Go");
+            if (after != null) after(mute);
+            var log = new StringWriter { NewLine = "\n" };
+            int exit = ParityRun.Finish(mute.Writer, 1, "complete", finishRandom, log);
+            return new[] { trace.ToString(), log.ToString(), exit.ToString(CultureInfo.InvariantCulture) };
+        }
+
+        /// <summary>
+        /// burndown/host-mute-1 commit 5a, the host half of N-bd-codex-converter-1-02: the trace writer's Mute dispositions
+        /// (CONTRACT v1.4 revision 3: P2-C, FC-2 steps 1-3, FC-3 and FC-6). Every leg drives a real Mute read through the
+        /// engine into a ParityTraceWriter (<see cref="ParMuteRun"/>) and ends through ParityRun.Finish, so the read record,
+        /// the activation and the winning definition object are the engine's own. Each leg's outcome (exit code, every mute
+        /// line's clip as written, every log line) is declared here, never derived from the run. Never calls
+        /// ParityTraceWriter.Header (critique D2). Its own try, so an exception here hides no other check. C18's
+        /// observation-exception probes and the FC-2 catches are commit 5b.
+        /// </summary>
+        private static void CheckParityMuteTrace(Action<bool, string> check)
+        {
+            try
+            {
+                Func<string, string, XmlData.ParamNode> sound = (value, cache) => new XmlData.ParamNode { Name = "Sound", Value = value, Cache = cache };
+                Func<string, string, XmlData.RootNode> own = (value, cache) => ParMuteDocument(null, sound(value, cache));
+                Func<string[], string> outcome = run =>
+                {
+                    var clips = new List<string>();
+                    foreach (string line in Lines(run[0], "\"kind\":\"mute\""))
+                        clips.Add(line.Substring(line.IndexOf("\"clip\":", StringComparison.Ordinal) + 7).TrimEnd('}'));
+                    return "exit " + run[2] + ", mute [" + string.Join("|", clips) + "], log [" + OneLine(run[1]) + "]";
+                };
+                Func<string, string, string, string> declared = (exit, clips, logLines) => "exit " + exit + ", mute [" + clips + "], log [" + logLines + "]";
+                var faults = new List<string>();
+                Action<string, string, string> leg = (name, got, want) => { if (got != want) faults.Add(name + ": " + got + " (declared " + want + ")"); };
+                Action<string, int> label = (text, legs) =>
+                {
+                    check(faults.Count == 0, text + " (" + (faults.Count == 0 ? legs + " legs as declared" : string.Join("; ", faults)) + ")");
+                    faults.Clear();
+                };
+                const string info = " (information)";
+
+                // P2-C's qualified literal (controls 2, 5, 16, W1, W8; C1's first half): a literal row with sourceKind string
+                // writes its authored text, whatever the engine compiled and displays: /1 and /0X1P1 compile as Numbers, /true,
+                // TRUE and False as Booleans, and /, a backslash, one space and the empty string all emit "". No information.
+                string nbsp = ((char)0xA0).ToString();
+                string[] literals = { "to", "/TO", "1", "/1", "true", "/true", "0x1p1", "/0X1P1", "1", nbsp + "1", "true", "TRUE", "false", "False",
+                    "null", "null", "", "", "", " ", "", "/", "", "\\" };
+                for (int i = 0; i < literals.Length; i += 2)
+                    leg(JsonLine.Quote(literals[i + 1]), outcome(ParMuteRun(own(literals[i], "none"), "[" + ParMuteRow(literals[i], literals[i + 1], "string") + "]", true)),
+                        declared("0", JsonLine.Quote(literals[i + 1]), ""));
+                label("parity mute: a qualified String literal writes its source spelling, not the engine's text", literals.Length / 2);
+
+                // The other literal rows (controls 1, 3, 4, W7): the engine's own text, and MUTE_VALUE_NOT_STRING by the row's
+                // sourceKind, never by the compiled kind (lowered Infinity, -Infinity and NaN compile as Strings and still log
+                // literal number; 0x1p1 writes the engine's 2). Status complete, exit 0, no parity trace line.
+                string[] numbers = { "1", " 1", "number", "\"1\"", "infinity", "Infinity", "number", "\"infinity\"", "-infinity", "-Infinity", "number", "\"-infinity\"",
+                    "nan", "NaN", "number", "\"nan\"", "0x1p1", "0x1p1", "number", "\"2\"", "true", "true", "boolean", "\"true\"" };
+                for (int i = 0; i < numbers.Length; i += 4)
+                    leg(numbers[i + 1], outcome(ParMuteRun(own(numbers[i], "none"), "[" + ParMuteRow(numbers[i], numbers[i + 1], numbers[i + 2]) + "]", true)),
+                        declared("0", numbers[i + 3], "MUTE_VALUE_NOT_STRING tick 0 m1: literal " + numbers[i + 2] + info));
+                label("parity mute: a number or boolean literal writes the engine's text and logs MUTE_VALUE_NOT_STRING as information", numbers.Length / 4);
+
+                // Evaluated rows (control 10): a String is forwarded with no claim; a Number or a Boolean writes the engine's text
+                // and logs MUTE_VALUE_NOT_STRING by the captured kind, which display text cannot tell ('1' and 1 both display
+                // 1). Frame-cached rows behave the same. No Point leg: no Point-valued Sound fixture exists here yet.
+                string[] evaluated = { "'1'", "action", "\"1\"", "", "1", "action", "\"1\"", "evaluated number", "true", "action", "\"true\"", "evaluated boolean",
+                    "'1'", "frame", "\"1\"", "", "1", "frame", "\"1\"", "evaluated number" };
+                for (int i = 0; i < evaluated.Length; i += 4)
+                    leg(evaluated[i] + " " + evaluated[i + 1], outcome(ParMuteRun(own(evaluated[i], evaluated[i + 1]), "[" + ParMuteRow(evaluated[i], null, null, evaluated[i + 1]) + "]", true)),
+                        declared("0", evaluated[i + 2], evaluated[i + 3].Length == 0 ? "" : "MUTE_VALUE_NOT_STRING tick 0 m1: " + evaluated[i + 3] + info));
+                label("parity mute: an evaluated String is forwarded and an evaluated Number or Boolean is not a String", evaluated.Length / 4);
+
+                // A reported fault is orthogonal (control 6 with its ${Sound} fallback and ${Foo}, Q2, Q1b): the engine's value and
+                // branch are written as they are (null for a self-reference or an unbound name, x and 1 where a nested fault
+                // still yields a value), the engine's error event comes first, MUTE_VALUE_FAULTED is logged once per read, and
+                // the status stays complete. With Sounds off the null read writes no line and still logs it, once per read.
+                string faulted = "MUTE_VALUE_FAULTED tick 0 m1" + info;
+                Func<string, bool, Action<ParMute>, string[]> faultRun = (value, on, after) => ParMuteRun(own(value, "action"), "[" + ParMuteRow(value, null, null, "action") + "]", on, after);
+                string[] selfRead = faultRun("Sound", true, null);
+                int errorAt = selfRead[0].IndexOf("\"kind\":\"error\"", StringComparison.Ordinal), muteAt = selfRead[0].IndexOf("\"kind\":\"mute\"", StringComparison.Ordinal);
+                leg("${Sound}", outcome(selfRead) + (errorAt >= 0 && errorAt < muteAt ? "" : ", no error event before the mute"), declared("0", "null", faulted));
+                leg("${Foo}", outcome(faultRun("Foo", true, null)), declared("0", "null", faulted));
+                leg("Q2 x", outcome(faultRun("Sound == null ? 'x' : 'y'", true, null)), declared("0", "\"x\"", faulted));
+                leg("Q2 1", outcome(faultRun("Sound == null ? 1 : 2", true, null)), declared("0", "\"1\"", faulted + " | MUTE_VALUE_NOT_STRING tick 0 m1: evaluated number" + info));
+                leg("Q1b", outcome(faultRun("Sound", false, m => m.Again(0, times: 2))), declared("0", "", faulted + " | " + faulted + " | " + faulted));
+                label("parity mute: a faulted read writes the engine's value as passed, logs MUTE_VALUE_FAULTED and keeps status complete", 5);
+
+                // An absent Sound (B4; Q3's positive contrasts): the existing null branch, mute null with Sounds on and no line
+                // with Sounds off, needing no owner map and claiming nothing, so no defect either way.
+                leg("on, no map", outcome(ParMuteRun(ParMuteDocument(null), null, true)), declared("0", "null", ""));
+                leg("off, no map", outcome(ParMuteRun(ParMuteDocument(null), null, false)), declared("0", "", ""));
+                leg("on, map", outcome(ParMuteRun(ParMuteDocument(null), "[]", true)), declared("0", "null", ""));
+                label("parity mute: an absent Sound writes null with Sounds on and no line with Sounds off, with or without an owner map", 3);
+
+                // An evaluated null with no fault (B4): the null branch as it is, and no MUTE_VALUE_FAULTED.
+                string nullRows = "[" + ParMuteRow("null", null, null, "action") + "]";
+                leg("on", outcome(ParMuteRun(own("null", "action"), nullRows, true)), declared("0", "null", ""));
+                leg("off", outcome(ParMuteRun(own("null", "action"), nullRows, false)), declared("0", "", ""));
+                label("parity mute: an evaluated null without a fault writes null with Sounds on, nothing with Sounds off, and no MUTE_VALUE_FAULTED", 2);
+
+                // P2-C's provenance defects (C11, Q1a, Q3; FC-2 steps 1-3): no mute line for that read, no information at all,
+                // the named MUTE_PROVENANCE_MISSING as a parity trace line, status error and exit 1. Each reason is declared.
+                // These legs' literal is authored as emitted ("to"), so only the qualified-literal label sees a writer that
+                // writes the emitted value.
+                string literalRows = "[" + ParMuteRow("to", "to", "string") + "]";
+                Func<int, string, string> missing = (tick, reason) => "parity trace: MUTE_PROVENANCE_MISSING tick " + tick + " m1: " + reason;
+                const string localReason = "Sound is a local the action published, which no map row binds";
+                const string noOwnerReason = "the Mute action has no owner type to find a map by";
+                leg("local", outcome(ParMuteRun(own("to", "none"), literalRows, true, m => m.Again(3, ScriptValue.FromString("x")))),
+                    declared("1", "\"to\"", missing(3, localReason)));
+                leg("local null, Sounds off", outcome(ParMuteRun(own("to", "none"), literalRows, false, m => m.Again(3, ScriptValue.Null))),
+                    declared("1", "\"to\"", missing(3, localReason)));
+                leg("no owner type", outcome(ParMuteRun(own("to", "none"), literalRows, true, m => m.Again(3, noOwner: true))),
+                    declared("1", "\"to\"", missing(3, noOwnerReason)));
+                leg("no owner map", outcome(ParMuteRun(own("Sound == null ? 1 : 2", "action"), null, true)), declared("1", "", missing(0, "member Mu has no parity map")));
+                leg("unbound definition, Sounds off", outcome(ParMuteRun(own("null", "action"), nullRows, false, foreignMap: true)),
+                    declared("1", "", missing(0, "the Sound definition read is bound to no soundParameters row of member Mu")));
+                leg("inconsistent row", outcome(ParMuteRun(own("Sound == null ? 1 : 2", "action"), "[" + ParMuteRow("Sound == null ? 1 : 2", null, null, "action") + "]", true,
+                        before: m =>
+                        {
+                            ParityMap.SoundRow r = m.Map.SoundRows[0];
+                            r.Mode = "literal";
+                            r.SourceValue = "1";
+                            r.SourceKind = "number";
+                        })),
+                    declared("1", "", missing(0, "soundParameters row 0 is literal, but the Sound definition read compiles with cache action")));
+                leg("literal row lacking sourceValue", outcome(ParMuteRun(own("to", "none"), literalRows, true, before: m => m.Map.SoundRows[0].SourceValue = null)),
+                    declared("1", "", missing(0, "soundParameters row 0 is literal with no sourceValue or sourceKind")));
+                label("parity mute: a provenance defect writes no line and no information and ends the run in error (local, no owner, no map, unbound, inconsistent or incomplete row)", 7);
+
+                // Control 12 and FC-3: a pose provenance fault at tick 2 holds ProvenanceFault, and a Mute provenance defect at
+                // tick 5 (a Mute with no owner type) is still logged, as the first Mute fault; status error, exit 1. Judged by
+                // the exit code and the log alone: the defect read's withheld line is the provenance label's.
+                string[] both = ParMuteRun(own("to", "none"), literalRows, true, m => { m.PoseFault(2); m.Again(5, noOwner: true); });
+                leg("pose then Mute", "exit " + both[2] + ", log [" + OneLine(both[1]) + "]",
+                    "exit 1, log [parity trace: tick 2 m1: applied pose has no source binding (member Old, which has no parity map) | " + missing(5, noOwnerReason) + "]");
+                label("parity mute: a pose fault then a Mute fault logs both parity trace lines (control 12, FC-3)", 1);
+
+                // W5, the retained owner: a Mute built for Mu runs while the companion is already another member (Mv, which has no
+                // map); its row comes from the map of the action's OwnerType, never of the current member.
+                leg("retained", outcome(ParMuteRun(own("to", "none"), literalRows, true, m =>
+                    {
+                        m.Mascot.Type = TickType.Compile("Mv", own("to", "none"));
+                        m.Again(3, owner: m.Type);
+                    })), declared("0", "\"to\"|\"to\"", ""));
+                label("parity mute: a retained owner's read uses its OwnerType's map, not the current member's (W5)", 1);
+
+                // Control 7: observing adds no draw. Condition ${Sound == null} and an action-cached Sound that draws and is null
+                // (so never cached), Sounds off: the Condition read and Apply's read draw once each, exactly 2, in the writer's
+                // world and in a NullObserver world alike.
+                XmlData.RootNode drawDocument = ParMuteDocument(null, new XmlData.ParamNode { Name = "Condition", Value = "Sound == null", Cache = "action" },
+                    sound("Math.random() < 2 ? null : 'x'", "action"));
+                var observedDraws = new ParCountingRandom();
+                string[] drawRun = ParMuteRun(drawDocument, "[" + ParMuteRow("Math.random() < 2 ? null : 'x'", null, null, "action") + "]", false, random: observedDraws);
+                var plainDraws = new ParCountingRandom();
+                TickType plainType = TickType.Compile("Mu", drawDocument);
+                TickWorld plainWorld = ParMuteWorld(null, false, plainDraws);
+                plainWorld.AddType(plainType);
+                plainWorld.Start();
+                plainWorld.CreateAtStart("m1", plainType, new TickPoint(640, 680), false, "Go");
+                leg("draws", observedDraws.Draws + " and " + plainDraws.Draws + ", " + outcome(drawRun), "2 and 2, " + declared("0", "", ""));
+                label("parity mute: observation adds no draw, the writer's world against a NullObserver world (control 7)", 1);
+
+                // FC-6 (revision 3): information is logged after every parity trace line and the rng-tape-exhausted line, before
+                // the footer, the same in both trace modes: one evaluated Number read, then a pose fault at tick 2, ended with a
+                // tape drawn past its end.
+                ParityRandom exhausted;
+                using (JsonDocument tape = JsonDocument.Parse("{\"kind\":\"tape\",\"values\":[]}")) exhausted = new ParityRandom(tape.RootElement);
+                exhausted.Next();
+                string orderLines = "parity trace: tick 2 m1: applied pose has no source binding (member Old, which has no parity map) | rng-tape-exhausted (information): "
+                    + "the run drew past the end of its 0-value tape; each draw past the end yielded 0.5 and the run went on | MUTE_VALUE_NOT_STRING tick 0 m1: evaluated number" + info;
+                string numberRows = "[" + ParMuteRow("1", null, null, "action") + "]";
+                leg("traced", outcome(ParMuteRun(own("1", "action"), numberRows, true, m => m.PoseFault(2), finishRandom: exhausted)), declared("1", "\"1\"", orderLines));
+                leg("trace-off", outcome(ParMuteRun(own("1", "action"), numberRows, true, m => m.PoseFault(2), traceOff: true, finishRandom: exhausted)), declared("1", "", orderLines));
+                label("parity mute: information follows the parity trace and rng-tape-exhausted lines, before the footer, in both trace modes (FC-6)", 2);
+            }
+            catch (Exception e)
+            {
+                check(false, "parity mute: the trace writer's Mute checks ran without an exception: " + e);
             }
         }
 

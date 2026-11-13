@@ -1231,16 +1231,111 @@ namespace DesktopAICompanion.Shimeji
                 .StrList("via", via == null ? new string[0] : new[] { via }).End();
         }
 
-        // The read record is not used yet: until the map/3 reader binds Sound provenance (CONTRACT v1.4 P2-C), the trace
-        // writes the engine's clip exactly as before, so no trace byte moves with the observer's new arguments.
+        // CONTRACT v1.4 P2-C, FC-2 and FC-6 (revision 3; burndown/host-mute-1 commit 5a): each completed Mute read is
+        // dispositioned exactly once, in Muted on the two event branches and in MuteReadNoEvent on the Sounds-off null
+        // branch. Everything read here is stored state (the read record, the activation's OwnerType, the owner's map), so
+        // nothing is evaluated again and trace-on and trace-off form the same faults and information. A provenance defect
+        // writes no line and makes no Event() call, so the event count and digest stay what the engine alone gives, and
+        // Finish ends the run in error. Rejected: writing the engine's clip, a canonical value or null for a defect read
+        // (FC-2 step 1), and choosing the map by the companion's current member (a retained action belongs to OwnerType).
+
+        /// <summary>The first Mute provenance fault, "MUTE_PROVENANCE_MISSING tick &lt;t&gt; &lt;sid&gt;: &lt;reason&gt;", or null.
+        /// It also takes ProvenanceFault while that is null; Finish logs it beside ProvenanceFault when an earlier fault of
+        /// another kind holds that (FC-3).</summary>
+        public string FirstMuteFault { get; private set; }
+
+        private readonly List<string> _information = new List<string>();
+
+        /// <summary>The MUTE_VALUE_NOT_STRING and MUTE_VALUE_FAULTED lines of the reads not handled under FC-2, once per
+        /// occurrence, in occurrence order (FC-6). Finish logs each with " (information)"; none changes the status, the exit
+        /// code or ProvenanceFault.</summary>
+        public IReadOnlyList<string> Information { get { return _information; } }
+
         public void Muted(TickMascot mascot, string clip, TickAction activation, TickParamRead read)
         {
-            _out.WriteLine(Event(mascot, "mute").Str("clip", clip).End());
+            var information = new List<string>(2);
+            string payload;
+            string defect = MuteDisposition(mascot, clip, activation, read, information, out payload);
+            if (defect != null)
+            {
+                MuteFault(mascot, defect);
+                return;
+            }
+            _out.WriteLine(Event(mascot, "mute").Str("clip", payload).End());
+            _information.AddRange(information);
         }
 
-        /// <summary>A Mute read that asks for no event writes nothing: no line and no Event() call, so the event count and
-        /// digest stay what they were (CONTRACT v1.4 P2-B). Its provenance and information checks arrive with P2-C.</summary>
-        public void MuteReadNoEvent(TickMascot mascot, TickAction activation, TickParamRead read) { }
+        /// <summary>A Mute read that asks for no event (a null with Sounds off) writes nothing: no line and no Event() call.
+        /// It is still dispositioned (P2-B, Q1): a provenance defect ends the run in error, and its information is kept.</summary>
+        public void MuteReadNoEvent(TickMascot mascot, TickAction activation, TickParamRead read)
+        {
+            var information = new List<string>(2);
+            string payload;
+            string defect = MuteDisposition(mascot, null, activation, read, information, out payload);
+            if (defect != null) MuteFault(mascot, defect);
+            else _information.AddRange(information);
+        }
+
+        /// <summary>
+        /// P2-C for one completed read: null, with the payload to write and the read's information lines added, or the
+        /// provenance defect's reason (FC-2), which withholds both. An absent read needs no binding (the engine took its
+        /// existing null branch), so a missing owner or map is no defect for it. Any other read must have selected a
+        /// definition that its owner's map binds, by the definition object, to a row whose mode agrees with that
+        /// definition's cache; a local has no row (nor would a guard, which no Mute reads: it has no winner). A literal row
+        /// with sourceKind string writes its authored text whatever the compiled kind; every other read writes the engine's
+        /// own value, classified by the row's sourceKind (literal) or the captured kind (evaluated). A reported fault is
+        /// orthogonal: it adds MUTE_VALUE_FAULTED and never forces null. A literal read evaluates nothing and never faults.
+        /// </summary>
+        private string MuteDisposition(TickMascot mascot, string clip, TickAction activation, TickParamRead read, List<string> information, out string payload)
+        {
+            payload = clip;
+            if (read.Selection == TickParamSelection.Absent) return null;
+            if (read.Selection == TickParamSelection.Local) return "Sound is a local the action published, which no map row binds";
+            TickType owner = activation.OwnerType;
+            if (owner == null) return "the Mute action has no owner type to find a map by";
+            ParityMap map;
+            if (!_maps.TryGetValue(owner.Name, out map)) return "member " + owner.Name + " has no parity map";
+            ParityMap.SoundRow row;
+            if (!map.TryGetSoundRow(read.Winner, out row)) return "the Sound definition read is bound to no soundParameters row of member " + owner.Name;
+            bool literal = row.Mode == "literal";
+            if (literal != (read.Winner.Cache == TickCache.None))
+                return "soundParameters row " + row.Row + " is " + row.Mode + ", but the Sound definition read compiles with cache " + read.Winner.Cache.ToString().ToLowerInvariant();
+            if (literal && (row.SourceValue == null || row.SourceKind == null))
+                return "soundParameters row " + row.Row + " is literal with no sourceValue or sourceKind";
+            string at = " tick " + _tick + " " + mascot.Sid;
+            if (read.Faulted) information.Add("MUTE_VALUE_FAULTED" + at);
+            if (literal)
+            {
+                if (row.SourceKind == "string") payload = row.SourceValue;
+                else information.Add("MUTE_VALUE_NOT_STRING" + at + ": literal " + row.SourceKind);
+            }
+            else
+            {
+                string kind = EvaluatedKind(read.Kind);
+                if (kind != null) information.Add("MUTE_VALUE_NOT_STRING" + at + ": evaluated " + kind);
+            }
+            return null;
+        }
+
+        /// <summary>The NOT_STRING suffix word for an evaluated result's kind; null for String and Null, which claim nothing.</summary>
+        private static string EvaluatedKind(ScriptValueKind kind)
+        {
+            switch (kind)
+            {
+                case ScriptValueKind.Number: return "number";
+                case ScriptValueKind.Boolean: return "boolean";
+                case ScriptValueKind.Point: return "point";
+                default: return null;
+            }
+        }
+
+        /// <summary>FC-2 steps 2 and 3: the first Mute fault, and ProvenanceFault while it is null, take this defect.</summary>
+        private void MuteFault(TickMascot mascot, string reason)
+        {
+            string fault = "MUTE_PROVENANCE_MISSING tick " + _tick + " " + mascot.Sid + ": " + reason;
+            if (FirstMuteFault == null) FirstMuteFault = fault;
+            if (ProvenanceFault == null) ProvenanceFault = fault;
+        }
 
         /// <summary>A clip the engine started, or a running one a Mute stopped (TickSound). A parity run has no clip output,
         /// so no clip is loaded there and none is written until the contract defines a clip clock.</summary>
@@ -2414,12 +2509,20 @@ namespace DesktopAICompanion.Shimeji
                 status = "error";
                 log.WriteLine("parity trace: " + writer.ProvenanceFault);
             }
+            // CONTRACT v1.4 FC-3: when an earlier fault of another kind holds ProvenanceFault, the first Mute provenance
+            // fault is logged too, so both firsts are visible (it already made the status error through ProvenanceFault).
+            if (writer.FirstMuteFault != null && writer.FirstMuteFault != writer.ProvenanceFault)
+                log.WriteLine("parity trace: " + writer.FirstMuteFault);
             // CONTRACT 10.8: exhaustion leaves the status alone and is still logged, as information. It is read from the
             // draws the run actually made, so an aborted or failed run reports it too, for what it drew before it stopped.
             bool tapeExhausted = random != null && random.TapeExhausted;
             if (tapeExhausted)
                 log.WriteLine("rng-tape-exhausted (information): the run drew past the end of its " + random.TapeLength
                     + "-value tape; each draw past the end yielded 0.5 and the run went on");
+            // CONTRACT v1.4 FC-6 (revision 3): each Mute information line, after every parity trace line and the
+            // rng-tape-exhausted line and before the footer, on every ending and in both trace modes; never a status.
+            foreach (string line in writer.Information)
+                log.WriteLine(line + " (information)");
             writer.Footer(ticks, status, tapeExhausted);
             return status == "complete" ? 0 : 1;
         }

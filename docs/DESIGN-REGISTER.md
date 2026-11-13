@@ -7929,6 +7929,20 @@ half, 2026-11-13).** `ParityMap` in `src/dotNet/Shimeji/ParityRun.cs` follows th
   exception in every map holding the complete rows, and a lowercase entry would fail every acceptance there, so neither
   mutant could fail one label. The off-route behaviour is reachable for the validator, which requires every off-route
   behaviour to carry a root behaviour's name, while `RootByName` holds only the route's targets.
+- `ParityTraceWriter.MuteDisposition` (commit 5a, P2-C) reads only stored state: the engine's read record, the action's
+  `OwnerType` and that member's map. It never asks the action for Sound again, since a second read would evaluate the
+  script again (a draw for a random one, and a cache write), which control 7 measures. The map comes from `OwnerType`,
+  never from the companion's current member, because a retained action belongs to the member that built it (W5).
+- The writer has no check of its own for a guard selection. No Mute reads Sound through a guard, and a guard read has
+  no winning definition, so it would land on the unbound-definition defect anyway; a separate guard check could never
+  be reached by any input.
+- The literal branch writes `sourceValue` with no fault check and no null-clip check. A literal read evaluates nothing,
+  so it never faults, and a literal always displays non-null, so neither condition could be reached.
+- The FC-2 catches in `Muted` and `MuteReadNoEvent`, and the disposition of `TickParamRead.ObservationFault`, arrive in
+  commit 5b with C18's probes, because only a probe can make their removal fail a check. Until 5b the writer has no
+  path that throws on a valid read.
+- Control 12's self-test leg is judged by the exit code and the log alone. The withheld mute line of the defect read
+  belongs to the provenance label, so a mutant that writes that line fails one label, not two.
 
 ## Known ABI gaps
 
