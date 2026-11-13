@@ -12,13 +12,15 @@ namespace DesktopAICompanion.Shimeji
     internal static partial class ShimejiWindowSelfTest
     {
         /// <summary>
-        /// burndown/parity-host-1, the host half of CONTRACT v1.1 (N-shimeji-1106-13): a parity run reads
-        /// shimeji-parity-map/2 only, checks every mapping strictly, binds each emitted pose to its source position by the
+        /// burndown/parity-host-1, the host half of CONTRACT v1.1 (N-shimeji-1106-13): a parity run reads one map
+        /// version only (map/2 then), checks every mapping strictly, binds each emitted pose to its source position by the
         /// pose object, traces that position (also for an old member's pose kept after a Transform), refuses before it opens
         /// a trace, stops at a left-button edge for a companion that is not active, and proves a trace-on and a trace-off
         /// run agree. burndown/parity-host-2 moves it to trace/2 (CONTRACT section 10): the header, a tape outrun on 0.5
-        /// with tapeExhausted in every footer, and the observation proof judged by 10.5.3. Every map and pet here is
-        /// generated; nothing is read from a real pack.
+        /// with tapeExhausted in every footer, and the observation proof judged by 10.5.3. burndown/host-mute-1 moves it to
+        /// shimeji-parity-map/3 (CONTRACT v1.4 draft P1-F): a run reads map/3 only and refuses map/1 and map/2 with a
+        /// regenerate message, and CheckParityMapSound checks the Sound rows, each rule by the reader and by a run. Every
+        /// map and pet here is generated; nothing is read from a real pack.
         /// </summary>
         private static void CheckParityMapV2(Action<bool, string> check, string scratch, StringBuilder log)
         {
@@ -30,7 +32,7 @@ namespace DesktopAICompanion.Shimeji
                 CheckParityRunRefusals(check, Path.Combine(scratch, "parity-v2"), log);
                 CheckParityBuildRevision(check, Path.Combine(scratch, "parity-revision"));
                 CheckParityErrors(check);
-                CheckParityMapSound(check);
+                CheckParityMapSound(check, Path.Combine(scratch, "parity-sound"));
             }
             catch (Exception e)
             {
@@ -332,6 +334,43 @@ namespace DesktopAICompanion.Shimeji
             + "\"emittedValue\":\"1\",\"emittedCache\":\"none\",\"mode\":\"literal\",\"sourceValue\":\" 1\",\"sourceKind\":\"number\"}";
 
         /// <summary>
+        /// burndown/host-mute-1, C13's run leg: a parity run of one map beside <paramref name="xml"/>, through ParityRun.Run in
+        /// this process with a generated scenario and pack, as CheckParityRunRefusals' go does, one pets folder and
+        /// scenario per run so no run reads another's leftovers. Gives the exit code, the trace text (null when no trace
+        /// file was left), the run's log and the map's path, which a refusal names.
+        /// </summary>
+        private static Func<string, string[]> ParRunner(string root, string xml)
+        {
+            Directory.CreateDirectory(root);
+            string pack = Path.Combine(root, "pack");
+            Directory.CreateDirectory(pack);
+            File.WriteAllText(Path.Combine(pack, "readme.txt"), "a generated stand-in pack\n", new UTF8Encoding(false));
+            var build = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                { "commit", "selftest" }, { "exeSha256", new string('0', 64) }, { "engineSha256", new string('1', 64) }, { "converterSha256", new string('2', 64) },
+            };
+            int run = 0;
+            return map =>
+            {
+                run++;
+                string pets = Path.Combine(root, "pets" + run), member = Path.Combine(pets, "Par"), mapPath = Path.Combine(member, "parity-map.json");
+                Directory.CreateDirectory(member);
+                File.WriteAllText(Path.Combine(member, "animations.xml"), xml, new UTF8Encoding(false));
+                File.WriteAllText(mapPath, map, new UTF8Encoding(false));
+                string scenario = Path.Combine(root, "S-sound-" + run + ".json");
+                File.WriteAllText(scenario, "{\"schema\":\"shimeji-parity-scenario/1\",\"id\":\"S-sound-" + run + "\",\"description\":\"generated\","
+                    + "\"pack\":\"pack\",\"screens\":[{\"x\":0,\"y\":0,\"w\":1280,\"h\":720}],\"workArea\":{\"x\":0,\"y\":0,\"w\":1280,\"h\":680},"
+                    + "\"dpiScale\":1.0,\"ticks\":8,\"rng\":{\"kind\":\"none\"},\"settings\":{},"
+                    + "\"mascots\":[{\"sid\":\"m1\",\"imageSet\":\"Par\",\"behavior\":\"Walk\",\"anchor\":[640,680],\"lookRight\":false}],"
+                    + "\"activeWindow\":[{\"tick\":0,\"visible\":false}],\"input\":[{\"tick\":0,\"cursor\":[100,100]}]}", new UTF8Encoding(false));
+                string trace = Path.Combine(root, "trace" + run + ".jsonl");
+                var runLog = new StringWriter();
+                int exit = ParityRun.Run(scenario, pets, trace, build, runLog, false);
+                return new[] { exit.ToString(CultureInfo.InvariantCulture), File.Exists(trace) ? File.ReadAllText(trace) : null, runLog.ToString(), mapPath };
+            };
+        }
+
+        /// <summary>
         /// burndown/host-mute-1, the host half of N-bd-codex-converter-1-02: the strict shimeji-parity-map/3 row reader
         /// (CONTRACT v1.4 draft P1-B, P1-C, P1-E and FC-1, read with the coordinator's revision 2 review). One map per
         /// rule, each breaking exactly that rule (C13), and each label compares the reader's whole message with a message
@@ -339,17 +378,38 @@ namespace DesktopAICompanion.Shimeji
         /// type (ParApply names its type) fails rather than substitutes. Row binding to the compiled definitions is a
         /// later commit, so these maps carry rows the document has no Sound for. Its own try: CheckParityMapV2 runs every
         /// lane's checks in one, and an exception here must not hide another lane's labels.
+        /// C13 (the coordinator's ruling after round 2): every map is also given to a parity run (<see cref="ParRunner"/>,
+        /// ParityRun.Run in this process, as CheckParityRunRefusals' go does), and the SAME label requires exit 2, no trace
+        /// file and the declared message after "refused &lt;map path&gt;: ". The run leg sits inside each rule's own label,
+        /// never beside it, so a mutant removing one reader check still fails exactly one label.
         /// </summary>
-        private static void CheckParityMapSound(Action<bool, string> check)
+        private static void CheckParityMapSound(Action<bool, string> check, string root)
         {
             try
             {
                 Dictionary<string, string> poses = ParPoses("Par", true);
-                Func<string, string> rows = soundRows => ParApply(ParMapJson("Par", true, Pairs(poses), soundRows: soundRows), true);
+                Func<string, string[]> runMap = ParRunner(root, Serialize(ParDocument(true), Color.Red, Color.Blue));
+                Func<string, string> rows = soundRows => ParMapJson("Par", true, Pairs(poses), soundRows: soundRows);
                 Func<string, string> row = one => rows("[" + one + "]");
                 const string at = "parity map soundParameters row 0 ";
-                Action<string, string, string> exact = (label, actual, expected) =>
-                    check(actual == expected, label + " (" + (actual ?? "accepted") + ")");
+                // Null when the reader and a run both give exactly the declared outcome, else what each gave. A declared
+                // message is a refusal (the reader's InvalidDataException message; the run's exit 2, no trace and that
+                // reason); a declared null is an acceptance (the reader accepts; the run completes with a trace).
+                Func<string, string, string> judge = (json, expected) =>
+                {
+                    string reader = ParApply(json, true);
+                    string[] run = runMap(json);
+                    bool runAgrees = expected == null
+                        ? run[0] == "0" && run[1] != null
+                        : run[0] == "2" && run[1] == null && run[2].Contains("refused " + run[3] + ": " + expected + Environment.NewLine);
+                    if (reader == expected && runAgrees) return null;
+                    return "reader " + (reader ?? "accepted") + "; run exit " + run[0] + (run[1] == null ? ", no trace: " : ", a trace: ") + OneLine(run[2]);
+                };
+                Action<string, string, string> exact = (label, json, expected) =>
+                {
+                    string fault = judge(json, expected);
+                    check(fault == null, label + " (" + (fault ?? "reader and run: " + expected) + ")");
+                };
 
                 // The WITNESS: rows of every kind and mode, an empty evaluated body (P1-B allows one), an untrimmed " ${x}"
                 // that is a constant (P1-C rule 0 reads the untrimmed text), each read into its record.
@@ -359,8 +419,8 @@ namespace DesktopAICompanion.Shimeji
                     + "\"emittedValue\":\"true\",\"emittedCache\":\"none\",\"mode\":\"literal\",\"sourceValue\":\"true\",\"sourceKind\":\"boolean\"}";
                 string constantRow = "{\"kind\":\"action\",\"nodeId\":33,\"sourceRefKey\":\"Par|conf/actions.xml|/Mascot[1]/ActionList[1]/Action[4]\","
                     + "\"emittedValue\":\" ${x}\",\"emittedCache\":\"none\",\"mode\":\"literal\",\"sourceValue\":\" ${x}\",\"sourceKind\":\"string\"}";
-                ParityMap witness = ParityMap.Parse(ParMapJson("Par", true, Pairs(poses),
-                    soundRows: "[" + string.Join(",", ParSoundLiteral, ParSoundEvaluated, ParSoundChild, frameRow, booleanRow, constantRow) + "]"));
+                string witnessJson = rows("[" + string.Join(",", ParSoundLiteral, ParSoundEvaluated, ParSoundChild, frameRow, booleanRow, constantRow) + "]");
+                ParityMap witness = ParityMap.Parse(witnessJson);
                 XmlData.RootNode document = ParDocument(true);
                 string witnessFault = null;
                 try { witness.Apply(TickType.Compile("Par", document), document); }
@@ -370,13 +430,16 @@ namespace DesktopAICompanion.Shimeji
                     seen.Add(r.Kind + " " + r.NodeId + (r.ChildIndex >= 0 ? ":" + r.ChildIndex : "") + " " + r.Mode + " " + r.EmittedCache
                         + " [" + r.EmittedValue + "]" + (r.SourceValue == null ? "" : " [" + r.SourceValue + "] " + r.SourceKind));
                 string witnessRows = string.Join("; ", seen);
-                check(witnessFault == null && witnessRows == "action 30 literal none [to] [/TO] string; behaviour 10 evaluated action ['a' + 1]; "
+                // The run leg's own WITNESS: the same map beside the same document runs to a complete trace, so a refusal
+                // below is that map's rule, not the run setup's.
+                string witnessRun = witnessFault == null ? judge(witnessJson, null) : null;
+                check(witnessFault == null && witnessRun == null && witnessRows == "action 30 literal none [to] [/TO] string; behaviour 10 evaluated action ['a' + 1]; "
                       + "child 33:0 literal none [1] [ 1] number; action 31 evaluated frame []; action 32 literal none [true] [true] boolean; "
                       + "action 33 literal none [ ${x}] [ ${x}] string",
-                    "parity map/3: WITNESS a complete map/3 with rows of every kind is accepted (" + (witnessFault ?? witnessRows) + ")");
+                    "parity map/3: WITNESS a complete map/3 with rows of every kind is accepted (" + (witnessFault ?? witnessRun ?? witnessRows) + ")");
 
                 exact("parity map/3: soundParameters absent is refused",
-                    ParApply(ParMapJson("Par", true, Pairs(poses), soundRows: null), true), "parity map has no soundParameters (map/3 requires the array)");
+                    ParMapJson("Par", true, Pairs(poses), soundRows: null), "parity map has no soundParameters (map/3 requires the array)");
                 exact("parity map/3: soundParameters that is not an array is refused", rows("{}"), "parity map soundParameters is not an array");
                 exact("parity map/3: a Sound row that is not an object is refused", rows("[\"x\"]"), at + "is not an object");
                 exact("parity map/3: a Sound row repeating a property is refused",
@@ -393,7 +456,11 @@ namespace DesktopAICompanion.Shimeji
 
                 // Two-part rules: every part is refused under one label, so removing the rule fails one label.
                 var parts = new List<string>();
-                Action<string, string> part = (actual, expected) => { if (actual != expected) parts.Add(actual ?? "accepted"); };
+                Action<string, string> part = (json, expected) =>
+                {
+                    string fault = judge(json, expected);
+                    if (fault != null) parts.Add(fault);
+                };
                 part(row(ParSoundEvaluated.Replace("\"mode\":\"evaluated\"", "\"mode\":\"evaluated\",\"sourceValue\":\"x\"")), at + "is evaluated and has sourceValue (only a literal row has one)");
                 part(row(ParSoundEvaluated.Replace("\"mode\":\"evaluated\"", "\"mode\":\"evaluated\",\"sourceKind\":\"string\"")), at + "is evaluated and has sourceKind (only a literal row has one)");
                 check(parts.Count == 0, "parity map/3: sourceValue or sourceKind on an evaluated row is refused (" + string.Join("; ", parts) + ")");
@@ -457,7 +524,7 @@ namespace DesktopAICompanion.Shimeji
                     + string.Join("; ", parts) + ")");
 
                 string unknownTop = ParMapJson("Par", true, Pairs(poses));
-                exact("parity map/3: an unknown top-level property is refused", ParApply("{\"extra\":1," + unknownTop.Substring(1), true),
+                exact("parity map/3: an unknown top-level property is refused", "{\"extra\":1," + unknownTop.Substring(1),
                     "parity map has the top-level property 'extra'; map/3 allows only schema, imageSet, frames, actions, children, behaviours, sourceNames, poses and soundParameters");
             }
             catch (Exception e)

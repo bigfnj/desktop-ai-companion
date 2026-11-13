@@ -7899,10 +7899,14 @@ half, 2026-11-13).** `ParityMap` in `src/dotNet/Shimeji/ParityRun.cs` follows th
   about text with no `char.IsWhiteSpace` at either end. Calling `TryParseJavaDouble` or `TickType.ParseLiteral` on the
   raw text was refused: their .NET `string.Trim` strips U+00A0, U+0085 and the Unicode spaces, which Java's trim keeps,
   so U+00A0 then 1 would read as a number where the source keeps a String (control 1).
-- A window self-test label that runs a refused map through a parity run holds the reader's refusal of that map in the
-  same check (exit 2, no trace, and the reader's exact reason after `refused <map path>: `). Split into a reader label
-  and a run label, removing one reader check would fail both, and exit 2 with no trace alone cannot tell a removed check
-  from another refusal.
+- Every reader rule's window self-test label holds both legs of one map: the reader's exact refusal, and a parity run of
+  the same map giving exit 2, no trace and that exact reason after `refused <map path>: ` (C13). Split into a reader
+  label and a run label, removing one reader check would fail both, and exit 2 with no trace alone cannot tell a removed
+  check from another refusal.
+- The noncanonical row-token legs have no leading-zero case such as `01`, although `CanonicalFault` refuses one. JSON
+  forbids a leading zero, so `System.Text.Json` refuses the whole map at `Parse` before any row is read, and the row
+  check's leading-zero branch cannot be reached from a map. A plain negative such as `-1` takes the same non-digit path
+  as the `-0` leg, so it needs no leg of its own.
 
 ## Known ABI gaps
 
