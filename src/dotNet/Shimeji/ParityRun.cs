@@ -440,6 +440,15 @@ namespace DesktopAICompanion.Shimeji
             return _desktopWindow.Minimize(_screenArea);
         }
 
+        /// <summary>A14 (signed revision H :136): the scripted desktop window as it is now, read from the private
+        /// TickDesktopWindow with its per-kind success counters, for ParityRun.Run's reconciliation ledger. Never
+        /// ActiveWindow: that is the area the companions read, refreshed only at the next tick, so a move made this tick
+        /// would not show in it yet.</summary>
+        internal ParityWindowState DesktopWindow
+        {
+            get { return new ParityWindowState(_desktopWindow.Shown, _desktopWindow.Minimised, _desktopWindow.Rect, _desktopWindow.Moves, _desktopWindow.Minimises); }
+        }
+
         private static int[] Rect(JsonElement e)
         {
             return new[] { e.GetProperty("x").GetInt32(), e.GetProperty("y").GetInt32(), e.GetProperty("w").GetInt32(), e.GetProperty("h").GetInt32() };
@@ -2073,6 +2082,12 @@ namespace DesktopAICompanion.Shimeji
                 var ledger = new ParityRunLedger(traceOff, log, runId);
                 writer.Committed = ledger.Commit;
                 foreach (JsonElement row in s.GetProperty("mascots").EnumerateArray()) ledger.Seed(row.GetProperty("sid").GetString());
+                // A14 (H :136): the window replay starts from the validated scenario's own timeline rows, never from the
+                // environment's state, and is compared with the live desktop window at the same checkpoints.
+                JsonElement timeline;
+                if (s.TryGetProperty("activeWindow", out timeline))
+                    foreach (JsonElement entry in timeline.EnumerateArray()) ledger.WindowTimeline(entry);
+                ParityEnvironment desk = scenario.Environment;
                 int ticks = scenario.Ticks;
                 string status = "complete";
                 // CONTRACT v1.1 section 1: a left-button edge for a companion that is not active at dispatch is a scenario
@@ -2098,7 +2113,7 @@ namespace DesktopAICompanion.Shimeji
                     world.ActivateStartup();
                     ledger.StartupActivated();
                     writer.States(world);
-                    ledger.Checkpoint(0, world.SnapshotMembership());
+                    ledger.Checkpoint(0, world.SnapshotMembership(), desk.DesktopWindow);
                     // A tape's end does not stop the loop (CONTRACT 10.5.1): a draw past it yields 0.5, the run steps on to
                     // tick N, and Finish logs the exhaustion and writes it as the footer's tapeExhausted.
                     for (int t = 1; t <= ticks; t++)
@@ -2106,7 +2121,7 @@ namespace DesktopAICompanion.Shimeji
                         writer.Tick = t;
                         world.StepOnce();
                         writer.States(world);
-                        ledger.Checkpoint(t, world.SnapshotMembership());
+                        ledger.Checkpoint(t, world.SnapshotMembership(), desk.DesktopWindow);
                     }
                     writer.FinalStates(world);
                     ledger.FinalStates(ticks, world.SnapshotMembership());

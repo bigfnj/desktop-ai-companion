@@ -7938,13 +7938,38 @@ round 4's differential checks `eventSequenceSha256`. `ParityRunLedger` (ParityPr
 records, and compares at every checkpoint 0..N with `TickWorld.SnapshotMembership()`, which the writer never reads. A
 traced run also compares each checkpoint's state records, a trace-off run its final states at N. The first failing
 checkpoint is logged when it fails, the run steps on to N, and its status becomes error just before `Finish`, which is
-untouched; this reads H :136 and :150 the way the run already treats a provenance fault, and Codex is asked to confirm it
-(open question 6). Only a run whose N+1 checkpoints all passed logs the positive witness; a run that stopped early logs
+untouched; this reads H :136 and :150 the way the run already treats a provenance fault, and Codex confirmed it on
+2026-11-13 (continue to N, keep the first failing completed checkpoint, end in error; open question 6). Only a run whose
+N+1 checkpoints all passed logs the positive witness; a run that stopped early logs
 how many ran. Refused: an `ITickObserver` member for the ledger, which H :138 rules out as a source of counts;
 enumerating the public `Mascots` and `Pending` getters for either side, which a getter filter would fool on both at
 once; and seeding from the world's lists or a count of successful starts, which cannot see a failed starter that joined
 anyway. The ledger matches events by kind and sid and spells no error code, as the bd-parity-host-2 invariant requires
 of every non-self-test file under src/dotNet/Shimeji.
+
+**A14 reconciliation replays the window from the scenario's timeline and the committed window events, and compares it
+with the live window and its counters (H :136, 2026-11-13).** `TickDesktopWindow` counts each successful move and
+minimise, one counter per kind, at the success boundary itself (after the rectangle or the minimised state changed),
+never in `Show` or `Hide`, which are the timeline's. Nothing reads the counters but the parity ledger.
+`ParityEnvironment.DesktopWindow` hands the ledger the private window's shown, minimised and rectangle values with those
+counters. Refused: `ActiveWindow`, the area the companions read, which is refreshed only at the next tick, so a move made
+this tick would not show in it. The ledger replays the scenario's own activeWindow rows (a new entry replaces the window
+whole, hiding keeps the rectangle) and the committed window-move and window-minimize lines, checking each move's `from`
+against the replayed rectangle of a shown, unminimised window, and compares the state and both counters at every
+checkpoint 0..N, traced and trace-off alike: the event sink hands a trace-off run's withheld lines to the hook too.
+Cumulative counts compared at every checkpoint are the per-tick counts compared tick by tick. The counters catch what
+state alone cannot: two unobserved moves that put the rectangle back, or an effect made without its observer callback.
+The positive witness stays one line, now in the list form proposed to Codex, "parity reconciliation window-effects,
+active-pending-membership checkpoints <N+1> stateRecords <...> runId <id>", which awaits Codex's answer on Q-d.
+Refused: a separate window witness line, which would let a log show one proof's witness without the other's. The carry
+class needs a grip geometry the self-test's generated packs do not build; make_packs' carry scenarios, on and off, run
+through the command in the round 4 differential instead.
+
+**A trace-off witness names a final-state comparison only when one ran (review of round 3).**
+`ParityRunLedger.FinalStates` sets a flag, and `ClosingLine` writes a trace-off run's witness only when it is set. A
+trace-off run whose final-state write failed after checkpoint N (caught as status error) logs "parity reconciliation
+incomplete: checkpoints <N+1> of <N+1>, final state records not compared" instead, a form added beside the existing
+incomplete line and sent to Codex with the other spellings.
 
 ## Known ABI gaps
 

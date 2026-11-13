@@ -103,13 +103,23 @@ namespace DesktopAICompanion.Shimeji
                 + "+" + d.Room.Pending.ToString(CultureInfo.InvariantCulture) + (d.Room.Admits ? " admit" : " refuse");
         }
 
-        /// <summary>The positive reconciliation witness (H :150): the proofs this run executed and how many checkpoints
-        /// passed, N+1 on a complete run, and which state records were compared: a traced run's at every checkpoint, a
-        /// trace-off run's final ones at N. Written only by the run's own ledger when every checkpoint passed.</summary>
+        /// <summary>The positive reconciliation witness (H :136, :150): the proofs this run executed, as a list (A14's
+        /// window-effects, A15's active-pending-membership), how many checkpoints passed, N+1 on a complete run, and which
+        /// state records were compared: a traced run's at every checkpoint, a trace-off run's final ones at N. Written only
+        /// by the run's own ledger when every checkpoint passed and, trace-off, its final states were compared. The list
+        /// form is the one proposed to Codex for review (closure spellings Q-d).</summary>
         public static string ReconciliationLine(int checkpoints, bool traceOff, string runId)
         {
-            return Reconciliation + " active-pending-membership checkpoints " + checkpoints.ToString(CultureInfo.InvariantCulture)
+            return Reconciliation + " window-effects, active-pending-membership checkpoints " + checkpoints.ToString(CultureInfo.InvariantCulture)
                 + " stateRecords " + (traceOff ? "final" : "every-checkpoint") + RunIdField + runId;
+        }
+
+        /// <summary>A trace-off run whose N+1 checkpoints passed but whose final state records were never compared (the
+        /// final-state write failed): never the witness, which names a comparison that did not happen.</summary>
+        public static string ReconciliationFinalStatesMissingLine(int checkpoints, string runId)
+        {
+            return Reconciliation + " incomplete: checkpoints " + checkpoints.ToString(CultureInfo.InvariantCulture) + " of "
+                + checkpoints.ToString(CultureInfo.InvariantCulture) + ", final state records not compared" + RunIdField + runId;
         }
 
         /// <summary>The first failing checkpoint, logged when it fails; the run goes on to N with status error.</summary>
@@ -200,6 +210,35 @@ namespace DesktopAICompanion.Shimeji
     }
 
     /// <summary>
+    /// The scripted desktop window as it is at a checkpoint (ParityEnvironment.DesktopWindow): TickDesktopWindow's own
+    /// shown, minimised and rectangle values and its per-kind success counters, never the active-window area the
+    /// companions read, which is refreshed only at the next tick.
+    /// </summary>
+    internal struct ParityWindowState
+    {
+        public readonly bool Shown;
+        public readonly bool Minimised;
+        public readonly TickRect Rect;
+        public readonly long Moves;
+        public readonly long Minimises;
+
+        public ParityWindowState(bool shown, bool minimised, TickRect rect, long moves, long minimises)
+        {
+            Shown = shown;
+            Minimised = minimised;
+            Rect = rect;
+            Moves = moves;
+            Minimises = minimises;
+        }
+
+        public override string ToString()
+        {
+            return (Shown ? "shown" : "hidden") + (Minimised ? " minimised" : "") + " [" + Rect.X + "," + Rect.Y + ","
+                + (Rect.X + Rect.Width) + "," + (Rect.Y + Rect.Height) + "] moves " + Moves + " minimises " + Minimises;
+        }
+    }
+
+    /// <summary>
     /// A15, population reconciliation (signed revision H :136, :142-150): ParityRun.Run owns one per run, traced and
     /// trace-off alike, and checks it at every completed checkpoint 0..N. Two sides, kept independent:
     /// <list type="bullet">
@@ -213,6 +252,15 @@ namespace DesktopAICompanion.Shimeji
     /// final states, which are compared at N. The first failure is logged with its checkpoint and the run goes on to N
     /// with status error (H :136, :150); only a run whose N+1 checkpoints all passed writes the positive witness.
     /// It reads events by kind and sid only, and spells no error code: the bd-parity-host-2 invariant scans this file.
+    ///
+    /// A14, window reconciliation (H :136), at the same checkpoints: the recorded side replays the scenario's activeWindow
+    /// timeline (a NEW entry replaces the window whole, as ParityEnvironment.Tick does; hiding keeps the rectangle) and
+    /// the window events committed since the last checkpoint, in commit order: a window-move's "from" must be the replayed
+    /// rectangle of a shown, unminimised window, which then takes its "to"; a window-minimize needs the same window and
+    /// minimises it. The actual side is ParityEnvironment.DesktopWindow, the live TickDesktopWindow and its per-kind
+    /// success counters. Both the state and each counter must agree; counters compared at every checkpoint are the
+    /// per-tick counts compared tick by tick. The timeline entry for tick k takes effect before any event of tick k
+    /// (TickWorld.StepOnce ticks the environment first), so the events are replayed at the checkpoint, after it.
     /// </summary>
     internal sealed class ParityRunLedger
     {
@@ -222,12 +270,29 @@ namespace DesktopAICompanion.Shimeji
             public bool DisposeRequested;
         }
 
+        /// <summary>One activeWindow entry as the scenario states it: shown with a rectangle, or hidden.</summary>
+        private struct WindowEntry
+        {
+            public int Tick;
+            public bool Shown;
+            public TickRect Rect;
+        }
+
         private readonly Dictionary<string, Member> _members = new Dictionary<string, Member>(StringComparer.Ordinal);
         private readonly List<string> _states = new List<string>();
         private readonly bool _traceOff;
         private readonly TextWriter _log;
         private readonly string _runId;
         private string _inconsistency;
+        private bool _finalStatesCompared;
+
+        // A14's recorded side: the timeline, the entry in force, the replayed window and the window events of this tick.
+        private readonly List<WindowEntry> _timeline = new List<WindowEntry>();
+        private readonly List<string> _windowEvents = new List<string>();
+        private int _windowEntry = -1;
+        private bool _shown, _minimised;
+        private TickRect _rect;
+        private long _moves, _minimises;
 
         public ParityRunLedger(bool traceOff, TextWriter log, string runId)
         {
@@ -254,6 +319,21 @@ namespace DesktopAICompanion.Shimeji
         public void StartupActivated()
         {
             foreach (Member m in _members.Values) m.Pending = false;
+        }
+
+        /// <summary>One entry of the validated scenario's activeWindow timeline, in order: shown only when "visible" is true
+        /// and it has a rectangle [left, top, right, bottom], as ParityEnvironment reads it, else hidden.</summary>
+        public void WindowTimeline(JsonElement entry)
+        {
+            JsonElement visible, rect;
+            var w = new WindowEntry { Tick = entry.GetProperty("tick").GetInt32() };
+            w.Shown = entry.TryGetProperty("visible", out visible) && visible.ValueKind == JsonValueKind.True && entry.TryGetProperty("rect", out rect);
+            if (w.Shown)
+            {
+                rect = entry.GetProperty("rect");
+                w.Rect = Ltrb(rect[0].GetInt32(), rect[1].GetInt32(), rect[2].GetInt32(), rect[3].GetInt32());
+            }
+            _timeline.Add(w);
         }
 
         /// <summary>One line the trace writer committed: a state record is kept for the next comparison, a lifecycle event
@@ -283,9 +363,16 @@ namespace DesktopAICompanion.Shimeji
                         if (_members.TryGetValue(sid, out m) && m.Pending) m.Pending = false;
                         else Inconsistent("birth-activate for " + sid + ", which is not pending");
                         break;
+                    case "window-move":
+                    case "window-minimize":
+                        // A14: replayed at the checkpoint, after this tick's timeline entry took effect.
+                        _windowEvents.Add(line);
+                        break;
                     case "dispose-request":
-                        // Unknown or provisional (a failed child's sid): no member and no tombstone, so the sid may be
-                        // born later. Pending: gone at once, no dispose follows. Active: marked, gone at its dispose.
+                        // Unknown: no member and no tombstone, a no-op, so the sid may still be born later. A failed
+                        // child never gets here: it commits only birth-refused with reason error and no dispose-request,
+                        // so its provisional sid simply has no member. Pending: gone at once, no dispose follows. Active:
+                        // marked, gone at its dispose.
                         if (!_members.TryGetValue(sid, out m)) break;
                         if (m.Pending) _members.Remove(sid);
                         else m.DisposeRequested = true;
@@ -300,15 +387,79 @@ namespace DesktopAICompanion.Shimeji
 
         /// <summary>A completed startup or step: the replay against the private lists and, in a traced run, against the
         /// state records committed since the last checkpoint.</summary>
-        public void Checkpoint(int tick, TickMembership actual)
+        public void Checkpoint(int tick, TickMembership actual, ParityWindowState window)
         {
+            string windowFault = ReplayWindow(tick);
             string fault = _inconsistency;
             if (fault == null) fault = Differ("the private lists", Actual(actual), "the lifecycle replay", Recorded());
             if (fault == null && !_traceOff) fault = Differ("the committed state records", Sorted(_states), "the lifecycle replay", Recorded());
+            if (fault == null) fault = windowFault;
+            if (fault == null)
+            {
+                var replayed = new ParityWindowState(_shown, _minimised, _rect, _moves, _minimises);
+                if (window.Shown != replayed.Shown || window.Minimised != replayed.Minimised || !SameRect(window.Rect, replayed.Rect)
+                    || window.Moves != replayed.Moves || window.Minimises != replayed.Minimises)
+                    fault = "the live window holds " + window + ", the window replay " + replayed;
+            }
             _states.Clear();
             _inconsistency = null;
             Checkpoints++;
             Fail(tick, fault);
+        }
+
+        /// <summary>A14's recorded side for this checkpoint: the timeline entry in force at <paramref name="tick"/>, applied
+        /// only when it is a new one, then this tick's committed window events in order. Null, or what broke the replay.</summary>
+        private string ReplayWindow(int tick)
+        {
+            int latest = -1;
+            for (int i = 0; i < _timeline.Count; i++)
+                if (_timeline[i].Tick <= tick) latest = i;
+            if (latest != _windowEntry)
+            {
+                _windowEntry = latest;
+                _minimised = false;
+                _shown = _timeline[latest].Shown;
+                if (_shown) _rect = _timeline[latest].Rect;
+            }
+            string fault = null;
+            foreach (string line in _windowEvents)
+            {
+                using (JsonDocument doc = JsonDocument.Parse(line))
+                {
+                    JsonElement r = doc.RootElement;
+                    bool move = r.GetProperty("kind").GetString() == "window-move";
+                    if (fault == null && (!_shown || _minimised))
+                        fault = "a committed " + (move ? "window-move" : "window-minimize") + " of a window the replay holds "
+                            + (_shown ? "minimised" : "hidden");
+                    if (move)
+                    {
+                        JsonElement f = r.GetProperty("from"), t = r.GetProperty("to");
+                        TickRect from = Ltrb(f[0].GetInt32(), f[1].GetInt32(), f[2].GetInt32(), f[3].GetInt32());
+                        if (fault == null && !SameRect(from, _rect))
+                            fault = "a committed window-move from " + f.GetRawText() + " where the replay holds the window at "
+                                + new ParityWindowState(_shown, _minimised, _rect, _moves, _minimises);
+                        _rect = Ltrb(t[0].GetInt32(), t[1].GetInt32(), t[2].GetInt32(), t[3].GetInt32());
+                        _moves++;
+                    }
+                    else
+                    {
+                        _minimised = true;
+                        _minimises++;
+                    }
+                }
+            }
+            _windowEvents.Clear();
+            return fault;
+        }
+
+        private static TickRect Ltrb(int left, int top, int right, int bottom)
+        {
+            return new TickRect(left, top, right - left, bottom - top);
+        }
+
+        private static bool SameRect(TickRect a, TickRect b)
+        {
+            return a.X == b.X && a.Y == b.Y && a.Width == b.Width && a.Height == b.Height;
         }
 
         /// <summary>A trace-off run's end: its final state records, written once at N, against the replay and the private
@@ -320,16 +471,19 @@ namespace DesktopAICompanion.Shimeji
             string fault = Differ("the final state records", states, "the lifecycle replay", Recorded());
             if (fault == null) fault = Differ("the final state records", states, "the private lists", Actual(actual));
             _states.Clear();
+            _finalStatesCompared = true;
             Fail(tick, fault);
         }
 
-        /// <summary>The closing line: the positive witness when every one of the N+1 checkpoints passed, or, when the run
-        /// stopped early, how many ran. A failure was logged when it happened.</summary>
+        /// <summary>The closing line: the positive witness when every one of the N+1 checkpoints passed and, trace-off, the
+        /// final state records were compared too; or, when the run stopped early, how many ran. A failure was logged when it
+        /// happened. A trace-off run whose final-state write failed after checkpoint N names that, never the witness.</summary>
         public string ClosingLine(int ticks)
         {
             if (Failure != null) return null;
-            if (Checkpoints == ticks + 1) return ParityRunLog.ReconciliationLine(Checkpoints, _traceOff, _runId);
-            return ParityRunLog.ReconciliationIncompleteLine(Checkpoints, ticks + 1, _runId);
+            if (Checkpoints != ticks + 1) return ParityRunLog.ReconciliationIncompleteLine(Checkpoints, ticks + 1, _runId);
+            if (_traceOff && !_finalStatesCompared) return ParityRunLog.ReconciliationFinalStatesMissingLine(Checkpoints, _runId);
+            return ParityRunLog.ReconciliationLine(Checkpoints, _traceOff, _runId);
         }
 
         private void Fail(int tick, string fault)

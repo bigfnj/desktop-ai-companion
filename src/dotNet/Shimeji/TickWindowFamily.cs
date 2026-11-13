@@ -292,6 +292,16 @@ namespace DesktopAICompanion.Shimeji
         public bool Minimised { get; private set; }
         public TickRect Rect { get; private set; }
 
+        /// <summary>
+        /// Successful moves and minimises so far, one counter per kind, counted at the success boundary itself (after the
+        /// rectangle or the minimised state changed), never in Show or Hide, which are the timeline's, not the engine's.
+        /// They only count: nothing here reads them. A parity run's A14 reconciliation (signed revision H :136,
+        /// ParityRunLedger) compares them with the window events the trace writer committed, so an effect the engine made
+        /// without its observer callback, or a callback with no effect, shows as a count that differs.
+        /// </summary>
+        public long Moves { get; private set; }
+        public long Minimises { get; private set; }
+
         public void Show(TickRect rect)
         {
             Shown = true;
@@ -331,6 +341,7 @@ namespace DesktopAICompanion.Shimeji
             if (!IsFound(screen)) return false;
             to = new TickRect(topLeft.X, topLeft.Y, width, height);
             Rect = to;
+            Moves++;
             return true;
         }
 
@@ -339,6 +350,7 @@ namespace DesktopAICompanion.Shimeji
         {
             if (!IsFound(screen)) return false;
             Minimised = true;
+            Minimises++;
             return true;
         }
     }

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Text;
+using System.Text.Json;
 
 namespace DesktopAICompanion.Shimeji
 {
@@ -100,7 +101,7 @@ namespace DesktopAICompanion.Shimeji
                 log.Append("LOG: parity proof " + name + ": " + text);
                 string traceText = File.Exists(trace) ? File.ReadAllText(trace) : null;
                 string runId = PolicyHeaderRunId(traceText);
-                string want = ParityRunLog.Reconciliation + " active-pending-membership checkpoints " + (ticks + 1).ToString(CultureInfo.InvariantCulture)
+                string want = ParityRunLog.Reconciliation + " window-effects, active-pending-membership checkpoints " + (ticks + 1).ToString(CultureInfo.InvariantCulture)
                     + " stateRecords " + (traceOff ? "final" : "every-checkpoint") + ParityRunLog.RunIdField + runId;
                 string witness = PolicyLine(text, ParityRunLog.Reconciliation + " ");
                 bool complete = traceText != null && traceText.Contains("{\"type\":\"footer\",\"ticks\":" + ticks.ToString(CultureInfo.InvariantCulture) + ",\"status\":\"complete\"");
@@ -159,13 +160,13 @@ namespace DesktopAICompanion.Shimeji
             ledger.Seed("s1");
             ledger.StartupActivated();
             ledger.Commit("{\"type\":\"state\",\"tick\":0,\"sid\":\"s1\",\"pending\":false}");
-            ledger.Checkpoint(0, new TickMembership(new[] { "s1" }, new string[0]));
+            ledger.Checkpoint(0, new TickMembership(new[] { "s1" }, new string[0]), default(ParityWindowState));
             bool cleanZero = ledger.Failure == null;
             ledger.Commit("{\"type\":\"state\",\"tick\":1,\"sid\":\"s1\",\"pending\":false}");
             ledger.Commit("{\"type\":\"state\",\"tick\":1,\"sid\":\"x\",\"pending\":true}");
-            ledger.Checkpoint(1, new TickMembership(new[] { "s1" }, new[] { "x" }));
+            ledger.Checkpoint(1, new TickMembership(new[] { "s1" }, new[] { "x" }), default(ParityWindowState));
             ledger.Commit("{\"type\":\"event\",\"tick\":2,\"sid\":\"s1\",\"kind\":\"dispose\"}");
-            ledger.Checkpoint(2, new TickMembership(new string[0], new string[0]));
+            ledger.Checkpoint(2, new TickMembership(new string[0], new string[0]), default(ParityWindowState));
             string logged = ledgerLog.ToString().Trim();
             check(cleanZero && ledger.Checkpoints == 3 && ledger.Failure != null && ledger.Failure.StartsWith("checkpoint 1: the private lists hold [s1 active, x pending]", StringComparison.Ordinal)
                   && logged == ParityRunLog.ReconciliationFailedLine(ledger.Failure, "w") && ledger.ClosingLine(2) == null,
@@ -175,9 +176,224 @@ namespace DesktopAICompanion.Shimeji
             named.Seed("s1");
             named.StartupActivated();
             named.Commit("{\"type\":\"event\",\"tick\":1,\"sid\":\"s1\",\"kind\":\"dispose\"}");
-            named.Checkpoint(1, new TickMembership(new[] { "s1" }, new string[0]));
+            named.Checkpoint(1, new TickMembership(new[] { "s1" }, new string[0]), default(ParityWindowState));
             check(named.Failure == "checkpoint 1: dispose of s1 with no active member carrying an earlier dispose-request",
                 "parity proof: WITNESS a dispose with no earlier dispose-request is a named inconsistency (" + (named.Failure ?? "none") + ")");
+
+            // The unknown dispose-request rule, fed as a synthetic committed-line stream (no engine change, no admission
+            // table): a dispose-request for a sid with no member is a no-op that leaves no tombstone, so a later
+            // birth-request for that sid is a new pending member, and every checkpoint passes.
+            var ghostLog = new StringWriter();
+            var ghost = new ParityRunLedger(false, ghostLog, "w");
+            ghost.Seed("s1");
+            ghost.StartupActivated();
+            ghost.Commit("{\"type\":\"state\",\"tick\":0,\"sid\":\"s1\",\"pending\":false}");
+            ghost.Checkpoint(0, new TickMembership(new[] { "s1" }, new string[0]), default(ParityWindowState));
+            ghost.Commit("{\"type\":\"event\",\"tick\":1,\"sid\":\"s1.b1\",\"kind\":\"dispose-request\",\"reason\":\"error\"}");
+            ghost.Commit("{\"type\":\"state\",\"tick\":1,\"sid\":\"s1\",\"pending\":false}");
+            ghost.Checkpoint(1, new TickMembership(new[] { "s1" }, new string[0]), default(ParityWindowState));
+            ghost.Commit("{\"type\":\"event\",\"tick\":2,\"sid\":\"s1\",\"kind\":\"birth-request\",\"child\":\"s1.b1\"}");
+            ghost.Commit("{\"type\":\"state\",\"tick\":2,\"sid\":\"s1\",\"pending\":false}");
+            ghost.Commit("{\"type\":\"state\",\"tick\":2,\"sid\":\"s1.b1\",\"pending\":true}");
+            ghost.Checkpoint(2, new TickMembership(new[] { "s1" }, new[] { "s1.b1" }), default(ParityWindowState));
+            string ghostClosing = ghost.ClosingLine(2);
+            check(ghost.Failure == null && ghostClosing != null && ghostClosing.StartsWith(ParityRunLog.Reconciliation + " window-effects, active-pending-membership checkpoints 3 ", StringComparison.Ordinal),
+                "parity proof: WITNESS an unknown dispose-request is a no-op and its sid may be born later (" + (ghost.Failure ?? ghostClosing ?? "no closing line") + ")");
+
+            // A trace-off ledger whose N+1 checkpoints passed writes the positive witness only once its final states were
+            // compared; when the final-state write failed before that (ParityRun catches it as status error), its closing
+            // line says so instead of naming a comparison that never ran.
+            Func<bool, string> traceOffClosing = compareFinal =>
+            {
+                var l = new ParityRunLedger(true, new StringWriter(), "w");
+                l.Seed("s1");
+                l.StartupActivated();
+                l.Checkpoint(0, new TickMembership(new[] { "s1" }, new string[0]), default(ParityWindowState));
+                l.Checkpoint(1, new TickMembership(new[] { "s1" }, new string[0]), default(ParityWindowState));
+                if (compareFinal)
+                {
+                    l.Commit("{\"type\":\"state\",\"tick\":1,\"sid\":\"s1\",\"pending\":false}");
+                    l.FinalStates(1, new TickMembership(new[] { "s1" }, new string[0]));
+                }
+                return l.ClosingLine(1);
+            };
+            string withFinal = traceOffClosing(true), withoutFinal = traceOffClosing(false);
+            check(withFinal == ParityRunLog.ReconciliationLine(2, true, "w") && withoutFinal == ParityRunLog.ReconciliationFinalStatesMissingLine(2, "w"),
+                "parity proof: WITNESS a trace-off ledger whose final states were never compared writes no positive witness (" + withoutFinal + " | " + withFinal + ")");
+        }
+
+        /// <summary>
+        /// burndown/host-policy-1, N-parity-1107-03 C5 (signed revision H :136): A14 window reconciliation on generated
+        /// packs, traced and trace-off. ThrowIE and MinimizeIE with Throwing on and WindowActions on and off, a minimise and
+        /// a throw in one tick, and a run that stops part way. Each complete run must end with the positive witness naming
+        /// window-effects and N+1 checkpoints and the header's runId. The carry class (WalkWithIE) needs a grip geometry
+        /// these packs do not build; the round 4 differential runs make_packs' carry scenarios on and off through the
+        /// command instead. A unit leg shows the counters count only a success. Every pet here is generated.
+        /// </summary>
+        private static void CheckParityWindowProofs(Action<bool, string> check, string root, StringBuilder log)
+        {
+            try
+            {
+                CheckParityWindowProofLegs(check, root, log);
+            }
+            catch (Exception e)
+            {
+                check(false, "parity proof: the window reconciliation checks ran without an exception: " + e);
+            }
+        }
+
+        /// <summary>ParDocument's Walk made the window class <paramref name="cls"/>, an Animate of its three poses at
+        /// <paramref name="ticks"/> ticks each, with the class's default parameters.</summary>
+        private static XmlData.RootNode ProofWindowDocument(string set, string cls, int ticks)
+        {
+            XmlData.RootNode doc = ParDocument(false);
+            doc.Header.Title = set;
+            doc.Header.Features += " windows";
+            foreach (XmlData.AnimationNode n in doc.Animations.Animation)
+            {
+                if (n.Id != 30) continue;
+                n.Act.Type = "Embedded";
+                n.Act.Class = cls;
+                n.Act.Params = new XmlData.ParamNode[0];
+                foreach (XmlData.PoseNode p in n.Act.Variants.Variant[0].Pose) p.Ticks = ticks;
+            }
+            return doc;
+        }
+
+        /// <summary>A generated scenario/1 with a shown window [300, 200, 700, 500] from tick 0, the given settings and
+        /// input entries after the tick-0 cursor.</summary>
+        private static string ProofWindowScenario(string root, string id, int ticks, string mascots, bool windowActions, string input)
+        {
+            string pack = Path.Combine(root, "pack");
+            if (!Directory.Exists(pack))
+            {
+                Directory.CreateDirectory(pack);
+                File.WriteAllText(Path.Combine(pack, "readme.txt"), "a generated stand-in pack\n", new UTF8Encoding(false));
+            }
+            string scenario = Path.Combine(root, id + ".json");
+            File.WriteAllText(scenario, "{\"schema\":\"shimeji-parity-scenario/1\",\"id\":" + JsonLine.Quote(id) + ",\"description\":\"generated\","
+                + "\"pack\":\"pack\",\"screens\":[{\"x\":0,\"y\":0,\"w\":1280,\"h\":720}],\"workArea\":{\"x\":0,\"y\":0,\"w\":1280,\"h\":680},"
+                + "\"dpiScale\":1.0,\"ticks\":" + ticks.ToString(CultureInfo.InvariantCulture) + ",\"rng\":{\"kind\":\"none\"},"
+                + "\"settings\":{\"Throwing\":true,\"WindowActions\":" + (windowActions ? "true" : "false") + "},"
+                + "\"mascots\":[" + mascots + "],\"activeWindow\":[{\"tick\":0,\"visible\":true,\"rect\":[300,200,700,500]}],"
+                + "\"input\":[{\"tick\":0,\"cursor\":[100,100]}" + input + "]}",
+                new UTF8Encoding(false));
+            return scenario;
+        }
+
+        private static void CheckParityWindowProofLegs(Action<bool, string> check, string root, StringBuilder log)
+        {
+            Directory.CreateDirectory(root);
+            var build = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                { "commit", "selftest" }, { "exeSha256", new string('0', 64) }, { "engineSha256", new string('1', 64) }, { "converterSha256", new string('2', 64) },
+            };
+            string pets = PolicyPets(root, "pets-window",
+                new KeyValuePair<string, XmlData.RootNode>("Thrower", ProofWindowDocument("Thrower", "ThrowIE", 2)),
+                new KeyValuePair<string, XmlData.RootNode>("Minimiser", ProofWindowDocument("Minimiser", "MinimizeIE", 1)));
+            const string thrower = "{\"sid\":\"t1\",\"imageSet\":\"Thrower\",\"behavior\":\"Walk\",\"anchor\":[640,680],\"lookRight\":false}";
+            const string minimiser = "{\"sid\":\"n1\",\"imageSet\":\"Minimiser\",\"behavior\":\"Walk\",\"anchor\":[200,680],\"lookRight\":false}";
+
+            // One run: exit, footer, the closing line against the exact witness with the header's runId, and in a traced run
+            // the records that make the leg the case it claims ("!" = must be absent).
+            Func<string, string, bool, int, string[], string> run = (name, scenario, traceOff, ticks, records) =>
+            {
+                string trace = Path.Combine(root, name + ".jsonl");
+                var runLog = new StringWriter();
+                int exit = ParityRun.Run(scenario, pets, trace, build, runLog, traceOff);
+                string text = runLog.ToString();
+                log.Append("LOG: parity window proof " + name + ": " + text);
+                string traceText = File.Exists(trace) ? File.ReadAllText(trace) : null;
+                string runId = PolicyHeaderRunId(traceText);
+                string want = ParityRunLog.ReconciliationLine(ticks + 1, traceOff, runId);
+                string witness = PolicyLine(text, ParityRunLog.Reconciliation + " ");
+                bool complete = traceText != null && traceText.Contains("{\"type\":\"footer\",\"ticks\":" + ticks.ToString(CultureInfo.InvariantCulture) + ",\"status\":\"complete\"");
+                var lacking = new List<string>();
+                if (!traceOff && records != null)
+                    foreach (string record in records)
+                        if (record.StartsWith("!", StringComparison.Ordinal) ? traceText != null && traceText.Contains(record.Substring(1))
+                                : traceText == null || !traceText.Contains(record))
+                            lacking.Add(record);
+                return exit == 0 && complete && runId != null && witness == want && lacking.Count == 0 ? ""
+                    : name + ": exit " + exit + ", footer " + (complete ? "complete" : "not complete") + ", " + (witness ?? "no reconciliation line")
+                      + (lacking.Count == 0 ? "" : ", trace record condition failed: " + string.Join(" | ", lacking));
+            };
+            // Both modes of one scenario under one label: a defect that shows in both fails this one label once.
+            Action<string, string, int, string[]> both = (label, scenario, ticks, records) =>
+            {
+                string id = Path.GetFileNameWithoutExtension(scenario);
+                string traced = run(id + "-traced", scenario, false, ticks, records);
+                string off = run(id + "-trace-off", scenario, true, ticks, records);
+                string failed = (traced + (traced.Length > 0 && off.Length > 0 ? " | " : "") + off);
+                check(failed.Length == 0, label + " (" + (failed.Length == 0 ? "witness window-effects " + (ticks + 1) + " checkpoints, both modes" : failed) + ")");
+            };
+
+            const string moved = "\"sid\":\"t1\",\"kind\":\"window-move\",\"from\":[300,200,700,500],";
+            const string minimised = "\"sid\":\"n1\",\"kind\":\"window-minimize\"}";
+            both("parity proof: window throw with WindowActions on reconciles its moves, traced and trace-off",
+                ProofWindowScenario(root, "S-window-proof-throw-on", 8, thrower, true, ""), 8, new[] { moved });
+            both("parity proof: window throw with WindowActions off moves nothing and reconciles, traced and trace-off",
+                ProofWindowScenario(root, "S-window-proof-throw-off", 8, thrower, false, ""), 8, new[] { "!\"kind\":\"window-move\"" });
+            both("parity proof: window minimize with WindowActions on reconciles its minimise, traced and trace-off",
+                ProofWindowScenario(root, "S-window-proof-minimize-on", 6, minimiser, true, ""), 6, new[] { minimised });
+            both("parity proof: window minimize with WindowActions off minimises nothing and reconciles, traced and trace-off",
+                ProofWindowScenario(root, "S-window-proof-minimize-off", 6, minimiser, false, ""), 6, new[] { "!\"kind\":\"window-minimize\"" });
+            // n1 ticks before t1: in the tick n1 minimises the window, t1's throw still sees last tick's visible area and
+            // asks the desktop for a move that finds no window, a failed call with no event and no count.
+            both("parity proof: a minimise and a throw in one tick reconcile, traced and trace-off",
+                ProofWindowScenario(root, "S-window-proof-both", 8, minimiser + "," + thrower, true, ""), 8, new[] { moved, minimised });
+            // That the leg holds the failed call it claims: at the tick n1 minimises, t1's state shows it still in its
+            // ThrowIE (whose Tick asks for a move while last tick's area is visible) and no window-move is committed then.
+            string bothTrace = Path.Combine(root, "S-window-proof-both-traced.jsonl");
+            string failedCall = "no traced trace";
+            if (File.Exists(bothTrace))
+            {
+                int minimiseTick = -1;
+                bool throwing = false, movedThen = false;
+                string[] lines = File.ReadAllText(bothTrace).Split('\n');
+                foreach (string line in lines)
+                    if (line.Contains(minimised))
+                        using (JsonDocument d = JsonDocument.Parse(line)) minimiseTick = d.RootElement.GetProperty("tick").GetInt32();
+                string at = "\"tick\":" + minimiseTick.ToString(CultureInfo.InvariantCulture) + ",";
+                foreach (string line in lines)
+                {
+                    if (!line.Contains(at)) continue;
+                    if (line.StartsWith("{\"type\":\"state\",", StringComparison.Ordinal) && line.Contains("\"sid\":\"t1\",") && line.Contains("\"actionClass\":\"ThrowIE\"")) throwing = true;
+                    if (line.Contains("\"kind\":\"window-move\"")) movedThen = true;
+                }
+                failedCall = "minimise at tick " + minimiseTick + ", t1 " + (throwing ? "in ThrowIE" : "not in ThrowIE") + ", " + (movedThen ? "a window-move then" : "no window-move then");
+                check(minimiseTick > 0 && throwing && !movedThen, "parity proof: the one-tick leg holds a throw call that finds no window (" + failedCall + ")");
+            }
+            else check(false, "parity proof: the one-tick leg holds a throw call that finds no window (" + failedCall + ")");
+
+            // A run that stops at tick 3 (a left-button edge for a companion that does not exist): checkpoints 0..2 ran, the
+            // closing line counts them, and no positive witness is written.
+            string stopScenario = ProofWindowScenario(root, "S-window-proof-stop", 8, thrower, true, ",{\"tick\":3,\"sid\":\"ghost\",\"press\":\"left\"}");
+            string stopTrace = Path.Combine(root, "S-window-proof-stop.jsonl");
+            var stopLog = new StringWriter();
+            int stopExit = ParityRun.Run(stopScenario, pets, stopTrace, build, stopLog, false);
+            string stopText = stopLog.ToString();
+            log.Append("LOG: parity window proof stop: " + stopText);
+            string stopRunId = PolicyHeaderRunId(File.Exists(stopTrace) ? File.ReadAllText(stopTrace) : null);
+            string stopLine = PolicyLine(stopText, ParityRunLog.Reconciliation + " ");
+            check(stopExit == 2 && stopRunId != null && stopLine == ParityRunLog.ReconciliationIncompleteLine(3, 9, stopRunId),
+                "parity proof: a run that stops at tick k prints no positive witness and logs checkpoint k (exit " + stopExit + ", " + (stopLine ?? "no reconciliation line") + ")");
+
+            // WITNESS, the counters themselves: a call that finds no window (hidden, or minimised) changes nothing and counts
+            // nothing; a found window counts its move and its minimise once each.
+            var screen = new TickArea();
+            screen.Set(0, 0, 1280, 720);
+            var desk = new TickDesktopWindow();
+            TickRect from, to;
+            bool hiddenMove = desk.Move(new TickPoint(10, 10), 400, 300, screen, out from, out to);
+            bool hiddenMinimise = desk.Minimize(screen);
+            desk.Show(new TickRect(300, 200, 400, 300));
+            bool foundMove = desk.Move(new TickPoint(10, 10), 400, 300, screen, out from, out to);
+            bool foundMinimise = desk.Minimize(screen);
+            bool minimisedMove = desk.Move(new TickPoint(20, 20), 400, 300, screen, out from, out to);
+            check(!hiddenMove && !hiddenMinimise && foundMove && foundMinimise && !minimisedMove && desk.Moves == 1 && desk.Minimises == 1 && desk.Rect.X == 10,
+                "parity proof: WITNESS a missing-window failed call moves and counts nothing, a found window counts its move and its minimise ("
+                + desk.Moves + " moves, " + desk.Minimises + " minimises)");
         }
     }
 }
