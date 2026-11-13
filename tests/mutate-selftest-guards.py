@@ -26139,6 +26139,15 @@ CASES = (
      HOST_CSPROJ, EXE,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
      'parity proof: arbitrary failed and successful start sids and both disposals reconcile, traced ('),
+    # The provisional failed-child sid reuse leg (a failed birth's sid taken by the next birth of the same parent): a
+    # failed child queued anyway, with no birth-request, shows in the private lists from its tick on.
+    ('bd-host-policy-1: proof failed child is queued anyway under its provisional sid',
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'                    _world.Observer.BirthRefused(parent, attempt, "error");\n                    continue;\n',
+     b'                    _world.Observer.BirthRefused(parent, attempt, "error");\n                    _world.Add(child);\n                    continue;\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     "parity proof: a failed child's provisional sid taken by the next birth reconciles, trace-off ("),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

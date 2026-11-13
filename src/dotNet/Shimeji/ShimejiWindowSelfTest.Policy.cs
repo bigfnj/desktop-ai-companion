@@ -62,8 +62,8 @@ namespace DesktopAICompanion.Shimeji
         }
 
         /// <summary>A generated scenario/1 over <paramref name="mascots"/> (a JSON array's members), with the pack folder it
-        /// names, written beside the pets folder.</summary>
-        private static string PolicyScenario(string root, string id, int ticks, string mascots)
+        /// names, written beside the pets folder; directed (rng none) unless <paramref name="rng"/> says otherwise.</summary>
+        private static string PolicyScenario(string root, string id, int ticks, string mascots, string rng = "{\"kind\":\"none\"}")
         {
             string pack = Path.Combine(root, "pack");
             if (!Directory.Exists(pack))
@@ -74,7 +74,7 @@ namespace DesktopAICompanion.Shimeji
             string scenario = Path.Combine(root, id + ".json");
             File.WriteAllText(scenario, "{\"schema\":\"shimeji-parity-scenario/1\",\"id\":" + JsonLine.Quote(id) + ",\"description\":\"generated\","
                 + "\"pack\":\"pack\",\"screens\":[{\"x\":0,\"y\":0,\"w\":1280,\"h\":720}],\"workArea\":{\"x\":0,\"y\":0,\"w\":1280,\"h\":680},"
-                + "\"dpiScale\":1.0,\"ticks\":" + ticks.ToString(CultureInfo.InvariantCulture) + ",\"rng\":{\"kind\":\"none\"},\"settings\":{},"
+                + "\"dpiScale\":1.0,\"ticks\":" + ticks.ToString(CultureInfo.InvariantCulture) + ",\"rng\":" + rng + ",\"settings\":{},"
                 + "\"mascots\":[" + mascots + "],\"activeWindow\":[{\"tick\":0,\"visible\":false}],\"input\":[{\"tick\":0,\"cursor\":[100,100]}]}",
                 new UTF8Encoding(false));
             return scenario;

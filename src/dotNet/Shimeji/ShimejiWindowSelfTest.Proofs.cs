@@ -45,6 +45,24 @@ namespace DesktopAICompanion.Shimeji
             return doc;
         }
 
+        /// <summary>PolicyBreedDocument with BornCount 1 and a BornBehavior read once per action from a draw: below one half it
+        /// names a behaviour the member lacks, so that birth fails and its provisional sid (parent.b1) is never used; the
+        /// next action's draw names Walk, and that birth takes the same sid.</summary>
+        private static XmlData.RootNode ProofReuseDocument(string set)
+        {
+            XmlData.RootNode doc = PolicyBreedDocument(set);
+            foreach (XmlData.AnimationNode n in doc.Animations.Animation)
+            {
+                if (n.Id != 30) continue;
+                n.Act.Params = new[]
+                {
+                    new XmlData.ParamNode { Name = "BornCount", Value = "1", Cache = "none" },
+                    new XmlData.ParamNode { Name = "BornBehavior", Value = "Math.random() < 0.5 ? \"Nope\" : \"Walk\"", Cache = "action" },
+                };
+            }
+            return doc;
+        }
+
         private static void CheckParityProofLegs(Action<bool, string> check, string root, StringBuilder log)
         {
             Directory.CreateDirectory(root);
@@ -67,6 +85,12 @@ namespace DesktopAICompanion.Shimeji
 
             // A traced leg also requires the records that make it the case it claims (a leg that never refused, disposed or
             // failed a start would pass vacuously); a trace-off run has no event lines to read them from.
+            string reusePets = PolicyPets(root, "pets-reuse", new KeyValuePair<string, XmlData.RootNode>("Kin", ProofReuseDocument("Kin")));
+            // The first draw (the first action's BornBehavior) is low, every later one high.
+            string reuseScenario = PolicyScenario(root, "S-proof-reuse", 15,
+                "{\"sid\":\"m1\",\"imageSet\":\"Kin\",\"behavior\":\"Walk\",\"anchor\":[640,680],\"lookRight\":false}",
+                "{\"kind\":\"tape\",\"values\":[0.1,0.9,0.9,0.9,0.9,0.9,0.9,0.9,0.9,0.9,0.9,0.9]}");
+
             Func<string, string, string, bool, int, string[], string> leg = (name, scenario, pets, traceOff, ticks, records) =>
             {
                 string trace = Path.Combine(root, name + ".jsonl");
@@ -107,6 +131,19 @@ namespace DesktopAICompanion.Shimeji
             check(capOn.Length == 0, "parity proof: births at the cap reconcile at every checkpoint, traced (" + (capOn.Length == 0 ? "witness 7 checkpoints" : capOn) + ")");
             string capOff = leg("cap-trace-off", capScenario, capPets, true, 6, capRecords);
             check(capOff.Length == 0, "parity proof: births at the cap reconcile at every checkpoint, trace-off (" + (capOff.Length == 0 ? "witness 7 checkpoints" : capOff) + ")");
+            string[] reuseRecords =
+            {
+                "\"sid\":\"m1\",\"kind\":\"birth-refused\",\"child\":null,\"attempt\":1,\"reason\":\"error\"}",
+                "\"sid\":\"m1\",\"kind\":\"birth-request\",\"child\":\"m1.b1\",",
+                "\"attempt\":2}",
+                "{\"type\":\"state\",\"tick\":15,\"sid\":\"m1.b1\",",
+            };
+            string reuseOn = leg("reuse-traced", reuseScenario, reusePets, false, 15, reuseRecords);
+            check(reuseOn.Length == 0,
+                "parity proof: a failed child's provisional sid taken by the next birth reconciles, traced (" + (reuseOn.Length == 0 ? "witness 16 checkpoints" : reuseOn) + ")");
+            string reuseOff = leg("reuse-trace-off", reuseScenario, reusePets, true, 15, reuseRecords);
+            check(reuseOff.Length == 0,
+                "parity proof: a failed child's provisional sid taken by the next birth reconciles, trace-off (" + (reuseOff.Length == 0 ? "witness 16 checkpoints" : reuseOff) + ")");
             string mixedOn = leg("mixed-traced", mixedScenario, mixedPets, false, 5, mixedRecords);
             check(mixedOn.Length == 0,
                 "parity proof: arbitrary failed and successful start sids and both disposals reconcile, traced (" + (mixedOn.Length == 0 ? "witness 6 checkpoints" : mixedOn) + ")");
