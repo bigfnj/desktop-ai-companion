@@ -8010,6 +8010,26 @@ first failure, on the abort and the failed paths alike; a positive witness is ne
 incomplete run. Recorded gap, as for the complete path's promotion: an inlined abort ending that hardcodes "aborted" but
 keeps the closing line is not killed by any real run, only by the hand-driven leg on `EndAborted`.
 
+**Scenario/2 candidates reach the registry drift self-test, and the table stays not adopted until C8 (C7, H :45, :56-64,
+:230-232, 2026-11-13).** `ParityRun.ScenarioFile` takes the full SHA-256 of the retained bytes and the pure scan facts at
+the single read, before the claim and before anything parses the bytes, and the header reuses that digest. The core run
+routes a candidate by those facts, never by a parsed schema, which JsonDocument reads by its last member, so both
+duplicate-schema orders and an escaped marker are candidates. A candidate reaches `ParityPolicyRegistry.EnsureVerified`
+after the output claim and the command's prerequisites, right after the loaded-engine line. The drift self-test runs once
+per process (a static of the assembly, nothing on disk) and every candidate run logs its verdict with its runId. Until
+registry finalization the production table is not adopted (no resource, no rows, no digest), so every candidate is
+"parity registry-integrity internal-defect: the registry table is not adopted: ...", exit 2 and no trace, and a candidate
+never falls through to the legacy reader. No table seam ships: Codex ruled on 2026-11-13 that even an internal
+admission-table parameter used only by self-tests is a test-only admission override under H :64, so `EnsureVerified` takes
+no table and the drift checks are graded on the pure `Verify` with tables the self-test builds. A byte order mark stops
+the scan at 0, so a BOM-prefixed scenario/2 takes the legacy route; probed on .NET 10, `JsonDocument.Parse(byte[])` does
+not skip the mark and refuses it as syntax, so its outcome is K5's syntax diagnostic, as for any BOM-prefixed scenario
+(the base parsed the same bytes the same way). Refused: routing by the parsed schema (last-wins duplicates), a raw-byte
+marker search (it misses an escaped marker), and an in-process synthetic table (critique A4). Three source-order
+invariants in runtime-hardening-selftest.ps1 pin the single read, the claim before `EnsureVerified`, and its table-free
+signature; the admission lookup gets the same rule in C8. The registry-integrity spellings are proposals for Codex's
+review, beside the seven already reviewed.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. None of

@@ -5605,6 +5605,32 @@ CASES = (
         b"        $root = $hostName + '" + bytes([92]) + b"home'\n",
         "w14-packaging-ci-1: the build-identity scan proves the leg: a UNC root on the stand-in host under another share",
     ),
+    # ---- burndown/host-policy-1 ----
+    # N-parity-1107-03 C7: the scenario/2 candidate route's order (runtime-hardening-selftest.ps1, host-policy-1 block). Each
+    # case breaks the ORDER or adds the parameter, never deletes the guarded statement. "bd-host-policy-1: registry".
+    (
+        "bd-host-policy-1: registry candidate scanned again at the route instead of from the single read",
+        os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+        b"            if (scenarioFile.Scan != null && scenarioFile.Scan.Candidate)\n",
+        b"            if (ParityScenarioScan.Scan(File.ReadAllBytes(scenarioFile.Argument)).Candidate)\n",
+        "host-policy-1: the scan is taken from the single read",
+    ),
+    (
+        "bd-host-policy-1: registry drift self-test runs before the output claim",
+        os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+        b"            ParityRun.TraceClaim claim = ParityRun.TraceClaim.Claim(scenario, args[at + 2], args[at + 3], args[at + 4], log);\n",
+        b"            string early;\n            ParityLoadedEngine earlyEngine = ParityLoadedEngine.Read(ParityEnginePaths.Process, out early);\n"
+        b"            if (scenario.Scan != null && scenario.Scan.Candidate && earlyEngine != null && !ParityPolicyRegistry.EnsureVerified(earlyEngine, early, log)) return 2;\n"
+        b"            ParityRun.TraceClaim claim = ParityRun.TraceClaim.Claim(scenario, args[at + 2], args[at + 3], args[at + 4], log);\n",
+        "host-policy-1: the output claim precedes the registry drift",
+    ),
+    (
+        "bd-host-policy-1: registry EnsureVerified takes a table parameter",
+        os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityPolicyRegistry.cs"),
+        b"        internal static bool EnsureVerified(ParityLoadedEngine engine, string runId, TextWriter log)\n",
+        b"        internal static bool EnsureVerified(ParityLoadedEngine engine, string runId, TextWriter log, IList<ParityPolicyRow> table = null)\n",
+        "host-policy-1: EnsureVerified takes no table parameter",
+    ),
 )
 
 

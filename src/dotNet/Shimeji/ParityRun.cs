@@ -1261,18 +1261,30 @@ namespace DesktopAICompanion.Shimeji
 
         /// <summary>The scenario file as the run reads it, once: its bytes, or the argument fault reading them threw. Read
         /// before the trace path is claimed, because only its bytes name the pack, and refused (the fault) only after the
-        /// claim, so a trace path something is already at is named first.</summary>
+        /// claim, so a trace path something is already at is named first.
+        ///
+        /// N-parity-1107-03 C7 (signed revision H :45, :56-62, :230): the full SHA-256 of these retained bytes and the pure
+        /// candidate scan facts are taken here, at the single read, before the claim and before anything parses the bytes;
+        /// the header reuses this digest. Scan facts alone never refuse anything (H :45-52): the run routes a candidate to
+        /// the registry drift self-test only after the claim and the command's prerequisites.</summary>
         internal sealed class ScenarioFile
         {
             public readonly string Argument;
             public readonly byte[] Bytes;
             public readonly Exception Fault;
+            public readonly string Sha256;
+            public readonly ParityScenarioScan.Result Scan;
 
             private ScenarioFile(string argument, byte[] bytes, Exception fault)
             {
                 Argument = argument;
                 Bytes = bytes;
                 Fault = fault;
+                if (bytes != null)
+                {
+                    Sha256 = ParityRun.Sha256(bytes);
+                    Scan = ParityScenarioScan.Scan(bytes);
+                }
             }
 
             internal static ScenarioFile Read(string scenarioPath)
@@ -1819,6 +1831,19 @@ namespace DesktopAICompanion.Shimeji
             // Refused: logging it only on a run that opens its trace, which left a refusal naming no process at all.
             string runId = Guid.NewGuid().ToString();
             log.WriteLine(ParityRunLog.LoadedEngineLine(engine, runId));
+            // N-parity-1107-03 C7 (signed revision H :45, :56-62, :230-232): a scenario/2 candidate, by the scan facts taken at
+            // the single read (ScenarioFile), never by a parsed schema, which JsonDocument reads by its last member, so both
+            // duplicate-schema orders and an escaped marker are candidates. It reaches the registry drift self-test here,
+            // after the output claim and the command's prerequisites, before any registry consultation. Until C8 adopts a
+            // table the self-test fails for every candidate: registry-integrity internal-defect, exit 2, no trace. A
+            // candidate never falls through to the legacy reader below; with no admission route in this build, a verified
+            // registry (impossible before C8) is the same named defect. Everything else takes today's route unchanged.
+            if (scenarioFile.Scan != null && scenarioFile.Scan.Candidate)
+            {
+                if (!ParityPolicyRegistry.EnsureVerified(engine, runId, log)) return 2;
+                log.WriteLine(ParityRunLog.RegistryIntegrityDefectLine("this build has no admission route for a verified registry", runId));
+                return 2;
+            }
             // N-bd-w11-shimeji-host-1-01: a path argument that names nothing (this scenario file, the pets folder in
             // LoadPets, the trace's folder below) is refused by name with exit 2, its line and no trace, as a refused map or
             // pack is. It is the caller's argument error, not scenario-invalid: there is no scenario to judge. Unchecked,
@@ -1951,7 +1976,7 @@ namespace DesktopAICompanion.Shimeji
                 using (StreamWriter trace = opened)
                 {
                     trace.NewLine = "\n";
-                    return Run(scenario, scenarioBytes, packSha256, pets, trace, build, log, traceOff, engine, synthetic, runId);
+                    return Run(scenario, scenarioFile.Sha256, packSha256, pets, trace, build, log, traceOff, engine, synthetic, runId);
                 }
             }
         }
@@ -2157,7 +2182,7 @@ namespace DesktopAICompanion.Shimeji
             return 2;
         }
 
-        private static int Run(Scenario scenario, byte[] scenarioBytes, string packSha256, List<KeyValuePair<TickType, ParityMap>> pets,
+        private static int Run(Scenario scenario, string scenarioSha256, string packSha256, List<KeyValuePair<TickType, ParityMap>> pets,
             TextWriter trace, Dictionary<string, string> build, TextWriter log, bool traceOff, ParityLoadedEngine engine, bool synthetic, string runId)
         {
             {
@@ -2176,7 +2201,8 @@ namespace DesktopAICompanion.Shimeji
                 // entry beside the loaded-engine line (Codex Q-c) and handed to the header, so every closure line this run
                 // logs carries the same one. On a run below the command, the synthetic label follows the header, since it
                 // qualifies the header's build values, which were its caller's (ParityRunLog holds the spellings).
-                writer.Header(scenario.Id, Sha256(scenarioBytes), packSha256, build, scenario.Rng, scenario.DpiScale, runId);
+                // C7: the digest taken at the single read (ScenarioFile.Sha256), of the same bytes, so the header is unchanged.
+                writer.Header(scenario.Id, scenarioSha256, packSha256, build, scenario.Rng, scenario.DpiScale, runId);
                 if (synthetic) log.WriteLine(ParityRunLog.SyntheticWitnessLine(runId));
 
                 var world = new TickWorld(scenario.Environment, random, scenario.Settings, writer);

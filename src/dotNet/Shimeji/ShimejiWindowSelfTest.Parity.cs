@@ -34,6 +34,7 @@ namespace DesktopAICompanion.Shimeji
                 CheckParityProofs(check, Path.Combine(scratch, "parity-proofs"), log);
                 CheckParityWindowProofs(check, Path.Combine(scratch, "parity-window-proofs"), log);
                 CheckParityInputDiagnostics(check, Path.Combine(scratch, "parity-input"), log);
+                CheckParityRegistryRouting(check, Path.Combine(scratch, "parity-registry"), log);
             }
             catch (Exception e)
             {

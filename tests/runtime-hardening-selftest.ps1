@@ -7204,6 +7204,41 @@ foreach ($w14R in $w14Real) {
         "w14-packaging-ci-1: the CustomDebugInformation read finds one C# compilation options record per embedded PDB in a committed zip: $($w14R.Where) ($($w14R.Records) of $($w14R.Pdbs), $($w14R.Error))")
 }
 
+# ---- burndown/host-policy-1 ----
+# N-parity-1107-03 C7 (signed revision H :45, :56-62, :230-232): the scenario/2 candidate route's ORDER, comment-stripped
+# and method-scoped. (1) The scan facts and the full SHA come from the single read: ScenarioFile's constructor takes both
+# from the bytes Read hands it, nothing else in ParityRun.cs scans or reads a scenario file, and the core run tests the
+# stored facts before anything parses the bytes. (2) The output claim precedes the drift self-test: EnsureVerified is
+# called once, in the core run, and each caller that reaches the core run claims the trace path first. (3) EnsureVerified
+# takes no table (H :64, no test-only admission override): one declaration, with the engine, the runId and the log only.
+# The admission lookup is C8's and gets the same rule there. WITNESS first: both files read, every body located.
+$hpRun = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\Shimeji\ParityRun.cs') -Raw)
+$hpRegistry = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\Shimeji\ParityPolicyRegistry.cs') -Raw)
+$hpMembers = @("`n        public ", "`n        internal ", "`n        private ")
+$hpCore = Get-MethodBody $hpRun ("internal static int Run(ScenarioFile scenarioFile, string petsDir, string tracePath, Dictionary<string, string> build, TextWriter log, bool traceOff,`n            ParityLoadedEngine engine, bool synthetic)") $hpMembers
+$hpPaths = Get-MethodBody $hpRun ("internal static int Run(string scenarioPath, string petsDir, string tracePath, Dictionary<string, string> build, TextWriter log, bool traceOff,`n            ParityEnginePaths paths)") $hpMembers
+$hpExecute = Get-MethodBody $hpRun 'internal static int Execute(string[] args, int at, TextWriter log, System.Reflection.Assembly stamped, bool isolated)' $hpMembers
+$hpFile = Get-MethodBody $hpRun 'internal sealed class ScenarioFile' @("`n        }")
+Assert-True ($hpRun.Length -gt 0 -and $hpRegistry.Length -gt 0 -and $hpCore.Length -gt 0 -and $hpPaths.Length -gt 0 -and $hpExecute.Length -gt 0 -and $hpFile.Length -gt 0) (
+    'host-policy-1: WITNESS ParityRun.cs and ParityPolicyRegistry.cs were read and the run, its callers and ScenarioFile located')
+$hpCandidate = $hpCore.IndexOf('if (scenarioFile.Scan != null && scenarioFile.Scan.Candidate)', [StringComparison]::Ordinal)
+$hpEnsure = $hpCore.IndexOf('ParityPolicyRegistry.EnsureVerified(engine, runId, log)', [StringComparison]::Ordinal)
+$hpParse = $hpCore.IndexOf('JsonDocument.Parse(', [StringComparison]::Ordinal)
+Assert-True ($hpFile -cmatch 'File\.ReadAllBytes\(scenarioPath\)' -and $hpFile -cmatch 'Sha256 = ParityRun\.Sha256\(bytes\);\s*Scan = ParityScenarioScan\.Scan\(bytes\);' -and
+             [regex]::Matches($hpRun, 'ParityScenarioScan\.Scan\(').Count -eq 1 -and [regex]::Matches($hpRun, 'File\.ReadAllBytes\(scenario').Count -eq 1 -and
+             $hpCandidate -ge 0 -and $hpEnsure -gt $hpCandidate -and $hpParse -gt $hpEnsure) (
+    'host-policy-1: the scan is taken from the single read, before the claim and the parse (H :45, :56)')
+$hpExecClaim = $hpExecute.IndexOf('ParityRun.TraceClaim.Claim(', [StringComparison]::Ordinal)
+$hpExecRun = $hpExecute.IndexOf('return ParityRun.Run(scenario, ', [StringComparison]::Ordinal)
+$hpPathsClaim = $hpPaths.IndexOf('TraceClaim.Claim(scenarioFile, ', [StringComparison]::Ordinal)
+$hpPathsRun = $hpPaths.IndexOf('return Run(scenarioFile, ', [StringComparison]::Ordinal)
+Assert-True ([regex]::Matches($hpRun, 'EnsureVerified\(').Count -eq 1 -and $hpEnsure -ge 0 -and $hpExecClaim -ge 0 -and $hpExecRun -gt $hpExecClaim -and
+             $hpPathsClaim -ge 0 -and $hpPathsRun -gt $hpPathsClaim) (
+    'host-policy-1: the output claim precedes the registry drift self-test (H :45, :230)')
+$hpDecl = [regex]::Matches($hpRegistry, 'static bool EnsureVerified\(([^)]*)\)')
+Assert-True ($hpDecl.Count -eq 1 -and $hpDecl[0].Groups[1].Value -ceq 'ParityLoadedEngine engine, string runId, TextWriter log') (
+    'host-policy-1: EnsureVerified takes no table parameter (H :64)')
+
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever

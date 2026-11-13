@@ -181,6 +181,7 @@
     <Compile Include="dotNet\Shimeji\ParityRun.cs" />
     <Compile Include="dotNet\Shimeji\ParityScenarioScan.cs" />
     <Compile Include="dotNet\Shimeji\ParityProof.cs" />
+    <Compile Include="dotNet\Shimeji\ParityPolicyRegistry.cs" />
     <Compile Include="dotNet\Shimeji\TickHost.cs" />
     <Compile Include="dotNet\Shimeji\TickHost.Packs.cs" />
     <Compile Include="dotNet\Shimeji\TickPackBinding.cs" />

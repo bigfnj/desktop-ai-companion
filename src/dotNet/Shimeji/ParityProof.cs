@@ -25,8 +25,26 @@ namespace DesktopAICompanion.Shimeji
         public const string BirthWitness = "parity birth-witness";
         public const string Reconciliation = "parity reconciliation";
         public const string BuildWitnessUnreadable = "build-witness-unreadable";
+        public const string RegistryIntegrity = "parity registry-integrity";
         public const string RunIdField = " runId ";
         // ---- end of the spellings
+
+        /// <summary>The registry drift self-test passed (C7, H :230-232): "parity registry-integrity ok registrySha256 D
+        /// engineSha256 H enginePath P runId R", naming the digest and the engine assembly that holds the compiled table.
+        /// A form proposed for Codex's review; nothing logs it before C8 adopts a table.</summary>
+        public static string RegistryIntegrityOkLine(string registrySha256, ParityLoadedEngine engine, string runId)
+        {
+            return RegistryIntegrity + " ok registrySha256 " + registrySha256 + " engineSha256 " + engine.EngineSha256
+                + " enginePath " + engine.EnginePath + RunIdField + runId;
+        }
+
+        /// <summary>The registry drift self-test failed: a named internal defect, exit 2 and no trace. Until C8 every
+        /// candidate gets it, because the production table is not adopted. A form proposed for Codex's review.</summary>
+        public static string RegistryIntegrityDefectLine(string defect, string runId)
+        {
+            return RegistryIntegrity + " internal-defect: " + defect + "; a candidate scenario is admitted only through a verified registry"
+                + RunIdField + runId;
+        }
 
         /// <summary>"parity loaded-engine engineSha256 H exeSha256 H enginePath P exePath P runId R": the files this process
         /// loaded and hashed itself, never the header's build values, logged on every run at the core run's entry. The

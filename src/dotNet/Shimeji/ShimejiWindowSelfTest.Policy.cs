@@ -356,6 +356,176 @@ namespace DesktopAICompanion.Shimeji
                 + ", records " + (body(accepted[1]) != null && body(accepted[1]) == body(deepRun[1]) ? "equal" : "differ") + ")");
         }
 
+        /// <summary>
+        /// burndown/host-policy-1, N-parity-1107-03 C7 (signed revision H :45, :56-64, :230-232): a scenario/2 candidate, by
+        /// the scan facts taken at the single read, reaches the registry drift self-test after the output claim, and under
+        /// the not-adopted production table every candidate is the named registry-integrity internal defect, exit 2 and no
+        /// trace: both duplicate-schema orders, an escaped marker, and a candidate whose pack value cannot be decoded. An
+        /// occupied trace path is refused first, with no registry line. A byte order mark stops the scan, so a BOM-prefixed
+        /// scenario/2 takes the legacy route. Then the drift self-test's own checks, on the pure Verify with tables built by
+        /// hand: no table seam ships (Codex 2026-11-13, H :64). Every pet here is generated.
+        /// </summary>
+        private static void CheckParityRegistryRouting(Action<bool, string> check, string root, StringBuilder log)
+        {
+            try
+            {
+                CheckParityRegistryRoutingLegs(check, root, log);
+            }
+            catch (Exception e)
+            {
+                check(false, "parity policy: the registry routing checks ran without an exception: " + e);
+            }
+            try
+            {
+                CheckParityRegistryDrift(check);
+            }
+            catch (Exception e)
+            {
+                check(false, "parity policy: the registry drift checks ran without an exception: " + e);
+            }
+        }
+
+        private static void CheckParityRegistryRoutingLegs(Action<bool, string> check, string root, StringBuilder log)
+        {
+            Directory.CreateDirectory(root);
+            var build = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                { "commit", "selftest" }, { "exeSha256", new string('0', 64) }, { "engineSha256", new string('1', 64) }, { "converterSha256", new string('2', 64) },
+            };
+            string pets = PolicyPets(root, "pets-registry", new KeyValuePair<string, XmlData.RootNode>("Par", ParDocument(false)));
+            string plainText = File.ReadAllText(PolicyScenario(root, "S-registry-plain", 4,
+                "{\"sid\":\"m1\",\"imageSet\":\"Par\",\"behavior\":\"Walk\",\"anchor\":[640,680],\"lookRight\":false}"));
+            const string v1 = "\"schema\":\"shimeji-parity-scenario/1\"", v2 = "\"schema\":\"shimeji-parity-scenario/2\"";
+
+            // One run on the given bytes: exit (or what it threw), the trace if one was left, the log, the scenario path.
+            Func<string, byte[], string[]> run = (name, bytes) =>
+            {
+                string scenario = Path.Combine(root, name + ".json");
+                File.WriteAllBytes(scenario, bytes);
+                string trace = Path.Combine(root, name + ".jsonl");
+                var runLog = new StringWriter();
+                string exit;
+                try { exit = ParityRun.Run(scenario, pets, trace, build, runLog).ToString(CultureInfo.InvariantCulture); }
+                catch (Exception e) { exit = "threw " + e.GetType().Name; runLog.Write(e.Message); }
+                log.AppendLine("LOG: parity registry " + name + ": " + runLog.ToString().TrimEnd());
+                return new[] { exit, File.Exists(trace) ? File.ReadAllText(trace) : null, runLog.ToString(), scenario };
+            };
+            Func<string, byte[]> utf8 = text => new UTF8Encoding(false).GetBytes(text);
+            Func<string[], string> said = r => "exit " + r[0] + ", trace " + (r[1] == null ? "none" : "left") + ", " + r[2].Trim().Replace("\r", "").Replace("\n", " | ");
+            // The candidate outcome under the not-adopted table: the loaded-engine line, then the registry-integrity
+            // internal defect with the same runId, exit 2, no trace, and no legacy refusal.
+            Func<string[], string> defect = r =>
+            {
+                string engine = PolicyLine(r[2], ParityRunLog.LoadedEngine + " "), integrity = PolicyLine(r[2], ParityRunLog.RegistryIntegrity + " ");
+                bool ok = r[0] == "2" && r[1] == null && engine != null && integrity != null
+                    && integrity.StartsWith(ParityRunLog.RegistryIntegrity + " internal-defect: the registry table is not adopted", StringComparison.Ordinal)
+                    && PolicyRunId(integrity) == PolicyRunId(engine) && r[2].IndexOf(engine, StringComparison.Ordinal) < r[2].IndexOf(integrity, StringComparison.Ordinal)
+                    && !r[2].Contains("scenario-invalid");
+                return ok ? "" : said(r);
+            };
+
+            string[] candidate = run("S-registry-candidate", utf8(plainText.Replace(v1, v2)));
+            string candidateFault = defect(candidate);
+            check(candidateFault.Length == 0,
+                "parity policy: a candidate under the not-adopted table gives registry-integrity internal-defect, exit 2, no trace ("
+                + (candidateFault.Length == 0 ? PolicyLine(candidate[2], ParityRunLog.RegistryIntegrity + " ") : candidateFault) + ")");
+
+            string twoThenOne = defect(run("S-registry-dup-21", utf8(plainText.Replace(v1, v2 + "," + v1))));
+            string oneThenTwo = defect(run("S-registry-dup-12", utf8(plainText.Replace(v1, v1 + "," + v2))));
+            check(twoThenOne.Length == 0 && oneThenTwo.Length == 0,
+                "parity policy: both duplicate-schema orders route as candidates (" + (twoThenOne + oneThenTwo).Trim() + ")");
+
+            string escapedValue = defect(run("S-registry-escaped-value", utf8(plainText.Replace(v1, "\"schema\":\"shimeji-parity-scenario\\/2\""))));
+            string escapedName = defect(run("S-registry-escaped-name", utf8(plainText.Replace(v1, "\"\\u0073chema\":\"shimeji-parity-scenario/2\""))));
+            check(escapedValue.Length == 0 && escapedName.Length == 0,
+                "parity policy: an escaped marker routes as a candidate (" + (escapedValue + escapedName).Trim() + ")");
+
+            string surrogatePack = defect(run("S-registry-surrogate-pack", utf8(plainText.Replace(v1, v2).Replace("\"pack\":\"pack\"", "\"pack\":\"pa\\ud800ck\""))));
+            check(surrogatePack.Length == 0,
+                "parity policy: a candidate with a surrogate pack value still reaches the registry step (" + surrogatePack + ")");
+
+            // An occupied trace path with a candidate: the claim's refusal only, ahead of the core run, so neither the
+            // loaded-engine nor any registry line, and the occupant's bytes unchanged.
+            string occupiedScenario = Path.Combine(root, "S-registry-occupied.json");
+            File.WriteAllBytes(occupiedScenario, utf8(plainText.Replace(v1, v2)));
+            string occupied = Path.Combine(root, "S-registry-occupied.jsonl");
+            File.WriteAllText(occupied, "sentinel\n", new UTF8Encoding(false));
+            var occupiedLog = new StringWriter();
+            string occupiedExit;
+            try { occupiedExit = ParityRun.Run(occupiedScenario, pets, occupied, build, occupiedLog).ToString(CultureInfo.InvariantCulture); }
+            catch (Exception e) { occupiedExit = "threw " + e.GetType().Name; occupiedLog.Write(e.Message); }
+            string occupiedText = occupiedLog.ToString();
+            log.AppendLine("LOG: parity registry occupied: " + occupiedText.TrimEnd());
+            check(occupiedExit == "2" && occupiedText.Contains("is already there") && !occupiedText.Contains(ParityRunLog.RegistryIntegrity)
+                  && !occupiedText.Contains(ParityRunLog.LoadedEngine) && File.ReadAllText(occupied) == "sentinel\n",
+                "parity policy: an occupied trace path plus a candidate gives the occupied refusal only, no registry-integrity line, sentinel bytes unchanged (exit "
+                + occupiedExit + ", " + occupiedText.Trim().Replace("\r", "").Replace("\n", " | ") + ")");
+
+            // A byte order mark stops the scan at 0 (bom), so there is no candidate: the legacy route. Probed on .NET 10 and
+            // pinned here (brief open question 8): JsonDocument.Parse(byte[]) does NOT skip the mark, it refuses it as
+            // "'0xEF' is an invalid start of a value", so the legacy outcome is K5's syntax diagnostic, exit 2, no trace, as it
+            // is for a BOM-prefixed scenario/1 (the base parsed the same bytes the same way).
+            byte[] bomBytes = utf8(plainText.Replace(v1, v2));
+            byte[] withBom = new byte[bomBytes.Length + 3];
+            withBom[0] = 0xEF; withBom[1] = 0xBB; withBom[2] = 0xBF;
+            Array.Copy(bomBytes, 0, withBom, 3, bomBytes.Length);
+            string[] bom = run("S-registry-bom", withBom);
+            check(bom[0] == "2" && bom[1] == null
+                  && bom[2].Contains(ParityRun.ScenarioInputUnreadable + " syntax: refused " + bom[3] + ": scenario-invalid: the scenario is not JSON: '0xEF' is an invalid start of a value.")
+                  && !bom[2].Contains(ParityRunLog.RegistryIntegrity),
+                "parity policy: a BOM-prefixed scenario/2 file takes the legacy route, where the parser refuses the mark as syntax, exit 2 (" + said(bom) + ")");
+
+            // WITNESS: the plain scenario/1 runs as before, with no registry line.
+            string[] plainRun = run("S-registry-legacy", utf8(plainText));
+            check(plainRun[0] == "0" && plainRun[1] != null && !plainRun[2].Contains(ParityRunLog.RegistryIntegrity),
+                "parity policy: WITNESS a scenario/1 file is no candidate and runs the legacy route with no registry line (exit " + plainRun[0] + ")");
+        }
+
+        /// <summary>The drift self-test's checks on the pure ParityPolicyRegistry.Verify, with a registry and tables built
+        /// here (H :64: table checks are unit/build integrity; no admission table reaches the run).</summary>
+        private static void CheckParityRegistryDrift(Action<bool, string> check)
+        {
+            Func<char, string> hex = c => new string(c, 64);
+            Func<string, string, string, string> row = (caseName, scenario, legacy) =>
+                "{\"case\":\"" + caseName + "\",\"id\":\"p-" + caseName + "\",\"legacyScenarioSha256\":\"" + legacy + "\",\"pack\":\"packs/" + caseName
+                + "\",\"packSha256\":\"" + hex(caseName == "c1" ? '3' : '4') + "\",\"qualificationStatus\":\"q\",\"scenarioId\":\"S-" + caseName
+                + "\",\"scenarioSha256\":\"" + scenario + "\",\"ticks\":" + (caseName == "c1" ? "20" : "30") + "}";
+            Func<string, string, byte[]> registry = (secondScenario, firstLegacy) => new UTF8Encoding(false).GetBytes(
+                "{\"cases\":[" + row("c1", hex('a'), firstLegacy) + "," + row("c2", secondScenario, hex('6')) + "],\"generatorSha256\":\"" + hex('7')
+                + "\",\"registry\":\"shimeji-parity-policy/1\",\"schema\":\"shimeji-parity-policy-registry/1\"}");
+            Func<string, string, ParityPolicyRow> compiled = (caseName, scenario) =>
+                new ParityPolicyRow("p-" + caseName, caseName, "S-" + caseName, "packs/" + caseName, caseName == "c1" ? 20 : 30, scenario, hex(caseName == "c1" ? '3' : '4'));
+            Func<byte[], IList<ParityPolicyRow>, string, string> verify = (bytes, rows, digest) =>
+            {
+                try { return ParityPolicyRegistry.Verify(bytes, rows, digest) ?? "ok"; }
+                catch (Exception e) { return "threw " + e.GetType().Name + ": " + e.Message; }
+            };
+            byte[] good = registry(hex('b'), hex('5'));
+            string goodDigest = ParityRun.Sha256(good);
+            var goodRows = new List<ParityPolicyRow> { compiled("c1", hex('a')), compiled("c2", hex('b')) };
+            string clean = verify(good, goodRows, goodDigest);
+            check(clean == "ok", "parity policy: WITNESS the drift self-test passes a registry its compiled rows and digest were made from (" + clean + ")");
+
+            string flipped = verify(good, new List<ParityPolicyRow> { compiled("c1", hex('a').Substring(0, 10) + "b" + hex('a').Substring(11)), compiled("c2", hex('b')) }, goodDigest);
+            check(flipped.StartsWith("row 0: the compiled row p-c1/c1 is not the resource's", StringComparison.Ordinal),
+                "parity policy: registry drift: a flipped hex digit in a compiled row is an internal defect (" + flipped + ")");
+            string upper = verify(good, new List<ParityPolicyRow> { compiled("c1", hex('A')), compiled("c2", hex('b')) }, goodDigest);
+            check(upper == "row 0: a compiled hex digest is not 64 lowercase hex characters",
+                "parity policy: registry drift: an uppercase hex digest in a compiled row is an internal defect (" + upper + ")");
+            string extra = verify(good, new List<ParityPolicyRow> { compiled("c1", hex('a')), compiled("c2", hex('b')), compiled("c3", hex('c')) }, goodDigest);
+            check(extra.StartsWith("the compiled table holds an extra row: 3 compiled, 2 in the resource", StringComparison.Ordinal),
+                "parity policy: registry drift: an extra compiled row is an internal defect (" + extra + ")");
+            // The second row's admission key is the first row's legacy digest: every row equals the resource, so only the
+            // admission-key rule can see it.
+            byte[] legacyKeyed = registry(hex('5'), hex('5'));
+            string legacyKey = verify(legacyKeyed, new List<ParityPolicyRow> { compiled("c1", hex('a')), compiled("c2", hex('5')) }, ParityRun.Sha256(legacyKeyed));
+            check(legacyKey.StartsWith("the admission key " + hex('5') + " of p-c2/c2 is a legacy or provenance digest", StringComparison.Ordinal),
+                "parity policy: registry drift: a legacy hash used as an admission key is an internal defect (" + legacyKey + ")");
+            string missing = verify(null, goodRows, goodDigest);
+            check(missing == "the registry resource " + ParityPolicyRegistry.ResourceName + " is missing",
+                "parity policy: registry drift: a missing resource is an internal defect (" + missing + ")");
+        }
+
         /// <summary>The text between the first <paramref name="start"/> and the last <paramref name="end"/>, or null.</summary>
         private static string Between(string text, string start, string end)
         {
