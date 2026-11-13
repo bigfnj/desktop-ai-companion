@@ -991,7 +991,12 @@ namespace DesktopAICompanion.Shimeji
             for (int index = 0; index < _action.EvalInt("BornCount", 1); index++)
             {
                 int attempt = ++parent.BirthAttempts;
-                if (!_world.HasRoomForBirth())
+                // One room per attempt: the same captured operands decide the birth and reach the witness hook, which
+                // this call site names by tick, parent and attempt (H :158, TickWorld.BirthDecided).
+                TickBirthRoom room = _world.BirthRoom();
+                Action<TickBirthDecision> decided = _world.BirthDecided;
+                if (decided != null) decided(new TickBirthDecision(_world.Step, parent.Sid, attempt, room));
+                if (!room.Admits)
                 {
                     // policy:birth-cap: refused before anything is evaluated or allocated for it.
                     _world.Observer.BirthRefused(parent, attempt, "cap");
@@ -1417,6 +1422,156 @@ namespace DesktopAICompanion.Shimeji
     }
 
     /// <summary>
+    /// Who wrote the birth cap (policy:birth-cap, signed revision H :158): the writer's name, the context it wrote in, and
+    /// the budget's base and classic deduction when the writer exposes them separately. An opaque writer, the product's
+    /// Func&lt;int&gt; CompanionBudget or a plain assignment, marks both unavailable instead of inferring them. Immutable.
+    /// </summary>
+    internal sealed class TickLimitWriter
+    {
+        /// <summary>A plain MaximumCompanions assignment. H :158 asks for a direct, opaque writer here: the caller is
+        /// recorded as unknown, never inferred, and the write is never omitted.</summary>
+        public static readonly TickLimitWriter Direct = new TickLimitWriter("direct", "a plain MaximumCompanions assignment", false, 0, 0);
+
+        /// <summary>TickHost.Step's writer. CompanionBudget is a Func&lt;int&gt; that hands over only its result, the app's
+        /// shared cap less its classic companions, so base and deduction are unavailable (H :158).</summary>
+        public static readonly TickLimitWriter CompanionBudget = Opaque("TickHost.CompanionBudget", "the app's shared cap less its classic companions, asked before every step");
+
+        public readonly string Name;
+        public readonly string Context;
+        /// <summary>True when the writer exposed <see cref="Base"/> and <see cref="Deduction"/>; false marks both unavailable.</summary>
+        public readonly bool PartsKnown;
+        public readonly int Base;
+        public readonly int Deduction;
+
+        private TickLimitWriter(string name, string context, bool partsKnown, int baseLimit, int deduction)
+        {
+            Name = name ?? "";
+            Context = context ?? "";
+            PartsKnown = partsKnown;
+            Base = partsKnown ? baseLimit : 0;
+            Deduction = partsKnown ? deduction : 0;
+        }
+
+        /// <summary>A writer that hands over only the limit it computed: base and deduction unavailable.</summary>
+        public static TickLimitWriter Opaque(string name, string context) { return new TickLimitWriter(name, context, false, 0, 0); }
+
+        /// <summary>A writer that exposes the budget's base and classic deduction separately; both are recorded.</summary>
+        public static TickLimitWriter WithParts(string name, string context, int baseLimit, int deduction) { return new TickLimitWriter(name, context, true, baseLimit, deduction); }
+
+        /// <summary>Every recorded field equal: only then may two writes share a run (<see cref="TickLimitWrites"/>).</summary>
+        public bool Matches(TickLimitWriter other)
+        {
+            return other != null && string.Equals(Name, other.Name, StringComparison.Ordinal)
+                && string.Equals(Context, other.Context, StringComparison.Ordinal)
+                && PartsKnown == other.PartsKnown && Base == other.Base && Deduction == other.Deduction;
+        }
+
+        public override string ToString()
+        {
+            return Name + " (" + Context + "; " + (PartsKnown ? "base " + Base + " deduction " + Deduction : "base and deduction unavailable") + ")";
+        }
+    }
+
+    /// <summary>One run of the cap's write record: <see cref="Count"/> consecutive writes of <see cref="Value"/> by one
+    /// writer, the first of them the world's <see cref="FirstWrite"/>-th write, counted from 0.</summary>
+    internal sealed class TickLimitWrite
+    {
+        public readonly int Value;
+        public readonly TickLimitWriter Writer;
+        public readonly long FirstWrite;
+
+        /// <summary>A long: TickHost.Step writes the cap on every product step, so a steady budget's run grows for as
+        /// long as the app runs.</summary>
+        public long Count { get; internal set; }
+
+        public TickLimitWrite(int value, TickLimitWriter writer, long firstWrite)
+        {
+            Value = value;
+            Writer = writer;
+            FirstWrite = firstWrite;
+            Count = 1;
+        }
+    }
+
+    /// <summary>
+    /// The birth cap's write record (policy:birth-cap, signed revision H :158, review reading K3 as Codex accepted it):
+    /// every write after the world's construction, in order, with its value and writer. It is lossless run-length:
+    /// consecutive writes of one value by writers equal in every field share a run with a count, so TickHost.Step's write
+    /// on every step costs one counter instead of one entry, while the full logical count, the order, each value and
+    /// each writer and context stay exact. Rejected: one entry per write, which grows without bound in the shipping app;
+    /// and keeping only the last write, which H :158 forbids ("not ... shortened to its last write"). Nothing clears,
+    /// reorders or shortens it, so zero writes and any write stay distinguishable for the run's whole life.
+    /// </summary>
+    internal sealed class TickLimitWrites
+    {
+        private readonly List<TickLimitWrite> _runs = new List<TickLimitWrite>();
+
+        /// <summary>Every write recorded, a run of n counting n; 0 only while nothing has written the cap.</summary>
+        public long Count { get; private set; }
+
+        /// <summary>The runs, in write order.</summary>
+        public IReadOnlyList<TickLimitWrite> Runs { get { return _runs; } }
+
+        internal void Record(int value, TickLimitWriter writer)
+        {
+            TickLimitWrite last = _runs.Count == 0 ? null : _runs[_runs.Count - 1];
+            if (last != null && last.Value == value && last.Writer.Matches(writer)) last.Count++;
+            else _runs.Add(new TickLimitWrite(value, writer, Count));
+            Count++;
+        }
+    }
+
+    /// <summary>One birth decision's operands and result, captured once at the comparison (<see cref="TickWorld.BirthRoom"/>):
+    /// the limit, the private active count and the private pending count, and whether the birth fits.</summary>
+    internal struct TickBirthRoom
+    {
+        public readonly int Limit;
+        public readonly int Active;
+        public readonly int Pending;
+        /// <summary>The comparison's own result, stored as made, never recomputed from the fields.</summary>
+        public readonly bool Admits;
+
+        public TickBirthRoom(int limit, int active, int pending, bool admits)
+        {
+            Limit = limit;
+            Active = active;
+            Pending = pending;
+            Admits = admits;
+        }
+    }
+
+    /// <summary>A birth decision as Breed's loop names it (H :158): the tick, the parent's sid and the attempt number,
+    /// with the room the comparison used.</summary>
+    internal sealed class TickBirthDecision
+    {
+        public readonly int Tick;
+        public readonly string ParentSid;
+        public readonly int Attempt;
+        public readonly TickBirthRoom Room;
+
+        public TickBirthDecision(int tick, string parentSid, int attempt, TickBirthRoom room)
+        {
+            Tick = tick;
+            ParentSid = parentSid;
+            Attempt = attempt;
+            Room = room;
+        }
+    }
+
+    /// <summary>The active and pending sids as the world's private lists held them at one moment, copied.</summary>
+    internal sealed class TickMembership
+    {
+        public readonly string[] Active;
+        public readonly string[] Pending;
+
+        public TickMembership(string[] active, string[] pending)
+        {
+            Active = active;
+            Pending = pending;
+        }
+    }
+
+    /// <summary>
     /// The manager (Manager.java) and the configuration's selection (Configuration.java): stable manager order, the add
     /// and remove queues, and the step order of CONTRACT section 4.
     /// </summary>
@@ -1431,7 +1586,32 @@ namespace DesktopAICompanion.Shimeji
         public readonly ITickRandom Random;
         public readonly ITickSettings Settings;
         public readonly ITickObserver Observer;
-        public int MaximumCompanions = 16;
+
+        // policy:birth-cap's compared limit, write-recorded (signed revision H :158). The initializer is the
+        // construction default 16, the one write the record exempts; every write after construction goes through
+        // SetMaximumCompanions and is recorded. Rejected: the public field this replaces, which any code could assign
+        // without a trace, so a run's configuration could not show that nothing overrode the default.
+        private int _maximumCompanions = 16;
+        private readonly TickLimitWrites _limitWrites = new TickLimitWrites();
+
+        /// <summary>How many companions may exist at once, active and pending together (policy:birth-cap). A plain
+        /// assignment is recorded with <see cref="TickLimitWriter.Direct"/>.</summary>
+        public int MaximumCompanions
+        {
+            get { return _maximumCompanions; }
+            set { SetMaximumCompanions(value, TickLimitWriter.Direct); }
+        }
+
+        /// <summary>Writes the cap and records the write with <paramref name="writer"/>; null records the direct writer,
+        /// since H :158 asks for an opaque writer rather than an inferred caller or an omitted write.</summary>
+        public void SetMaximumCompanions(int value, TickLimitWriter writer)
+        {
+            // Recorded before it is applied, and recorded when the value does not change: an equal-value 16 write is a
+            // write (H :158). Skipping it would let an override that happens to equal the default pass as none.
+            _limitWrites.Record(value, writer ?? TickLimitWriter.Direct);
+            _maximumCompanions = value;
+        }
+
         public int Step { get; private set; }
 
         /// <summary>How the last <see cref="BuildNextBehaviour"/> chose: select, next or fallback.</summary>
@@ -1447,6 +1627,22 @@ namespace DesktopAICompanion.Shimeji
 
         public IReadOnlyList<TickMascot> Mascots { get { return _mascots; } }
         public IReadOnlyList<TickMascot> Pending { get { return _added; } }
+
+        /// <summary>The cap's write record since construction (<see cref="TickLimitWrites"/>).</summary>
+        public TickLimitWrites LimitWrites { get { return _limitWrites; } }
+
+        /// <summary>
+        /// The active and pending sids, copied from the private lists: a proof's view of membership with no public
+        /// getter, filter or observer between it and the lists the manager steps. The trace writer never reads it.
+        /// </summary>
+        internal TickMembership SnapshotMembership()
+        {
+            var active = new string[_mascots.Count];
+            for (int i = 0; i < active.Length; i++) active[i] = _mascots[i].Sid;
+            var pending = new string[_added.Count];
+            for (int i = 0; i < pending.Length; i++) pending[i] = _added[i].Sid;
+            return new TickMembership(active, pending);
+        }
 
         /// <summary>Every type added to the world (the configurations the source has loaded).</summary>
         public IEnumerable<TickType> Types { get { return _types.Values; } }
@@ -1474,8 +1670,18 @@ namespace DesktopAICompanion.Shimeji
             return n;
         }
 
-        /// <summary>The host's cap counts active and pending companions alike (policy:birth-cap).</summary>
-        public bool HasRoomForBirth() { return _mascots.Count + _added.Count < MaximumCompanions; }
+        /// <summary>
+        /// The host's cap counts active and pending companions alike (policy:birth-cap). The limit and both private
+        /// counts are read once, here, and the comparison is made from those reads, so the room a witness is handed
+        /// holds the operands the decision used (H :158), never a later recount through the public getters.
+        /// </summary>
+        public TickBirthRoom BirthRoom()
+        {
+            int limit = _maximumCompanions;
+            int active = _mascots.Count;
+            int pending = _added.Count;
+            return new TickBirthRoom(limit, active, pending, active + pending < limit);
+        }
 
         /// <summary>Startup (CONTRACT section 4): the tick-0 environment first, then companions in order.</summary>
         public void Start() { Environment.Tick(0); }
@@ -1564,6 +1770,13 @@ namespace DesktopAICompanion.Shimeji
         /// absent companion is never passed here; right-button entries never reach the engine.
         /// </summary>
         public Action<TickInput> InactiveButtonTarget { get; set; }
+
+        /// <summary>
+        /// Called with each birth decision Breed's loop makes, admitted or refused, before the birth or refusal it
+        /// decides (policy:birth-cap, H :158). Null in the product. A parity run collects these for its birth witness.
+        /// It is a hook, not an observer event, so ITickObserver, every observer and the trace stay as they were.
+        /// </summary>
+        public Action<TickBirthDecision> BirthDecided { get; set; }
 
         private void DispatchInputs()
         {

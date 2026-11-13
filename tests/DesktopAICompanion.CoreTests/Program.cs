@@ -193,6 +193,8 @@ namespace DesktopAICompanion
                 Run("Tick geometry: Regist's Origin offset reads the last pose's anchor", TestTickGeometryRegist);
                 // One group per scanner vector, "Parity scan vector NAME" (ParityScanTests.cs).
                 RunParityScanGroups();
+                // policy:birth-cap's write-recorded limit and birth decision, one group per check (TickPolicyTests.cs).
+                RunTickPolicyGroups();
             }
             finally
             {

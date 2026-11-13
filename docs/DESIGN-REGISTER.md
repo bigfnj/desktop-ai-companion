@@ -7883,6 +7883,35 @@ a later reader could take for defects:
   every publish, so the scan judges every zip as soon as the last stale module is republished, and the verdict order
   above it is pinned by its own invariant.
 
+#### burndown/host-policy-1
+
+Signed revision H's host obligations for N-parity-1107-03 (DECLARATION-DRAFT.md c3c261fd, review readings K3 and K9).
+Later commits of this lane add their own entries here.
+
+**The birth cap keeps a run-length write record, not one entry per write (K3, 2026-11-12).** `TickWorld.MaximumCompanions`
+is a property now, and every write after construction goes through `SetMaximumCompanions(value, writer)` into
+`TickLimitWrites`, as H :158 asks: the value and the writer of each write, an equal-value 16 write included, never cleared
+by Start or at a run's entry and never shortened to its last write. Only the field initializer's 16 is exempt.
+`TickHost.Step` writes the budget on every product step, so one entry per write would grow for as long as the app runs.
+Consecutive writes of one value by writers equal in every field share a run with a `long` count. Codex accepted that
+representation on 2026-11-12, provided the logical write count, the order, each value, writer and context, and the
+difference between zero writes and any write stay exact; they do, because a run starts whenever the value or any writer
+field changes. Refused: keeping only the last write, which H :158 forbids, and skipping a write whose value equals the
+current one, which would let an override equal to the default read as no override.
+
+**Writers are named, never inferred.** A plain assignment records the `direct` writer. `TickHost.Step` records
+`TickHost.CompanionBudget` with base and deduction unavailable, because the product's `Func<int>` hands over only its
+result. A writer that exposes the budget's base and classic deduction, as the later test-only variant of H :188 will,
+records both. The product writes the same limit as before; only the write is now recorded.
+
+**The birth decision is one captured room, handed to a hook rather than an observer event.** `TickWorld.BirthRoom()` reads
+the limit and the private active and pending counts once and makes the comparison from those reads. Breed's loop hands
+that same room, with the tick, the parent's sid and the attempt, to `TickWorld.BirthDecided` (null in the product) before
+it acts on the decision. A new `ITickObserver` member was refused: it would change every observer, the trace writer
+among them, for a witness H :158 says is not a trace field. A decision rebuilt from fresh reads after the comparison is a
+defect no single-threaded run can expose, since nothing changes the lists between the comparison and the hook, so no
+mutation case claims it; the CoreTests check compares the room with `SnapshotMembership()` taken at the hook.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. None of
