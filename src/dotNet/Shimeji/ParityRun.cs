@@ -11,18 +11,20 @@ namespace DesktopAICompanion.Shimeji
     /// <summary>
     /// The converter's map from a converted pet back to the source pack (tools/ShimejiParity/CONTRACT.md v1.1 section 9):
     /// frame indexes to source image keys, nodes and child references to refKeys, and every emitted pose to the source
-    /// Pose it came from. A test artefact: the product never reads one. Schema <c>shimeji-parity-map/2</c>:
+    /// Pose it came from. A test artefact: the product never reads one. Schema <c>shimeji-parity-map/3</c>:
     /// <code>{ "schema", "imageSet", "frames": [{ "frame", "image", "anchor", "size" }], "actions": { "&lt;node id&gt;": refKey },
     /// "children": { "&lt;node id&gt;:&lt;index&gt;": refKey }, "behaviours": { "&lt;node id&gt;": refKey },
-    /// "sourceNames": { "&lt;node id&gt;": name or null }, "poses": { "&lt;node&gt;:&lt;variant&gt;:&lt;pose&gt;": { "refKey", "index" } } }</code>
+    /// "sourceNames": { "&lt;node id&gt;": name or null }, "poses": { "&lt;node&gt;:&lt;variant&gt;:&lt;pose&gt;": { "refKey", "index" } },
+    /// "soundParameters": [ Sound row, ... ] }</code>
     /// Map/1 had no poses, so the trace's pose.index was the position in the EMITTED variant, which a Duration-0 source
-    /// pose the converter leaves out shifts for every later pose (N-shimeji-1106-13). A map/1 file is refused with a
-    /// regenerate message, never read: there is no source index in it to fall back to.
+    /// pose the converter leaves out shifts for every later pose (N-shimeji-1106-13). Map/2 has no Sound provenance, so a
+    /// Mute's source spelling cannot be restored from it (CONTRACT v1.4 draft P1-B). Both are refused with a regenerate
+    /// message, never read (P1-F): no reader accepts two map versions, and a hand-edited schema string is not migration.
     /// </summary>
     internal sealed class ParityMap
     {
-        public const string Schema = "shimeji-parity-map/2";
-        private const string RetiredSchema = "shimeji-parity-map/1";
+        public const string Schema = "shimeji-parity-map/3";
+        private static readonly HashSet<string> RetiredSchemas = new HashSet<string>(StringComparer.Ordinal) { "shimeji-parity-map/1", "shimeji-parity-map/2" };
         public string ImageSet;
         public readonly Dictionary<int, string> FrameImages = new Dictionary<int, string>();
         public readonly Dictionary<int, string> Actions = new Dictionary<int, string>();
@@ -42,20 +44,22 @@ namespace DesktopAICompanion.Shimeji
         /// poses with equal fields in different variants are still two source poses.</summary>
         private readonly Dictionary<TickPoseDef, int> _poseIndex = new Dictionary<TickPoseDef, int>(ReferenceEqualityComparer.Instance);
 
-        /// <summary>Parse and check a map/2 document. Every refusal is an <see cref="InvalidDataException"/> naming what is
+        /// <summary>Parse and check a map/3 document. Every refusal is an <see cref="InvalidDataException"/> naming what is
         /// wrong; the caller adds the file. A key is canonical decimal (no sign, space or leading zero, within Int32), as the
         /// converter writes it, because int.Parse accepts "+2", " 2" and "02", which would each alias a real key; and a
-        /// repeated key is refused, because JsonDocument keeps every repeat and a dictionary filled from it keeps the last.</summary>
+        /// repeated key is refused, because JsonDocument keeps every repeat and a dictionary filled from it keeps the last.
+        /// The map/3 checks (an unknown top-level property, the Sound rows) are not made here: see <see cref="Apply"/>.</summary>
         public static ParityMap Parse(string json)
         {
             using (JsonDocument doc = JsonDocument.Parse(json))
             {
                 JsonElement root = doc.RootElement;
                 if (root.ValueKind != JsonValueKind.Object) throw new InvalidDataException("parity map is not a JSON object");
-                Entries(root, null, "map");
+                List<JsonProperty> top = Entries(root, null, "map");
                 string schema = Str(root, "schema");
-                if (schema == RetiredSchema)
-                    throw new InvalidDataException("the map is " + RetiredSchema + "; regenerate it with the current converter (map/2 required)");
+                // CONTRACT v1.4 draft P1-F, with the coordinator's review R20: N is the refused file's own map version.
+                if (RetiredSchemas.Contains(schema))
+                    throw new InvalidDataException("the map is " + schema + "; regenerate it with the current converter (map/3 required)");
                 if (schema != Schema) throw new InvalidDataException("parity map schema is not " + Schema);
                 var map = new ParityMap { ImageSet = Str(root, "imageSet") };
                 if (string.IsNullOrEmpty(map.ImageSet)) throw new InvalidDataException("parity map names no imageSet");
@@ -87,8 +91,203 @@ namespace DesktopAICompanion.Shimeji
                 if (!root.TryGetProperty("poses", out e)) throw new InvalidDataException("parity map has no poses (map/2 requires the object)");
                 if (e.ValueKind != JsonValueKind.Object) throw new InvalidDataException("parity map poses is not an object");
                 foreach (JsonProperty p in Entries(root, "poses", "poses")) map.ReadPose(p);
+                // CONTRACT v1.4 draft FC-1: the new map/3 checks wait until every existing check has passed, Apply's pose
+                // and geometry checks included, so no existing refusal moves behind them. They are kept raw until then.
+                foreach (JsonProperty p in top) map._topLevel.Add(p.Name);
+                if (root.TryGetProperty("soundParameters", out e)) map._soundParameters = e.Clone();
                 return map;
             }
+        }
+
+        /// <summary>The top-level property names as written, and the raw soundParameters (null when absent), read by
+        /// <see cref="CheckTopLevel"/> and <see cref="ReadSoundRows"/> once the existing checks have passed.</summary>
+        private readonly List<string> _topLevel = new List<string>();
+        private JsonElement? _soundParameters;
+
+        /// <summary>CONTRACT v1.4 draft P1-E: map/2's properties plus soundParameters, and nothing else. The set is what the
+        /// converter's map writer emits at base (TickPackEmitter) plus soundParameters, so no real base map is refused by
+        /// it. Unknown-property refusal is new for map/3; a repeated top-level key is already refused by Parse.</summary>
+        private static readonly HashSet<string> TopLevelProperties = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "schema", "imageSet", "frames", "actions", "children", "behaviours", "sourceNames", "poses", "soundParameters",
+        };
+
+        private void CheckTopLevel()
+        {
+            foreach (string name in _topLevel)
+                if (!TopLevelProperties.Contains(name))
+                    throw new InvalidDataException("parity map has the top-level property '" + name + "'; map/3 allows only schema, imageSet, frames, actions, children, behaviours, sourceNames, poses and soundParameters");
+        }
+
+        /// <summary>One soundParameters row as read (CONTRACT v1.4 draft P1-B): the location of a compiled Sound definition
+        /// (kind, nodeId, childIndex or -1), the source element that defined it, the emitted value and cache, and for a
+        /// literal its authored text and that text's source kind. Binding each row to its compiled definition is a later
+        /// step (P1-D); this record holds only what the row says, already checked for shape.</summary>
+        internal sealed class SoundRow
+        {
+            public int Row;
+            public string Kind;
+            public int NodeId;
+            public int ChildIndex = -1;
+            public string SourceRefKey;
+            public string EmittedValue;
+            public string EmittedCache;
+            public string Mode;
+            public string SourceValue;
+            public string SourceKind;
+        }
+
+        /// <summary>The rows in map order, filled by <see cref="Apply"/>.</summary>
+        internal readonly List<SoundRow> SoundRows = new List<SoundRow>();
+
+        private static readonly HashSet<string> SoundRowProperties = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "kind", "nodeId", "childIndex", "sourceRefKey", "emittedValue", "emittedCache", "mode", "sourceValue", "sourceKind",
+        };
+        private static readonly string[] SoundRowRequired = { "kind", "nodeId", "sourceRefKey", "emittedValue", "emittedCache", "mode" };
+        private static readonly string[] SoundRowStrings = { "kind", "sourceRefKey", "emittedValue", "emittedCache", "mode", "sourceValue", "sourceKind" };
+
+        /// <summary>
+        /// CONTRACT v1.4 draft P1-B and P1-E, the row shape: every row an object holding exactly the P1-B properties, each
+        /// string field a string, each closed field in its set, nodeId and childIndex canonical nonnegative Int32 read from
+        /// the raw token (TryGetInt32 alone would take "-0" and 1.0), childIndex exactly on child rows, sourceValue and
+        /// sourceKind exactly on literal rows, a literal row's cache none and an evaluated row's cache action or frame, and
+        /// a literal's sourceKind equal to the host's own classification of its sourceValue (P1-C, <see cref="SourceKind"/>).
+        /// Each rule is its own statement with its own message, so each can be removed alone and fail one check (C13).
+        /// Strings are read through <see cref="Str"/>, which gives null for a non-string, so a rule removed by a mutation
+        /// ends in a different refusal or an acceptance, never in an exception of another type standing in for it.
+        /// </summary>
+        private void ReadSoundRows()
+        {
+            if (_soundParameters == null)
+                throw new InvalidDataException("parity map has no soundParameters (map/3 requires the array)");
+            JsonElement rows = _soundParameters.Value;
+            if (rows.ValueKind != JsonValueKind.Array)
+                throw new InvalidDataException("parity map soundParameters is not an array");
+            int i = 0;
+            foreach (JsonElement row in rows.EnumerateArray())
+            {
+                string at = "parity map soundParameters row " + i.ToString(CultureInfo.InvariantCulture) + " ";
+                if (row.ValueKind != JsonValueKind.Object)
+                    throw new InvalidDataException(at + "is not an object");
+                var names = new HashSet<string>(StringComparer.Ordinal);
+                foreach (JsonProperty f in row.EnumerateObject())
+                {
+                    if (!names.Add(f.Name)) throw new InvalidDataException(at + "repeats its property '" + f.Name + "'");
+                    if (!SoundRowProperties.Contains(f.Name))
+                        throw new InvalidDataException(at + "has the property '" + f.Name + "'; a Sound row holds only kind, nodeId, childIndex, sourceRefKey, emittedValue, emittedCache, mode, sourceValue and sourceKind");
+                }
+                foreach (string required in SoundRowRequired)
+                    if (!names.Contains(required)) throw new InvalidDataException(at + "lacks " + required);
+                JsonElement field;
+                foreach (string name in SoundRowStrings)
+                    if (row.TryGetProperty(name, out field) && field.ValueKind != JsonValueKind.String)
+                        throw new InvalidDataException(at + "has " + name + " that is not a string");
+                var read = new SoundRow
+                {
+                    Row = i, Kind = Str(row, "kind"), SourceRefKey = Str(row, "sourceRefKey"), EmittedValue = Str(row, "emittedValue"),
+                    EmittedCache = Str(row, "emittedCache"), Mode = Str(row, "mode"),
+                };
+                if (read.Kind != "action" && read.Kind != "behaviour" && read.Kind != "child")
+                    throw new InvalidDataException(at + "has kind '" + read.Kind + "', not action, behaviour or child");
+                if (read.Mode != "literal" && read.Mode != "evaluated")
+                    throw new InvalidDataException(at + "has mode '" + read.Mode + "', not literal or evaluated");
+                if (read.EmittedCache != "none" && read.EmittedCache != "action" && read.EmittedCache != "frame")
+                    throw new InvalidDataException(at + "has emittedCache '" + read.EmittedCache + "', not none, action or frame");
+                // The value is read in its own statement and each check is only a check, so removing a check leaves the
+                // record as it was (a value read inside the check's condition went with it).
+                JsonElement node = row.TryGetProperty("nodeId", out field) ? field : default(JsonElement);
+                read.NodeId = RowInt(node);
+                if (RowIntFault(node) != null)
+                    throw new InvalidDataException(at + "has nodeId " + RawOf(node) + ", not a canonical nonnegative Int32");
+                bool hasChild = row.TryGetProperty("childIndex", out field);
+                JsonElement child = hasChild ? field : default(JsonElement);
+                if (read.Kind == "child" && !hasChild)
+                    throw new InvalidDataException(at + "is kind child and has no childIndex");
+                if (read.Kind != "child" && hasChild)
+                    throw new InvalidDataException(at + "is kind " + read.Kind + " and has a childIndex (only a child row has one)");
+                if (hasChild) read.ChildIndex = RowInt(child);
+                if (hasChild && RowIntFault(child) != null)
+                    throw new InvalidDataException(at + "has childIndex " + RawOf(child) + ", not a canonical nonnegative Int32");
+                bool hasValue = names.Contains("sourceValue"), hasKind = names.Contains("sourceKind");
+                if (read.Mode == "literal")
+                {
+                    if (!hasValue || !hasKind)
+                        throw new InvalidDataException(at + "is literal and lacks " + (hasValue ? "sourceKind" : "sourceValue"));
+                    if (read.EmittedCache != "none")
+                        throw new InvalidDataException(at + "is literal with emittedCache '" + read.EmittedCache + "' (a literal row has none)");
+                    read.SourceValue = Str(row, "sourceValue");
+                    read.SourceKind = Str(row, "sourceKind");
+                    if (read.SourceKind != "string" && read.SourceKind != "number" && read.SourceKind != "boolean")
+                        throw new InvalidDataException(at + "has sourceKind '" + read.SourceKind + "', not string, number or boolean");
+                    if (IsSourceScript(read.SourceValue))
+                        throw new InvalidDataException(at + "has a literal sourceValue that is a source script, a source-kind disagreement");
+                    if (SourceKind(read.SourceValue) != read.SourceKind)
+                        throw new InvalidDataException(at + "has sourceKind '" + read.SourceKind + "', but its sourceValue classifies as " + SourceKind(read.SourceValue) + " (source-kind disagreement)");
+                }
+                else
+                {
+                    if (hasValue || hasKind)
+                        throw new InvalidDataException(at + "is evaluated and has " + (hasValue ? "sourceValue" : "sourceKind") + " (only a literal row has one)");
+                    if (read.EmittedCache == "none")
+                        throw new InvalidDataException(at + "is evaluated with emittedCache 'none' (an evaluated row has action or frame)");
+                }
+                SoundRows.Add(read);
+                i++;
+            }
+        }
+
+        private static string RawOf(JsonElement e)
+        {
+            return e.ValueKind == JsonValueKind.Undefined ? "(absent)" : e.GetRawText();
+        }
+
+        /// <summary>Null when <paramref name="token"/> is a JSON number whose raw text is a canonical nonnegative Int32
+        /// (P1-B: no sign, negative zero, fraction, exponent or leading zero), else why not.</summary>
+        private static string RowIntFault(JsonElement token)
+        {
+            int ignored;
+            return token.ValueKind != JsonValueKind.Number ? "not a number" : CanonicalFault(token.GetRawText(), out ignored);
+        }
+
+        /// <summary>The value of a token <see cref="RowIntFault"/> accepts, else 0.</summary>
+        private static int RowInt(JsonElement token)
+        {
+            int value;
+            return token.ValueKind == JsonValueKind.Number && CanonicalFault(token.GetRawText(), out value) == null ? value : 0;
+        }
+
+        /// <summary>CONTRACT v1.4 draft P1-C rule 0, on the UNTRIMMED text: a literal whose sourceValue is at least three
+        /// characters, ends with <c>}</c> and starts with <c>${</c> or <c>#{</c> is a source script the converter should
+        /// have written as evaluated, so the map is refused as a source-kind disagreement. " ${x}" is a constant.</summary>
+        internal static bool IsSourceScript(string value)
+        {
+            return value != null && value.Length >= 3 && value[value.Length - 1] == '}'
+                && (value.StartsWith("${", StringComparison.Ordinal) || value.StartsWith("#{", StringComparison.Ordinal));
+        }
+
+        /// <summary>
+        /// CONTRACT v1.4 draft P1-C, the source kind of a literal's authored text, computed without evaluating anything:
+        /// exactly <c>true</c> or <c>false</c> (before any trimming or case folding) is boolean; text Java's
+        /// Double.parseDouble accepts after Java's String.trim is number; everything else, <c>null</c> and the empty string
+        /// included, is string. Java's trim removes only U+0000 to U+0020 at the ends. <see cref="TickType.TryParseJavaDouble"/>
+        /// holds the Java number grammar but trims with .NET's string.Trim, which also removes U+0085, U+00A0 and the
+        /// Unicode spaces, so it is asked only about text with no char.IsWhiteSpace at either end, where that Trim does
+        /// nothing. The rejected alternative, TickType.ParseLiteral's kind, calls U+00A0 then 1 a number (P1-C says it
+        /// cannot be reused unmodified). Null in, null out.
+        /// </summary>
+        internal static string SourceKind(string value)
+        {
+            if (value == null) return null;
+            if (value == "true" || value == "false") return "boolean";
+            int start = 0, end = value.Length;
+            while (start < end && value[start] <= ' ') start++;
+            while (end > start && value[end - 1] <= ' ') end--;
+            string trimmed = value.Substring(start, end - start);
+            double ignored;
+            if (trimmed.Length > 0 && !char.IsWhiteSpace(trimmed[0]) && !char.IsWhiteSpace(trimmed[trimmed.Length - 1]) && TickType.TryParseJavaDouble(trimmed, out ignored))
+                return "number";
+            return "string";
         }
 
         /// <summary>One <c>poses</c> entry (CONTRACT v1.1 section 9): a canonical <c>node:variant:pose</c> key, and an
@@ -183,9 +382,12 @@ namespace DesktopAICompanion.Shimeji
         /// <summary>Give every node and child reference its refKey and every emitted pose its source index; a node the map
         /// does not name is a hole in the converter's map, refused rather than traced with a made-up key. Every node is
         /// walked by id: <see cref="TickType.Actions"/> is keyed by name, so a node another of the same name shadows is
-        /// not in it, and its poses would go unchecked.</summary>
-        public void Apply(TickType type)
+        /// not in it, and its poses would go unchecked. <paramref name="document"/> is the validated XML the type was
+        /// compiled from: map/3's Sound rows are checked against its attribute text, never against compiled values
+        /// (CONTRACT v1.4 draft P1-D), so the caller hands over both.</summary>
+        public void Apply(TickType type, XmlData.RootNode document)
         {
+            if (document == null) throw new ArgumentNullException("document");
             string key;
             foreach (TickActDef act in type.ActionsById.Values)
             {
@@ -207,6 +409,11 @@ namespace DesktopAICompanion.Shimeji
                     throw new InvalidDataException("parity map has a source name for node " + node + ", which is no action or behaviour of " + type.Name);
             BindPoses(type);
             CheckGeometry(type);
+            // CONTRACT v1.4 draft FC-1: the map/3 checks come last, after the existing pose and geometry checks, so a map
+            // an existing check refuses is refused with the same reason as before. Each is an InvalidDataException that
+            // LoadPets logs as "refused <map path>: <reason>", exit 2 and no trace.
+            CheckTopLevel();
+            ReadSoundRows();
         }
 
         /// <summary>
@@ -1705,7 +1912,7 @@ namespace DesktopAICompanion.Shimeji
                     at = xmlPath;
                     TickType type = TickType.Compile(map.ImageSet, root);
                     at = mapPath;
-                    map.Apply(type);
+                    map.Apply(type, root);
                     loaded.Add(new KeyValuePair<TickType, ParityMap>(type, map));
                 }
                 catch (Exception e) when (IsRefusal(e))

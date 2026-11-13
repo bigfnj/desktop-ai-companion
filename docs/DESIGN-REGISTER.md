@@ -7883,6 +7883,27 @@ a later reader could take for defects:
   every publish, so the scan judges every zip as soon as the last stale module is republished, and the verdict order
   above it is pinned by its own invariant.
 
+#### burndown/host-mute-1
+
+**The parity map reader reads shimeji-parity-map/3 only, and its new checks run last (N-bd-codex-converter-1-02, host
+half, 2026-11-13).** `ParityMap` in `src/dotNet/Shimeji/ParityRun.cs` follows the CONTRACT v1.4 Mute proposal (revision
+2, not yet adopted). Decisions a later reader could take for defects:
+
+- The unknown-top-level check and the Sound row checks are made at the END of `ParityMap.Apply`, after the pose binding
+  and the geometry check, not in `Parse`, although they read nothing from the compiled type. The proposal's FC-1 orders
+  it: an existing refusal keeps its reason, and the new checks wait until every existing one has passed. `Parse` keeps
+  the raw `soundParameters` (a cloned element) and the top-level names for them.
+- Map/1 and map/2 are refused with one message naming the file's own version, and a map/2 file is never upgraded in
+  place: no map reader accepts two versions (P1-F), and changing a schema string by hand is not migration.
+- `ParityMap.SourceKind` strips Java's trim set (U+0000 to U+0020) itself and asks `TickType.TryParseJavaDouble` only
+  about text with no `char.IsWhiteSpace` at either end. Calling `TryParseJavaDouble` or `TickType.ParseLiteral` on the
+  raw text was refused: their .NET `string.Trim` strips U+00A0, U+0085 and the Unicode spaces, which Java's trim keeps,
+  so U+00A0 then 1 would read as a number where the source keeps a String (control 1).
+- A window self-test label that runs a refused map through a parity run holds the reader's refusal of that map in the
+  same check (exit 2, no trace, and the reader's exact reason after `refused <map path>: `). Split into a reader label
+  and a run label, removing one reader check would fail both, and exit 2 with no trace alone cannot tell a removed check
+  from another refusal.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. None of

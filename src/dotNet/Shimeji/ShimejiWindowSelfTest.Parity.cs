@@ -30,6 +30,7 @@ namespace DesktopAICompanion.Shimeji
                 CheckParityRunRefusals(check, Path.Combine(scratch, "parity-v2"), log);
                 CheckParityBuildRevision(check, Path.Combine(scratch, "parity-revision"));
                 CheckParityErrors(check);
+                CheckParityMapSound(check);
             }
             catch (Exception e)
             {
@@ -131,9 +132,11 @@ namespace DesktopAICompanion.Shimeji
             return poses;
         }
 
-        /// <summary>A map/2 document for <see cref="ParDocument"/>, its poses written in the order given (a list, so a
-        /// test can repeat a key) or as raw text.</summary>
-        private static string ParMapJson(string set, bool full, IEnumerable<KeyValuePair<string, string>> poses, string schema = ParityMap.Schema, string rawPoses = null)
+        /// <summary>A map/3 document for <see cref="ParDocument"/>, its poses written in the order given (a list, so a
+        /// test can repeat a key) or as raw text, and <paramref name="soundRows"/> as the raw soundParameters text (an
+        /// empty array by default; null leaves the property out).</summary>
+        private static string ParMapJson(string set, bool full, IEnumerable<KeyValuePair<string, string>> poses, string schema = ParityMap.Schema, string rawPoses = null,
+            string soundRows = "[]")
         {
             string action = set + "|conf/actions.xml|/Mascot[1]/ActionList[1]/Action[";
             var b = new StringBuilder("{\"schema\":" + JsonLine.Quote(schema) + ",\"imageSet\":" + JsonLine.Quote(set)
@@ -157,6 +160,7 @@ namespace DesktopAICompanion.Shimeji
                 }
                 b.Append('}');
             }
+            if (soundRows != null) b.Append(",\"soundParameters\":").Append(soundRows);
             return b.Append('}').ToString();
         }
 
@@ -232,12 +236,15 @@ namespace DesktopAICompanion.Shimeji
             };
         }
 
-        /// <summary>Parse and apply; null when accepted, else the refusal's message (any exception type, named).</summary>
+        /// <summary>Parse and apply; null when accepted, else the refusal's message: an InvalidDataException's message
+        /// alone, any other exception's prefixed with its type name, so an exact comparison with a declared message also
+        /// asserts the type.</summary>
         private static string ParApply(string json, bool full)
         {
             try
             {
-                ParityMap.Parse(json).Apply(TickType.Compile("Par", ParDocument(full)));
+                XmlData.RootNode document = ParDocument(full);
+                ParityMap.Parse(json).Apply(TickType.Compile("Par", document), document);
                 return null;
             }
             catch (InvalidDataException e) { return e.Message; }
@@ -256,8 +263,9 @@ namespace DesktopAICompanion.Shimeji
             string accepted = ParApply(ParMapJson("Par", true, poses), true);
             check(accepted == null, "parity map/2: WITNESS a complete map/2 is accepted" + (accepted == null ? "" : " (" + accepted + ")"));
 
+            // The label stays "parity map/2:" because existing mutation cases match it; the message is map/3's (P1-F).
             string retired = ParApply(ParMapJson("Par", true, poses, "shimeji-parity-map/1"), true);
-            check(retired != null && retired.Contains("is shimeji-parity-map/1; regenerate it with the current converter (map/2 required)"),
+            check(retired != null && retired.Contains("is shimeji-parity-map/1; regenerate it with the current converter (map/3 required)"),
                 "parity map/2: a map/1 file is refused with a regenerate message (" + retired + ")");
             string noPoses = ParApply(ParMapJson("Par", true, poses).Replace(",\"poses\":", ",\"unposed\":"), true);
             check(noPoses != null && noPoses.Contains("has no poses"), "parity map/2: a map with no poses is refused (" + noPoses + ")");
@@ -313,14 +321,160 @@ namespace DesktopAICompanion.Shimeji
                 "parity map/2: an index that is not the refKey's position less one is refused (" + offByOne + ")");
         }
 
+        /// <summary>A literal Sound row on Walk (action 30): authored /TO, emitted as the lowered "to".</summary>
+        private const string ParSoundLiteral = "{\"kind\":\"action\",\"nodeId\":30,\"sourceRefKey\":\"Par|conf/actions.xml|/Mascot[1]/ActionList[1]/Action[1]\","
+            + "\"emittedValue\":\"to\",\"emittedCache\":\"none\",\"mode\":\"literal\",\"sourceValue\":\"/TO\",\"sourceKind\":\"string\"}";
+        /// <summary>An evaluated, action-cached Sound bind on the Walk behaviour (behaviour 10).</summary>
+        private const string ParSoundEvaluated = "{\"kind\":\"behaviour\",\"nodeId\":10,\"sourceRefKey\":\"Par|conf/behaviors.xml|/Mascot[1]/BehaviorList[1]/Behavior[1]\","
+            + "\"emittedValue\":\"'a' + 1\",\"emittedCache\":\"action\",\"mode\":\"evaluated\"}";
+        /// <summary>A literal Sound bind on Seq's first child reference (33:0), authored " 1", a number by Java trim.</summary>
+        private const string ParSoundChild = "{\"kind\":\"child\",\"nodeId\":33,\"childIndex\":0,\"sourceRefKey\":\"Par|conf/actions.xml|/Mascot[1]/ActionList[1]/Action[4]/ActionReference[1]\","
+            + "\"emittedValue\":\"1\",\"emittedCache\":\"none\",\"mode\":\"literal\",\"sourceValue\":\" 1\",\"sourceKind\":\"number\"}";
+
+        /// <summary>
+        /// burndown/host-mute-1, the host half of N-bd-codex-converter-1-02: the strict shimeji-parity-map/3 row reader
+        /// (CONTRACT v1.4 draft P1-B, P1-C, P1-E and FC-1, read with the coordinator's revision 2 review). One map per
+        /// rule, each breaking exactly that rule (C13), and each label compares the reader's whole message with a message
+        /// declared here, never one derived from the exception just caught, so another guard or an exception of another
+        /// type (ParApply names its type) fails rather than substitutes. Row binding to the compiled definitions is a
+        /// later commit, so these maps carry rows the document has no Sound for. Its own try: CheckParityMapV2 runs every
+        /// lane's checks in one, and an exception here must not hide another lane's labels.
+        /// </summary>
+        private static void CheckParityMapSound(Action<bool, string> check)
+        {
+            try
+            {
+                Dictionary<string, string> poses = ParPoses("Par", true);
+                Func<string, string> rows = soundRows => ParApply(ParMapJson("Par", true, Pairs(poses), soundRows: soundRows), true);
+                Func<string, string> row = one => rows("[" + one + "]");
+                const string at = "parity map soundParameters row 0 ";
+                Action<string, string, string> exact = (label, actual, expected) =>
+                    check(actual == expected, label + " (" + (actual ?? "accepted") + ")");
+
+                // The WITNESS: rows of every kind and mode, an empty evaluated body (P1-B allows one), an untrimmed " ${x}"
+                // that is a constant (P1-C rule 0 reads the untrimmed text), each read into its record.
+                string frameRow = "{\"kind\":\"action\",\"nodeId\":31,\"sourceRefKey\":\"Par|conf/actions.xml|/Mascot[1]/ActionList[1]/Action[2]\","
+                    + "\"emittedValue\":\"\",\"emittedCache\":\"frame\",\"mode\":\"evaluated\"}";
+                string booleanRow = "{\"kind\":\"action\",\"nodeId\":32,\"sourceRefKey\":\"Par|conf/actions.xml|/Mascot[1]/ActionList[1]/Action[3]\","
+                    + "\"emittedValue\":\"true\",\"emittedCache\":\"none\",\"mode\":\"literal\",\"sourceValue\":\"true\",\"sourceKind\":\"boolean\"}";
+                string constantRow = "{\"kind\":\"action\",\"nodeId\":33,\"sourceRefKey\":\"Par|conf/actions.xml|/Mascot[1]/ActionList[1]/Action[4]\","
+                    + "\"emittedValue\":\" ${x}\",\"emittedCache\":\"none\",\"mode\":\"literal\",\"sourceValue\":\" ${x}\",\"sourceKind\":\"string\"}";
+                ParityMap witness = ParityMap.Parse(ParMapJson("Par", true, Pairs(poses),
+                    soundRows: "[" + string.Join(",", ParSoundLiteral, ParSoundEvaluated, ParSoundChild, frameRow, booleanRow, constantRow) + "]"));
+                XmlData.RootNode document = ParDocument(true);
+                string witnessFault = null;
+                try { witness.Apply(TickType.Compile("Par", document), document); }
+                catch (Exception e) { witnessFault = e.GetType().Name + ": " + e.Message; }
+                var seen = new List<string>();
+                foreach (ParityMap.SoundRow r in witness.SoundRows)
+                    seen.Add(r.Kind + " " + r.NodeId + (r.ChildIndex >= 0 ? ":" + r.ChildIndex : "") + " " + r.Mode + " " + r.EmittedCache
+                        + " [" + r.EmittedValue + "]" + (r.SourceValue == null ? "" : " [" + r.SourceValue + "] " + r.SourceKind));
+                string witnessRows = string.Join("; ", seen);
+                check(witnessFault == null && witnessRows == "action 30 literal none [to] [/TO] string; behaviour 10 evaluated action ['a' + 1]; "
+                      + "child 33:0 literal none [1] [ 1] number; action 31 evaluated frame []; action 32 literal none [true] [true] boolean; "
+                      + "action 33 literal none [ ${x}] [ ${x}] string",
+                    "parity map/3: WITNESS a complete map/3 with rows of every kind is accepted (" + (witnessFault ?? witnessRows) + ")");
+
+                exact("parity map/3: soundParameters absent is refused",
+                    ParApply(ParMapJson("Par", true, Pairs(poses), soundRows: null), true), "parity map has no soundParameters (map/3 requires the array)");
+                exact("parity map/3: soundParameters that is not an array is refused", rows("{}"), "parity map soundParameters is not an array");
+                exact("parity map/3: a Sound row that is not an object is refused", rows("[\"x\"]"), at + "is not an object");
+                exact("parity map/3: a Sound row repeating a property is refused",
+                    row(ParSoundLiteral.Replace("\"mode\":\"literal\"", "\"mode\":\"literal\",\"mode\":\"literal\"")), at + "repeats its property 'mode'");
+                exact("parity map/3: a Sound row with an unknown property is refused",
+                    row(ParSoundLiteral.Replace("\"mode\":\"literal\"", "\"mode\":\"literal\",\"clip\":\"to\"")),
+                    at + "has the property 'clip'; a Sound row holds only kind, nodeId, childIndex, sourceRefKey, emittedValue, emittedCache, mode, sourceValue and sourceKind");
+                exact("parity map/3: a Sound row missing a property is refused",
+                    row(ParSoundLiteral.Replace("\"sourceRefKey\":\"Par|conf/actions.xml|/Mascot[1]/ActionList[1]/Action[1]\",", "")), at + "lacks sourceRefKey");
+                exact("parity map/3: a childIndex on a row that is not a child is refused",
+                    row(ParSoundLiteral.Replace("\"nodeId\":30,", "\"nodeId\":30,\"childIndex\":0,")), at + "is kind action and has a childIndex (only a child row has one)");
+                exact("parity map/3: a child row with no childIndex is refused",
+                    row(ParSoundChild.Replace("\"childIndex\":0,", "")), at + "is kind child and has no childIndex");
+
+                // Two-part rules: every part is refused under one label, so removing the rule fails one label.
+                var parts = new List<string>();
+                Action<string, string> part = (actual, expected) => { if (actual != expected) parts.Add(actual ?? "accepted"); };
+                part(row(ParSoundEvaluated.Replace("\"mode\":\"evaluated\"", "\"mode\":\"evaluated\",\"sourceValue\":\"x\"")), at + "is evaluated and has sourceValue (only a literal row has one)");
+                part(row(ParSoundEvaluated.Replace("\"mode\":\"evaluated\"", "\"mode\":\"evaluated\",\"sourceKind\":\"string\"")), at + "is evaluated and has sourceKind (only a literal row has one)");
+                check(parts.Count == 0, "parity map/3: sourceValue or sourceKind on an evaluated row is refused (" + string.Join("; ", parts) + ")");
+                parts.Clear();
+                part(row(ParSoundLiteral.Replace(",\"sourceValue\":\"/TO\"", "")), at + "is literal and lacks sourceValue");
+                part(row(ParSoundLiteral.Replace(",\"sourceKind\":\"string\"", "")), at + "is literal and lacks sourceKind");
+                check(parts.Count == 0, "parity map/3: a literal row lacking sourceValue or sourceKind is refused (" + string.Join("; ", parts) + ")");
+
+                exact("parity map/3: a Sound row field that is not a string is refused",
+                    row(ParSoundLiteral.Replace("\"emittedValue\":\"to\"", "\"emittedValue\":5")), at + "has emittedValue that is not a string");
+                parts.Clear();
+                foreach (string token in new[] { "-0", "30.0", "3e1", "2147483648", "\"30\"" })
+                    part(row(ParSoundLiteral.Replace("\"nodeId\":30", "\"nodeId\":" + token)), at + "has nodeId " + token + ", not a canonical nonnegative Int32");
+                check(parts.Count == 0, "parity map/3: a nodeId that is not a canonical nonnegative Int32 is refused (-0, 30.0, 3e1, 2147483648, a string) ("
+                    + string.Join("; ", parts) + ")");
+                parts.Clear();
+                foreach (string token in new[] { "-0", "0.0", "2147483648", "\"0\"" })
+                    part(row(ParSoundChild.Replace("\"childIndex\":0", "\"childIndex\":" + token)), at + "has childIndex " + token + ", not a canonical nonnegative Int32");
+                check(parts.Count == 0, "parity map/3: a childIndex that is not a canonical nonnegative Int32 is refused (-0, 0.0, 2147483648, a string) ("
+                    + string.Join("; ", parts) + ")");
+
+                exact("parity map/3: a kind outside action, behaviour and child is refused",
+                    row(ParSoundLiteral.Replace("\"kind\":\"action\"", "\"kind\":\"Action\"")), at + "has kind 'Action', not action, behaviour or child");
+                exact("parity map/3: a mode outside literal and evaluated is refused",
+                    row(ParSoundLiteral.Replace("\"mode\":\"literal\"", "\"mode\":\"Literal\"")), at + "has mode 'Literal', not literal or evaluated");
+                exact("parity map/3: an emittedCache outside none, action and frame is refused",
+                    row(ParSoundEvaluated.Replace("\"emittedCache\":\"action\"", "\"emittedCache\":\"Action\"")), at + "has emittedCache 'Action', not none, action or frame");
+                exact("parity map/3: a sourceKind outside string, number and boolean is refused",
+                    row(ParSoundLiteral.Replace("\"sourceKind\":\"string\"", "\"sourceKind\":\"String\"")), at + "has sourceKind 'String', not string, number or boolean");
+                exact("parity map/3: an evaluated row with emittedCache none is refused",
+                    row(ParSoundEvaluated.Replace("\"emittedCache\":\"action\"", "\"emittedCache\":\"none\"")), at + "is evaluated with emittedCache 'none' (an evaluated row has action or frame)");
+
+                parts.Clear();
+                foreach (string script in new[] { "${x}", "#{x}" })
+                    part(row(ParSoundLiteral.Replace("\"sourceValue\":\"/TO\"", "\"sourceValue\":\"" + script + "\"")), at + "has a literal sourceValue that is a source script, a source-kind disagreement");
+                check(parts.Count == 0, "parity map/3: a literal sourceValue that is a source script is refused, on the untrimmed text (" + string.Join("; ", parts) + ")");
+
+                // Control 1: U+00A0 then 1 is a string by Java trim, a number by .NET's; a row calling it a number is a
+                // disagreement, and the same row calling it a string is accepted. The classification itself, beside it.
+                string nbsp = ((char)0xA0).ToString();
+                parts.Clear();
+                part(row(ParSoundLiteral.Replace("\"sourceValue\":\"/TO\",\"sourceKind\":\"string\"", "\"sourceValue\":\"" + nbsp + "1\",\"sourceKind\":\"number\"")),
+                    at + "has sourceKind 'number', but its sourceValue classifies as string (source-kind disagreement)");
+                part(row(ParSoundLiteral.Replace("\"sourceValue\":\"/TO\",\"sourceKind\":\"string\"", "\"sourceValue\":\"1\",\"sourceKind\":\"string\"")),
+                    at + "has sourceKind 'string', but its sourceValue classifies as number (source-kind disagreement)");
+                part(row(ParSoundLiteral.Replace("\"sourceValue\":\"/TO\",\"sourceKind\":\"string\"", "\"sourceValue\":\"" + nbsp + "1\",\"sourceKind\":\"string\"")), null);
+                var corpus = new[]
+                {
+                    "true", "boolean", "false", "boolean", "TRUE", "string", "False", "string", " true", "string", "1", "number", " 1", "number",
+                    ((char)9) + "1", "number", ((char)0) + "1" + ((char)31), "number", nbsp + "1", "string", ((char)0x85) + "1", "string",
+                    ((char)0x3000) + "1", "string", "1" + nbsp, "string", "", "string", " ", "string", "null", "string", "/TO", "string",
+                    "Infinity", "number", "-Infinity", "number", "NaN", "number", "+NaN", "number", "NaNd", "string", "Infinityf", "string",
+                    "0x1p1", "number", "/0X1P1", "string", "1.", "number", ".5", "number", "1e", "string", "1_0", "string",
+                };
+                for (int i = 0; i < corpus.Length; i += 2)
+                {
+                    string kind = ParityMap.SourceKind(corpus[i]);
+                    if (kind != corpus[i + 1]) parts.Add("SourceKind of entry " + (i / 2) + " is " + (kind ?? "null") + ", not " + corpus[i + 1]);
+                }
+                check(parts.Count == 0, "parity map/3: a sourceKind disagreement is refused, by Java trim and exact Boolean text (control 1) ("
+                    + string.Join("; ", parts) + ")");
+
+                string unknownTop = ParMapJson("Par", true, Pairs(poses));
+                exact("parity map/3: an unknown top-level property is refused", ParApply("{\"extra\":1," + unknownTop.Substring(1), true),
+                    "parity map has the top-level property 'extra'; map/3 allows only schema, imageSet, frames, actions, children, behaviours, sourceNames, poses and soundParameters");
+            }
+            catch (Exception e)
+            {
+                check(false, "parity map/3: the sound reader checks ran without an exception: " + e);
+            }
+        }
+
         /// <summary>CONTRACT v1.1 section 9's binding: one mapping per emitted pose, the placeholder exemption only for
         /// its exact shape, and surplus keys refused.</summary>
         private static void CheckParityPoseBinding(Action<bool, string> check)
         {
             Dictionary<string, string> poses = ParPoses("Par", true);
-            TickType type = TickType.Compile("Par", ParDocument(true));
+            XmlData.RootNode document = ParDocument(true);
+            TickType type = TickType.Compile("Par", document);
             ParityMap map = ParityMap.Parse(ParMapJson("Par", true, poses));
-            map.Apply(type);
+            map.Apply(type, document);
             var bound = new List<string>();
             foreach (TickPoseDef p in type.ActionsById[30].Variants[0].Poses)
             {
@@ -347,8 +501,9 @@ namespace DesktopAICompanion.Shimeji
             var supplied = new Dictionary<string, string>(poses, StringComparer.Ordinal);
             supplied["32:0:0"] = ParPoseValue("Par", 3, 1, 1);
             ParityMap authored = ParityMap.Parse(ParMapJson("Par", true, supplied));
-            TickType authoredType = TickType.Compile("Par", ParDocument(true));
-            authored.Apply(authoredType);
+            XmlData.RootNode authoredDocument = ParDocument(true);
+            TickType authoredType = TickType.Compile("Par", authoredDocument);
+            authored.Apply(authoredType, authoredDocument);
             int authoredIndex;
             bool authoredBound = authored.TryGetPoseIndex(authoredType.ActionsById[32].Variants[0].Poses[0], out authoredIndex);
             supplied["32:0:0"] = "{\"refKey\":" + JsonLine.Quote(ParPoseRef("Par", 3, 1, 1)) + ",\"index\":1}";
@@ -389,12 +544,13 @@ namespace DesktopAICompanion.Shimeji
         /// member's map has no binding for it: a provenance fault, index null, and the run ends in error.</summary>
         private static void CheckParityPoseTrace(Action<bool, string> check)
         {
-            TickType oldType = TickType.Compile("Old", ParDocument(false));
+            XmlData.RootNode oldDocument = ParDocument(false), newDocument = ParDocument(false);
+            TickType oldType = TickType.Compile("Old", oldDocument);
             ParityMap oldMap = ParityMap.Parse(ParMapJson("Old", false, ParPoses("Old", false)));
-            oldMap.Apply(oldType);
-            TickType newType = TickType.Compile("Par", ParDocument(false));
+            oldMap.Apply(oldType, oldDocument);
+            TickType newType = TickType.Compile("Par", newDocument);
             ParityMap newMap = ParityMap.Parse(ParMapJson("Par", false, ParPoses("Par", false)));
-            newMap.Apply(newType);
+            newMap.Apply(newType, newDocument);
             TickWorld world = ParWorld(null);
             world.AddType(oldType);
             world.AddType(newType);
@@ -478,8 +634,29 @@ namespace DesktopAICompanion.Shimeji
 
             string[] retired = go(ParMapJson("Par", false, ParPoses("Par", false), "shimeji-parity-map/1"), "", xml, false);
             check(retired[0] == "2" && retired[1] == null
-                  && retired[2].Contains("refused " + retired[3] + ": the map is shimeji-parity-map/1; regenerate it with the current converter"),
+                  && retired[2].Contains("refused " + retired[3] + ": the map is shimeji-parity-map/1; regenerate it with the current converter (map/3 required)"),
                 "parity run: a map/1 file is refused with exit 2 and no trace file (" + retired[2].Trim() + ")");
+
+            // burndown/host-mute-1, CONTRACT v1.4 draft P1-F, FC-1, C13 and C14 (host half): the run's refusal is the
+            // reader's. Each label below holds the reader's exact message (an InvalidDataException; ParApply prefixes any
+            // other type) AND the run's exit 2, no trace and that same reason after "refused <map path>: ", so a mutant
+            // that removes the one reader check fails exactly one label. Exit 2 and no trace alone cannot kill such a
+            // mutant: a map/2 file with the retirement removed is still refused, as not map/3.
+            string map2 = ParMapJson("Par", false, ParPoses("Par", false), "shimeji-parity-map/2");
+            string map2Reader = ParApply(map2, false);
+            string[] map2Run = go(map2, "", xml, false);
+            check(map2Reader == "the map is shimeji-parity-map/2; regenerate it with the current converter (map/3 required)"
+                  && map2Run[0] == "2" && map2Run[1] == null && map2Run[2].Contains("refused " + map2Run[3] + ": " + map2Reader + Environment.NewLine),
+                "parity map/3: a map/2 file is refused with a regenerate message, by the reader and by a run (exit 2, no trace) ("
+                + map2Reader + "; exit " + map2Run[0] + ", " + map2Run[2].Trim() + ")");
+            string cachedLiteral = ParMapJson("Par", false, ParPoses("Par", false),
+                soundRows: "[" + ParSoundLiteral.Replace("\"emittedCache\":\"none\"", "\"emittedCache\":\"action\"") + "]");
+            string cachedReader = ParApply(cachedLiteral, false);
+            string[] cachedRun = go(cachedLiteral, "", xml, false);
+            check(cachedReader == "parity map soundParameters row 0 is literal with emittedCache 'action' (a literal row has none)"
+                  && cachedRun[0] == "2" && cachedRun[1] == null && cachedRun[2].Contains("refused " + cachedRun[3] + ": " + cachedReader + Environment.NewLine),
+                "parity map/3: a literal Sound row with emittedCache action is refused, by the reader and by a run (exit 2, no trace) ("
+                + cachedReader + "; exit " + cachedRun[0] + ", " + cachedRun[2].Trim() + ")");
             string[] broken = go("{", "", xml, false);
             check(broken[0] == "2" && broken[1] == null && broken[2].Contains("refused " + broken[3] + ": "),
                 "parity run: a map that is not JSON is refused with exit 2 and no trace file (" + broken[2].Trim() + ")");
