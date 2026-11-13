@@ -7916,10 +7916,17 @@ mutation case claims it; the CoreTests check compares the room with `SnapshotMem
 `ParityLoadedEngine` reads and hashes this process's own EXE and engine assembly. The command builds its header's
 `exeSha256` and `engineSha256` from it; a caller below the command (the window self-test) reads it too. Either way the
 read comes before the trace is opened, so a null `ProcessPath`, an empty `Location` or a file that cannot be opened is the
-named `build-witness-unreadable` refusal, exit 2 and no trace. The inner `ParityRun.Run` makes the run's one runId, hands
-it to `Header` (its only caller), and logs the loaded-engine line, the synthetic label on a run below the command, and
-after the run the birth witness, each ending with that runId. Only a run that writes a trace logs them, so a refused
-run's log is unchanged. The read is guarded rather than the path pre-checked, since a pre-check covers only the paths
+named `build-witness-unreadable` refusal, exit 2 and no trace. The core `ParityRun.Run` (the one on a scenario already
+read and a trace path already claimed) makes the run's one runId at its entry and logs the loaded-engine line at once,
+before the scenario is validated or the trace opened; the inner run hands that runId to `Header` (its only caller) and
+logs the synthetic label on a run below the command after the header, and the birth witness after the run, each ending
+with the same runId. These lines are written on every run, traced and trace-off alike. Codex's closure ruling Q-c
+(2026-11-13) changed the refusals: a run the core run refuses after its entry (scenario-input-unreadable,
+scenario-invalid, a pet, the pack, a file that appeared at the trace path before the open) now logs the loaded-engine
+line first, with a runId no header carries, so each of those refusal logs gained exactly that one line. The output claim
+and the command's prerequisites keep their precedence and refuse before it, and so does build-witness-unreadable. The
+synthetic label stays beside the header because it qualifies the header's build values. Refused: logging the engine only
+on a run that opens a trace, which Codex ruled out under H :150. The read is guarded rather than the path pre-checked, since a pre-check covers only the paths
 someone thought of. Refused: re-reading the files inside `Run` for the command, which hashes them twice and could log a
 different file than the header names; and an equality check of a self-test's synthetic header hashes against the loaded
 engine, which H :80 says is not claimed. The path provider is an internal constructor argument, never read from an
@@ -7962,8 +7969,13 @@ state alone cannot: two unobserved moves that put the rectangle back, or an effe
 The positive witness stays one line, now in the list form proposed to Codex, "parity reconciliation window-effects,
 active-pending-membership checkpoints <N+1> stateRecords <...> runId <id>", which awaits Codex's answer on Q-d.
 Refused: a separate window witness line, which would let a log show one proof's witness without the other's. The carry
-class needs a grip geometry the self-test's generated packs do not build; make_packs' carry scenarios, on and off, run
-through the command in the round 4 differential instead.
+class has its own generated pack (WalkWithIE holding the window by its lower corner), on and off, traced and trace-off
+(review of round 4). Codex agreed the list form exactly (Q-d). Review of round 4: the replay seeded every timeline row's
+rectangle before the run's try, and no validator checks a rectangle, so a short, null, string or non-Int32 one threw out
+of the command after the header where the base ended the run in error. The rows are seeded inside the try now, and each
+row's rectangle is read only when the row takes effect, where and when `ParityEnvironment.Tick` reads it, so the replay
+reads no rectangle the environment does not. Refused: moving the seeding alone, which still read a row superseded at its
+own tick, one the base never read, and so failed a run the base completed.
 
 **A trace-off witness names a final-state comparison only when one ran (review of round 3).**
 `ParityRunLedger.FinalStates` sets a flag, and `ClosingLine` writes a trace-off run's witness only when it is set. A
@@ -7983,7 +7995,20 @@ command's branch of `Main` has no outer catch. One guarded read per site rather 
 site has its own mutant. `PackFolderOf` catches only the pack value's decode failure and treats it as no usable pack
 folder (H :45); the run then refuses the scenario by its existing line. Refused: a new refusal for any input the run
 accepted before (a surrogate imageSet or timeline sid still ends the run in error, as it did), and a detail beyond the
-three Codex agreed.
+three Codex agreed. One exception, by Codex's definition of read (scenario file I/O and UTF-8 decode failure): the
+scenario bytes are decoded strictly before JSON parsing, so invalid UTF-8 anywhere in the file is "scenario-input-unreadable
+read: refused <path>: the scenario cannot be read: it is not UTF-8: ...", exit 2 and no trace, including bytes in a string
+no reader decodes, which the run used to accept. Left to the parser, the same bytes became syntax, schema-string,
+scenario-invalid, a run error or nothing, depending on where they sat. A byte order mark decodes and stays the parser's.
+
+**An abort after a reconciliation failure ends in error and logs its incomplete coverage (Codex Q-e, 2026-11-13).** A
+scenario-invalid edge that aborts a run whose ledger already failed keeps its diagnostic and the refusal's exit 2, and the
+footer stays error: the abort path wrote "aborted" over the failure. `ParityRun.EndAborted` is the abort ending, internal
+so the self-test drives it with a ledger failed by hand, since no unmutated run fails its ledger. The closing line now
+reports an early stop's actual coverage ("parity reconciliation incomplete: checkpoints k of N+1") even beside a logged
+first failure, on the abort and the failed paths alike; a positive witness is never written on a failure, abort or
+incomplete run. Recorded gap, as for the complete path's promotion: an inlined abort ending that hardcodes "aborted" but
+keeps the closing line is not killed by any real run, only by the hand-driven leg on `EndAborted`.
 
 ## Known ABI gaps
 

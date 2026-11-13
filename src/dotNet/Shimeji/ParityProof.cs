@@ -12,8 +12,10 @@ namespace DesktopAICompanion.Shimeji
     /// :158, :232): the engine this process actually loaded, the synthetic label on a run whose build witness its caller
     /// supplied, the policy-blind birth witness and the population reconciliation witness. Every line ends with
     /// "runId &lt;id&gt;", the runId the same invocation's trace header carries, so a closure record can bind a line to its
-    /// trace. The spellings live in this one block so that a spelling agreed with the closure checker's owner (the lane
-    /// brief's open question 10) is a change here and nowhere else.
+    /// trace. The loaded-engine and birth-witness lines are written on every run, traced and trace-off alike (Codex's
+    /// closure rulings, 2026-11-13); the loaded-engine line also on a run the core run refuses after its entry, whose
+    /// runId then has no header (Q-c). The spellings live in this one block so that a spelling agreed with the closure
+    /// checker's owner (the lane brief's open question 10) is a change here and nowhere else.
     /// </summary>
     internal static class ParityRunLog
     {
@@ -27,8 +29,8 @@ namespace DesktopAICompanion.Shimeji
         // ---- end of the spellings
 
         /// <summary>"parity loaded-engine engineSha256 H exeSha256 H enginePath P exePath P runId R": the files this process
-        /// loaded and hashed itself, never the header's build values. The hashes come first and the paths last, since a
-        /// path may hold spaces.</summary>
+        /// loaded and hashed itself, never the header's build values, logged on every run at the core run's entry. The
+        /// hashes come first and the paths last, since a path may hold spaces.</summary>
         public static string LoadedEngineLine(ParityLoadedEngine engine, string runId)
         {
             return LoadedEngine + " engineSha256 " + engine.EngineSha256 + " exeSha256 " + engine.ExeSha256
@@ -53,7 +55,7 @@ namespace DesktopAICompanion.Shimeji
         }
 
         /// <summary>
-        /// The birth witness (policy:birth-cap, H :158), logged on every run whatever its scenario declares: the limit the
+        /// The birth witness (policy:birth-cap, H :158), logged on every run that starts, traced or trace-off, whatever its scenario declares: the limit the
         /// world ended with, its write record since construction, and every decision Breed's loop made, each with its
         /// tick, parent and attempt and the operands and result of the comparison itself. "limitWrites 0 none" is the
         /// direct-world, no-override evidence; any recorded write is listed with its writer, base and deduction.
@@ -270,12 +272,12 @@ namespace DesktopAICompanion.Shimeji
             public bool DisposeRequested;
         }
 
-        /// <summary>One activeWindow entry as the scenario states it: shown with a rectangle, or hidden.</summary>
+        /// <summary>One activeWindow entry as the scenario states it, kept whole: its rectangle is read only when the entry
+        /// takes effect (<see cref="ReplayWindow"/>), as ParityEnvironment.Tick reads it.</summary>
         private struct WindowEntry
         {
             public int Tick;
-            public bool Shown;
-            public TickRect Rect;
+            public JsonElement Entry;
         }
 
         private readonly Dictionary<string, Member> _members = new Dictionary<string, Member>(StringComparer.Ordinal);
@@ -321,19 +323,17 @@ namespace DesktopAICompanion.Shimeji
             foreach (Member m in _members.Values) m.Pending = false;
         }
 
-        /// <summary>One entry of the validated scenario's activeWindow timeline, in order: shown only when "visible" is true
-        /// and it has a rectangle [left, top, right, bottom], as ParityEnvironment reads it, else hidden.</summary>
+        /// <summary>
+        /// One entry of the validated scenario's activeWindow timeline, in order, by its tick only (ScenarioInvalid checked
+        /// it is an Int32). Review of round 4: the rectangle was read here, for every entry, before the run's try, and
+        /// neither validator checks a rectangle, so a short, null, string or non-Int32 one threw out of the command after
+        /// the header where the base ended the run in error (exit 1, an error footer). It is read now where and when
+        /// ParityEnvironment.Tick reads it, when the entry takes effect, so an entry the environment never reads (one
+        /// superseded at its own tick) is never read here either, and one it cannot read has already failed the run.
+        /// </summary>
         public void WindowTimeline(JsonElement entry)
         {
-            JsonElement visible, rect;
-            var w = new WindowEntry { Tick = entry.GetProperty("tick").GetInt32() };
-            w.Shown = entry.TryGetProperty("visible", out visible) && visible.ValueKind == JsonValueKind.True && entry.TryGetProperty("rect", out rect);
-            if (w.Shown)
-            {
-                rect = entry.GetProperty("rect");
-                w.Rect = Ltrb(rect[0].GetInt32(), rect[1].GetInt32(), rect[2].GetInt32(), rect[3].GetInt32());
-            }
-            _timeline.Add(w);
+            _timeline.Add(new WindowEntry { Tick = entry.GetProperty("tick").GetInt32(), Entry = entry.Clone() });
         }
 
         /// <summary>One line the trace writer committed: a state record is kept for the next comparison, a lifecycle event
@@ -416,10 +416,17 @@ namespace DesktopAICompanion.Shimeji
                 if (_timeline[i].Tick <= tick) latest = i;
             if (latest != _windowEntry)
             {
+                // Shown only when "visible" is true and it has a rectangle [left, top, right, bottom], as
+                // ParityEnvironment.Tick reads it, else hidden, which keeps the replayed rectangle.
                 _windowEntry = latest;
                 _minimised = false;
-                _shown = _timeline[latest].Shown;
-                if (_shown) _rect = _timeline[latest].Rect;
+                JsonElement entry = _timeline[latest].Entry, visible, rect;
+                _shown = entry.TryGetProperty("visible", out visible) && visible.ValueKind == JsonValueKind.True && entry.TryGetProperty("rect", out rect);
+                if (_shown)
+                {
+                    rect = entry.GetProperty("rect");
+                    _rect = Ltrb(rect[0].GetInt32(), rect[1].GetInt32(), rect[2].GetInt32(), rect[3].GetInt32());
+                }
             }
             string fault = null;
             foreach (string line in _windowEvents)
@@ -475,13 +482,15 @@ namespace DesktopAICompanion.Shimeji
             Fail(tick, fault);
         }
 
-        /// <summary>The closing line: the positive witness when every one of the N+1 checkpoints passed and, trace-off, the
-        /// final state records were compared too; or, when the run stopped early, how many ran. A failure was logged when it
-        /// happened. A trace-off run whose final-state write failed after checkpoint N names that, never the witness.</summary>
+        /// <summary>The closing line: when the run stopped early, how many of its N+1 checkpoints ran, whether or not a
+        /// failure was logged before (Codex Q-e: the actual incomplete coverage is logged even beside a first-failure line);
+        /// else nothing after a failure, which was logged when it happened; else the positive witness when every checkpoint
+        /// passed and, trace-off, the final state records were compared too. A trace-off run whose final-state write failed
+        /// after checkpoint N names that, never the witness.</summary>
         public string ClosingLine(int ticks)
         {
-            if (Failure != null) return null;
             if (Checkpoints != ticks + 1) return ParityRunLog.ReconciliationIncompleteLine(Checkpoints, ticks + 1, _runId);
+            if (Failure != null) return null;
             if (_traceOff && !_finalStatesCompared) return ParityRunLog.ReconciliationFinalStatesMissingLine(Checkpoints, _runId);
             return ParityRunLog.ReconciliationLine(Checkpoints, _traceOff, _runId);
         }

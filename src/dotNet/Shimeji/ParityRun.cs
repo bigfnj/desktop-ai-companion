@@ -1810,6 +1810,15 @@ namespace DesktopAICompanion.Shimeji
             ParityLoadedEngine engine, bool synthetic)
         {
             string scenarioPath = scenarioFile.Argument;
+            // N-parity-1107-03, Codex's closure ruling Q-c (H :150): the run's one runId is made here, at the core run's
+            // entry, and the engine this process loaded (read by the caller, which refused build-witness-unreadable ahead
+            // of this) is logged at once, before the scenario is validated and before the trace is opened. So a run that
+            // got this far and is then refused (scenario-input-unreadable, scenario-invalid, a pet, the pack, or a file
+            // that appeared at the trace path before the open) still names its engine with a runId that no header
+            // carries. The output claim and the command's prerequisites keep their precedence: they refuse before this.
+            // Refused: logging it only on a run that opens its trace, which left a refusal naming no process at all.
+            string runId = Guid.NewGuid().ToString();
+            log.WriteLine(ParityRunLog.LoadedEngineLine(engine, runId));
             // N-bd-w11-shimeji-host-1-01: a path argument that names nothing (this scenario file, the pets folder in
             // LoadPets, the trace's folder below) is refused by name with exit 2, its line and no trace, as a refused map or
             // pack is. It is the caller's argument error, not scenario-invalid: there is no scenario to judge. Unchecked,
@@ -1821,6 +1830,20 @@ namespace DesktopAICompanion.Shimeji
                 return 2;
             }
             byte[] scenarioBytes = scenarioFile.Bytes;
+            // K5 "read" (Codex, 2026-11-13: scenario file I/O AND UTF-8 decode failure). The bytes are decoded strictly
+            // before JSON parsing, so invalid UTF-8 anywhere in the file is this read diagnostic, exit 2 and no trace. Left
+            // to JsonDocument.Parse, the same bytes became a syntax diagnostic, a schema-string or scenario-invalid
+            // refusal, a run error, or nothing at all when they sat in a string the run never decodes, depending on where
+            // they were. A byte order mark decodes (to U+FEFF) and stays the parser's to judge.
+            try
+            {
+                StrictUtf8.GetCharCount(scenarioBytes);
+            }
+            catch (DecoderFallbackException e)
+            {
+                log.WriteLine(ScenarioInputUnreadableLine("read", "refused " + scenarioPath + ": the scenario cannot be read: it is not UTF-8: " + e.Message));
+                return 2;
+            }
             // N-bd-w10-shimeji-host-1-01: a scenario that is not JSON, lacks a field or holds one the run cannot read is
             // scenario-invalid (CONTRACT sections 1 and 6), refused here with exit 2, its line and no trace, before the
             // pets and the pack are read. The oracle refuses the same scenario before it writes anything (oracle.py v1_run
@@ -1928,7 +1951,7 @@ namespace DesktopAICompanion.Shimeji
                 using (StreamWriter trace = opened)
                 {
                     trace.NewLine = "\n";
-                    return Run(scenario, scenarioBytes, packSha256, pets, trace, build, log, traceOff, engine, synthetic);
+                    return Run(scenario, scenarioBytes, packSha256, pets, trace, build, log, traceOff, engine, synthetic, runId);
                 }
             }
         }
@@ -1943,6 +1966,9 @@ namespace DesktopAICompanion.Shimeji
         /// so an adopted respelling is a one-line change.
         /// </summary>
         internal const string ScenarioInputUnreadable = "scenario-input-unreadable";
+
+        /// <summary>UTF-8 that throws on an invalid byte sequence instead of decoding it as U+FFFD: K5's read check.</summary>
+        private static readonly UTF8Encoding StrictUtf8 = new UTF8Encoding(false, true);
 
         /// <summary>The K5 line: the token and its detail IN FRONT of the line the run wrote before, which follows byte for
         /// byte, so every existing reader of that line still finds it and a checker finds the token at the start.</summary>
@@ -2116,8 +2142,23 @@ namespace DesktopAICompanion.Shimeji
             return e.ValueKind == JsonValueKind.Number && e.TryGetInt32(out value);
         }
 
+        /// <summary>
+        /// The end of a run a scenario-invalid edge aborted (Codex's closure ruling Q-e): the reconciliation's closing line,
+        /// which on a run that stopped early is the incomplete count even when a first-failure line was logged before, then
+        /// the footer, whose status a prior reconciliation failure keeps at error while the exit stays the refusal's 2.
+        /// The abort path used to write "aborted" over that failure. Internal so ShimejiWindowSelfTest drives these same
+        /// lines with a ledger it failed by hand, since no unmutated run fails its ledger.
+        /// </summary>
+        internal static int EndAborted(ParityTraceWriter writer, ParityRunLedger ledger, int ticks, ParityRandom random, TextWriter log)
+        {
+            string stopped = ledger.ClosingLine(ticks);
+            if (stopped != null) log.WriteLine(stopped);
+            Finish(writer, ticks, ledger.Failure != null ? "error" : "aborted", random, log);
+            return 2;
+        }
+
         private static int Run(Scenario scenario, byte[] scenarioBytes, string packSha256, List<KeyValuePair<TickType, ParityMap>> pets,
-            TextWriter trace, Dictionary<string, string> build, TextWriter log, bool traceOff, ParityLoadedEngine engine, bool synthetic)
+            TextWriter trace, Dictionary<string, string> build, TextWriter log, bool traceOff, ParityLoadedEngine engine, bool synthetic, string runId)
         {
             {
                 JsonElement s = scenario.Root;
@@ -2131,13 +2172,11 @@ namespace DesktopAICompanion.Shimeji
 
                 ParityRandom random = scenario.Random;
                 var writer = new ParityTraceWriter(trace, maps, traceOff);
-                // N-parity-1107-03 (signed revision H :80, :150, :158): one runId per invocation, made here and handed to the
-                // header, and every closure line this run logs carries the same one. Then the engine this process loaded,
-                // logged on every run that writes a trace, and on a run below the command the synthetic label, since its
-                // header's build values were its caller's (ParityRunLog holds the spellings).
-                string runId = Guid.NewGuid().ToString();
+                // N-parity-1107-03 (signed revision H :80, :150, :158): the invocation's one runId, made at the core run's
+                // entry beside the loaded-engine line (Codex Q-c) and handed to the header, so every closure line this run
+                // logs carries the same one. On a run below the command, the synthetic label follows the header, since it
+                // qualifies the header's build values, which were its caller's (ParityRunLog holds the spellings).
                 writer.Header(scenario.Id, Sha256(scenarioBytes), packSha256, build, scenario.Rng, scenario.DpiScale, runId);
-                log.WriteLine(ParityRunLog.LoadedEngineLine(engine, runId));
                 if (synthetic) log.WriteLine(ParityRunLog.SyntheticWitnessLine(runId));
 
                 var world = new TickWorld(scenario.Environment, random, scenario.Settings, writer);
@@ -2155,11 +2194,6 @@ namespace DesktopAICompanion.Shimeji
                 var ledger = new ParityRunLedger(traceOff, log, runId);
                 writer.Committed = ledger.Commit;
                 foreach (JsonElement row in s.GetProperty("mascots").EnumerateArray()) ledger.Seed(row.GetProperty("sid").GetString());
-                // A14 (H :136): the window replay starts from the validated scenario's own timeline rows, never from the
-                // environment's state, and is compared with the live desktop window at the same checkpoints.
-                JsonElement timeline;
-                if (s.TryGetProperty("activeWindow", out timeline))
-                    foreach (JsonElement entry in timeline.EnumerateArray()) ledger.WindowTimeline(entry);
                 ParityEnvironment desk = scenario.Environment;
                 int ticks = scenario.Ticks;
                 string status = "complete";
@@ -2169,8 +2203,16 @@ namespace DesktopAICompanion.Shimeji
                 {
                     throw new ScenarioInvalidException("scenario-invalid: tick " + world.Step + ": left-button target " + input.Sid + " is not active");
                 };
+                // A14 (H :136): the window replay starts from the validated scenario's own timeline rows, never from the
+                // environment's state, and is compared with the live desktop window at the same checkpoints. Seeded inside
+                // the try (review of round 4), and each row's rectangle is read only when it takes effect, as the
+                // environment reads it (ParityRunLedger.WindowTimeline): a rectangle neither validator checks fails the run
+                // as it did at the base, exit 1 and an error footer, never an exception out of the command.
                 try
                 {
+                    JsonElement timeline;
+                    if (s.TryGetProperty("activeWindow", out timeline))
+                        foreach (JsonElement entry in timeline.EnumerateArray()) ledger.WindowTimeline(entry);
                     writer.Tick = 0;
                     world.Start();
                     foreach (JsonElement m in s.GetProperty("mascots").EnumerateArray())
@@ -2205,10 +2247,7 @@ namespace DesktopAICompanion.Shimeji
                     // is a refusal's, since the scenario, not the runtime, is at fault.
                     log.WriteLine(e.Message);
                     birthWitness();
-                    string stopped = ledger.ClosingLine(ticks);
-                    if (stopped != null) log.WriteLine(stopped);
-                    Finish(writer, ticks, "aborted", random, log);
-                    return 2;
+                    return EndAborted(writer, ledger, ticks, random, log);
                 }
                 catch (Exception e)
                 {

@@ -220,15 +220,41 @@ namespace DesktopAICompanion.Shimeji
             string withFinal = traceOffClosing(true), withoutFinal = traceOffClosing(false);
             check(withFinal == ParityRunLog.ReconciliationLine(2, true, "w") && withoutFinal == ParityRunLog.ReconciliationFinalStatesMissingLine(2, "w"),
                 "parity proof: WITNESS a trace-off ledger whose final states were never compared writes no positive witness (" + withoutFinal + " | " + withFinal + ")");
+
+            // Codex's closure ruling Q-e, on the run's own abort ending (ParityRun.EndAborted) with a ledger failed by hand,
+            // since no unmutated run fails its ledger: a scenario-invalid abort after a reconciliation failure keeps the
+            // footer error and the refusal's exit 2, and logs the incomplete count beside the first-failure line; with no
+            // failure the footer says aborted. Neither writes a positive witness.
+            Func<bool, string> aborted = fail =>
+            {
+                var abortLog = new StringWriter();
+                var abortTrace = new StringWriter();
+                var abortWriter = new ParityTraceWriter(abortTrace, new Dictionary<string, ParityMap>(StringComparer.Ordinal), false);
+                var l = new ParityRunLedger(false, abortLog, "w");
+                l.Seed("s1");
+                l.StartupActivated();
+                l.Commit("{\"type\":\"state\",\"tick\":0,\"sid\":\"s1\",\"pending\":false}");
+                l.Checkpoint(0, new TickMembership(new[] { "s1" }, fail ? new[] { "x" } : new string[0]), default(ParityWindowState));
+                int abortExit = ParityRun.EndAborted(abortWriter, l, 5, null, abortLog);
+                string footer = abortTrace.ToString().Contains("\"status\":\"error\"") ? "error" : abortTrace.ToString().Contains("\"status\":\"aborted\"") ? "aborted" : "other";
+                return "exit " + abortExit + ", footer " + footer + ", " + abortLog.ToString().Trim().Replace("\r", "").Replace("\n", " | ");
+            };
+            string abortedFailed = aborted(true), abortedClean = aborted(false);
+            string incomplete = ParityRunLog.ReconciliationIncompleteLine(1, 6, "w");
+            check(abortedFailed.StartsWith("exit 2, footer error, " + ParityRunLog.Reconciliation + " failed at checkpoint 0: ", StringComparison.Ordinal)
+                  && abortedFailed.EndsWith(" | " + incomplete, StringComparison.Ordinal)
+                  && abortedClean == "exit 2, footer aborted, " + incomplete,
+                "parity proof: an abort after a reconciliation failure keeps the footer error, exit 2, and logs its incomplete coverage (" + abortedFailed + " || " + abortedClean + ")");
         }
 
         /// <summary>
         /// burndown/host-policy-1, N-parity-1107-03 C5 (signed revision H :136): A14 window reconciliation on generated
         /// packs, traced and trace-off. ThrowIE and MinimizeIE with Throwing on and WindowActions on and off, a minimise and
         /// a throw in one tick, and a run that stops part way. Each complete run must end with the positive witness naming
-        /// window-effects and N+1 checkpoints and the header's runId. The carry class (WalkWithIE) needs a grip geometry
-        /// these packs do not build; the round 4 differential runs make_packs' carry scenarios on and off through the
-        /// command instead. A unit leg shows the counters count only a success. Every pet here is generated.
+        /// window-effects and N+1 checkpoints and the header's runId. The carry class (WalkWithIE) holds a window by its
+        /// lower corner, on and off, in both modes (review of round 4). A rectangle no validator checks fails the run as at
+        /// the base, or is never read when its entry never takes effect. A unit leg shows the counters count only a
+        /// success. Every pet here is generated.
         /// </summary>
         private static void CheckParityWindowProofs(Action<bool, string> check, string root, StringBuilder log)
         {
@@ -260,9 +286,30 @@ namespace DesktopAICompanion.Shimeji
             return doc;
         }
 
-        /// <summary>A generated scenario/1 with a shown window [300, 200, 700, 500] from tick 0, the given settings and
-        /// input entries after the tick-0 cursor.</summary>
-        private static string ProofWindowScenario(string root, string id, int ticks, string mascots, bool windowActions, string input)
+        /// <summary>WalkWithIE (the carry class) on ParDocument's Walk: a walk left to x 600, two pixels a pose, holding the
+        /// window by its lower corner with no offset, so a companion at [640, 680] facing left holds a window whose right
+        /// is 640 and bottom 680.</summary>
+        private static XmlData.RootNode ProofCarryDocument(string set)
+        {
+            XmlData.RootNode doc = ProofWindowDocument(set, "WalkWithIE", 1);
+            foreach (XmlData.AnimationNode n in doc.Animations.Animation)
+            {
+                if (n.Id != 30) continue;
+                n.Act.Params = new[]
+                {
+                    new XmlData.ParamNode { Name = "TargetX", Value = "600", Cache = "none" },
+                    new XmlData.ParamNode { Name = "IeOffsetX", Value = "0", Cache = "none" },
+                    new XmlData.ParamNode { Name = "IeOffsetY", Value = "0", Cache = "none" },
+                };
+                foreach (XmlData.PoseNode p in n.Act.Variants.Variant[0].Pose) p.DX = -2;
+            }
+            return doc;
+        }
+
+        /// <summary>A generated scenario/1 with a shown window [300, 200, 700, 500] from tick 0 (or the given activeWindow
+        /// timeline), the given settings and input entries after the tick-0 cursor.</summary>
+        private static string ProofWindowScenario(string root, string id, int ticks, string mascots, bool windowActions, string input,
+            string activeWindow = "[{\"tick\":0,\"visible\":true,\"rect\":[300,200,700,500]}]")
         {
             string pack = Path.Combine(root, "pack");
             if (!Directory.Exists(pack))
@@ -275,7 +322,7 @@ namespace DesktopAICompanion.Shimeji
                 + "\"pack\":\"pack\",\"screens\":[{\"x\":0,\"y\":0,\"w\":1280,\"h\":720}],\"workArea\":{\"x\":0,\"y\":0,\"w\":1280,\"h\":680},"
                 + "\"dpiScale\":1.0,\"ticks\":" + ticks.ToString(CultureInfo.InvariantCulture) + ",\"rng\":{\"kind\":\"none\"},"
                 + "\"settings\":{\"Throwing\":true,\"WindowActions\":" + (windowActions ? "true" : "false") + "},"
-                + "\"mascots\":[" + mascots + "],\"activeWindow\":[{\"tick\":0,\"visible\":true,\"rect\":[300,200,700,500]}],"
+                + "\"mascots\":[" + mascots + "],\"activeWindow\":" + activeWindow + ","
                 + "\"input\":[{\"tick\":0,\"cursor\":[100,100]}" + input + "]}",
                 new UTF8Encoding(false));
             return scenario;
@@ -290,7 +337,8 @@ namespace DesktopAICompanion.Shimeji
             };
             string pets = PolicyPets(root, "pets-window",
                 new KeyValuePair<string, XmlData.RootNode>("Thrower", ProofWindowDocument("Thrower", "ThrowIE", 2)),
-                new KeyValuePair<string, XmlData.RootNode>("Minimiser", ProofWindowDocument("Minimiser", "MinimizeIE", 1)));
+                new KeyValuePair<string, XmlData.RootNode>("Minimiser", ProofWindowDocument("Minimiser", "MinimizeIE", 1)),
+                new KeyValuePair<string, XmlData.RootNode>("Carrier", ProofCarryDocument("Carrier")));
             const string thrower = "{\"sid\":\"t1\",\"imageSet\":\"Thrower\",\"behavior\":\"Walk\",\"anchor\":[640,680],\"lookRight\":false}";
             const string minimiser = "{\"sid\":\"n1\",\"imageSet\":\"Minimiser\",\"behavior\":\"Walk\",\"anchor\":[200,680],\"lookRight\":false}";
 
@@ -365,6 +413,44 @@ namespace DesktopAICompanion.Shimeji
                 check(minimiseTick > 0 && throwing && !movedThen, "parity proof: the one-tick leg holds a throw call that finds no window (" + failedCall + ")");
             }
             else check(false, "parity proof: the one-tick leg holds a throw call that finds no window (" + failedCall + ")");
+
+            // The carry class (review of round 4): WalkWithIE holds the window [400, 380, 640, 680] by its lower right corner
+            // and walks left to x 600, the window moving with it each tick; with window actions off it walks as a Move.
+            const string carrier = "{\"sid\":\"c1\",\"imageSet\":\"Carrier\",\"behavior\":\"Walk\",\"anchor\":[640,680],\"lookRight\":false}";
+            const string carryWindow = "[{\"tick\":0,\"visible\":true,\"rect\":[400,380,640,680]}]";
+            both("parity proof: window carry with WindowActions on reconciles its moves, traced and trace-off",
+                ProofWindowScenario(root, "S-window-proof-carry-on", 12, carrier, true, "", carryWindow), 12,
+                new[] { "\"sid\":\"c1\",\"kind\":\"window-move\",\"from\":[400,380,640,680],\"to\":[398,380,638,680]" });
+            both("parity proof: window carry with WindowActions off moves nothing and reconciles, traced and trace-off",
+                ProofWindowScenario(root, "S-window-proof-carry-off", 12, carrier, false, "", carryWindow), 12, new[] { "!\"kind\":\"window-move\"" });
+
+            // Review of round 4: neither validator checks an activeWindow rectangle. One the environment reads when its entry
+            // takes effect and cannot (three numbers) fails the run as at the base, exit 1, an error footer and the run's
+            // failure line, never an exception out of the run; one in an entry superseded at its own tick is never read, by
+            // the environment or the window replay, and the run completes with its witness.
+            Func<string, string, string[]> guarded = (name, scenario) =>
+            {
+                string trace = Path.Combine(root, name + ".jsonl");
+                var runLog = new StringWriter();
+                string exit;
+                try { exit = ParityRun.Run(scenario, pets, trace, build, runLog, false).ToString(CultureInfo.InvariantCulture); }
+                catch (Exception e) { exit = "threw " + e.GetType().Name; runLog.Write(e.Message); }
+                log.AppendLine("LOG: parity window proof " + name + ": " + runLog.ToString().TrimEnd());
+                return new[] { exit, File.Exists(trace) ? File.ReadAllText(trace) : null, runLog.ToString() };
+            };
+            string[] shortRect = guarded("S-window-proof-short-rect",
+                ProofWindowScenario(root, "S-window-proof-short-rect", 4, thrower, false, "", "[{\"tick\":0,\"visible\":true,\"rect\":[300,200,700]}]"));
+            string shortRunId = PolicyHeaderRunId(shortRect[1]);
+            string shortClosing = PolicyLine(shortRect[2], ParityRunLog.Reconciliation + " ");
+            check(shortRect[0] == "1" && shortRunId != null && shortRect[1].Contains("{\"type\":\"footer\",\"ticks\":4,\"status\":\"error\"")
+                  && shortRect[2].Contains("run failed: ") && shortClosing == ParityRunLog.ReconciliationIncompleteLine(0, 5, shortRunId),
+                "parity proof: a shown window entry with a three-number rect fails the run as at the base, exit 1, error footer (exit " + shortRect[0]
+                + ", trace " + (shortRect[1] == null ? "none" : shortRect[1].Contains("\"status\":\"error\"") ? "error footer" : "no error footer") + ", "
+                + (shortClosing ?? "no reconciliation line") + ")");
+            both("parity proof: a malformed rect in a window entry superseded at its own tick is never read, traced and trace-off",
+                ProofWindowScenario(root, "S-window-proof-superseded-rect", 4, thrower, false, "",
+                    "[{\"tick\":0,\"visible\":true,\"rect\":[300,200,700,500]},{\"tick\":2,\"visible\":true,\"rect\":[300,200,700]},{\"tick\":2,\"visible\":false}]"),
+                4, null);
 
             // A run that stops at tick 3 (a left-button edge for a companion that does not exist): checkpoints 0..2 ran, the
             // closing line counts them, and no positive witness is written.

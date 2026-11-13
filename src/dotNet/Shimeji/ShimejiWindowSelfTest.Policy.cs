@@ -195,6 +195,49 @@ namespace DesktopAICompanion.Shimeji
             check(nullExe.StartsWith("exit 2, trace none, " + ParityRunLog.BuildWitnessUnreadable + ": the process EXE path is null;", StringComparison.Ordinal)
                   && missing.StartsWith("exit 2, trace none, " + ParityRunLog.BuildWitnessUnreadable + ": the engine assembly path is '", StringComparison.Ordinal),
                 "parity policy: a null process path or an unreadable engine file gives build-witness-unreadable too (" + nullExe + " | " + missing + ")");
+
+            // Codex's closure ruling Q-c: a run the core run refuses after its entry still names its engine, line 1, with a
+            // runId no header carries, ahead of the refusal. A scenario-invalid refusal first.
+            string invalidScenario = Path.Combine(root, "S-policy-invalid.json");
+            File.WriteAllText(invalidScenario, File.ReadAllText(scenario).Replace("\"ticks\":8,", "\"ticks\":-1,"), new UTF8Encoding(false));
+            string invalidTrace = Path.Combine(root, "invalid.jsonl");
+            var invalidLog = new StringWriter();
+            int invalidExit = ParityRun.Run(invalidScenario, pets, invalidTrace, build, invalidLog);
+            string invalidText = invalidLog.ToString();
+            log.Append("LOG: parity policy invalid: " + invalidText);
+            string invalidEngine = PolicyLine(invalidText, ParityRunLog.LoadedEngine + " "), invalidRunId = PolicyRunId(invalidEngine);
+            string invalidRefusal = "refused " + invalidScenario + ": scenario-invalid: ticks is not a non-negative integer";
+            int engineAt = invalidEngine == null ? -1 : invalidText.IndexOf(invalidEngine, StringComparison.Ordinal);
+            check(invalidExit == 2 && !File.Exists(invalidTrace) && invalidEngine != null && invalidEngine.StartsWith(wantEngine, StringComparison.Ordinal)
+                  && invalidRunId != null && invalidRunId.Length == 36 && invalidRunId != headerRunId
+                  && engineAt >= 0 && invalidText.IndexOf(invalidRefusal, StringComparison.Ordinal) > engineAt,
+                "parity policy: a scenario-invalid refusal logs the loaded-engine line first with its own runId and writes no header (exit "
+                + invalidExit + ", trace " + (File.Exists(invalidTrace) ? "left" : "none") + ", " + invalidText.Trim().Replace("\r", "").Replace("\n", " | ") + ")");
+
+            // An occupied trace path: the output claim keeps its precedence and refuses before the core run, so its refusal
+            // names no engine; a file that appears after the claim is refused at the open, after the core run's entry, so
+            // that refusal names the engine with a runId and no header is written. Neither occupant is touched.
+            string claimed = Path.Combine(root, "occupied-at-claim.jsonl");
+            File.WriteAllText(claimed, "sentinel\n", new UTF8Encoding(false));
+            var claimLog = new StringWriter();
+            int claimExit = ParityRun.Run(scenario, pets, claimed, build, claimLog);
+            string late = Path.Combine(root, "occupied-at-open.jsonl");
+            ParityRun.ScenarioFile lateFile = ParityRun.ScenarioFile.Read(scenario);
+            var lateLog = new StringWriter();
+            int lateExit = -1;
+            if (ParityRun.TraceClaim.Claim(lateFile, pets, late, null, lateLog) != null)
+            {
+                File.WriteAllText(late, "occupant\n", new UTF8Encoding(false));
+                lateExit = ParityRun.Run(lateFile, pets, late, build, lateLog, false);
+            }
+            string claimText = claimLog.ToString(), lateText = lateLog.ToString();
+            log.Append("LOG: parity policy occupied: " + claimText + lateText);
+            string lateEngine = PolicyLine(lateText, ParityRunLog.LoadedEngine + " "), lateRunId = PolicyRunId(lateEngine);
+            check(claimExit == 2 && PolicyLine(claimText, ParityRunLog.LoadedEngine) == null && File.ReadAllText(claimed) == "sentinel\n"
+                  && lateExit == 2 && lateEngine != null && lateEngine.StartsWith(wantEngine, StringComparison.Ordinal) && lateRunId != null && lateRunId.Length == 36
+                  && lateText.Contains("is already there") && File.ReadAllText(late) == "occupant\n",
+                "parity policy: a trace path occupied at the open logs the loaded-engine line, occupied at the claim does not, no header either way (exit "
+                + claimExit + " and " + lateExit + ", " + (claimText + lateText).Trim().Replace("\r", "").Replace("\n", " | ") + ")");
         }
 
         /// <summary>
@@ -244,9 +287,18 @@ namespace DesktopAICompanion.Shimeji
                 // Always ends the line: a run that threw left its message unterminated, and the next check's FAIL line
                 // must start a line of its own.
                 log.AppendLine("LOG: parity input " + name + ": " + runLog.ToString().TrimEnd());
-                return new[] { exit, File.Exists(trace) ? File.ReadAllText(trace) : null, runLog.ToString().Trim(), scenario };
+                // Codex Q-c: a refusal after the core run's entry has the loaded-engine line first; it is split off, so the
+                // refusal itself is read from the start of what follows, and a refusal without it is not named.
+                string logText = runLog.ToString().Trim(), engineLine = null;
+                if (logText.StartsWith(ParityRunLog.LoadedEngine + " ", StringComparison.Ordinal))
+                {
+                    int end = logText.IndexOf('\n');
+                    engineLine = end < 0 ? logText : logText.Substring(0, end).TrimEnd('\r');
+                    logText = end < 0 ? "" : logText.Substring(end + 1);
+                }
+                return new[] { exit, File.Exists(trace) ? File.ReadAllText(trace) : null, logText, scenario, engineLine };
             };
-            Func<string[], string, bool> named = (r, want) => r[0] == "2" && r[1] == null && r[2].StartsWith(want, StringComparison.Ordinal);
+            Func<string[], string, bool> named = (r, want) => r[0] == "2" && r[1] == null && r[4] != null && r[2].StartsWith(want, StringComparison.Ordinal);
             Func<string[], string> said = r => "exit " + r[0] + ", trace " + (r[1] == null ? "none" : "left") + ", " + r[2];
             Func<string, string, string> unreadable = (scenario, field) => ParityRun.ScenarioInputUnreadable + " schema-string: refused " + scenario
                 + ": the scenario's '" + field + "' string cannot be decoded: ";
@@ -272,6 +324,17 @@ namespace DesktopAICompanion.Shimeji
             check(named(absent, ParityRun.ScenarioInputUnreadable + " read: refused " + absent[3] + ": the scenario cannot be read: ")
                   && named(syntax, ParityRun.ScenarioInputUnreadable + " syntax: refused " + syntax[3] + ": scenario-invalid: the scenario is not JSON: "),
                 "parity policy: the read fault and the syntax fault carry the token (" + said(absent) + " | " + said(syntax) + ")");
+
+            // K5 read covers UTF-8 decode failure (Codex): one 0xFF byte inside the description, a string no reader decodes,
+            // which JsonDocument.Parse alone let through to a complete run.
+            byte[] badBytes = new UTF8Encoding(false).GetBytes(plainText.Replace("\"description\":\"generated\"", "\"description\":\"gen#rated\""));
+            int hash = Array.IndexOf(badBytes, (byte)'#');
+            badBytes[hash] = 0xFF;
+            File.WriteAllBytes(Path.Combine(root, "S-input-utf8.json"), badBytes);
+            string[] utf8 = run("S-input-utf8", null);
+            check(hash > 0 && Array.LastIndexOf(badBytes, (byte)'#') < 0
+                  && named(utf8, ParityRun.ScenarioInputUnreadable + " read: refused " + utf8[3] + ": the scenario cannot be read: it is not UTF-8: "),
+                "parity policy: invalid UTF-8 in a string no reader decodes gives the named read diagnostic, exit 2, no trace (" + said(utf8) + ")");
 
             // A pack value with an unpaired surrogate: no usable pack folder at the claim (no exception there), and the run
             // still refuses the scenario by its own scenario-invalid line.
