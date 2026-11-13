@@ -163,6 +163,16 @@ namespace DesktopAICompanion
                 Run("Tick sound apply: the current type's Sounds setting gates it; a transformed companion plays its applied pose's clip", TestTickSoundSettingAndTransform);
                 Run("Tick sound Mute: a named Sound stops the initiator's running clips by prefix, at any volume, wherever they play", TestTickSoundMuteNamed);
                 Run("Tick sound Mute: no Sound stops every clip of every type, only while the initiator's sounds are on", TestTickSoundMuteAll);
+                Run("Tick Mute read: selection is the incoming definition object, never the own one", TestTickMuteReadIncoming);
+                Run("Tick Mute read: the activation is the Mute action, owned by the holding type in the retained state", TestTickMuteReadActivation);
+                Run("Tick Mute read: a local is reported Local, not absent", TestTickMuteReadLocal);
+                Run("Tick Mute read: a Sounds-off local null is observed once with no event", TestTickMuteReadLocalNullSoundsOff);
+                Run("Tick Mute read: every read reaches the observer once, a Sounds-off null through the no-event site", TestTickMuteReadEveryBranch);
+                Run("Tick Mute read: the kind is taken before display coercion", TestTickMuteReadKind);
+                Run("Tick Mute read: a self-referencing Sound read is Faulted", TestTickMuteReadFaulted);
+                Run("Tick Mute read: observing adds no evaluation, exact draw count", TestTickMuteReadDraws);
+                Run("Tick Mute read: an observation exception is a provenance defect and never reaches the engine", TestTickMuteReadObservationFault);
+                Run("Tick Mute read: an exception from the engine's own read is not caught by observation", TestTickMuteReadEngineThrow);
                 Run("Tick sound volume: decibels of gain, read from the pose, clamped to the control's range", TestTickSoundVolume);
                 Run("Tick settings store: a per-type choice survives a restart, a merge and a save that could not read the file", TestTickSettingsPersist);
                 Run("Tick settings defaults: lifecycle on, window actions off, a toggle its header default, anything else off", TestTickSettingsDefaults);

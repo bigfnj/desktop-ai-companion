@@ -877,10 +877,16 @@ namespace DesktopAICompanion.Shimeji
                 .StrList("via", via == null ? new string[0] : new[] { via }).End();
         }
 
-        public void Muted(TickMascot mascot, string clip)
+        // The read record is not used yet: until the map/3 reader binds Sound provenance (CONTRACT v1.4 P2-C), the trace
+        // writes the engine's clip exactly as before, so no trace byte moves with the observer's new arguments.
+        public void Muted(TickMascot mascot, string clip, TickAction activation, TickParamRead read)
         {
             _out.WriteLine(Event(mascot, "mute").Str("clip", clip).End());
         }
+
+        /// <summary>A Mute read that asks for no event writes nothing: no line and no Event() call, so the event count and
+        /// digest stay what they were (CONTRACT v1.4 P2-B). Its provenance and information checks arrive with P2-C.</summary>
+        public void MuteReadNoEvent(TickMascot mascot, TickAction activation, TickParamRead read) { }
 
         /// <summary>A clip the engine started, or a running one a Mute stopped (TickSound). A parity run has no clip output,
         /// so no clip is loaded there and none is written until the contract defines a clip clock.</summary>

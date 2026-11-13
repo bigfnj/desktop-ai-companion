@@ -18139,14 +18139,14 @@ CASES = (
      CORETESTS, None, "Tick sound Mute: a named Sound stops the initiator's running clips by prefix, at any volume, wherever they play"),
     ('shimeji-sound: a named Mute is not carried out',
      os.path.join(REPO, "src", "dotNet", "Shimeji", "TickInstantFamily.cs"),
-     b'World.Observer.Muted(Mascot, sound);\n                TickSound.MuteNamed(World, Mascot, sound);',
-     b'World.Observer.Muted(Mascot, sound);',
+     b'World.Observer.Muted(Mascot, sound, this, read);\n                TickSound.MuteNamed(World, Mascot, sound);',
+     b'World.Observer.Muted(Mascot, sound, this, read);',
      CORETESTS_CSPROJ, CORETESTS_DLL,
      CORETESTS, None, "Tick sound Mute: a named Sound stops the initiator's running clips by prefix, at any volume, wherever they play"),
     ('shimeji-sound: a Mute with no Sound is not carried out',
      os.path.join(REPO, "src", "dotNet", "Shimeji", "TickInstantFamily.cs"),
-     b'World.Observer.Muted(Mascot, null);\n                TickSound.MuteAll(World, Mascot);',
-     b'World.Observer.Muted(Mascot, null);',
+     b'World.Observer.Muted(Mascot, null, this, read);\n                TickSound.MuteAll(World, Mascot);',
+     b'World.Observer.Muted(Mascot, null, this, read);',
      CORETESTS_CSPROJ, CORETESTS_DLL,
      CORETESTS, None, "Tick sound Mute: no Sound stops every clip of every type, only while the initiator's sounds are on"),
     ("shimeji-sound: a Mute with no Sound ignores the initiator's setting",
@@ -21429,6 +21429,102 @@ CASES = (
      b'if (Settings.IsBehaviourEnabled(def, type.Name)) return Build(type, def);',
      CORETESTS_CSPROJ, CORETESTS_DLL,
      CORETESTS, None, "did not fall in labelled fallback (hotspot press)"),
+    # N-bd-codex-converter-1-02, host half: the passive Mute Sound read record (CONTRACT v1.4 P2-A, P2-B, FC-2). Each case
+    # breaks one rule of TickAction.EvalString's observed read or TickMute.Apply's observation sites, and each names the
+    # CoreTests group that pins that rule (one group per rule, so no mutant hides another's label).
+    ("bd-host-mute-1: the Mute read selects the own definition over the incoming one",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'winner = Vars.Selection(name, out local);',
+     b'winner = Vars.Selection(name, out local); if (Def.Params.ContainsKey(name)) winner = Def.Params[name];',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "Tick Mute read: selection is the incoming definition object, never the own one"),
+    ("bd-host-mute-1: the Mute read's selection evaluates the parameter (a second Get)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'winner = Vars.Selection(name, out local);',
+     b'Vars.Get(name, Context); winner = Vars.Selection(name, out local);',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "Tick Mute read: observing adds no evaluation, exact draw count"),
+    ("bd-host-mute-1: the Mute read's kind is taken after display coercion",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'read.Kind = v.Kind;',
+     b'read.Kind = v.Kind == ScriptValueKind.Null ? v.Kind : ScriptValueKind.String;',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "Tick Mute read: the kind is taken before display coercion"),
+    ("bd-host-mute-1: the Mute read's fault snapshot is taken after the read",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'                faultsBefore = Context.FaultsReported;\n'
+     b'            }\n'
+     b'            catch (Exception e) { read.ObservationFault = TickParamRead.Defect(e); }\n'
+     b'            ScriptValue v = Read(name, guard);\n',
+     b'            }\n'
+     b'            catch (Exception e) { read.ObservationFault = TickParamRead.Defect(e); }\n'
+     b'            ScriptValue v = Read(name, guard);\n'
+     b'            faultsBefore = Context.FaultsReported;\n',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "Tick Mute read: a self-referencing Sound read is Faulted"),
+    ("bd-host-mute-1: the Mute observer is handed the behaviour's action instead of the Mute",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickInstantFamily.cs"),
+     b'World.Observer.Muted(Mascot, sound, this, read);',
+     b'World.Observer.Muted(Mascot, sound, Mascot.Behaviour.Action, read);',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "Tick Mute read: the activation is the Mute action, owned by the holding type in the retained state"),
+    ("bd-host-mute-1: a local Mute read is reported Absent",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'if (local) return TickParamSelection.Local;',
+     b'if (local) return TickParamSelection.Absent;',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "Tick Mute read: a local is reported Local, not absent"),
+    ("bd-host-mute-1: the Sounds-off null Mute read is not observed",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickInstantFamily.cs"),
+     b'            else World.Observer.MuteReadNoEvent(Mascot, this, read);\n',
+     b'',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "Tick Mute read: every read reaches the observer once, a Sounds-off null through the no-event site"),
+    ("bd-host-mute-1: the Sounds-off null Mute read is not observed (the local-null control)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickInstantFamily.cs"),
+     b'            else World.Observer.MuteReadNoEvent(Mascot, this, read);\n',
+     b'',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "Tick Mute read: a Sounds-off local null is observed once with no event"),
+    ("bd-host-mute-1: a post-read observation exception is swallowed without a provenance defect",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'catch (Exception e) { if (read.ObservationFault == null) read.ObservationFault = TickParamRead.Defect(e); }',
+     b'catch (Exception) { }',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "Tick Mute read: an observation exception is a provenance defect and never reaches the engine"),
+    ("bd-host-mute-1: a pre-read observation exception is swallowed without a provenance defect",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'catch (Exception e) { read.ObservationFault = TickParamRead.Defect(e); }',
+     b'catch (Exception) { }',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "Tick Mute read: an observation exception is a provenance defect and never reaches the engine"),
+    ("bd-host-mute-1: the engine's own Sound read is wrapped in the observation catch",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'            int faultsBefore = 0;\n'
+     b'            try\n'
+     b'            {\n'
+     b'                Action<string> probe = TickParamRead.ObservationProbe;\n'
+     b'                if (probe != null) probe("selection");\n'
+     b'                read.Selection = Selection(name, guard, out read.Winner);\n'
+     b'                if (probe != null) probe("snapshot");\n'
+     b'                faultsBefore = Context.FaultsReported;\n'
+     b'            }\n'
+     b'            catch (Exception e) { read.ObservationFault = TickParamRead.Defect(e); }\n'
+     b'            ScriptValue v = Read(name, guard);\n',
+     b'            int faultsBefore = 0;\n'
+     b'            ScriptValue v = ScriptValue.Null;\n'
+     b'            try\n'
+     b'            {\n'
+     b'                Action<string> probe = TickParamRead.ObservationProbe;\n'
+     b'                if (probe != null) probe("selection");\n'
+     b'                read.Selection = Selection(name, guard, out read.Winner);\n'
+     b'                if (probe != null) probe("snapshot");\n'
+     b'                faultsBefore = Context.FaultsReported;\n'
+     b'                v = Read(name, guard);\n'
+     b'            }\n'
+     b'            catch (Exception e) { read.ObservationFault = TickParamRead.Defect(e); }\n',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "Tick Mute read: an exception from the engine's own read is not caught by observation"),
     # ---- burndown/codex-converter-1 ----
     ("bd-codex-converter-1: invalid metadata omits the offending key",
      os.path.join(REPO, "tools", "ShimejiConvert.Engine", "PackConversion.cs"),

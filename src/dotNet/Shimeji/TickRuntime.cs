@@ -143,8 +143,16 @@ namespace DesktopAICompanion.Shimeji
         /// reported where it arose.</summary>
         void Fault(TickMascot mascot, string message, TickFaultCause cause, string via);
 
-        /// <summary>Mute ran: a named clip to stop, or null for every clip (CONTRACT event `mute`).</summary>
-        void Muted(TickMascot mascot, string clip);
+        /// <summary>Mute ran: a named clip to stop, or null for every clip (CONTRACT event `mute`). <paramref name="activation"/>
+        /// is the Mute action whose Sound was read and <paramref name="read"/> the passive record of that one read
+        /// (<see cref="TickParamRead"/>, CONTRACT v1.4 P2-A): an observer may use them for provenance, and must not read
+        /// the parameter again.</summary>
+        void Muted(TickMascot mascot, string clip, TickAction activation, TickParamRead read);
+
+        /// <summary>A completed Mute Sound read that asks for no event: the result was null and this companion's sounds
+        /// are off, so the engine stops nothing and reports no `mute` (CONTRACT v1.4 P2-B, every read observed). Observation
+        /// only: an observer must never turn it into an event or a trace line.</summary>
+        void MuteReadNoEvent(TickMascot mascot, TickAction activation, TickParamRead read);
 
         /// <summary>A clip started (op "start", at the companion's apply) or a running one was stopped (op "stop", by
         /// this companion's Mute) (CONTRACT event `sound`; <see cref="TickSound"/>).</summary>
@@ -212,6 +220,18 @@ namespace DesktopAICompanion.Shimeji
 
         public bool Has(string name) { return _locals.ContainsKey(name) || _defs.ContainsKey(name); }
 
+        /// <summary>What a <see cref="Get"/> of <paramref name="name"/> would read, found without reading it (CONTRACT v1.4
+        /// P2-A): a local (<paramref name="local"/> true, no definition), else the winning definition object (the incoming
+        /// one where both exist, as the constructor overwrites), else null. Only the two dictionaries are consulted: no
+        /// Get, no evaluation, no cache read or write, so observing a read cannot change it.</summary>
+        public TickParamDef Selection(string name, out bool local)
+        {
+            local = _locals.ContainsKey(name);
+            if (local) return null;
+            TickParamDef def;
+            return _defs.TryGetValue(name, out def) ? def : null;
+        }
+
         public void Put(string name, ScriptValue value) { _locals[name] = value; }
 
         public ScriptValue Get(string name, TickScriptContext context)
@@ -239,6 +259,57 @@ namespace DesktopAICompanion.Shimeji
             if (v.Kind != ScriptValueKind.Null) _cache[name] = v;
             return v;
         }
+    }
+
+    /// <summary>Which source a parameter read took (CONTRACT v1.4 P2-A), decided passively before the read.</summary>
+    internal enum TickParamSelection
+    {
+        /// <summary>No guard, no local and no definition: the read returned its fallback without reading anything.</summary>
+        Absent,
+
+        /// <summary>A local the action published (putVariable), which replaces any definition of the name.</summary>
+        Local,
+
+        /// <summary>A guard attribute, evaluated in place of the parameter; no definition was read.</summary>
+        Guard,
+
+        /// <summary>A parameter definition: <see cref="TickParamRead.Winner"/> is the object read.</summary>
+        Definition,
+    }
+
+    /// <summary>
+    /// The passive record of one parameter read (CONTRACT v1.4 P2-A), filled by <see cref="TickAction.EvalString(string,
+    /// ScriptProgram, string, out TickParamRead)"/> around the engine's own single read and handed to the observer with the
+    /// Mute it belongs to. It never feeds back into the engine: the read's result, cache and faults are exactly what they
+    /// were without it.
+    /// </summary>
+    internal struct TickParamRead
+    {
+        public TickParamSelection Selection;
+
+        /// <summary>The definition object read when <see cref="Selection"/> is Definition, else null. Identity matters:
+        /// a parity map binds provenance to this object by reference.</summary>
+        public TickParamDef Winner;
+
+        /// <summary>The result's kind, taken before display coercion (a Number 1 and a String "1" display alike).</summary>
+        public ScriptValueKind Kind;
+
+        /// <summary>A script fault was reported during this read (the context's fault count moved across it), whatever the
+        /// result: a nested fault can still yield a value. Orthogonal to the result, which the engine keeps as it was.</summary>
+        public bool Faulted;
+
+        /// <summary>Non-null when observation code itself threw: "observer exception &lt;type&gt;: &lt;message&gt;", a
+        /// provenance defect for the observer to report (CONTRACT v1.4 FC-2). The engine's read ran regardless, and an
+        /// exception from that read is never caught here.</summary>
+        public string ObservationFault;
+
+        /// <summary>Test seam, null in the product: CoreTests and the window self-test set it to throw inside one
+        /// observation-only region (named "selection", "snapshot" or "result") and prove the throw is retained as a
+        /// provenance defect and never reaches the engine (control C18). Per thread, so no test leaks it into another.</summary>
+        internal static Action<string> ObservationProbe { get { return _observationProbe; } set { _observationProbe = value; } }
+        [ThreadStatic] private static Action<string> _observationProbe;
+
+        internal static string Defect(Exception e) { return "observer exception " + e.GetType().Name + ": " + e.Message; }
     }
 
     /// <summary>
@@ -365,7 +436,17 @@ namespace DesktopAICompanion.Shimeji
 
         // A script's own fault (a parameter that refers to itself, a script error) has no typed cause: the context does not
         // know which action or parameter is being read, so it is unclassified, reported where it arises.
-        public void ReportFault(string source, string message) { _world.ReportFault(_mascot, message + " in '" + source + "'", null, null); }
+        public void ReportFault(string source, string message)
+        {
+            FaultsReported++;
+            _world.ReportFault(_mascot, message + " in '" + source + "'", null, null);
+        }
+
+        /// <summary>How many script faults this context has reported: an observation-only counter (CONTRACT v1.4 P2-A, the
+        /// one added state write, read by no engine path), so a passive read record can say a fault was reported during
+        /// its read. Counted here rather than in TickWorld.ReportFault, whose body a source invariant pins as exactly the
+        /// observer call; every script fault reaches the context (SafeScript's error path, TickVars.Get's self-reference).</summary>
+        public int FaultsReported { get; private set; }
 
         private ITickBorder Resolve(ScriptBorderId border)
         {
@@ -617,9 +698,60 @@ namespace DesktopAICompanion.Shimeji
 
         protected internal string EvalString(string name, ScriptProgram guard, string fallback)
         {
+            TickParamRead unused;
+            return EvalString(name, guard, fallback, out unused);
+        }
+
+        /// <summary>
+        /// <see cref="EvalString(string, ScriptProgram, string)"/> with a passive record of the read (CONTRACT v1.4 P2-A):
+        /// Present, then the passive selection, then a snapshot of the context's fault count, then the engine's one Read,
+        /// then the result's kind (before ToDisplayString) and whether a fault was reported during the read. Every caller
+        /// goes through here, so the observed path and the plain one cannot drift apart.
+        /// </summary>
+        /// <remarks>
+        /// Observation code sits in its own try regions and a throw there is kept as <see cref="TickParamRead.ObservationFault"/>
+        /// (FC-2): it must never reach TickMascot.Tick's catch-all, where it would become an internal-fault product error and
+        /// dispose the companion. Present and Read are deliberately OUTSIDE those regions: an exception from the engine's own
+        /// read propagates exactly as before and is not a completed observation. A failed pre-read observation never skips
+        /// or alters the read. Rejected: computing the selection from a second Get (it would evaluate again, a draw for a
+        /// script, and write the cache) or the kind from the display string (a Number 1 and a String "1" display alike).
+        /// </remarks>
+        protected internal string EvalString(string name, ScriptProgram guard, string fallback, out TickParamRead read)
+        {
+            read = new TickParamRead();
             if (!Present(name, guard)) return fallback;
+            int faultsBefore = 0;
+            try
+            {
+                Action<string> probe = TickParamRead.ObservationProbe;
+                if (probe != null) probe("selection");
+                read.Selection = Selection(name, guard, out read.Winner);
+                if (probe != null) probe("snapshot");
+                faultsBefore = Context.FaultsReported;
+            }
+            catch (Exception e) { read.ObservationFault = TickParamRead.Defect(e); }
             ScriptValue v = Read(name, guard);
+            try
+            {
+                Action<string> probe = TickParamRead.ObservationProbe;
+                if (probe != null) probe("result");
+                read.Kind = v.Kind;
+                read.Faulted = Context.FaultsReported != faultsBefore;
+            }
+            catch (Exception e) { if (read.ObservationFault == null) read.ObservationFault = TickParamRead.Defect(e); }
             return v.Kind == ScriptValueKind.Null ? null : v.ToDisplayString();
+        }
+
+        /// <summary>The passive selection for <see cref="EvalString(string, ScriptProgram, string, out TickParamRead)"/>: the
+        /// order Read takes (a guard, else a local, else the winning definition), from TickVars' dictionaries only.</summary>
+        private TickParamSelection Selection(string name, ScriptProgram guard, out TickParamDef winner)
+        {
+            winner = null;
+            if (guard != null) return TickParamSelection.Guard;
+            bool local;
+            winner = Vars.Selection(name, out local);
+            if (local) return TickParamSelection.Local;
+            return winner != null ? TickParamSelection.Definition : TickParamSelection.Absent;
         }
 
         /// <param name="parameter">The authored parameter read, typed parameter-invalid when it is not a boolean; null for
@@ -1897,7 +2029,8 @@ namespace DesktopAICompanion.Shimeji
             public void Disposed(TickMascot mascot) { }
             public void RandomDrawn(TickMascot mascot, string site, double value, string purpose) { }
             public void Fault(TickMascot mascot, string message, TickFaultCause cause, string via) { }
-            public void Muted(TickMascot mascot, string clip) { }
+            public void Muted(TickMascot mascot, string clip, TickAction activation, TickParamRead read) { }
+            public void MuteReadNoEvent(TickMascot mascot, TickAction activation, TickParamRead read) { }
             public void Sound(TickMascot mascot, string clip, string op) { }
             public void ScanTargeted(TickMascot mascot, string affordance, TickMascot target) { }
             public void Interacted(TickMascot mascot, IReadOnlyList<TickMascot> with) { }
