@@ -1139,8 +1139,9 @@ namespace DesktopAICompanion.Shimeji
                 // W3, incoming-over-own: the engine reads the incoming definition where the reference to Hush, or the behaviour
                 // running Hush, binds Sound beside Hush's own distinct Sound, and the writer writes THAT definition's row (in or
                 // beh), never the own row's (own). Each document's map binds both definitions. Every literal here is authored
-                // as emitted, so only the qualified-literal label sees a writer that writes the emitted value.
-                group("parity mute: incoming-over-own writes the winning definition's row, a reference bind or a behaviour bind over the own Sound (W3)", 2, () =>
+                // as emitted, so only the qualified-literal label sees a writer that writes the emitted value. Round 6 adds the
+                // next-reference half (see the leg).
+                group("parity mute: incoming-over-own writes the winning definition's row, a reference bind, a behaviour bind or a next-list entry's bind over the own Sound (W3)", 4, () =>
                 {
                     leg("reference bind", outcome(ParMuteRun(ParMuteDocument(new[] { bind("Sound", "in") }, sound("own", "none")),
                             "[" + ParMuteRow("own", "own", "string") + "," + ParMuteBindRow(0, "in", "in") + "]", true)),
@@ -1160,6 +1161,46 @@ namespace DesktopAICompanion.Shimeji
                         behaviourClips.Add(line.Substring(line.IndexOf("\"clip\":", StringComparison.Ordinal) + 7).TrimEnd('}'));
                     leg("behaviour bind", "exit " + behaviourRun[2] + ", clips written [" + string.Join("|", behaviourClips) + "], log [" + OneLine(behaviourRun[1]) + "]",
                         "exit 0, clips written [\"beh\"], log []");
+
+                    // The next-reference half (round 6). The host's NextNode carries no binds, so a source next-list entry
+                    // that binds Sound (a Behavior inside a NextBehaviorList, Action= naming what it runs) arrives as an
+                    // off-route behaviour node with its own binds, named like the root behaviour whose list it continues into
+                    // (the validator requires that name). The engine builds a chosen edge from the edge's own target
+                    // (BuildNextBehaviour), never from its name, so the entry's bind is Hush's incoming definition. Go (10)
+                    // runs Hush with no bind (own); its next list (add false) holds only 11, named Rest, running Hush with
+                    // Sound bound to nxt; Rest (12, on the route, add false) runs Stand and continues into itself, so the run
+                    // settles after the two reads. The run leg loads the same document and map through ParityRun.Run, so the
+                    // validator and LoadPets accept them.
+                    XmlData.RootNode nextBound = own("own", "none");
+                    var nextNodes = new List<XmlData.AnimationNode>(nextBound.Animations.Animation);
+                    XmlData.AnimationNode goNode = nextNodes.Find(a => a.Id == 10);
+                    goNode.Behaviour.Runs = "Hush";
+                    goNode.Behaviour.Add = false;
+                    goNode.Behaviour.AddSpecified = true;
+                    goNode.Sequence.Next = new[] { new XmlData.NextNode { Value = 11, Probability = 1 } };
+                    nextNodes.Insert(nextNodes.IndexOf(goNode) + 1, new XmlData.AnimationNode
+                    {
+                        Id = 11, Name = "beh:Rest:next", Start = goNode.Start, End = goNode.End,
+                        Sequence = new XmlData.SequenceNode { RepeatCount = "0", Next = new XmlData.NextNode[0] },
+                        Behaviour = new XmlData.BehaviourNode { Name = "Rest", Runs = "Hush", Frequency = 1, Bind = new[] { bind("Sound", "nxt") } },
+                    });
+                    nextNodes.Insert(nextNodes.IndexOf(goNode) + 2, new XmlData.AnimationNode
+                    {
+                        Id = 12, Name = "beh:Rest", Start = goNode.Start, End = goNode.End,
+                        Sequence = new XmlData.SequenceNode { RepeatCount = "0", Next = new[] { new XmlData.NextNode { Value = 12, Probability = 1 } } },
+                        Behaviour = new XmlData.BehaviourNode { Name = "Rest", Runs = "Stand", Frequency = 1, Add = false, AddSpecified = true },
+                    });
+                    nextNodes.Find(a => a.Id == 1).Sequence.Next = new[] { new XmlData.NextNode { Value = 10, Probability = 1 }, new XmlData.NextNode { Value = 12, Probability = 1 } };
+                    nextBound.Animations.Animation = nextNodes.ToArray();
+                    string goEntry = "\"10\":" + JsonLine.Quote("Mu|conf/behaviors.xml|/Mascot[1]/BehaviorList[1]/Behavior[1]");
+                    string nextEntryRef = "Mu|conf/behaviors.xml|/Mascot[1]/BehaviorList[1]/Behavior[1]/NextBehaviorList[1]/Behavior[1]";
+                    string nextRow = "{\"kind\":\"behaviour\",\"nodeId\":11,\"sourceRefKey\":" + JsonLine.Quote(nextEntryRef)
+                        + ",\"emittedValue\":\"nxt\",\"emittedCache\":\"none\",\"mode\":\"literal\",\"sourceValue\":\"nxt\",\"sourceKind\":\"string\"}";
+                    string nextMap = ParMuteMap("[" + ParMuteRow("own", "own", "string") + "," + nextRow + "]").Replace(goEntry, goEntry
+                        + ",\"11\":" + JsonLine.Quote(nextEntryRef) + ",\"12\":" + JsonLine.Quote("Mu|conf/behaviors.xml|/Mascot[1]/BehaviorList[1]/Behavior[2]"));
+                    leg("next-list entry's bind", outcome(ParMuteRun(nextBound, null, true, map: nextMap)), declared("0", "\"own\"|\"nxt\"", ""));
+                    leg("next-list entry's bind, run", runOutcome(runMute(Serialize(nextBound, Color.Red, Color.Blue), nextMap)),
+                        runDeclared("0", "\"own\"|\"nxt\"", "complete", ""));
                 });
 
                 // W4, a nested reference: one Mute declaration (Hush, no own Sound) referenced twice with distinct binds keeps
@@ -1256,9 +1297,12 @@ namespace DesktopAICompanion.Shimeji
                 // identity lookup on each branch that makes one (named, null with Sounds on, null with Sounds off; each null an
                 // evaluated null through a bound definition, never an absent or local one), the source-value lookup and the
                 // writer. Sounds on except for the no-event branch. An exception escaping the run fails the label. Round 5 adds
-                // the result and writer sites on an evaluated Number, a read that FORMS information (MUTE_VALUE_NOT_STRING), so
-                // "no information for that read" can fail (FC-6: information formed for a defect read is discarded), and a
-                // parity run through ParityRun.Run with the writer site armed: exit 1, footer status error in the trace file,
+                // the result and writer sites on an evaluated Number, a read that FORMS information (MUTE_VALUE_NOT_STRING).
+                // Only the WRITER-site variant gives "no information for that read" teeth (FC-6: information formed for a
+                // defect read is discarded; the AddRange-before-Probe mutant fails it there). The result-site variant throws
+                // before read.Kind and read.Faulted are taken, so its record keeps Kind Null and no writer can form information
+                // from it; it stays as the result site's run on an information-forming read and is credited with nothing more.
+                // Round 5 also adds a parity run through ParityRun.Run with the writer site armed: exit 1, footer status error in the trace file,
                 // the parity trace line in the run's log, and the engine's lines those of the same run unarmed (control 11's
                 // synthetic pair for compare.py is these two trace files).
                 group("parity mute: an observation exception at every FC-2 site is retained as MUTE_PROVENANCE_MISSING and the engine's run is unchanged (C18)", 13, () =>
@@ -1306,7 +1350,11 @@ namespace DesktopAICompanion.Shimeji
                 // the engine's OWN Read, which no observation region wraps, so it takes the engine's base path (the start
                 // wrapper reports an internal fault and disposes m1): an error event, then a dispose, no mute line, no read
                 // record, so no MUTE_PROVENANCE_MISSING and exit 0, exactly as the same run in a NullObserver world ends (m1
-                // disposed, nothing thrown). The unarmed witness reads the cursor once and forwards 'a'.
+                // disposed, nothing thrown). The unarmed witness reads the cursor once and forwards 'a'. Round 6 (revision 3
+                // C18: "the base exception, error event, disposal and call count"): the armed and NullObserver legs declare one
+                // cursor read too, and the armed leg declares the error event's whole message, the start wrapper's text around
+                // the exception's type and message, so an observed read that retried the throwing Read (two cursor reads) or
+                // replaced the exception fails this label.
                 group("parity mute: an exception from the engine's own Sound read takes the engine's path, never a provenance defect (C18 engine-Read)", 3, () =>
                 {
                     string cursorSound = "mascot.environment.cursor.x > -1 ? 'a' : 'b'";
@@ -1319,9 +1367,13 @@ namespace DesktopAICompanion.Shimeji
                     string[] armed = ParMuteRun(own(cursorSound, "action"), cursorRows, true, m => { left = m.World.Mascots.Count; throwing[0].Armed = false; },
                         environment: wrap, before: m => throwing[0].Armed = true);
                     int errorAt = armed[0].IndexOf("\"kind\":\"error\"", StringComparison.Ordinal), disposeAt = armed[0].IndexOf("\"kind\":\"dispose", StringComparison.Ordinal);
+                    var messages = new List<string>();
+                    foreach (string line in Lines(armed[0], "\"kind\":\"error\""))
+                        using (JsonDocument errorEvent = JsonDocument.Parse(line)) messages.Add(errorEvent.RootElement.GetProperty("message").GetString());
                     leg("armed", outcome(armed) + ", " + (errorAt >= 0 && errorAt < disposeAt ? "error then dispose" : "no error then dispose")
-                            + (armed[0].Contains("c18 cursor") ? ", the engine's message" : ", no engine message") + ", companions left " + left,
-                        declared("0", "", "") + ", error then dispose, the engine's message, companions left 0");
+                            + ", message [" + string.Join(" | ", messages) + "], cursor read " + throwing[0].CursorReads + ", companions left " + left,
+                        declared("0", "", "") + ", error then dispose, message [internal fault: InvalidOperationException: the first behaviour could not be built: c18 cursor]"
+                            + ", cursor read 1, companions left 0");
                     var plainEnvironment = new ParThrowingEnvironment[1];
                     TickType plainType = TickType.Compile("Mu", own(cursorSound, "action"));
                     TickWorld plainWorld = ParMuteWorld(null, true, null, inner => plainEnvironment[0] = new ParThrowingEnvironment(inner));
@@ -1331,7 +1383,8 @@ namespace DesktopAICompanion.Shimeji
                     string plainThrew = "nothing thrown";
                     try { plainWorld.CreateAtStart("m1", plainType, new TickPoint(640, 680), false, "Go"); }
                     catch (Exception e) { plainThrew = "threw " + e.GetType().Name; }
-                    leg("NullObserver world", plainThrew + ", companions left " + plainWorld.Mascots.Count, "nothing thrown, companions left 0");
+                    leg("NullObserver world", plainThrew + ", cursor read " + plainEnvironment[0].CursorReads + ", companions left " + plainWorld.Mascots.Count,
+                        "nothing thrown, cursor read 1, companions left 0");
                 });
 
                 // The arming (S5) and the round 5 ruling: the probe is null until a self-test sets it, it is handed each read's

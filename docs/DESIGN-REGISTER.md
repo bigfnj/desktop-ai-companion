@@ -7951,9 +7951,21 @@ half, 2026-11-13).** `ParityMap` in `src/dotNet/Shimeji/ParityRun.cs` follows th
   surface.
 - C18's engine-Read leg wraps the parity environment in a decorator whose `Cursor` throws while armed, as the contract
   names it, and compares the outcome with the same run in a NullObserver world. Its recording-`ITickClips` comparison
-  is the trace comparison instead, which the coordinator accepted: the parity world has no clips.
+  is the trace comparison instead, which the coordinator accepted: the parity world has no clips. Both runs declare one
+  cursor read (revision 3's call count), and the armed run declares the error event's whole message. The start wrapper
+  (`TickWorld.CreateAtStart`) forms it as "internal fault: InvalidOperationException: the first behaviour could not be
+  built: c18 cursor", so the shorter "internal fault: InvalidOperationException: c18 cursor" is not a substring of it
+  and the leg matches the whole text instead.
 - W3's behaviour-bind leg runs the instant Mute as Go's own action. It ends at once and Go is entered again within the
   same start, so the leg writes many mute lines and is judged by the set of clips written, which must be the bind's.
+- W3's next-reference half is reachable at the writer, so it has a leg (round 6). The host's `NextNode` carries no
+  binds, so a source next-list entry that binds Sound arrives as an off-route behaviour node with its own binds, named
+  like the root behaviour whose list it continues into, and `BuildNextBehaviour` builds a chosen edge from the edge's
+  own target, never by name. The leg's next list (add false) holds one such entry running the Mute with Sound bound;
+  the root behaviour of its name runs Stand and continues into itself, so the run settles after two reads instead of
+  handing off until the bound. The same document also runs through `ParityRun.Run`, so the validator and LoadPets
+  accept it. The 96cabeef by-name inventory mutant therefore fails this label as well as its own map/3 label: a writer
+  leg cannot enter an off-route behaviour's bind unless the reader binds it by node id.
 - Control 12's self-test leg is judged by the exit code and the log alone. The withheld mute line of the defect read
   belongs to the provenance label, so a mutant that writes that line fails one label, not two.
 

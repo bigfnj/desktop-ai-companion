@@ -21855,8 +21855,11 @@ CASES = (
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
      'parity map/3: WITNESS a complete map/3 with rows of every kind is accepted'),
     # Round 4 review fix. P1-E's inventory by node id: behaviours found through RootByName by name, so the off-route
-    # behaviour 11 (named Walk, shadowed by the root Walk) gives the root's definition, whose row is then added twice;
-    # only the shadowed-behaviour leg's own document has an off-route behaviour. Control 17 at the action-param and
+    # behaviour 11 (named Walk, shadowed by the root Walk) gives the root's definition, whose row is then added twice.
+    # Since round 6 it fails 2 labels, INHERENT: this label, and the mute W3 label, whose next-list leg enters an
+    # off-route behaviour (11, named Rest like the root Rest) through ParityMap.Apply, where the by-name walk finds the
+    # root Rest, which defines no Sound, and refuses row 1 as surplus inside W3's own try. A writer leg cannot enter an
+    # off-route behaviour's bind unless the reader binds it by node id. Control 17 at the action-param and
     # behaviour-bind filters: each matched ignoring case takes the "sound" entry after its container's Sound in Sound's
     # place, so the lowercase leg's own document fails its emittedValue comparison.
     ("bd-host-mute-1: map/3 the Sound walk inventories behaviours by name (P1-E shadowed definition)",
@@ -22126,6 +22129,28 @@ CASES = (
      HOST_CSPROJ, EXE,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
      'parity mute: an exception from the engine\'s own Sound read takes the engine\'s path, never a provenance defect (C18 engine-Read)'),
+    # Round 6. Revision 3 C18's call count: the observed read retries the engine's throwing Read once, so the same
+    # exception still escapes, but the cursor is read twice in the writer's world and the NullObserver world alike.
+    ("bd-host-mute-1: mute C18 the observed Sound read retries the engine's throwing Read once (engine-Read call count)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'            ScriptValue v = Read(name, guard);\n'
+     b'            try\n',
+     b'            ScriptValue v;\n'
+     b'            try { v = Read(name, guard); }\n'
+     b'            catch (Exception) { v = Read(name, guard); }\n'
+     b'            try\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity mute: an exception from the engine\'s own Sound read takes the engine\'s path, never a provenance defect (C18 engine-Read)'),
+    # Round 6. W3's next-reference half: a chosen next-list entry entered as the root behaviour of its name (the off-route
+    # node's own binds dropped), so the next-list leg's second read never happens (clips own alone, not own then nxt).
+    ("bd-host-mute-1: mute W3 a chosen next-list entry is built as its root namesake, dropping its own binds (next-reference)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'                    return Build(type, candidates[i].Target);\n',
+     b'                    return Build(type, fromNext[i] ? type.RootByName[candidates[i].Target.Name] : candidates[i].Target);\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity mute: incoming-over-own writes the winning definition\'s row'),
     ("bd-host-mute-1: mute W3 the writer binds the Mute's own Sound definition over the read's winner",
      os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
      b'            if (!map.TryGetSoundRow(read.Winner, out row)) return "the Sound definition read is bound to no soundParameters row of member " + owner.Name;\n',
