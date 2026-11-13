@@ -586,6 +586,14 @@ namespace DesktopAICompanion.Shimeji
 
         public int Tick { set { _tick = value; } }
 
+        /// <summary>
+        /// Called with every line this writer commits: each event line from its sink (a trace-off run forms and folds it
+        /// too, only not writing it) and each state line, after it is written. ParityRun.Run's reconciliation ledger reads
+        /// the exact committed records here (signed revision H :138, :142); null otherwise. A settable property, so the
+        /// constructor stays as it was, and not an ITickObserver member, so no observer and no trace line changes.
+        /// </summary>
+        internal Action<string> Committed { get { return _out.Committed; } set { _out.Committed = value; } }
+
         /// <summary>The draws and events formed so far, written or withheld.</summary>
         public int Draws { get { return _draws; } }
         public int Events { get { return _events; } }
@@ -602,10 +610,18 @@ namespace DesktopAICompanion.Shimeji
 
             public EventSink(TextWriter output) { _output = output; }
 
+            /// <summary>Where each committed line also goes (<see cref="ParityTraceWriter.Committed"/>); null changes nothing.</summary>
+            public Action<string> Committed;
+
             public void WriteLine(string line)
             {
                 _digest.AppendData(Encoding.UTF8.GetBytes(line + "\n"));
                 if (_output != null) _output.WriteLine(line);
+                // After the digest and the write, so a proof is handed exactly the line committed, in commit order, and the
+                // sink's output and digest are what they were without it (round 4's differential compares
+                // eventSequenceSha256).
+                Action<string> committed = Committed;
+                if (committed != null) committed(line);
             }
 
             /// <summary>The digest so far; GetCurrentHash leaves the running state as it was.</summary>
@@ -724,8 +740,11 @@ namespace DesktopAICompanion.Shimeji
             w.Bool("lookRight", m.LookRight).Raw("velocity", "[" + velocity.X + "," + velocity.Y + "]")
                 .StrList("affordances", m.Affordances).Str("target", m.Target == null ? null : m.Target.Sid).Bool("dragging", m.Dragging)
                 .Bool("pending", pending).Bool("disposing", m.Disposing).Raw("vars", Vars(m));
-            _trace.WriteLine(w.End());
+            string line = w.End();
+            _trace.WriteLine(line);
             _states++;
+            Action<string> committed = _out.Committed;
+            if (committed != null) committed(line);
         }
 
         private static string Vars(TickMascot m)
@@ -2048,6 +2067,12 @@ namespace DesktopAICompanion.Shimeji
                 var decisions = new List<TickBirthDecision>();
                 world.BirthDecided = decisions.Add;
                 Action birthWitness = () => log.WriteLine(ParityRunLog.BirthWitnessLine(decisions, world.LimitWrites, world.MaximumCompanions, runId));
+                // A15 (H :136, :142-150): the run's own ledger, fed the exact lines the writer commits, seeded from the
+                // validated scenario's start rows before any companion is created (never from the world's lists or a
+                // count of successful starts), and compared with the private lists at every checkpoint 0..N.
+                var ledger = new ParityRunLedger(traceOff, log, runId);
+                writer.Committed = ledger.Commit;
+                foreach (JsonElement row in s.GetProperty("mascots").EnumerateArray()) ledger.Seed(row.GetProperty("sid").GetString());
                 int ticks = scenario.Ticks;
                 string status = "complete";
                 // CONTRACT v1.1 section 1: a left-button edge for a companion that is not active at dispatch is a scenario
@@ -2071,7 +2096,9 @@ namespace DesktopAICompanion.Shimeji
                     }
                     // Every start companion is initialised; now they join the manager without a step (CONTRACT section 4).
                     world.ActivateStartup();
+                    ledger.StartupActivated();
                     writer.States(world);
+                    ledger.Checkpoint(0, world.SnapshotMembership());
                     // A tape's end does not stop the loop (CONTRACT 10.5.1): a draw past it yields 0.5, the run steps on to
                     // tick N, and Finish logs the exhaustion and writes it as the footer's tapeExhausted.
                     for (int t = 1; t <= ticks; t++)
@@ -2079,8 +2106,10 @@ namespace DesktopAICompanion.Shimeji
                         writer.Tick = t;
                         world.StepOnce();
                         writer.States(world);
+                        ledger.Checkpoint(t, world.SnapshotMembership());
                     }
                     writer.FinalStates(world);
+                    ledger.FinalStates(ticks, world.SnapshotMembership());
                 }
                 catch (ScenarioInvalidException e)
                 {
@@ -2088,6 +2117,8 @@ namespace DesktopAICompanion.Shimeji
                     // is a refusal's, since the scenario, not the runtime, is at fault.
                     log.WriteLine(e.Message);
                     birthWitness();
+                    string stopped = ledger.ClosingLine(ticks);
+                    if (stopped != null) log.WriteLine(stopped);
                     Finish(writer, ticks, "aborted", random, log);
                     return 2;
                 }
@@ -2097,6 +2128,12 @@ namespace DesktopAICompanion.Shimeji
                     log.WriteLine("run failed: " + e);
                 }
                 birthWitness();
+                // A15's verdict (H :136, :150): a failing checkpoint was logged when it failed and the run went on to N; its
+                // status is error, set here before Finish, which stays as it was. Then the positive witness, or the count
+                // of checkpoints a run that stopped early reached.
+                if (ledger.Failure != null && status == "complete") status = "error";
+                string closing = ledger.ClosingLine(ticks);
+                if (closing != null) log.WriteLine(closing);
                 return Finish(writer, ticks, status, random, log);
             }
         }

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Text;
+using System.Text.Json;
 
 namespace DesktopAICompanion.Shimeji
 {
@@ -101,6 +102,28 @@ namespace DesktopAICompanion.Shimeji
                 + " " + d.Room.Limit.ToString(CultureInfo.InvariantCulture) + " vs " + d.Room.Active.ToString(CultureInfo.InvariantCulture)
                 + "+" + d.Room.Pending.ToString(CultureInfo.InvariantCulture) + (d.Room.Admits ? " admit" : " refuse");
         }
+
+        /// <summary>The positive reconciliation witness (H :150): the proofs this run executed and how many checkpoints
+        /// passed, N+1 on a complete run, and which state records were compared: a traced run's at every checkpoint, a
+        /// trace-off run's final ones at N. Written only by the run's own ledger when every checkpoint passed.</summary>
+        public static string ReconciliationLine(int checkpoints, bool traceOff, string runId)
+        {
+            return Reconciliation + " active-pending-membership checkpoints " + checkpoints.ToString(CultureInfo.InvariantCulture)
+                + " stateRecords " + (traceOff ? "final" : "every-checkpoint") + RunIdField + runId;
+        }
+
+        /// <summary>The first failing checkpoint, logged when it fails; the run goes on to N with status error.</summary>
+        public static string ReconciliationFailedLine(string failure, string runId)
+        {
+            return Reconciliation + " failed at " + failure + RunIdField + runId;
+        }
+
+        /// <summary>A run that stopped before N (aborted or failed): how many of its N+1 checkpoints ran. Never a witness.</summary>
+        public static string ReconciliationIncompleteLine(int ran, int expected, string runId)
+        {
+            return Reconciliation + " incomplete: checkpoints " + ran.ToString(CultureInfo.InvariantCulture) + " of "
+                + expected.ToString(CultureInfo.InvariantCulture) + RunIdField + runId;
+        }
     }
 
     /// <summary>
@@ -173,6 +196,191 @@ namespace DesktopAICompanion.Shimeji
                 refusal = ParityRunLog.BuildWitnessUnreadableLine(what, path, e);
                 return null;
             }
+        }
+    }
+
+    /// <summary>
+    /// A15, population reconciliation (signed revision H :136, :142-150): ParityRun.Run owns one per run, traced and
+    /// trace-off alike, and checks it at every completed checkpoint 0..N. Two sides, kept independent:
+    /// <list type="bullet">
+    /// <item>the recorded side seeds the run's validated scenario rows (never the world's lists or a count of successful
+    /// starts) and replays the lifecycle records the trace writer COMMITTED to its event sink, the exact lines, whether or
+    /// not the sink writes them out (ParityTraceWriter.Committed);</item>
+    /// <item>the actual side is TickWorld.SnapshotMembership, a copy of the private active and pending lists, which the
+    /// writer never reads, compared as a (sid, pending) multiset so a duplicate shows.</item>
+    /// </list>
+    /// A traced run also compares the state records committed at each checkpoint; a trace-off run forms none until its
+    /// final states, which are compared at N. The first failure is logged with its checkpoint and the run goes on to N
+    /// with status error (H :136, :150); only a run whose N+1 checkpoints all passed writes the positive witness.
+    /// It reads events by kind and sid only, and spells no error code: the bd-parity-host-2 invariant scans this file.
+    /// </summary>
+    internal sealed class ParityRunLedger
+    {
+        private sealed class Member
+        {
+            public bool Pending;
+            public bool DisposeRequested;
+        }
+
+        private readonly Dictionary<string, Member> _members = new Dictionary<string, Member>(StringComparer.Ordinal);
+        private readonly List<string> _states = new List<string>();
+        private readonly bool _traceOff;
+        private readonly TextWriter _log;
+        private readonly string _runId;
+        private string _inconsistency;
+
+        public ParityRunLedger(bool traceOff, TextWriter log, string runId)
+        {
+            _traceOff = traceOff;
+            _log = log;
+            _runId = runId;
+        }
+
+        /// <summary>Checkpoints compared so far.</summary>
+        public int Checkpoints { get; private set; }
+
+        /// <summary>The first failure, "checkpoint k: what", or null while every checkpoint has passed.</summary>
+        public string Failure { get; private set; }
+
+        /// <summary>One start row's sid, from the validated scenario. A start companion is pending until
+        /// <see cref="StartupActivated"/>, so a failed starter's tick-0 dispose-request takes it out before it ever joins.</summary>
+        public void Seed(string sid)
+        {
+            if (_members.ContainsKey(sid)) Inconsistent("a start row repeats sid " + sid);
+            else _members[sid] = new Member { Pending = true };
+        }
+
+        /// <summary>TickWorld.ActivateStartup: every start companion still pending is active, with no birth-activate.</summary>
+        public void StartupActivated()
+        {
+            foreach (Member m in _members.Values) m.Pending = false;
+        }
+
+        /// <summary>One line the trace writer committed: a state record is kept for the next comparison, a lifecycle event
+        /// replayed. Every other event (behavior, error, birth-refused, ...) creates no member.</summary>
+        public void Commit(string line)
+        {
+            using (JsonDocument doc = JsonDocument.Parse(line))
+            {
+                JsonElement r = doc.RootElement;
+                string type = r.GetProperty("type").GetString();
+                if (type == "state")
+                {
+                    _states.Add(Key(r.GetProperty("sid").GetString(), r.GetProperty("pending").GetBoolean()));
+                    return;
+                }
+                if (type != "event") return;
+                string sid = r.GetProperty("sid").GetString();
+                Member m;
+                switch (r.GetProperty("kind").GetString())
+                {
+                    case "birth-request":
+                        string child = r.GetProperty("child").GetString();
+                        if (_members.ContainsKey(child)) Inconsistent("birth-request for an existing member " + child);
+                        else _members[child] = new Member { Pending = true };
+                        break;
+                    case "birth-activate":
+                        if (_members.TryGetValue(sid, out m) && m.Pending) m.Pending = false;
+                        else Inconsistent("birth-activate for " + sid + ", which is not pending");
+                        break;
+                    case "dispose-request":
+                        // Unknown or provisional (a failed child's sid): no member and no tombstone, so the sid may be
+                        // born later. Pending: gone at once, no dispose follows. Active: marked, gone at its dispose.
+                        if (!_members.TryGetValue(sid, out m)) break;
+                        if (m.Pending) _members.Remove(sid);
+                        else m.DisposeRequested = true;
+                        break;
+                    case "dispose":
+                        if (_members.TryGetValue(sid, out m) && !m.Pending && m.DisposeRequested) _members.Remove(sid);
+                        else Inconsistent("dispose of " + sid + " with no active member carrying an earlier dispose-request");
+                        break;
+                }
+            }
+        }
+
+        /// <summary>A completed startup or step: the replay against the private lists and, in a traced run, against the
+        /// state records committed since the last checkpoint.</summary>
+        public void Checkpoint(int tick, TickMembership actual)
+        {
+            string fault = _inconsistency;
+            if (fault == null) fault = Differ("the private lists", Actual(actual), "the lifecycle replay", Recorded());
+            if (fault == null && !_traceOff) fault = Differ("the committed state records", Sorted(_states), "the lifecycle replay", Recorded());
+            _states.Clear();
+            _inconsistency = null;
+            Checkpoints++;
+            Fail(tick, fault);
+        }
+
+        /// <summary>A trace-off run's end: its final state records, written once at N, against the replay and the private
+        /// lists. Nothing for a traced run, whose checkpoint N compared its records already.</summary>
+        public void FinalStates(int tick, TickMembership actual)
+        {
+            if (!_traceOff) return;
+            List<string> states = Sorted(_states);
+            string fault = Differ("the final state records", states, "the lifecycle replay", Recorded());
+            if (fault == null) fault = Differ("the final state records", states, "the private lists", Actual(actual));
+            _states.Clear();
+            Fail(tick, fault);
+        }
+
+        /// <summary>The closing line: the positive witness when every one of the N+1 checkpoints passed, or, when the run
+        /// stopped early, how many ran. A failure was logged when it happened.</summary>
+        public string ClosingLine(int ticks)
+        {
+            if (Failure != null) return null;
+            if (Checkpoints == ticks + 1) return ParityRunLog.ReconciliationLine(Checkpoints, _traceOff, _runId);
+            return ParityRunLog.ReconciliationIncompleteLine(Checkpoints, ticks + 1, _runId);
+        }
+
+        private void Fail(int tick, string fault)
+        {
+            if (fault == null || Failure != null) return;
+            Failure = "checkpoint " + tick.ToString(CultureInfo.InvariantCulture) + ": " + fault;
+            _log.WriteLine(ParityRunLog.ReconciliationFailedLine(Failure, _runId));
+        }
+
+        private void Inconsistent(string what)
+        {
+            if (_inconsistency == null) _inconsistency = what;
+        }
+
+        private static string Key(string sid, bool pending)
+        {
+            return sid + (pending ? " pending" : " active");
+        }
+
+        private List<string> Recorded()
+        {
+            var keys = new List<string>();
+            foreach (KeyValuePair<string, Member> m in _members) keys.Add(Key(m.Key, m.Value.Pending));
+            return Sorted(keys);
+        }
+
+        private static List<string> Actual(TickMembership actual)
+        {
+            var keys = new List<string>();
+            foreach (string sid in actual.Active) keys.Add(Key(sid, false));
+            foreach (string sid in actual.Pending) keys.Add(Key(sid, true));
+            return Sorted(keys);
+        }
+
+        private static List<string> Sorted(List<string> keys)
+        {
+            var sorted = new List<string>(keys);
+            sorted.Sort(StringComparer.Ordinal);
+            return sorted;
+        }
+
+        /// <summary>Null when both multisets hold the same members the same number of times, else what differs.</summary>
+        private static string Differ(string side, List<string> actual, string otherSide, List<string> replay)
+        {
+            if (actual.Count == replay.Count)
+            {
+                bool same = true;
+                for (int i = 0; i < actual.Count && same; i++) same = actual[i] == replay[i];
+                if (same) return null;
+            }
+            return side + " hold [" + string.Join(", ", actual) + "], " + otherSide + " [" + string.Join(", ", replay) + "]";
         }
     }
 }

@@ -201,6 +201,7 @@
     <Compile Include="dotNet\Shimeji\ShimejiWindowSelfTest.ParityErrors.cs" />
     <Compile Include="dotNet\Shimeji\ShimejiWindowSelfTest.Churn.cs" />
     <Compile Include="dotNet\Shimeji\ShimejiWindowSelfTest.Policy.cs" />
+    <Compile Include="dotNet\Shimeji\ShimejiWindowSelfTest.Proofs.cs" />
     <Compile Include="dotNet\AudioOutputSelfTest.cs" />
     <Compile Include="dotNet\SecuritySelfTest.cs" />
     <Compile Include="dotNet\SecuritySelfTest.ShimejiGate.cs" />

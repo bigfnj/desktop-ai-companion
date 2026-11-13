@@ -7929,6 +7929,23 @@ argument or a setting, so no caller of the command can point the witness at anot
 synthetic`, `parity birth-witness`, `parity reconciliation` and `build-witness-unreadable` as constants beside their
 formatters, so a spelling agreed with the closure checker's owner (the brief's open question 10) changes in one place.
 
+**A15 reconciliation reads committed lines through a property hook, and a failure runs on to N (H :136-150, 2026-11-13).**
+`ParityTraceWriter.Committed` is called with every line the writer commits: each event line from its event sink, after the
+digest and the optional write, so a trace-off run's withheld lines reach it too, and each state line. It is a settable
+property, so the writer's constructor and `ITickObserver` stay as they were and no observer, record or digest changes;
+round 4's differential checks `eventSequenceSha256`. `ParityRunLedger` (ParityProof.cs) is owned by the inner
+`ParityRun.Run`: it seeds the validated scenario's start rows before any companion is created, replays only lifecycle
+records, and compares at every checkpoint 0..N with `TickWorld.SnapshotMembership()`, which the writer never reads. A
+traced run also compares each checkpoint's state records, a trace-off run its final states at N. The first failing
+checkpoint is logged when it fails, the run steps on to N, and its status becomes error just before `Finish`, which is
+untouched; this reads H :136 and :150 the way the run already treats a provenance fault, and Codex is asked to confirm it
+(open question 6). Only a run whose N+1 checkpoints all passed logs the positive witness; a run that stopped early logs
+how many ran. Refused: an `ITickObserver` member for the ledger, which H :138 rules out as a source of counts;
+enumerating the public `Mascots` and `Pending` getters for either side, which a getter filter would fool on both at
+once; and seeding from the world's lists or a count of successful starts, which cannot see a failed starter that joined
+anyway. The ledger matches events by kind and sid and spells no error code, as the bd-parity-host-2 invariant requires
+of every non-self-test file under src/dotNet/Shimeji.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. None of
