@@ -21400,6 +21400,35 @@ CASES = (
      b'',
      CORETESTS_CSPROJ, CORETESTS_DLL,
      CORETESTS, None, 'The parity hook was not told of exactly the button edges'),
+    # ---- burndown/host-mute-1 ----
+    # N-bd-parity-host-1-04: the hotspot press receivers (anchor packet A1-A4, legs L0-L6). M1 reads eligibility from the
+    # holding type; it is registered twice because L3 (Beta has no H) and L4 (Beta's H switched off) each kill it on their
+    # own, and each group stops at its first failure. M2 builds through the current type (L2). M3 keys the construction
+    # settings by the holding type, which only L6 (TestTickSettingsFallbackCause's hotspot-press leg) can see.
+    ("bd-host-mute-1: the hotspot press judges eligibility in the holding type (M1, L3)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'_world.IsBehaviourEnabledByName(_mascot.Type, h.Behaviour, _mascot)',
+     b'_world.IsBehaviourEnabledByName(Type, h.Behaviour, _mascot)',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "Tick hotspot receiver: L3 retained, Beta.H absent, drags through the holding type"),
+    ("bd-host-mute-1: the hotspot press judges eligibility in the holding type (M1, L4)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'_world.IsBehaviourEnabledByName(_mascot.Type, h.Behaviour, _mascot)',
+     b'_world.IsBehaviourEnabledByName(Type, h.Behaviour, _mascot)',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "Tick hotspot receiver: L4 retained, Beta.H switched off, drags through the holding type"),
+    ("bd-host-mute-1: the hotspot press builds through the current type (M2, L2)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'\n                _world.EnterBehaviourByName(_mascot, Type, h.Behaviour, "forced");\n',
+     b'\n                _world.EnterBehaviourByName(_mascot, _mascot.Type, h.Behaviour, "forced");\n',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "Tick hotspot receiver: L2 retained, Beta.H enabled, builds through the holding type"),
+    ("bd-host-mute-1: a by-name build reads the holding type's switches (M3, L6)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'if (Settings.IsBehaviourEnabled(def, mascot.Type.Name)) return Build(type, def);',
+     b'if (Settings.IsBehaviourEnabled(def, type.Name)) return Build(type, def);',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "did not fall in labelled fallback (hotspot press)"),
     # ---- burndown/codex-converter-1 ----
     ("bd-codex-converter-1: invalid metadata omits the offending key",
      os.path.join(REPO, "tools", "ShimejiConvert.Engine", "PackConversion.cs"),

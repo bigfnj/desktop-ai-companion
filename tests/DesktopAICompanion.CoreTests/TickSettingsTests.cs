@@ -493,6 +493,186 @@ namespace DesktopAICompanion
             }
         }
 
+        // ---- the hotspot press receiver (N-bd-parity-host-1-04, receiver/Mute anchor packet legs L0-L5; L6 is the
+        // hotspot-press leg of TestTickSettingsFallbackCause above). The press judges eligibility in the companion's
+        // CURRENT type (TickRuntime MousePressed, IsBehaviourEnabledByName(_mascot.Type, ...)) and builds through the
+        // HOLDING type (EnterBehaviourByName(_mascot, Type, ...)); the two differ only in the retained state of a failed
+        // Transform. Each leg compares OBJECTS (the behaviour's holding type, its definition and its running action's
+        // definition), never a behaviour name, which both types share, and never a node id alone: the two types below use
+        // disjoint id ranges as well, so an id-only assertion could not pass on the other type's definition either.
+
+        /// <summary>The receiver fixture's holding type, Alpha. Morph transforms into Beta entering
+        /// <paramref name="transformBehaviour"/> ("" cannot be built, which leaves the retained state; "BPat" succeeds);
+        /// its next list (add false) then chooses Pat, a draggable Stay whose one hotspot names H. Alpha's H is not
+        /// toggleable in any leg here: that is what lets L4 tell the eligibility receiver apart (anchor packet, L4 row).
+        /// Ids 10-14 and 30-34.</summary>
+        private static TickType ReceiverAlpha(string transformBehaviour)
+        {
+            return TickType.Compile("Alpha", TickDoc(
+                TRoute(TEdge(10, 0), TEdge(11, 0), TEdge(12, 0), TEdge(13, 0), TEdge(14, 0)),
+                TBeh(10, "Morph", "Morph", 0, false, TEdge(11, 1)),
+                TBeh(11, "Pat", "Patting", 0, null),
+                TBeh(12, "H", "AlphaHAct", 0, null),
+                TBeh(13, "Fall", "AlphaFallAct", 0, null),
+                TBeh(14, "Dragged", "AlphaDragAct", 0, null),
+                TAct(30, "Morph", "Embedded", "Transform", new[] { TParam("TransformMascot", "Beta"), TParam("TransformBehavior", transformBehaviour) },
+                    TPose(0, 1), TPose(1, 1)),
+                HotspotAct(TAct(31, "Patting", "Stay", null, new[] { TParam("Duration", "500"), TParam("Draggable", "true") }, TPose(0, 1)), "H"),
+                TAct(32, "AlphaHAct", "Stay", null, new[] { TParam("Duration", "500") }, TPose(1, 1)),
+                TAct(33, "AlphaFallAct", "Stay", null, new[] { TParam("Duration", "500") }, TPose(1, 1)),
+                TAct(34, "AlphaDragAct", "Stay", null, new[] { TParam("Duration", "500") }, TPose(1, 1))));
+        }
+
+        /// <summary>The receiver fixture's current type after the Transform, Beta: its own H (toggle Hing when
+        /// <paramref name="hToggleable"/>), only when <paramref name="hasH"/>; BPat, a Stay whose hotspot names H, only when
+        /// <paramref name="hasBPat"/> (the L1 success control); its own Fall and Dragged. Ids 50-54 and 70-74.</summary>
+        private static TickType ReceiverBeta(bool hasH, bool hToggleable, bool hasBPat)
+        {
+            var edges = new List<XmlData.NextNode> { TEdge(50, 1), TEdge(53, 0), TEdge(54, 0) };
+            if (hasH) edges.Add(TEdge(51, 0));
+            if (hasBPat) edges.Add(TEdge(52, 0));
+            var nodes = new List<XmlData.AnimationNode> { TRoute(edges.ToArray()), TBeh(50, "Stand", "BetaStand", 1, null) };
+            if (hasH) nodes.Add(hToggleable ? Toggled(TBeh(51, "H", "BetaHAct", 0, null), "Hing") : TBeh(51, "H", "BetaHAct", 0, null));
+            if (hasBPat) nodes.Add(TBeh(52, "BPat", "BetaPatting", 0, null));
+            nodes.Add(TBeh(53, "Fall", "BetaFallAct", 0, null));
+            nodes.Add(TBeh(54, "Dragged", "BetaDragAct", 0, null));
+            nodes.Add(TAct(70, "BetaStand", "Stay", null, new[] { TParam("Duration", "500") }, TPose(2, 1)));
+            if (hasH) nodes.Add(TAct(71, "BetaHAct", "Stay", null, new[] { TParam("Duration", "500") }, TPose(3, 1)));
+            if (hasBPat) nodes.Add(HotspotAct(TAct(72, "BetaPatting", "Stay", null, new[] { TParam("Duration", "500"), TParam("Draggable", "true") }, TPose(2, 1)), "H"));
+            nodes.Add(TAct(73, "BetaFallAct", "Stay", null, new[] { TParam("Duration", "500") }, TPose(3, 1)));
+            nodes.Add(TAct(74, "BetaDragAct", "Stay", null, new[] { TParam("Duration", "500") }, TPose(3, 1)));
+            return TickType.Compile("Beta", WithToggles(TickDoc(nodes.ToArray()), new XmlData.ToggleNode { Id = "Hing", Label = "Hing" }));
+        }
+
+        /// <summary>Starts m1 as Alpha in <paramref name="start"/> and steps five times: Morph's Transform ends on step 2,
+        /// Morph's next choice (Pat, through Alpha) comes on step 3 in the retained state, and the hotspot's owner then
+        /// steps, which is what refreshes the companion's hotspot list (ActionBase.java:99), before one press at screen
+        /// (<paramref name="x"/>, <paramref name="y"/>) on tick 6. <paramref name="witness"/> runs between the two.</summary>
+        private static TickMascot ReceiverPress(TickType alpha, TickType beta, string start, SwitchSettings settings, TickLog log,
+            int x, int y, Action<TickMascot> witness)
+        {
+            var desk = new TickDesk();
+            desk.Script[6] = new List<TickInput> { new TickInput(TickInputKind.Press, "m1", new TickPoint(x, y)) };
+            var world = new TickWorld(desk, new TickTape(), settings, log);
+            world.AddType(alpha);
+            world.AddType(beta);
+            world.Start();
+            TickMascot m = world.CreateAtStart("m1", alpha, new TickPoint(640, 680), false, start);
+            for (int i = 0; i < 5; i++) world.StepOnce();
+            witness(m);
+            world.StepOnce();
+            return m;
+        }
+
+        private static string ReceiverState(TickMascot m, TickLog log)
+        {
+            string b = m.Behaviour == null ? "no behaviour"
+                : m.Behaviour.Name + " held by " + m.Behaviour.Type.Name + " running " + m.Behaviour.Action.Def.Name + " #" + m.Behaviour.Action.Def.NodeId;
+            return m.Type.Name + ", " + b + ", " + m.Hotspots.Count + " hotspot(s): " + string.Join("; ", log.Events) + " | " + string.Join("; ", log.Faults);
+        }
+
+        /// <summary>The retained state, asserted before the press as L6 does: the companion is a Beta, in Alpha's Pat
+        /// (held by Alpha, Alpha's own definition), with Pat's one hotspot, after exactly the failed Transform's fault.</summary>
+        private static void ReceiverRetained(string leg, TickMascot m, TickType alpha, TickType beta, TickLog log)
+        {
+            AssertTrue(ReferenceEquals(m.Type, beta) && m.Behaviour != null && ReferenceEquals(m.Behaviour.Type, alpha)
+                       && ReferenceEquals(m.Behaviour.Def, alpha.RootByName["Pat"]) && m.Hotspots.Count == 1
+                       && log.Faults.Count == 1 && log.Faults[0].Contains("Transform into Beta"),
+                "WITNESS: the retained state before the press is not a Beta in Alpha's Pat with its one hotspot (" + leg + "): " + ReceiverState(m, log));
+        }
+
+        /// <summary>The press took H's hotspot and built H through <paramref name="through"/>: that type's H definition,
+        /// running that type's action <paramref name="actionId"/>.</summary>
+        private static bool ReceiverPressedThrough(TickMascot m, TickLog log, string from, TickType through, int actionId)
+        {
+            return log.Events.Contains("m1 hotspot press H") && log.Events.Contains("m1 behaviour " + from + ">H forced")
+                   && ReferenceEquals(m.Behaviour.Type, through) && ReferenceEquals(m.Behaviour.Def, through.RootByName["H"])
+                   && ReferenceEquals(m.Behaviour.Action.Def, through.ActionsById[actionId]);
+        }
+
+        /// <summary>No hotspot took the press, and the companion was dragged through Alpha: Alpha's Dragged definition,
+        /// running AlphaDragAct (Beta has its own Dragged, so a drag built through Beta would show here).</summary>
+        private static bool ReceiverDraggedThroughAlpha(TickMascot m, TickLog log, TickType alpha)
+        {
+            return !log.Events.Exists(e => e.StartsWith("m1 hotspot", StringComparison.Ordinal))
+                   && log.Events.Contains("m1 drag start") && log.Events.Contains("m1 behaviour Pat>Dragged forced")
+                   && ReferenceEquals(m.Behaviour.Type, alpha) && ReferenceEquals(m.Behaviour.Def, alpha.RootByName["Dragged"])
+                   && ReferenceEquals(m.Behaviour.Action.Def, alpha.ActionsById[34]);
+        }
+
+        private static void TestTickReceiverL2()
+        {
+            // L2: retained, Beta.H present and not toggleable. Eligible in Beta; built through Alpha, so AlphaHAct runs. A
+            // construction receiver read from the current type (M2) builds Beta's H and runs BetaHAct.
+            TickType alpha = ReceiverAlpha(""), beta = ReceiverBeta(true, false, false);
+            var log = new TickLog();
+            TickMascot m = ReceiverPress(alpha, beta, "Morph", new SwitchSettings(), log, 618, 626, x => ReceiverRetained("L2", x, alpha, beta, log));
+            AssertTrue(ReceiverPressedThrough(m, log, "Pat", alpha, 32),
+                "A hotspot press in the retained state was not built through the holding type's H and AlphaHAct (L2): " + ReceiverState(m, log));
+        }
+
+        private static void TestTickReceiverL3()
+        {
+            // L3: retained, Beta has no H. Not eligible in Beta, so no press; Pat is draggable, so the companion is dragged
+            // through Alpha. An eligibility receiver read from the holding type (M1) finds Alpha's H and presses.
+            TickType alpha = ReceiverAlpha(""), beta = ReceiverBeta(false, false, false);
+            var log = new TickLog();
+            TickMascot m = ReceiverPress(alpha, beta, "Morph", new SwitchSettings(), log, 618, 626, x => ReceiverRetained("L3", x, alpha, beta, log));
+            AssertTrue(ReceiverDraggedThroughAlpha(m, log, alpha),
+                "A hotspot naming a behaviour the current type lacks took the press in the retained state, or the drag was not built through the holding type (L3): "
+                + ReceiverState(m, log));
+        }
+
+        private static void TestTickReceiverL4()
+        {
+            // L4: retained, Beta's H toggleable (Hing) and switched off for Beta; Alpha's H not toggleable. Not eligible in
+            // Beta, so dragged through Alpha. An eligibility receiver read from Alpha (M1) sees an H with no toggle and
+            // presses; with a toggleable Alpha.H it would read Beta's switches too and survive, hence Alpha's H has none.
+            TickType alpha = ReceiverAlpha(""), beta = ReceiverBeta(true, true, false);
+            var settings = new SwitchSettings();
+            settings.Store.Set("Beta", "toggle:Hing", false);
+            var log = new TickLog();
+            TickMascot m = ReceiverPress(alpha, beta, "Morph", settings, log, 618, 626, x => ReceiverRetained("L4", x, alpha, beta, log));
+            AssertTrue(ReceiverDraggedThroughAlpha(m, log, alpha),
+                "A hotspot whose behaviour the current type switches off took the press in the retained state, or the drag was not built through the holding type (L4): "
+                + ReceiverState(m, log));
+        }
+
+        private static void TestTickReceiverControls()
+        {
+            // L0, L1 and L5 behave the same under every receiver mutant (anchor packet): with no Transform, or a Transform that
+            // succeeded, the holding type IS the current type; and a press outside every hotspot is a drag, which builds
+            // through the holding type whatever the press receivers read.
+            {
+                TickType alpha = ReceiverAlpha(""), beta = ReceiverBeta(true, false, false);
+                var log = new TickLog();
+                TickMascot m = ReceiverPress(alpha, beta, "Pat", new SwitchSettings(), log, 618, 626, x =>
+                    AssertTrue(ReferenceEquals(x.Type, alpha) && x.Behaviour != null && ReferenceEquals(x.Behaviour.Type, alpha)
+                               && ReferenceEquals(x.Behaviour.Def, alpha.RootByName["Pat"]) && x.Hotspots.Count == 1 && log.Faults.Count == 0,
+                        "WITNESS: before the press the companion is not an Alpha in Alpha's Pat with its one hotspot (L0): " + ReceiverState(x, log)));
+                AssertTrue(ReceiverPressedThrough(m, log, "Pat", alpha, 32),
+                    "WITNESS: with no Transform a hotspot press was not built through Alpha's H and AlphaHAct (L0): " + ReceiverState(m, log));
+            }
+            {
+                TickType alpha = ReceiverAlpha("BPat"), beta = ReceiverBeta(true, false, true);
+                var log = new TickLog();
+                TickMascot m = ReceiverPress(alpha, beta, "Morph", new SwitchSettings(), log, 618, 626, x =>
+                    AssertTrue(ReferenceEquals(x.Type, beta) && x.Behaviour != null && ReferenceEquals(x.Behaviour.Type, beta)
+                               && ReferenceEquals(x.Behaviour.Def, beta.RootByName["BPat"]) && x.Hotspots.Count == 1 && log.Faults.Count == 0,
+                        "WITNESS: before the press the Transform did not leave a Beta in Beta's BPat with its one hotspot (L1): " + ReceiverState(x, log)));
+                AssertTrue(ReceiverPressedThrough(m, log, "BPat", beta, 71),
+                    "WITNESS: after a Transform that succeeded a hotspot press was not built through Beta's H and BetaHAct (L1): " + ReceiverState(m, log));
+            }
+            {
+                // (650, 660) is window point (42, 44): inside the 64x64 window, outside the 20x20 hotspot at its top left.
+                TickType alpha = ReceiverAlpha(""), beta = ReceiverBeta(true, false, false);
+                var log = new TickLog();
+                TickMascot m = ReceiverPress(alpha, beta, "Morph", new SwitchSettings(), log, 650, 660, x => ReceiverRetained("L5", x, alpha, beta, log));
+                AssertTrue(ReceiverDraggedThroughAlpha(m, log, alpha),
+                    "WITNESS: a press outside every hotspot in the retained state was not a drag through the holding type (L5): " + ReceiverState(m, log));
+            }
+        }
+
         /// <summary>An action whose one variant carries a 20x20 hotspot at the cell's top left naming <paramref name="behaviour"/>.</summary>
         private static XmlData.AnimationNode HotspotAct(XmlData.AnimationNode act, string behaviour)
         {

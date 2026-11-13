@@ -171,6 +171,10 @@ namespace DesktopAICompanion
                 Run("Tick settings retained state: a root candidate is filtered by the companion's current type's switches", TestTickSettingsRetainedRoot);
                 Run("Tick settings retained state: a next-list candidate is filtered by the companion's current type's switches", TestTickSettingsRetainedNext);
                 Run("Tick settings fallback: a turned-off behaviour entered by name falls in labelled fallback, an enabled one forced", TestTickSettingsFallbackCause);
+                Run("Tick hotspot receiver: L2 retained, Beta.H enabled, builds through the holding type", TestTickReceiverL2);
+                Run("Tick hotspot receiver: L3 retained, Beta.H absent, drags through the holding type", TestTickReceiverL3);
+                Run("Tick hotspot receiver: L4 retained, Beta.H switched off, drags through the holding type", TestTickReceiverL4);
+                Run("Tick hotspot receiver: controls L0, L1 and L5 are the same under every receiver mutant", TestTickReceiverControls);
                 Run("Tick settings rows: the pane offers only what the type uses", TestTickSettingsRows);
                 Run("Tick packs resolution: a member key resolves inside its own pack, never another pack's", TestTickPacksResolveInScope);
                 Run("Tick packs fallback: a missing member keeps the current type, one diagnostic per (type, reference)", TestTickPacksFallback);
