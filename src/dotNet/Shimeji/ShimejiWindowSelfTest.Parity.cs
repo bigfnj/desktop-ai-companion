@@ -1137,13 +1137,14 @@ namespace DesktopAICompanion.Shimeji
                 });
 
                 // W3, incoming-over-own: the engine reads the incoming definition where the reference to Hush, or the behaviour
-                // running Hush, binds Sound beside Hush's own distinct Sound, and the writer writes THAT definition's row (its
-                // authored /IN or /BEH), never the own row's /OWN. Each document's map binds both definitions.
+                // running Hush, binds Sound beside Hush's own distinct Sound, and the writer writes THAT definition's row (in or
+                // beh), never the own row's (own). Each document's map binds both definitions. Every literal here is authored
+                // as emitted, so only the qualified-literal label sees a writer that writes the emitted value.
                 group("parity mute: incoming-over-own writes the winning definition's row, a reference bind or a behaviour bind over the own Sound (W3)", 2, () =>
                 {
                     leg("reference bind", outcome(ParMuteRun(ParMuteDocument(new[] { bind("Sound", "in") }, sound("own", "none")),
-                            "[" + ParMuteRow("own", "/OWN", "string") + "," + ParMuteBindRow(0, "in", "/IN") + "]", true)),
-                        declared("0", "\"/IN\"", ""));
+                            "[" + ParMuteRow("own", "own", "string") + "," + ParMuteBindRow(0, "in", "in") + "]", true)),
+                        declared("0", "\"in\"", ""));
                     XmlData.RootNode behaviourBound = own("own", "none");
                     foreach (XmlData.AnimationNode a in behaviourBound.Animations.Animation)
                         if (a.Id == 10)
@@ -1152,20 +1153,22 @@ namespace DesktopAICompanion.Shimeji
                             a.Behaviour.Bind = new[] { bind("Sound", "beh") };
                         }
                     // Go running the instant Mute itself ends at once and Go is entered again, so this leg writes many mute
-                    // lines; it is judged by the set of clips written, which must be the behaviour bind's /BEH alone.
-                    string[] behaviourRun = ParMuteRun(behaviourBound, "[" + ParMuteRow("own", "/OWN", "string") + "," + ParMuteBindRow(0, "beh", "/BEH", behaviour: true) + "]", true);
+                    // lines; it is judged by the set of clips written, which must be the behaviour bind's beh alone.
+                    string[] behaviourRun = ParMuteRun(behaviourBound, "[" + ParMuteRow("own", "own", "string") + "," + ParMuteBindRow(0, "beh", "beh", behaviour: true) + "]", true);
                     var behaviourClips = new SortedSet<string>(StringComparer.Ordinal);
                     foreach (string line in Lines(behaviourRun[0], "\"kind\":\"mute\""))
                         behaviourClips.Add(line.Substring(line.IndexOf("\"clip\":", StringComparison.Ordinal) + 7).TrimEnd('}'));
                     leg("behaviour bind", "exit " + behaviourRun[2] + ", clips written [" + string.Join("|", behaviourClips) + "], log [" + OneLine(behaviourRun[1]) + "]",
-                        "exit 0, clips written [\"/BEH\"], log []");
+                        "exit 0, clips written [\"beh\"], log []");
                 });
 
                 // W4, a nested reference: one Mute declaration (Hush, no own Sound) referenced twice with distinct binds keeps
-                // each reference's own row across the two activations (/A, then /B a tick later), and a parent reference's bind
-                // (20:2 binds Sound on the sequence Inner) does not leak into Inner's own reference to Hush, which binds
-                // nothing: that read is absent and writes null (Sounds on). ActionBuilder builds each child with only its own
-                // reference's parameters (TickRuntime BuildActionOfKind).
+                // each reference's own row across the two activations (a, then b), and a parent reference's bind (20:2 binds
+                // Sound=out on the sequence Inner) does not leak into Inner's own reference to Hush2 (action 32, a second Mute
+                // whose own Sound is own2), which binds nothing, so Hush2 reads own2. ActionBuilder builds each child with only
+                // its own reference's parameters (TickRuntime BuildActionOfKind). No read here is absent (that is the absent
+                // label's), Hush has no own Sound (so W3's own-definition mutant cannot reach it), and every literal is authored
+                // as emitted.
                 group("parity mute: a nested reference uses the winning definition, each reference's own bind and no parent's (W4)", 1, () =>
                 {
                     XmlData.RootNode nested = ParMuteDocument(null);
@@ -1180,19 +1183,26 @@ namespace DesktopAICompanion.Shimeji
                                 new XmlData.CompositeChildNode { Animation = "Stand" },
                             };
                     var still = new XmlData.MovingNode { X = "0", Y = "0", Interval = "40" };
-                    animations.Add(new XmlData.AnimationNode
+                    Func<int, string, XmlData.AnimationNode> node = (id, name) => new XmlData.AnimationNode
                     {
-                        Id = 21, Name = "Inner", Start = still, End = still,
+                        Id = id, Name = name, Start = still, End = still,
                         Sequence = new XmlData.SequenceNode { RepeatCount = "0", Next = new XmlData.NextNode[0] },
-                        Act = new XmlData.ActNode
-                        {
-                            Type = "Sequence",
-                            Children = new XmlData.ChildrenNode { Mode = "sequence", Child = new[] { new XmlData.CompositeChildNode { Animation = "Hush" } } },
-                        },
-                    });
+                    };
+                    XmlData.AnimationNode inner = node(21, "Inner");
+                    inner.Act = new XmlData.ActNode
+                    {
+                        Type = "Sequence",
+                        Children = new XmlData.ChildrenNode { Mode = "sequence", Child = new[] { new XmlData.CompositeChildNode { Animation = "Hush2" } } },
+                    };
+                    XmlData.AnimationNode hush2 = node(32, "Hush2");
+                    hush2.Act = new XmlData.ActNode { Type = "Embedded", Class = "Mute", Params = new[] { sound("own2", "none") } };
+                    animations.Add(inner);
+                    animations.Add(hush2);
                     nested.Animations.Animation = animations.ToArray();
-                    string nestedMap = ParMuteMap("[" + ParMuteBindRow(0, "a", "/A") + "," + ParMuteBindRow(1, "b", "/B") + "," + ParMuteBindRow(2, "out", "/OUT") + "]",
-                        ",\"21\":" + JsonLine.Quote(ParMuteAction + "4]"),
+                    string hush2Row = "{\"kind\":\"action\",\"nodeId\":32,\"sourceRefKey\":" + JsonLine.Quote(ParMuteAction + "5]")
+                        + ",\"emittedValue\":\"own2\",\"emittedCache\":\"none\",\"mode\":\"literal\",\"sourceValue\":\"own2\",\"sourceKind\":\"string\"}";
+                    string nestedMap = ParMuteMap("[" + ParMuteBindRow(0, "a", "a") + "," + ParMuteBindRow(1, "b", "b") + "," + ParMuteBindRow(2, "out", "out") + "," + hush2Row + "]",
+                        ",\"21\":" + JsonLine.Quote(ParMuteAction + "4]") + ",\"32\":" + JsonLine.Quote(ParMuteAction + "5]"),
                         ",\"20:2\":" + JsonLine.Quote(ParMuteAction + "1]/ActionReference[3]") + ",\"20:3\":" + JsonLine.Quote(ParMuteAction + "1]/ActionReference[4]")
                         + ",\"21:0\":" + JsonLine.Quote(ParMuteAction + "4]/ActionReference[1]"));
                     leg("two references, then a parent's bind", outcome(ParMuteRun(nested, null, true, m =>
@@ -1202,7 +1212,7 @@ namespace DesktopAICompanion.Shimeji
                                 m.Writer.Tick = t;
                                 m.World.StepOnce();
                             }
-                        }, map: nestedMap)), declared("0", "\"/A\"|\"/B\"|null", ""));
+                        }, map: nestedMap)), declared("0", "\"a\"|\"b\"|\"own2\"", ""));
                 });
 
                 // Control 7: observing adds no draw. Condition ${Sound == null} and an action-cached Sound that draws and is null

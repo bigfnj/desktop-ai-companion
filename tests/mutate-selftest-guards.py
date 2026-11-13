@@ -21883,8 +21883,9 @@ CASES = (
     # N-bd-codex-converter-1-02, host half, commit 5a: ParityTraceWriter's Mute dispositions (CONTRACT v1.4 revision 3
     # P2-C, FC-2 steps 1-3, FC-3, FC-6) and ParityRun.Finish. Each case breaks one disposition rule and fails the one
     # "parity mute:" label whose legs depend on it; each label's legs drive real Mute reads through the engine. Since
-    # commit 5b two of them also fail a C18 label, by design: a second Sound read passes the probe sites again, which
-    # the arming witness lists, and C18's defect reads must write no line.
+    # commit 5b the provenance-defect line case also fails the C18 label, by design: C18's defect reads must write no
+    # line. Since round 5 the second-read case fails control 7 alone (measured at bc201c1f): the writer's extra read goes
+    # through the plain EvalString, which runs no observation site, so the arming witness no longer sees it.
     # "bd-host-mute-1: mute" for one --only.
     ("bd-host-mute-1: mute a qualified literal writes its emitted value, not its source spelling (W1, controls 5, 16)",
      os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
