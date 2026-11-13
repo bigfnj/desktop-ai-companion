@@ -26496,6 +26496,15 @@ CASES = (
      HOST_CSPROJ, EXE,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
      'parity policy: registry drift: a missing resource is an internal defect ('),
+    # Round 5, the carry-off leg's own mutant: WalkWithIE ignores the type's window-actions switch, so with it off the
+    # walk still holds and carries the window and commits window-move events.
+    ('bd-host-policy-1: proof window carry ignores the window-actions switch',
+     os.path.join(REPO, "src", "dotNet", "Shimeji", 'TickWindowFamily.cs'),
+     b'            // window is neither read nor moved. (The source has no such switch; its Throwing setting ends the action.)\n            if (!TickWindowFamily.IsOn(World, Mascot))\n',
+     b'            // window is neither read nor moved. (The source has no such switch; its Throwing setting ends the action.)\n            if (false && !TickWindowFamily.IsOn(World, Mascot))\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity proof: window carry with WindowActions off moves nothing and reconciles, traced and trace-off ('),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
