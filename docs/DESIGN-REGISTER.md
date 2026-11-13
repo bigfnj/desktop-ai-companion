@@ -7917,6 +7917,18 @@ half, 2026-11-13).** `ParityMap` in `src/dotNet/Shimeji/ParityRun.cs` follows th
 - The self-test document's frame-cached Sound is `'b'`, not an empty body, although P1-B allows an evaluated row with an
   empty emitted value: the validator refuses an empty expression, so a validated document a parity run loads cannot hold
   one, and the binding never reads the compiled program either way.
+- The cache-present and mode checks of `BindSounds` can be killed only by their messages. The reader's closed
+  `emittedCache` set, its literal-means-none pairing and the compiled cache mapping make the `emittedCache` equality imply
+  both, so their maps always break `emittedCache` too, and removing either check changes the refusal's message, never
+  accept or refuse. Their labels compare the exact message (C13); a label reduced to "refused" could not fail.
+- Each shape rule's self-test map is the complete rows with one row broken, so it breaks exactly that rule since the
+  binding came in. The two maps with no array (absent, not an array) cannot hold rows, and a removed shape check may
+  leave its broken row failing a binding rule instead, which still fails that label alone.
+- The shadowed-definition leg (P1-E) and control 17's action-param and behaviour-bind legs each run on their own copy of
+  the document. Placed in the shared document, an off-route behaviour would make the by-name mutant throw a duplicate-key
+  exception in every map holding the complete rows, and a lowercase entry would fail every acceptance there, so neither
+  mutant could fail one label. The off-route behaviour is reachable for the validator, which requires every off-route
+  behaviour to carry a root behaviour's name, while `RootByName` holds only the route's targets.
 
 ## Known ABI gaps
 

@@ -21735,7 +21735,8 @@ CASES = (
     # run (C13). Case 12 is critique C1's value-key mutant: a lookup by compiled value and cache, which control 5's three
     # definitions emitting "" defeat. Cases 13 and 14 make the reader stricter than P1-D (critique B5's sourceRefKey
     # uniqueness; control 17's name matched ignoring case, which takes 33:5's "sound" bind for a Sound), so every
-    # acceptance over the complete rows fails with them, the WITNESS first.
+    # acceptance over the complete rows fails with them, the WITNESS first (since the round 4 review fix that includes
+    # the shadowed-behaviour and lowercase-name acceptances, which also hold the complete rows).
     ("bd-host-mute-1: map/3 a repeated Sound row location is bound",
      os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
      b'                if (!located.Add(location))\n',
@@ -21849,6 +21850,32 @@ CASES = (
      HOST_CSPROJ, EXE,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
      'parity map/3: WITNESS a complete map/3 with rows of every kind is accepted'),
+    # Round 4 review fix. P1-E's inventory by node id: behaviours found through RootByName by name, so the off-route
+    # behaviour 11 (named Walk, shadowed by the root Walk) gives the root's definition, whose row is then added twice;
+    # only the shadowed-behaviour leg's own document has an off-route behaviour. Control 17 at the action-param and
+    # behaviour-bind filters: each matched ignoring case takes the "sound" entry after its container's Sound in Sound's
+    # place, so the lowercase leg's own document fails its emittedValue comparison.
+    ("bd-host-mute-1: map/3 the Sound walk inventories behaviours by name (P1-E shadowed definition)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                    if (!type.BehavioursById.TryGetValue(a.Id, out behaviour) || a.Behaviour.Bind == null) continue;\n',
+     b'                    if (!type.RootByName.TryGetValue(a.Behaviour.Name, out behaviour) || a.Behaviour.Bind == null) continue;\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity map/3: an off-route behaviour named like a root behaviour binds its own Sound row (shadowed by name lookup)'),
+    ("bd-host-mute-1: map/3 the Sound walk matches an action param's name ignoring case (control 17, host half)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                            if (p != null && p.Name == SoundName) AddSite(sites, "action "',
+     b'                            if (p != null && string.Equals(p.Name, SoundName, StringComparison.OrdinalIgnoreCase)) AddSite(sites, "action "',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity map/3: an action param and a behaviour bind named \'sound\' are no Sound definitions (control 17, host half)'),
+    ("bd-host-mute-1: map/3 the Sound walk matches a behaviour bind's name ignoring case (control 17, host half)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                        if (b != null && b.Name == SoundName) AddSite(sites, "behaviour "',
+     b'                        if (b != null && string.Equals(b.Name, SoundName, StringComparison.OrdinalIgnoreCase)) AddSite(sites, "behaviour "',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity map/3: an action param and a behaviour bind named \'sound\' are no Sound definitions (control 17, host half)'),
     # ---- burndown/codex-converter-1 ----
     ("bd-codex-converter-1: invalid metadata omits the offending key",
      os.path.join(REPO, "tools", "ShimejiConvert.Engine", "PackConversion.cs"),
