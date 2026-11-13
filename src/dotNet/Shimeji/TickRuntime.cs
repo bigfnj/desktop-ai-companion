@@ -305,8 +305,8 @@ namespace DesktopAICompanion.Shimeji
 
         /// <summary>Test seam, null in the product (nothing outside the self-tests sets it): CoreTests and the window self-test
         /// set it to throw inside one observation-only site and prove the throw is retained as a provenance defect and never
-        /// reaches the engine (control C18). It is given the site and the parameter name of the read, so a fixture arms it
-        /// for the Mute Sound read alone (review note S5: every EvalString caller passes through these sites). The engine's
+        /// reaches the engine (control C18). It is given the site and the parameter name of the read (review note S5); since
+        /// round 5 only the Mute Sound read reaches these sites, which the arming witness pins. The engine's
         /// sites are "selection", "snapshot" (the fault count before the read) and "result" (the kind and the fault count
         /// after it); the trace writer's are "muted", "no-event", "identity", "source-value" and "writer". Per thread, so no
         /// test leaks it into another.</summary>
@@ -700,17 +700,27 @@ namespace DesktopAICompanion.Shimeji
             return v.ToNumber();
         }
 
+        /// <summary>
+        /// The plain read every caller but the Mute action uses: Present, then the engine's one Read, then the display text.
+        /// No observation code runs here, so none can throw (the coordinator's ruling after round 4: CONTRACT v1.4 FC-2
+        /// forbids discarding an observation exception in a parity run, and an observer is handed only the Mute Sound
+        /// read, so only that read is observed). The observed overload below shares Present, Read and
+        /// <see cref="Displayed"/>, so both return the same value for the same read. Rejected: routing every read through
+        /// the observed overload (commit 3's shape), which ran observation code on 16 reads no observer receives.
+        /// </summary>
         protected internal string EvalString(string name, ScriptProgram guard, string fallback)
         {
-            TickParamRead unused;
-            return EvalString(name, guard, fallback, out unused);
+            if (!Present(name, guard)) return fallback;
+            return Displayed(Read(name, guard));
         }
 
+        private static string Displayed(ScriptValue v) { return v.Kind == ScriptValueKind.Null ? null : v.ToDisplayString(); }
+
         /// <summary>
-        /// <see cref="EvalString(string, ScriptProgram, string)"/> with a passive record of the read (CONTRACT v1.4 P2-A):
-        /// Present, then the passive selection, then a snapshot of the context's fault count, then the engine's one Read,
-        /// then the result's kind (before ToDisplayString) and whether a fault was reported during the read. Every caller
-        /// goes through here, so the observed path and the plain one cannot drift apart.
+        /// <see cref="EvalString(string, ScriptProgram, string)"/> with a passive record of the read (CONTRACT v1.4 P2-A),
+        /// for the Mute action's Sound read alone: Present, then the passive selection, then a snapshot of the context's
+        /// fault count, then the engine's one Read, then the result's kind (before ToDisplayString) and whether a fault was
+        /// reported during the read.
         /// </summary>
         /// <remarks>
         /// Observation code sits in its own try regions and a throw there is kept as <see cref="TickParamRead.ObservationFault"/>
@@ -743,7 +753,7 @@ namespace DesktopAICompanion.Shimeji
                 read.Faulted = Context.FaultsReported != faultsBefore;
             }
             catch (Exception e) { if (read.ObservationFault == null) read.ObservationFault = TickParamRead.Defect(e); }
-            return v.Kind == ScriptValueKind.Null ? null : v.ToDisplayString();
+            return Displayed(v);
         }
 
         /// <summary>The passive selection for <see cref="EvalString(string, ScriptProgram, string, out TickParamRead)"/>: the

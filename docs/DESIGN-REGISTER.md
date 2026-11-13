@@ -7942,10 +7942,18 @@ half, 2026-11-13).** `ParityMap` in `src/dotNet/Shimeji/ParityRun.cs` follows th
   commit 5b with C18's probes rather than in 5a, because only a probe can make their removal fail a check. The catches
   wrap thin `MutedCore` and `NoEventCore` methods, so the disposition code keeps its bytes and its 5a mutation cases.
 - C18's probe (`TickParamRead.ObservationProbe`) is handed the site and the read's parameter name, and the self-test
-  arms it for Sound alone (review note S5): every `EvalString` caller passes the engine's three sites, and an
-  observation exception caught on a non-Mute read is discarded with its record, which FC-2 forbids in a parity run.
-  The writer's five sites name Sound themselves, since the writer handles only that read. A test-only seam per site was
-  refused: one seam keyed by site name injects at every FC-2 site with no more product surface.
+  arms it for Sound alone (review note S5). Since round 5 only the Mute action's Sound read is observed at all (the
+  coordinator's ruling after round 4): the plain `EvalString` every other caller uses runs no observation code, so none
+  can throw there and no observation exception is ever discarded, which FC-2 forbids in a parity run. Commit 3 had
+  routed every read through the observed overload so the two could not drift; they now share Present, Read and
+  `Displayed` instead. The writer's five sites name Sound themselves, since the writer handles only that read. A
+  test-only seam per site was refused: one seam keyed by site name injects at every FC-2 site with no more product
+  surface.
+- C18's engine-Read leg wraps the parity environment in a decorator whose `Cursor` throws while armed, as the contract
+  names it, and compares the outcome with the same run in a NullObserver world. Its recording-`ITickClips` comparison
+  is the trace comparison instead, which the coordinator accepted: the parity world has no clips.
+- W3's behaviour-bind leg runs the instant Mute as Go's own action. It ends at once and Go is entered again within the
+  same start, so the leg writes many mute lines and is judged by the set of clips written, which must be the bind's.
 - Control 12's self-test leg is judged by the exit code and the log alone. The withheld mute line of the defect read
   belongs to the provenance label, so a mutant that writes that line fails one label, not two.
 

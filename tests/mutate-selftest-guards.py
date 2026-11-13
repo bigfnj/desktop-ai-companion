@@ -22075,13 +22075,73 @@ CASES = (
      HOST_CSPROJ, EXE,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
      'parity mute: an observation exception at every FC-2 site is retained as MUTE_PROVENANCE_MISSING'),
-    ("bd-host-mute-1: mute C18 the probe is given a constant parameter name, not the read's own (S5)",
+    # Re-pointed in round 5 (the coordinator's ruling after round 4: observation runs on the Mute Sound read alone). The
+    # constant-name mutant it replaces is equivalent once only Sound reaches the probe; the intent, an armed probe that
+    # fires for the Mute Sound read alone (S5), is now kept by the plain EvalString running no observation, so this case
+    # routes every read through the observed overload again and the arming witness sees BorderType's sites.
+    ("bd-host-mute-1: mute C18 every EvalString read runs the observation, not the Mute Sound read alone (S5, round 5 ruling)",
      os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
-     b'                if (probe != null) probe("selection", name);\n',
-     b'                if (probe != null) probe("selection", "Sound");\n',
+     b'            if (!Present(name, guard)) return fallback;\n'
+     b'            return Displayed(Read(name, guard));\n',
+     b'            TickParamRead unused;\n'
+     b'            return EvalString(name, guard, fallback, out unused);\n',
      HOST_CSPROJ, EXE,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
-     'parity mute: the observation probe is null in the product and sees each read under its own parameter name (C18 arming, S5)'),
+     'parity mute: the observation probe is null in the product and sees the Mute Sound read alone, never another EvalString read (C18 arming, S5, round 5)'),
+    # Round 5. C18 on an information-forming read: a writer that keeps the read's information before its writer site
+    # leaks MUTE_VALUE_NOT_STRING from a defect read (FC-6). The engine-Read leg: the engine's own Read moved inside the
+    # after-read observation catch turns the environment's exception into a provenance defect, in the writer's world and
+    # the NullObserver world alike. W3: the writer binds the Mute's own Sound definition, not the read's winner. W4: a
+    # child that binds nothing is built with its parent reference's binds. Control 10: an evaluated Point is called a
+    # number.
+    ("bd-host-mute-1: mute C18 a writer-site defect read keeps the information it formed (FC-6)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'            Probe("writer");\n'
+     b'            _out.WriteLine(Event(mascot, "mute").Str("clip", payload).End());\n'
+     b'            _information.AddRange(information);\n',
+     b'            _information.AddRange(information);\n'
+     b'            Probe("writer");\n'
+     b'            _out.WriteLine(Event(mascot, "mute").Str("clip", payload).End());\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity mute: an observation exception at every FC-2 site is retained as MUTE_PROVENANCE_MISSING'),
+    ("bd-host-mute-1: mute C18 the engine's own Sound read is caught by the after-read observation region (engine-Read)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'            ScriptValue v = Read(name, guard);\n'
+     b'            try\n'
+     b'            {\n'
+     b'                Action<string, string> probe = TickParamRead.ObservationProbe;\n'
+     b'                if (probe != null) probe("result", name);\n',
+     b'            ScriptValue v = ScriptValue.Null;\n'
+     b'            try\n'
+     b'            {\n'
+     b'                v = Read(name, guard);\n'
+     b'                Action<string, string> probe = TickParamRead.ObservationProbe;\n'
+     b'                if (probe != null) probe("result", name);\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity mute: an exception from the engine\'s own Sound read takes the engine\'s path, never a provenance defect (C18 engine-Read)'),
+    ("bd-host-mute-1: mute W3 the writer binds the Mute's own Sound definition over the read's winner",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'            if (!map.TryGetSoundRow(read.Winner, out row)) return "the Sound definition read is bound to no soundParameters row of member " + owner.Name;\n',
+     b'            TickParamDef own; if (!map.TryGetSoundRow(activation.Def.Params.TryGetValue("Sound", out own) ? own : read.Winner, out row)) return "the Sound definition read is bound to no soundParameters row of member " + owner.Name;\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity mute: incoming-over-own writes the winning definition\'s row'),
+    ("bd-host-mute-1: mute W4 a child reference that binds nothing is built with its parent's binds",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'                        children[i] = BuildAction(type, c.Target, c.Binds);\n',
+     b'                        children[i] = BuildAction(type, c.Target, c.Binds.Count == 0 && incoming != null && incoming.Count > 0 ? incoming : c.Binds);\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity mute: a nested reference uses the winning definition'),
+    ("bd-host-mute-1: mute an evaluated Point is called a number (control 10)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                case ScriptValueKind.Point: return "point";\n',
+     b'                case ScriptValueKind.Point: return "number";\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity mute: an evaluated String is forwarded and an evaluated Number or Boolean is not a String'),
     # ---- burndown/codex-converter-1 ----
     ("bd-codex-converter-1: invalid metadata omits the offending key",
      os.path.join(REPO, "tools", "ShimejiConvert.Engine", "PackConversion.cs"),

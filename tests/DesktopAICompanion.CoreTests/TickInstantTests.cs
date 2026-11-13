@@ -292,8 +292,8 @@ namespace DesktopAICompanion
         private static void TestTickMuteReadDraws()
         {
             // CONTRACT v1.4 control 7: Condition reads Sound once (Math.random draws, null is not cached), then Apply reads it
-            // once more: exactly 2 draws during the Mute's initialisation, an absolute count, because the plain EvalString now
-            // routes through the observed one and comparing the two could not fail. Condition's own true IS cached, so the
+            // once more: exactly 2 draws during the Mute's initialisation, an absolute count, because a comparison with another
+            // observed read could not see an evaluation both add. Condition's own true IS cached, so the
             // sequence's HasNext poll after it draws nothing.
             var rng = new TCountingRandom();
             TickLog log = TMuteRun(TMuteType(null, TParam("Condition", "Sound == null", "action"), TParam("Sound", "Math.random() < 2 ? null : 'x'", "action")), true, rng);
