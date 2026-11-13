@@ -197,6 +197,102 @@ namespace DesktopAICompanion.Shimeji
                 "parity policy: a null process path or an unreadable engine file gives build-witness-unreadable too (" + nullExe + " | " + missing + ")");
         }
 
+        /// <summary>
+        /// burndown/host-policy-1, N-parity-1107-03 C6 (signed revision H step 3, :45, :49; K5 agreed with Codex): a legacy
+        /// scenario whose read, syntax or eagerly decoded schema strings fail is the named producer-input diagnostic
+        /// "scenario-input-unreadable" with its detail, exit 2 and no trace, never an exception out of the command: an
+        /// escaped unpaired surrogate in the schema value (25 raw bytes, so no length shortcut tells it from the
+        /// marker), a start sid, rng.kind or a start behavior. A pack value the claim cannot decode is no usable pack
+        /// folder there, and the run still refuses the scenario by its own line. An accepted scenario/1 is unchanged by a
+        /// deep unused member within .NET's depth. Every pet here is generated.
+        /// </summary>
+        private static void CheckParityInputDiagnostics(Action<bool, string> check, string root, StringBuilder log)
+        {
+            try
+            {
+                CheckParityInputDiagnosticLegs(check, root, log);
+            }
+            catch (Exception e)
+            {
+                check(false, "parity policy: the input diagnostic checks ran without an exception: " + e);
+            }
+        }
+
+        private static void CheckParityInputDiagnosticLegs(Action<bool, string> check, string root, StringBuilder log)
+        {
+            Directory.CreateDirectory(root);
+            var build = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                { "commit", "selftest" }, { "exeSha256", new string('0', 64) }, { "engineSha256", new string('1', 64) }, { "converterSha256", new string('2', 64) },
+            };
+            string pets = PolicyPets(root, "pets-input", new KeyValuePair<string, XmlData.RootNode>("Par", ParDocument(false)));
+            string plain = PolicyScenario(root, "S-input-plain", 4,
+                "{\"sid\":\"m1\",\"imageSet\":\"Par\",\"behavior\":\"Walk\",\"anchor\":[640,680],\"lookRight\":false}");
+            string plainText = File.ReadAllText(plain);
+
+            // One run on a scenario file written from the plain one with one textual change: exit, whether a trace was
+            // left, and the log (an exception out of the run is caught and named, never passed).
+            Func<string, string, string[]> run = (name, text) =>
+            {
+                string scenario = Path.Combine(root, name + ".json");
+                if (text != null) File.WriteAllText(scenario, text, new UTF8Encoding(false));
+                string trace = Path.Combine(root, name + ".jsonl");
+                var runLog = new StringWriter();
+                string exit;
+                try { exit = ParityRun.Run(scenario, pets, trace, build, runLog).ToString(CultureInfo.InvariantCulture); }
+                catch (Exception e) { exit = "threw " + e.GetType().Name; runLog.Write(e.Message); }
+                // Always ends the line: a run that threw left its message unterminated, and the next check's FAIL line
+                // must start a line of its own.
+                log.AppendLine("LOG: parity input " + name + ": " + runLog.ToString().TrimEnd());
+                return new[] { exit, File.Exists(trace) ? File.ReadAllText(trace) : null, runLog.ToString().Trim(), scenario };
+            };
+            Func<string[], string, bool> named = (r, want) => r[0] == "2" && r[1] == null && r[2].StartsWith(want, StringComparison.Ordinal);
+            Func<string[], string> said = r => "exit " + r[0] + ", trace " + (r[1] == null ? "none" : "left") + ", " + r[2];
+            Func<string, string, string> unreadable = (scenario, field) => ParityRun.ScenarioInputUnreadable + " schema-string: refused " + scenario
+                + ": the scenario's '" + field + "' string cannot be decoded: ";
+
+            // 25 raw bytes, the length of the marker and of scenario/1: \ud800 (6) + x (1) + -parity-scenario/1 (18).
+            const string surrogateSchema = "\\ud800x-parity-scenario/1";
+            string[] schema = run("S-input-schema", plainText.Replace("shimeji-parity-scenario/1", surrogateSchema));
+            check(surrogateSchema.Length == 25 && named(schema, unreadable(schema[3], "schema")),
+                "parity policy: a 25-raw-byte surrogate schema value gives the named schema-string diagnostic, exit 2, no trace (" + said(schema) + ")");
+            string[] sid = run("S-input-sid", plainText.Replace("\"sid\":\"m1\"", "\"sid\":\"\\ud800\""));
+            check(named(sid, unreadable(sid[3], "sid")),
+                "parity policy: a surrogate sid gives the named diagnostic, exit 2, no trace (" + said(sid) + ")");
+            string[] kind = run("S-input-rng-kind", plainText.Replace("\"rng\":{\"kind\":\"none\"}", "\"rng\":{\"kind\":\"\\udc00\"}"));
+            check(named(kind, unreadable(kind[3], "rng.kind")),
+                "parity policy: a surrogate rng.kind gives the named diagnostic, exit 2, no trace (" + said(kind) + ")");
+            string[] behavior = run("S-input-behavior", plainText.Replace("\"behavior\":\"Walk\"", "\"behavior\":\"W\\ud800\""));
+            check(named(behavior, unreadable(behavior[3], "behavior")),
+                "parity policy: a surrogate start behavior gives the named diagnostic, exit 2, no trace (" + said(behavior) + ")");
+
+            // The read fault and the syntax fault: the token in front, the line as it was after it.
+            string[] absent = run("S-input-absent", null);
+            string[] syntax = run("S-input-syntax", plainText.Substring(0, plainText.Length - 1));
+            check(named(absent, ParityRun.ScenarioInputUnreadable + " read: refused " + absent[3] + ": the scenario cannot be read: ")
+                  && named(syntax, ParityRun.ScenarioInputUnreadable + " syntax: refused " + syntax[3] + ": scenario-invalid: the scenario is not JSON: "),
+                "parity policy: the read fault and the syntax fault carry the token (" + said(absent) + " | " + said(syntax) + ")");
+
+            // A pack value with an unpaired surrogate: no usable pack folder at the claim (no exception there), and the run
+            // still refuses the scenario by its own scenario-invalid line.
+            string[] pack = run("S-input-pack", plainText.Replace("\"pack\":\"pack\"", "\"pack\":\"pa\\ud800ck\""));
+            check(pack[0] == "2" && pack[1] == null && pack[2].StartsWith("refused " + pack[3] + ": scenario-invalid: ", StringComparison.Ordinal),
+                "parity policy: a surrogate pack value is no usable pack folder at the claim and the run still refuses it, exit 2, no trace (" + said(pack) + ")");
+
+            // WITNESS: the accepted scenario/1 runs, and the same scenario with a deep unused member (60 nested arrays, inside
+            // JsonDocument's default depth of 64) writes the same records after its header.
+            var deep = new StringBuilder();
+            for (int i = 0; i < 60; i++) deep.Append('[');
+            for (int i = 0; i < 60; i++) deep.Append(']');
+            string[] accepted = run("S-input-accepted", plainText);
+            string[] deepRun = run("S-input-deep", plainText.Replace("\"description\":\"generated\",", "\"description\":\"generated\",\"unused\":" + deep + ","));
+            Func<string, string> body = t => t == null || t.IndexOf('\n') < 0 ? null : t.Substring(t.IndexOf('\n') + 1);
+            check(accepted[0] == "0" && deepRun[0] == "0" && body(accepted[1]) != null && body(accepted[1]) == body(deepRun[1])
+                  && accepted[1].Contains("\"status\":\"complete\""),
+                "parity policy: WITNESS an accepted scenario/1 is unchanged, a deep unused value included (exit " + accepted[0] + " and " + deepRun[0]
+                + ", records " + (body(accepted[1]) != null && body(accepted[1]) == body(deepRun[1]) ? "equal" : "differ") + ")");
+        }
+
         /// <summary>The text between the first <paramref name="start"/> and the last <paramref name="end"/>, or null.</summary>
         private static string Between(string text, string start, string end)
         {

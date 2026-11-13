@@ -1512,7 +1512,19 @@ namespace DesktopAICompanion.Shimeji
                     if (doc.RootElement.ValueKind != JsonValueKind.Object || !doc.RootElement.TryGetProperty("pack", out pack)
                         || pack.ValueKind != JsonValueKind.String)
                         return null;
-                    return PackFolder(scenario.Argument, pack.GetString());
+                    // N-parity-1107-03 C6 (H :45): a pack string with an escaped unpaired surrogate cannot be decoded, so
+                    // it names no usable pack folder; the claim goes on without one and the run refuses the scenario by
+                    // its own line. Caught round the decode only, so nothing else here is taken for it.
+                    string packText;
+                    try
+                    {
+                        packText = pack.GetString();
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        return null;
+                    }
+                    return PackFolder(scenario.Argument, packText);
                 }
             }
             catch (JsonException)
@@ -1805,7 +1817,7 @@ namespace DesktopAICompanion.Shimeji
             // read itself is ScenarioFile.Read's, before the claim; its fault is refused here, after the claim.
             if (scenarioFile.Fault != null)
             {
-                log.WriteLine("refused " + scenarioPath + ": the scenario cannot be read: " + scenarioFile.Fault.Message);
+                log.WriteLine(ScenarioInputUnreadableLine("read", "refused " + scenarioPath + ": the scenario cannot be read: " + scenarioFile.Fault.Message));
                 return 2;
             }
             byte[] scenarioBytes = scenarioFile.Bytes;
@@ -1824,13 +1836,25 @@ namespace DesktopAICompanion.Shimeji
             }
             catch (JsonException e)
             {
-                log.WriteLine("refused " + scenarioPath + ": scenario-invalid: the scenario is not JSON: " + e.Message);
+                log.WriteLine(ScenarioInputUnreadableLine("syntax", "refused " + scenarioPath + ": scenario-invalid: the scenario is not JSON: " + e.Message));
                 return 2;
             }
             using (doc)
             {
                 string refusal;
-                Scenario scenario = ReadScenario(doc.RootElement, out refusal);
+                Scenario scenario;
+                try
+                {
+                    scenario = ReadScenario(doc.RootElement, out refusal);
+                }
+                catch (ScenarioInputUnreadableException e)
+                {
+                    // K5 schema-string: a schema value, rng.kind, start sid or start behavior ScenarioInvalid could not
+                    // decode. Before, an InvalidOperationException out of the command.
+                    log.WriteLine(ScenarioInputUnreadableLine("schema-string", "refused " + scenarioPath + ": the scenario's '" + e.Field
+                        + "' string cannot be decoded: " + e.Message));
+                    return 2;
+                }
                 if (scenario == null)
                 {
                     log.WriteLine("refused " + scenarioPath + ": scenario-invalid: " + refusal);
@@ -1912,6 +1936,52 @@ namespace DesktopAICompanion.Shimeji
         /// <summary>The scenario's schema (CONTRACT section 1).</summary>
         internal const string ScenarioSchema = "shimeji-parity-scenario/1";
 
+        /// <summary>
+        /// K5 (signed revision H step 3, :49; the name Codex agreed on 2026-11-13): the named producer-input diagnostic for
+        /// a scenario whose bytes cannot be read (detail "read"), parsed (detail "syntax"), or whose eagerly decoded schema
+        /// strings cannot be decoded (detail "schema-string"). Exit 2, no trace, no fabricated comparer grade. One constant,
+        /// so an adopted respelling is a one-line change.
+        /// </summary>
+        internal const string ScenarioInputUnreadable = "scenario-input-unreadable";
+
+        /// <summary>The K5 line: the token and its detail IN FRONT of the line the run wrote before, which follows byte for
+        /// byte, so every existing reader of that line still finds it and a checker finds the token at the start.</summary>
+        internal static string ScenarioInputUnreadableLine(string detail, string line)
+        {
+            return ScenarioInputUnreadable + " " + detail + ": " + line;
+        }
+
+        /// <summary>A scenario string that cannot be decoded (an escaped unpaired surrogate), thrown by
+        /// <see cref="ScenarioText"/> out of <see cref="ScenarioInvalid"/> and refused at the run's ReadScenario call as the
+        /// schema-string diagnostic.</summary>
+        private sealed class ScenarioInputUnreadableException : Exception
+        {
+            public readonly string Field;
+
+            public ScenarioInputUnreadableException(string field, InvalidOperationException fault) : base(fault.Message, fault)
+            {
+                Field = field;
+            }
+        }
+
+        /// <summary>
+        /// One eagerly decoded scenario string, its kind already checked as String, so the only fault left is the decode
+        /// itself: JsonElement.GetString throws InvalidOperationException on an escaped unpaired surrogate. ScenarioInvalid
+        /// runs before ReadScenario's refusal catch, so that fault left the command unhandled (the dispatcher in Program.cs
+        /// has no outer catch). Guarded per site rather than by one catch round the method, so each site has its own check.
+        /// </summary>
+        private static string ScenarioText(JsonElement e, string field)
+        {
+            try
+            {
+                return e.GetString();
+            }
+            catch (InvalidOperationException fault)
+            {
+                throw new ScenarioInputUnreadableException(field, fault);
+            }
+        }
+
         /// <summary>The fields CONTRACT section 1 requires, as the comparer's validate_scenario lists them.</summary>
         private static readonly string[] ScenarioFields = { "id", "pack", "screens", "workArea", "dpiScale", "ticks", "rng", "settings", "mascots" };
 
@@ -1974,24 +2044,27 @@ namespace DesktopAICompanion.Shimeji
         {
             JsonElement e;
             if (s.ValueKind != JsonValueKind.Object || !s.TryGetProperty("schema", out e) || e.ValueKind != JsonValueKind.String
-                || e.GetString() != ScenarioSchema)
+                || ScenarioText(e, "schema") != ScenarioSchema)
                 return "schema is not " + ScenarioSchema;
             foreach (string field in ScenarioFields)
                 if (!s.TryGetProperty(field, out e)) return "lacks '" + field + "'";
             int ticks;
             if (!Integer(s.GetProperty("ticks"), out ticks) || ticks < 0) return "ticks is not a non-negative integer";
             JsonElement rng = s.GetProperty("rng");
-            string kind = rng.ValueKind == JsonValueKind.Object && rng.TryGetProperty("kind", out e) && e.ValueKind == JsonValueKind.String ? e.GetString() : null;
+            string kind = rng.ValueKind == JsonValueKind.Object && rng.TryGetProperty("kind", out e) && e.ValueKind == JsonValueKind.String ? ScenarioText(e, "rng.kind") : null;
             if (kind != "none" && kind != "tape" && kind != "splitmix64") return "rng.kind is not none, tape or splitmix64";
             JsonElement mascots = s.GetProperty("mascots");
             if (mascots.ValueKind != JsonValueKind.Array || mascots.GetArrayLength() == 0) return "mascots need one or more unique sids";
             var sids = new HashSet<string>(StringComparer.Ordinal);
             foreach (JsonElement m in mascots.EnumerateArray())
-                if (m.ValueKind != JsonValueKind.Object || !m.TryGetProperty("sid", out e) || e.ValueKind != JsonValueKind.String
-                    || e.GetString().Length == 0 || !sids.Add(e.GetString()))
+            {
+                string sidText = m.ValueKind == JsonValueKind.Object && m.TryGetProperty("sid", out e) && e.ValueKind == JsonValueKind.String
+                    ? ScenarioText(e, "sid") : null;
+                if (string.IsNullOrEmpty(sidText) || !sids.Add(sidText))
                     return "mascots need one or more unique sids";
+            }
             foreach (JsonElement m in mascots.EnumerateArray())
-                if (!m.TryGetProperty("behavior", out e) || e.ValueKind != JsonValueKind.String || e.GetString().Length == 0)
+                if (!m.TryGetProperty("behavior", out e) || e.ValueKind != JsonValueKind.String || ScenarioText(e, "behavior").Length == 0)
                     return "start companion '" + m.GetProperty("sid").GetString() + "' names no behavior (a directed start runs no selection draw)";
             foreach (string timeline in new[] { "input", "activeWindow" })
             {

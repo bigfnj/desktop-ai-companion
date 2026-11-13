@@ -7971,6 +7971,20 @@ trace-off run whose final-state write failed after checkpoint N (caught as statu
 incomplete: checkpoints <N+1> of <N+1>, final state records not compared" instead, a form added beside the existing
 incomplete line and sent to Codex with the other spellings.
 
+**Scenario input that cannot be read, parsed or decoded is the named diagnostic scenario-input-unreadable (K5, H step 3,
+2026-11-13).** The token Codex agreed is one constant, `ParityRun.ScenarioInputUnreadable`, with the detail read
+(scenario file I/O), syntax (a JSON syntax failure) or schema-string (an eagerly decoded scenario string). It is written
+in FRONT of the line, "scenario-input-unreadable read: refused <path>: the scenario cannot be read: ...", so the line
+the run wrote before follows byte for byte and every existing matcher still finds it. `ScenarioInvalid` decodes the
+schema value, rng.kind, each start sid and each start behavior through one guarded read per site, so an escaped
+unpaired surrogate there is the schema-string diagnostic, exit 2 and no trace, where it was an
+InvalidOperationException out of the command: `ScenarioInvalid` runs before `ReadScenario`'s refusal catch, and the
+command's branch of `Main` has no outer catch. One guarded read per site rather than one catch round the method, so each
+site has its own mutant. `PackFolderOf` catches only the pack value's decode failure and treats it as no usable pack
+folder (H :45); the run then refuses the scenario by its existing line. Refused: a new refusal for any input the run
+accepted before (a surrogate imageSet or timeline sid still ends the run in error, as it did), and a detail beyond the
+three Codex agreed.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. None of
