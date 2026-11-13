@@ -21721,7 +21721,11 @@ CASES = (
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
      'parity map/3: a map/2 file is refused with a regenerate message, by the reader and by a run'),
     # Control 1: SourceKind classifying the way TickType.ParseLiteral does (exact Boolean text, then TryParseJavaDouble on
-    # the raw text, whose .NET Trim strips U+00A0), so U+00A0 then 1 becomes a number.
+    # the raw text, whose .NET Trim strips U+00A0), so U+00A0 then 1 becomes a number. Since commit 5a it also fails ONE
+    # "parity mute:" label, inherently: the qualified-literal label's U+00A0 then 1 leg (control 1's first half, at the
+    # writer) needs the reader to call that row a String, so the mutant refuses that leg's map too. Since round 5 that
+    # refusal fails only that label, inside its own try, and every later mute label still runs (measured at 432ceb24:
+    # 2 failure lines, the map/3 label and the qualified-literal label).
     ("bd-host-mute-1: map/3 SourceKind classifies like TickType.ParseLiteral (.NET trim on the raw text)",
      os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
      b'            if (trimmed.Length > 0 && !char.IsWhiteSpace(trimmed[0]) && !char.IsWhiteSpace(trimmed[trimmed.Length - 1]) && TickType.TryParseJavaDouble(trimmed, out ignored))\n',

@@ -1084,9 +1084,10 @@ namespace DesktopAICompanion.Shimeji
                 // P2-C's provenance defects (C11, Q1a, Q3; FC-2 steps 1-3): no mute line for that read, no information at all,
                 // the named MUTE_PROVENANCE_MISSING as a parity trace line, status error and exit 1. Each reason is declared.
                 // These legs' literal is authored as emitted ("to"), so only the qualified-literal label sees a writer that
-                // writes the emitted value. The unbound leg's map is another document's ('elsewhere', so no row there shares
-                // the read definition's value or display text): a lookup by value instead of by the definition object still
-                // finds nothing, and the map/3 value-key mutant stays the reader label's alone.
+                // writes the emitted value. The unbound leg's map is another document's, whose Sound is the literal
+                // elsewhere (cache none) where the engine reads an action-cached evaluated null: a lookup by cache and
+                // display text instead of by the definition object still finds nothing there (every evaluated definition
+                // displays alike), so the map/3 value-key mutant stays the reader label's alone.
                 const string localReason = "Sound is a local the action published, which no map row binds";
                 const string noOwnerReason = "the Mute action has no owner type to find a map by";
                 group("parity mute: a provenance defect writes no line and no information and ends the run in error (local, no owner, no map, unbound, inconsistent or incomplete row)", 7, () =>
@@ -1098,8 +1099,8 @@ namespace DesktopAICompanion.Shimeji
                     leg("no owner type", outcome(ParMuteRun(own("to", "none"), literalRows, true, m => m.Again(3, noOwner: true))),
                         declared("1", "\"to\"", missing(3, noOwnerReason)));
                     leg("no owner map", outcome(ParMuteRun(own("Sound == null ? 1 : 2", "action"), null, true)), declared("1", "", missing(0, "member Mu has no parity map")));
-                    leg("unbound definition, Sounds off", outcome(ParMuteRun(own("null", "action"), "[" + ParMuteRow("'elsewhere'", null, null, "action") + "]", false,
-                            foreignDocument: own("'elsewhere'", "action"))),
+                    leg("unbound definition, Sounds off", outcome(ParMuteRun(own("null", "action"), "[" + ParMuteRow("elsewhere", "elsewhere", "string") + "]", false,
+                            foreignDocument: own("elsewhere", "none"))),
                         declared("1", "", missing(0, "the Sound definition read is bound to no soundParameters row of member Mu")));
                     leg("inconsistent row", outcome(ParMuteRun(own("Sound == null ? 1 : 2", "action"), "[" + ParMuteRow("Sound == null ? 1 : 2", null, null, "action") + "]", true,
                             before: m =>
