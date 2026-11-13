@@ -121,8 +121,8 @@ namespace DesktopAICompanion.Shimeji
 
         /// <summary>One soundParameters row as read (CONTRACT v1.4 draft P1-B): the location of a compiled Sound definition
         /// (kind, nodeId, childIndex or -1), the source element that defined it, the emitted value and cache, and for a
-        /// literal its authored text and that text's source kind. Binding each row to its compiled definition is a later
-        /// step (P1-D); this record holds only what the row says, already checked for shape.</summary>
+        /// literal its authored text and that text's source kind. This record holds only what the row says, checked for
+        /// shape; <see cref="BindSounds"/> binds it to its compiled definition (P1-D).</summary>
         internal sealed class SoundRow
         {
             public int Row;
@@ -139,6 +139,22 @@ namespace DesktopAICompanion.Shimeji
 
         /// <summary>The rows in map order, filled by <see cref="Apply"/>.</summary>
         internal readonly List<SoundRow> SoundRows = new List<SoundRow>();
+
+        /// <summary>Each row by the compiled definition it binds (CONTRACT v1.4 draft P1-D), keyed by the definition
+        /// OBJECT, never by value: <see cref="TickParamDef"/> overrides no Equals, and two definitions that emit the same
+        /// text (/, a backslash and the empty string all emit "") are still two source definitions with their own authored
+        /// spellings (control 5). Kept here, not on the definition, so the engine's model carries nothing a parity run
+        /// needs. Filled by <see cref="BindSounds"/>.</summary>
+        private readonly Dictionary<TickParamDef, SoundRow> _soundRows = new Dictionary<TickParamDef, SoundRow>(ReferenceEqualityComparer.Instance);
+
+        /// <summary>The row bound to <paramref name="def"/>, the compiled definition a Mute read selected; false for a
+        /// definition this map binds no row to.</summary>
+        internal bool TryGetSoundRow(TickParamDef def, out SoundRow row)
+        {
+            row = null;
+            if (def == null) return false;
+            return _soundRows.TryGetValue(def, out row);
+        }
 
         private static readonly HashSet<string> SoundRowProperties = new HashSet<string>(StringComparer.Ordinal)
         {
@@ -235,6 +251,133 @@ namespace DesktopAICompanion.Shimeji
                 SoundRows.Add(read);
                 i++;
             }
+        }
+
+        private const string SoundName = "Sound";
+
+        /// <summary>One compiled Sound definition <see cref="BindSounds"/> found: the definition object, the attribute
+        /// text of the validated XML node it was compiled from, and whether a row has bound it.</summary>
+        private sealed class SoundSite
+        {
+            public TickParamDef Def;
+            public string Value;
+            public string Cache;
+            public bool Bound;
+        }
+
+        /// <summary>
+        /// CONTRACT v1.4 draft P1-D and P1-E, the binding and the coverage: each Sound row binds the compiled definition at
+        /// its location, held by that definition OBJECT (<see cref="TryGetSoundRow"/>), and the rows and the compiled Sound
+        /// definitions are a bijection. The definitions are found by walking the validated XML in TickType.Compile's order
+        /// (CompileAct: its params, then its children with nulls skipped and each child's binds; CompileBehaviour: its
+        /// binds), taking every definition whose name is ordinally "Sound" with the TickParamDef it compiled to. So the walk
+        /// keys on the canonical name the validated document carries, never on a source attribute spelling (control 17,
+        /// host half), and a definition a name lookup shadows is still in it, being found by node id. A row's emittedValue
+        /// and emittedCache are compared with that XML node's attribute TEXT, never with a compiled or evaluated value:
+        /// distinct strings compile to one Number, and evaluating a script to check a map is forbidden. A later node or
+        /// definition at one location replaces an earlier one, as Compile's dictionaries do (the validator refuses a
+        /// repeated node id or name before LoadPets compiles). Each rule is its own statement with its own message, so each
+        /// can be removed alone and fail one check (C13).
+        /// </summary>
+        private void BindSounds(TickType type, XmlData.RootNode document)
+        {
+            var sites = new Dictionary<string, SoundSite>(StringComparer.Ordinal);
+            foreach (XmlData.AnimationNode a in document.Animations.Animation)
+            {
+                if (a == null) continue;
+                if (a.Act != null)
+                {
+                    TickActDef act;
+                    if (!type.ActionsById.TryGetValue(a.Id, out act)) continue;
+                    if (a.Act.Params != null)
+                        foreach (XmlData.ParamNode p in a.Act.Params)
+                            if (p != null && p.Name == SoundName) AddSite(sites, "action " + a.Id, act.Params, p.Name, p.Value, p.Cache);
+                    if (a.Act.Children == null || a.Act.Children.Child == null) continue;
+                    int index = 0;
+                    foreach (XmlData.CompositeChildNode c in a.Act.Children.Child)
+                    {
+                        if (c == null) continue;
+                        if (c.Bind != null && index < act.Children.Length)
+                            foreach (XmlData.BindNode b in c.Bind)
+                                if (b != null && b.Name == SoundName)
+                                    AddSite(sites, "child " + a.Id + ":" + index, act.Children[index].Binds, b.Name, b.Value, b.Cache);
+                        index++;
+                    }
+                }
+                else if (a.Behaviour != null)
+                {
+                    TickBehaviourDef behaviour;
+                    if (!type.BehavioursById.TryGetValue(a.Id, out behaviour) || a.Behaviour.Bind == null) continue;
+                    foreach (XmlData.BindNode b in a.Behaviour.Bind)
+                        if (b != null && b.Name == SoundName) AddSite(sites, "behaviour " + a.Id, behaviour.Binds, b.Name, b.Value, b.Cache);
+                }
+            }
+
+            var located = new HashSet<string>(StringComparer.Ordinal);
+            foreach (SoundRow row in SoundRows)
+            {
+                string at = "parity map soundParameters row " + row.Row.ToString(CultureInfo.InvariantCulture) + " ";
+                string location = row.Kind + " " + row.NodeId + (row.Kind == "child" ? ":" + row.ChildIndex : "");
+                if (!located.Add(location))
+                    throw new InvalidDataException(at + "repeats the location " + location + " (one row per Sound definition)");
+                if (!HasSoundContainer(type, row))
+                    throw new InvalidDataException(at + "names " + location + ", which is no compiled " + (row.Kind == "child" ? "child reference" : row.Kind) + " (surplus)");
+                SoundSite site;
+                sites.TryGetValue(location, out site);
+                if (site == null)
+                    throw new InvalidDataException(at + "names " + location + ", which defines no Sound (surplus)");
+                string section = row.Kind == "action" ? "actions" : row.Kind == "behaviour" ? "behaviours" : "children";
+                string entry = SoundMapEntry(row);
+                // Control 9: an absent entry refuses here, a child's included. Apply tolerates an absent children entry
+                // only for a child that binds no Sound, which no row can name (it is surplus above).
+                if (entry == null)
+                    throw new InvalidDataException(at + "binds " + location + ", which has no " + section + " entry in the map (a Sound definition's location needs one)");
+                if (row.SourceRefKey != entry)
+                    throw new InvalidDataException(at + "has sourceRefKey '" + row.SourceRefKey + "', not the map's " + section + " entry '" + entry + "'");
+                int bar = row.SourceRefKey.IndexOf('|');
+                string set = bar < 0 ? row.SourceRefKey : row.SourceRefKey.Substring(0, bar);
+                if (set != ImageSet)
+                    throw new InvalidDataException(at + "has a sourceRefKey in image set '" + set + "', not '" + ImageSet + "'");
+                if (site.Cache == null)
+                    throw new InvalidDataException(at + "binds " + location + ", whose Sound definition has no cache attribute (map/3 requires one)");
+                if ((row.Mode == "literal") != (site.Def.Cache == TickCache.None))
+                    throw new InvalidDataException(at + "is " + row.Mode + ", but the Sound definition at " + location + " compiles with cache " + site.Def.Cache.ToString().ToLowerInvariant());
+                if (row.EmittedValue != site.Value)
+                    throw new InvalidDataException(at + "has emittedValue '" + row.EmittedValue + "', not the XML value '" + site.Value + "' of the Sound definition at " + location);
+                if (row.EmittedCache != site.Cache)
+                    throw new InvalidDataException(at + "has emittedCache '" + row.EmittedCache + "', not the XML cache '" + site.Cache + "' of the Sound definition at " + location);
+                site.Bound = true;
+                _soundRows.Add(site.Def, row);
+            }
+            foreach (KeyValuePair<string, SoundSite> s in sites)
+                if (!s.Value.Bound)
+                    throw new InvalidDataException("parity map has no soundParameters row for the Sound definition at " + s.Key + " (missing)");
+        }
+
+        private static void AddSite(Dictionary<string, SoundSite> sites, string location, Dictionary<string, TickParamDef> compiled, string name, string value, string cache)
+        {
+            TickParamDef def;
+            if (compiled != null && compiled.TryGetValue(name, out def))
+                sites[location] = new SoundSite { Def = def, Value = value, Cache = cache };
+        }
+
+        /// <summary>Whether the compiled type has the container a row's location names (P1-D's table), Sound or not.</summary>
+        private static bool HasSoundContainer(TickType type, SoundRow row)
+        {
+            if (row.Kind == "behaviour") return type.BehavioursById.ContainsKey(row.NodeId);
+            TickActDef act;
+            if (!type.ActionsById.TryGetValue(row.NodeId, out act)) return false;
+            return row.Kind == "action" || row.ChildIndex < act.Children.Length;
+        }
+
+        /// <summary>The map/2 entry a row's location requires (P1-D): actions[nodeId], behaviours[nodeId] or
+        /// children["nodeId:childIndex"]; null when the map has none.</summary>
+        private string SoundMapEntry(SoundRow row)
+        {
+            string entry;
+            if (row.Kind == "action") return Actions.TryGetValue(row.NodeId, out entry) ? entry : null;
+            if (row.Kind == "behaviour") return Behaviours.TryGetValue(row.NodeId, out entry) ? entry : null;
+            return Children.TryGetValue(row.NodeId + ":" + row.ChildIndex, out entry) ? entry : null;
         }
 
         private static string RawOf(JsonElement e)
@@ -394,6 +537,9 @@ namespace DesktopAICompanion.Shimeji
                 if (!Actions.TryGetValue(act.NodeId, out key))
                     throw new InvalidDataException("parity map has no refKey for action node " + act.NodeId + " '" + act.Name + "'");
                 act.RefKey = key;
+                // An absent children entry stays tolerated here (burndown/host-mute-1 kept it: closing it for every child
+                // could refuse real maps outside the Mute wire). A child that binds Sound needs its entry, which
+                // BindSounds requires (CONTRACT v1.4 draft P1-D, control 9).
                 for (int i = 0; i < act.Children.Length; i++)
                     if (Children.TryGetValue(act.NodeId + ":" + i, out key)) act.Children[i].RefKey = key;
             }
@@ -414,6 +560,7 @@ namespace DesktopAICompanion.Shimeji
             // LoadPets logs as "refused <map path>: <reason>", exit 2 and no trace.
             CheckTopLevel();
             ReadSoundRows();
+            BindSounds(type, document);
         }
 
         /// <summary>

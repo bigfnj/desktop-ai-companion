@@ -168,9 +168,16 @@ namespace DesktopAICompanion.Shimeji
 
         /// <summary>Walk (30, Stay, Duration 3, a frame-cached Draggable that draws), and with <paramref name="full"/>
         /// Mover (31, Embedded MoveWithTurn: its last variant when="false" with one image-less 1-tick pose), Ends (32,
-        /// Animate: decision 68's placeholder) and Seq (33, a Sequence of Walk). Cells 64x64, two tiles.</summary>
-        private static XmlData.RootNode ParDocument(bool full)
+        /// Animate: decision 68's placeholder) and Seq (33, a Sequence of Walk). Cells 64x64, two tiles. With
+        /// <paramref name="sounds"/> (burndown/host-mute-1, CONTRACT v1.4 draft P1-D) every container kind defines Sound:
+        /// Walk's own literal "to", the Walk behaviour's action-cached bind 'a' + 1, and with <paramref name="full"/> Mover's
+        /// frame-cached 'b', Ends' literal true, Seq's own literal " ${x}" and Seq's six references to Walk: 33:0 binds
+        /// "1", 33:1 to 33:3 each bind "" (the emitted text of /, a backslash and the empty string, control 5), 33:4 binds
+        /// nothing, and 33:5 binds only "sound", which is not Sound by the ordinal name.</summary>
+        private static XmlData.RootNode ParDocument(bool full, bool sounds = false)
         {
+            Func<string, string, string, XmlData.ParamNode> param = (name, value, cache) => new XmlData.ParamNode { Name = name, Value = value, Cache = cache };
+            Func<string, string, XmlData.BindNode[]> bind = (value, cache) => new[] { new XmlData.BindNode { Name = "Sound", Value = value, Cache = cache } };
             var still = new XmlData.MovingNode { X = "0", Y = "0", Interval = "40" };
             Func<int, string, XmlData.AnimationNode> node = (id, name) => new XmlData.AnimationNode
             {
@@ -195,6 +202,11 @@ namespace DesktopAICompanion.Shimeji
                 Variants = new XmlData.VariantsNode { Variant = new[] { new XmlData.VariantNode { Pose = new[] { pose(0, 1), pose(-1, 1), pose(1, 1) } } } },
             };
             var nodes = new List<XmlData.AnimationNode> { route, walkBehaviour, walk };
+            if (sounds)
+            {
+                walkBehaviour.Behaviour.Bind = bind("'a' + 1", "action");
+                walk.Act.Params = new[] { walk.Act.Params[0], walk.Act.Params[1], param("Sound", "to", "none") };
+            }
             if (full)
             {
                 XmlData.AnimationNode mover = node(31, "Mover");
@@ -222,6 +234,18 @@ namespace DesktopAICompanion.Shimeji
                     Type = "Sequence",
                     Children = new XmlData.ChildrenNode { Mode = "sequence", Child = new[] { new XmlData.CompositeChildNode { Animation = "Walk" } } },
                 };
+                if (sounds)
+                {
+                    mover.Act.Params = new[] { param("Sound", "'b'", "frame") };
+                    ends.Act.Params = new[] { param("Sound", "true", "none") };
+                    seq.Act.Params = new[] { param("Sound", " ${x}", "none") };
+                    Func<XmlData.BindNode[], XmlData.CompositeChildNode> walkRef = binds => new XmlData.CompositeChildNode { Animation = "Walk", Bind = binds };
+                    seq.Act.Children.Child = new[]
+                    {
+                        walkRef(bind("1", "none")), walkRef(bind("", "none")), walkRef(bind("", "none")), walkRef(bind("", "none")), walkRef(null),
+                        walkRef(new[] { new XmlData.BindNode { Name = "sound", Value = "x", Cache = "none" } }),
+                    };
+                }
                 nodes.Add(mover);
                 nodes.Add(ends);
                 nodes.Add(seq);
@@ -243,9 +267,14 @@ namespace DesktopAICompanion.Shimeji
         /// asserts the type.</summary>
         private static string ParApply(string json, bool full)
         {
+            return ParApply(json, ParDocument(full));
+        }
+
+        /// <summary>As <see cref="ParApply(string, bool)"/>, against a document the caller built (it is only read).</summary>
+        private static string ParApply(string json, XmlData.RootNode document)
+        {
             try
             {
-                XmlData.RootNode document = ParDocument(full);
                 ParityMap.Parse(json).Apply(TickType.Compile("Par", document), document);
                 return null;
             }
@@ -334,12 +363,14 @@ namespace DesktopAICompanion.Shimeji
             + "\"emittedValue\":\"1\",\"emittedCache\":\"none\",\"mode\":\"literal\",\"sourceValue\":\" 1\",\"sourceKind\":\"number\"}";
 
         /// <summary>
-        /// burndown/host-mute-1, C13's run leg: a parity run of one map beside <paramref name="xml"/>, through ParityRun.Run in
-        /// this process with a generated scenario and pack, as CheckParityRunRefusals' go does, one pets folder and
-        /// scenario per run so no run reads another's leftovers. Gives the exit code, the trace text (null when no trace
-        /// file was left), the run's log and the map's path, which a refusal names.
+        /// burndown/host-mute-1, C13's run leg: a parity run of one map beside one animations.xml text (the arguments, in
+        /// that order), through ParityRun.Run in this process with a generated scenario and pack, as CheckParityRunRefusals'
+        /// go does, one pets folder and scenario per run so no run reads another's leftovers. Gives the exit code, the
+        /// trace text (null when no trace file was left), the run's log and the map's path, which a refusal names. A run
+        /// that throws (an exception no refusal catches, as a mutant can cause) gives exit "threw" and the exception in the
+        /// log, so it fails the one label whose map it was, not every check after it.
         /// </summary>
-        private static Func<string, string[]> ParRunner(string root, string xml)
+        private static Func<string, string, string[]> ParRunner(string root)
         {
             Directory.CreateDirectory(root);
             string pack = Path.Combine(root, "pack");
@@ -350,7 +381,7 @@ namespace DesktopAICompanion.Shimeji
                 { "commit", "selftest" }, { "exeSha256", new string('0', 64) }, { "engineSha256", new string('1', 64) }, { "converterSha256", new string('2', 64) },
             };
             int run = 0;
-            return map =>
+            return (xml, map) =>
             {
                 run++;
                 string pets = Path.Combine(root, "pets" + run), member = Path.Combine(pets, "Par"), mapPath = Path.Combine(member, "parity-map.json");
@@ -365,8 +396,17 @@ namespace DesktopAICompanion.Shimeji
                     + "\"activeWindow\":[{\"tick\":0,\"visible\":false}],\"input\":[{\"tick\":0,\"cursor\":[100,100]}]}", new UTF8Encoding(false));
                 string trace = Path.Combine(root, "trace" + run + ".jsonl");
                 var runLog = new StringWriter();
-                int exit = ParityRun.Run(scenario, pets, trace, build, runLog, false);
-                return new[] { exit.ToString(CultureInfo.InvariantCulture), File.Exists(trace) ? File.ReadAllText(trace) : null, runLog.ToString(), mapPath };
+                string exit;
+                try
+                {
+                    exit = ParityRun.Run(scenario, pets, trace, build, runLog, false).ToString(CultureInfo.InvariantCulture);
+                }
+                catch (Exception e)
+                {
+                    exit = "threw";
+                    runLog.Write(e.GetType().Name + ": " + e.Message);
+                }
+                return new[] { exit, File.Exists(trace) ? File.ReadAllText(trace) : null, runLog.ToString(), mapPath };
             };
         }
 
@@ -375,9 +415,10 @@ namespace DesktopAICompanion.Shimeji
         /// (CONTRACT v1.4 draft P1-B, P1-C, P1-E and FC-1, read with the coordinator's revision 2 review). One map per
         /// rule, each breaking exactly that rule (C13), and each label compares the reader's whole message with a message
         /// declared here, never one derived from the exception just caught, so another guard or an exception of another
-        /// type (ParApply names its type) fails rather than substitutes. Row binding to the compiled definitions is a
-        /// later commit, so these maps carry rows the document has no Sound for. Its own try: CheckParityMapV2 runs every
-        /// lane's checks in one, and an exception here must not hide another lane's labels.
+        /// type (ParApply names its type) fails rather than substitutes. Commit 4b adds the binding (P1-D) and the
+        /// coverage (P1-E): the document defines Sound in every container kind, the complete rows bind each definition
+        /// once, and each binding rule has its own map and label. Its own try: CheckParityMapV2 runs every lane's checks
+        /// in one, and an exception here must not hide another lane's labels.
         /// C13 (the coordinator's ruling after round 2): every map is also given to a parity run (<see cref="ParRunner"/>,
         /// ParityRun.Run in this process, as CheckParityRunRefusals' go does), and the SAME label requires exit 2, no trace
         /// file and the declared message after "refused &lt;map path&gt;: ". The run leg sits inside each rule's own label,
@@ -388,42 +429,68 @@ namespace DesktopAICompanion.Shimeji
             try
             {
                 Dictionary<string, string> poses = ParPoses("Par", true);
-                Func<string, string[]> runMap = ParRunner(root, Serialize(ParDocument(true), Color.Red, Color.Blue));
-                Func<string, string> rows = soundRows => ParMapJson("Par", true, Pairs(poses), soundRows: soundRows);
+                // Every map here is read against ParDocument(true, sounds: true), whose Sound definitions the complete
+                // rows below bind one to one (commit 4b, P1-D and P1-E); a shape refusal comes first (ReadSoundRows runs
+                // before BindSounds), so the one-row maps of the shape rules need no binding.
+                XmlData.RootNode document = ParDocument(true, true);
+                string xml = Serialize(document, Color.Red, Color.Blue);
+                Func<string, string, string[]> runMap = ParRunner(root);
+                // The map/2 children entries of the Sound-binding references 33:1 to 33:3 (33:0's is ParMapJson's own).
+                // 33:3 repeats 33:2's refKey, which P1-D allows: rows need not have distinct sourceRefKeys (critique B5).
+                // 33:4 binds nothing and 33:5 binds only "sound", so neither has an entry, which Apply tolerates.
+                const string childRef = "Par|conf/actions.xml|/Mascot[1]/ActionList[1]/Action[4]/ActionReference[";
+                string firstChild = "\"33:0\":" + JsonLine.Quote(childRef + "1]");
+                Func<string, string> rows = soundRows => ParMapJson("Par", true, Pairs(poses), soundRows: soundRows).Replace(firstChild,
+                    firstChild + ",\"33:1\":" + JsonLine.Quote(childRef + "2]") + ",\"33:2\":" + JsonLine.Quote(childRef + "3]") + ",\"33:3\":" + JsonLine.Quote(childRef + "3]"));
                 Func<string, string> row = one => rows("[" + one + "]");
                 const string at = "parity map soundParameters row 0 ";
                 // Null when the reader and a run both give exactly the declared outcome, else what each gave. A declared
                 // message is a refusal (the reader's InvalidDataException message; the run's exit 2, no trace and that
                 // reason); a declared null is an acceptance (the reader accepts; the run completes with a trace).
-                Func<string, string, string> judge = (json, expected) =>
+                Func<string, XmlData.RootNode, string, string, string> judgeOn = (json, doc, docXml, expected) =>
                 {
-                    string reader = ParApply(json, true);
-                    string[] run = runMap(json);
+                    string reader = ParApply(json, doc);
+                    string[] run = runMap(docXml, json);
                     bool runAgrees = expected == null
                         ? run[0] == "0" && run[1] != null
                         : run[0] == "2" && run[1] == null && run[2].Contains("refused " + run[3] + ": " + expected + Environment.NewLine);
                     if (reader == expected && runAgrees) return null;
                     return "reader " + (reader ?? "accepted") + "; run exit " + run[0] + (run[1] == null ? ", no trace: " : ", a trace: ") + OneLine(run[2]);
                 };
+                Func<string, string, string> judge = (json, expected) => judgeOn(json, document, xml, expected);
                 Action<string, string, string> exact = (label, json, expected) =>
                 {
                     string fault = judge(json, expected);
                     check(fault == null, label + " (" + (fault ?? "reader and run: " + expected) + ")");
                 };
 
-                // The WITNESS: rows of every kind and mode, an empty evaluated body (P1-B allows one), an untrimmed " ${x}"
-                // that is a constant (P1-C rule 0 reads the untrimmed text), each read into its record.
+                // The WITNESS: a row for every Sound definition of the document, of every kind and mode: an own literal
+                // normalized in emission (/TO emitted as "to"), a behaviour bind, child binds, evaluated action- and
+                // frame-cached definitions, an untrimmed " ${x}" that is a constant (P1-C rule 0 reads the untrimmed text),
+                // three definitions that all emit "" (control 5), and two rows sharing one sourceRefKey (33:2 and 33:3).
                 string frameRow = "{\"kind\":\"action\",\"nodeId\":31,\"sourceRefKey\":\"Par|conf/actions.xml|/Mascot[1]/ActionList[1]/Action[2]\","
-                    + "\"emittedValue\":\"\",\"emittedCache\":\"frame\",\"mode\":\"evaluated\"}";
+                    + "\"emittedValue\":\"'b'\",\"emittedCache\":\"frame\",\"mode\":\"evaluated\"}";
                 string booleanRow = "{\"kind\":\"action\",\"nodeId\":32,\"sourceRefKey\":\"Par|conf/actions.xml|/Mascot[1]/ActionList[1]/Action[3]\","
                     + "\"emittedValue\":\"true\",\"emittedCache\":\"none\",\"mode\":\"literal\",\"sourceValue\":\"true\",\"sourceKind\":\"boolean\"}";
                 string constantRow = "{\"kind\":\"action\",\"nodeId\":33,\"sourceRefKey\":\"Par|conf/actions.xml|/Mascot[1]/ActionList[1]/Action[4]\","
                     + "\"emittedValue\":\" ${x}\",\"emittedCache\":\"none\",\"mode\":\"literal\",\"sourceValue\":\" ${x}\",\"sourceKind\":\"string\"}";
-                string witnessJson = rows("[" + string.Join(",", ParSoundLiteral, ParSoundEvaluated, ParSoundChild, frameRow, booleanRow, constantRow) + "]");
+                Func<int, int, string, string> emptyChild = (index, reference, source) => "{\"kind\":\"child\",\"nodeId\":33,\"childIndex\":" + index
+                    + ",\"sourceRefKey\":" + JsonLine.Quote(childRef + reference + "]") + ",\"emittedValue\":\"\",\"emittedCache\":\"none\",\"mode\":\"literal\","
+                    + "\"sourceValue\":" + JsonLine.Quote(source) + ",\"sourceKind\":\"string\"}";
+                var complete = new List<string> { ParSoundLiteral, ParSoundEvaluated, ParSoundChild, frameRow, booleanRow, constantRow,
+                    emptyChild(1, 2, "/"), emptyChild(2, 3, @"\"), emptyChild(3, 3, "") };
+                // The complete rows with row <index> replaced.
+                Func<int, string, string> swap = (index, replacement) =>
+                {
+                    var changed = new List<string>(complete);
+                    changed[index] = replacement;
+                    return rows("[" + string.Join(",", changed) + "]");
+                };
+                string witnessJson = rows("[" + string.Join(",", complete) + "]");
                 ParityMap witness = ParityMap.Parse(witnessJson);
-                XmlData.RootNode document = ParDocument(true);
+                TickType witnessType = TickType.Compile("Par", document);
                 string witnessFault = null;
-                try { witness.Apply(TickType.Compile("Par", document), document); }
+                try { witness.Apply(witnessType, document); }
                 catch (Exception e) { witnessFault = e.GetType().Name + ": " + e.Message; }
                 var seen = new List<string>();
                 foreach (ParityMap.SoundRow r in witness.SoundRows)
@@ -434,9 +501,24 @@ namespace DesktopAICompanion.Shimeji
                 // below is that map's rule, not the run setup's.
                 string witnessRun = witnessFault == null ? judge(witnessJson, null) : null;
                 check(witnessFault == null && witnessRun == null && witnessRows == "action 30 literal none [to] [/TO] string; behaviour 10 evaluated action ['a' + 1]; "
-                      + "child 33:0 literal none [1] [ 1] number; action 31 evaluated frame []; action 32 literal none [true] [true] boolean; "
-                      + "action 33 literal none [ ${x}] [ ${x}] string",
+                      + "child 33:0 literal none [1] [ 1] number; action 31 evaluated frame ['b']; action 32 literal none [true] [true] boolean; "
+                      + "action 33 literal none [ ${x}] [ ${x}] string; child 33:1 literal none [] [/] string; child 33:2 literal none [] [\\] string; "
+                      + "child 33:3 literal none [] [] string",
                     "parity map/3: WITNESS a complete map/3 with rows of every kind is accepted (" + (witnessFault ?? witnessRun ?? witnessRows) + ")");
+
+                // Control 5: /, a backslash and the empty string all emit "" and compile to equal String constants, yet each
+                // definition OBJECT finds its own row and authored text. Looked up whether or not the WITNESS refused, so a
+                // mutant that breaks only the lookup fails only this label.
+                var own = new List<string>();
+                TickActDef seq = witnessType.ActionsById[33];
+                for (int c = 1; c <= 3; c++)
+                {
+                    ParityMap.SoundRow found;
+                    own.Add("child 33:" + c + (witness.TryGetSoundRow(seq.Children[c].Binds["Sound"], out found) ? " [" + found.SourceValue + "] row " + found.Row : " no row"));
+                }
+                string ownRows = string.Join("; ", own);
+                check(ownRows == "child 33:1 [/] row 6; child 33:2 [\\] row 7; child 33:3 [] row 8",
+                    "parity map/3: each Sound definition finds its own row, three defs emitting the empty string (" + ownRows + ")");
 
                 exact("parity map/3: soundParameters absent is refused",
                     ParMapJson("Par", true, Pairs(poses), soundRows: null), "parity map has no soundParameters (map/3 requires the array)");
@@ -506,7 +588,7 @@ namespace DesktopAICompanion.Shimeji
                     at + "has sourceKind 'number', but its sourceValue classifies as string (source-kind disagreement)");
                 part(row(ParSoundLiteral.Replace("\"sourceValue\":\"/TO\",\"sourceKind\":\"string\"", "\"sourceValue\":\"1\",\"sourceKind\":\"string\"")),
                     at + "has sourceKind 'string', but its sourceValue classifies as number (source-kind disagreement)");
-                part(row(ParSoundLiteral.Replace("\"sourceValue\":\"/TO\",\"sourceKind\":\"string\"", "\"sourceValue\":\"" + nbsp + "1\",\"sourceKind\":\"string\"")), null);
+                part(swap(0, ParSoundLiteral.Replace("\"sourceValue\":\"/TO\",\"sourceKind\":\"string\"", "\"sourceValue\":\"" + nbsp + "1\",\"sourceKind\":\"string\"")), null);
                 var corpus = new[]
                 {
                     "true", "boolean", "false", "boolean", "TRUE", "string", "False", "string", " true", "string", "1", "number", " 1", "number",
@@ -526,6 +608,44 @@ namespace DesktopAICompanion.Shimeji
                 string unknownTop = ParMapJson("Par", true, Pairs(poses));
                 exact("parity map/3: an unknown top-level property is refused", "{\"extra\":1," + unknownTop.Substring(1),
                     "parity map has the top-level property 'extra'; map/3 allows only schema, imageSet, frames, actions, children, behaviours, sourceNames, poses and soundParameters");
+
+                // Commit 4b, the binding and the coverage (P1-D, P1-E): each map is the complete rows with exactly one rule
+                // broken, so its declared message names the row and location that break it.
+                string extra = "parity map soundParameters row " + complete.Count + " ";
+                exact("parity map/3: a repeated Sound row location is refused", rows("[" + string.Join(",", complete) + "," + ParSoundLiteral + "]"),
+                    extra + "repeats the location action 30 (one row per Sound definition)");
+                exact("parity map/3: a surplus Sound row naming no compiled container is refused",
+                    rows("[" + string.Join(",", complete) + "," + ParSoundLiteral.Replace("\"nodeId\":30", "\"nodeId\":99") + "]"),
+                    extra + "names action 99, which is no compiled action (surplus)");
+                exact("parity map/3: a surplus Sound row whose container defines no Sound is refused",
+                    rows("[" + string.Join(",", complete) + "," + emptyChild(4, 9, "/") + "]"), extra + "names child 33:4, which defines no Sound (surplus)");
+                var lessOne = new List<string>(complete);
+                lessOne.RemoveAt(4);
+                exact("parity map/3: a compiled Sound definition no row binds is refused (missing)", rows("[" + string.Join(",", lessOne) + "]"),
+                    "parity map has no soundParameters row for the Sound definition at action 32 (missing)");
+                exact("parity map/3: an emittedValue that is not the XML value is refused", swap(0, ParSoundLiteral.Replace("\"emittedValue\":\"to\"", "\"emittedValue\":\"TO\"")),
+                    "parity map soundParameters row 0 has emittedValue 'TO', not the XML value 'to' of the Sound definition at action 30");
+                exact("parity map/3: an emittedCache that is not the XML cache is refused", swap(3, frameRow.Replace("\"emittedCache\":\"frame\"", "\"emittedCache\":\"action\"")),
+                    "parity map soundParameters row 3 has emittedCache 'action', not the XML cache 'frame' of the Sound definition at action 31");
+                XmlData.RootNode noCache = ParDocument(true, true);
+                foreach (XmlData.AnimationNode a in noCache.Animations.Animation)
+                    if (a.Id == 30)
+                        foreach (XmlData.ParamNode p in a.Act.Params)
+                            if (p.Name == "Sound") p.Cache = null;
+                string noCacheFault = judgeOn(witnessJson, noCache, Serialize(noCache, Color.Red, Color.Blue),
+                    "parity map soundParameters row 0 binds action 30, whose Sound definition has no cache attribute (map/3 requires one)");
+                check(noCacheFault == null, "parity map/3: a Sound definition with no cache attribute is refused (" + (noCacheFault ?? "reader and run") + ")");
+                exact("parity map/3: a mode the compiled definition's cache contradicts is refused",
+                    swap(4, "{\"kind\":\"action\",\"nodeId\":32,\"sourceRefKey\":\"Par|conf/actions.xml|/Mascot[1]/ActionList[1]/Action[3]\","
+                        + "\"emittedValue\":\"true\",\"emittedCache\":\"action\",\"mode\":\"evaluated\"}"),
+                    "parity map soundParameters row 4 is evaluated, but the Sound definition at action 32 compiles with cache none");
+                exact("parity map/3: a sourceRefKey that is not its location's map entry is refused", swap(0, ParSoundLiteral.Replace("Action[1]\"", "Action[9]\"")),
+                    "parity map soundParameters row 0 has sourceRefKey 'Par|conf/actions.xml|/Mascot[1]/ActionList[1]/Action[9]', not the map's actions entry "
+                    + "'Par|conf/actions.xml|/Mascot[1]/ActionList[1]/Action[1]'");
+                exact("parity map/3: a sourceRefKey outside the map's image set is refused", witnessJson.Replace("\"Par|conf/behaviors.xml|", "\"Other|conf/behaviors.xml|"),
+                    "parity map soundParameters row 1 has a sourceRefKey in image set 'Other', not 'Par'");
+                exact("parity map/3: a Sound-binding child with no children entry is refused (control 9)", witnessJson.Replace(firstChild + ",", ""),
+                    "parity map soundParameters row 2 binds child 33:0, which has no children entry in the map (a Sound definition's location needs one)");
             }
             catch (Exception e)
             {

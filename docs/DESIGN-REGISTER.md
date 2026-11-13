@@ -7907,6 +7907,16 @@ half, 2026-11-13).** `ParityMap` in `src/dotNet/Shimeji/ParityRun.cs` follows th
   forbids a leading zero, so `System.Text.Json` refuses the whole map at `Parse` before any row is read, and the row
   check's leading-zero branch cannot be reached from a map. A plain negative such as `-1` takes the same non-digit path
   as the `-0` leg, so it needs no leg of its own.
+- `ParityMap.BindSounds` (P1-D, P1-E) keeps `Apply`'s tolerance of an absent `children` entry for a child reference that
+  binds no Sound, and refuses the absence only for a child that binds Sound (control 9). Closing it for every child could
+  refuse real maps outside the Mute wire.
+- Rows are held by the compiled `TickParamDef` object, never by value: `TickParamDef` overrides no `Equals`, so a
+  default-comparer dictionary would be the same thing (critique C1), and a lookup by emitted text or compiled value
+  would give `/`, a backslash and the empty string one row, since all three emit "" (control 5).
+- Two rows may share a `sourceRefKey` (P1-D); the self-test WITNESS has such a pair, so a uniqueness check fails it.
+- The self-test document's frame-cached Sound is `'b'`, not an empty body, although P1-B allows an evaluated row with an
+  empty emitted value: the validator refuses an empty expression, so a validated document a parity run loads cannot hold
+  one, and the binding never reads the compiled program either way.
 
 ## Known ABI gaps
 
