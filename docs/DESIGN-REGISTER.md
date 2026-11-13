@@ -7912,6 +7912,23 @@ among them, for a witness H :158 says is not a trace field. A decision rebuilt f
 defect no single-threaded run can expose, since nothing changes the lists between the comparison and the hook, so no
 mutation case claims it; the CoreTests check compares the room with `SnapshotMembership()` taken at the hook.
 
+**The engine witness is read before anything opens and logged with the trace's runId (H :78-80, :150, 2026-11-13).**
+`ParityLoadedEngine` reads and hashes this process's own EXE and engine assembly. The command builds its header's
+`exeSha256` and `engineSha256` from it; a caller below the command (the window self-test) reads it too. Either way the
+read comes before the trace is opened, so a null `ProcessPath`, an empty `Location` or a file that cannot be opened is the
+named `build-witness-unreadable` refusal, exit 2 and no trace. The inner `ParityRun.Run` makes the run's one runId, hands
+it to `Header` (its only caller), and logs the loaded-engine line, the synthetic label on a run below the command, and
+after the run the birth witness, each ending with that runId. Only a run that writes a trace logs them, so a refused
+run's log is unchanged. The read is guarded rather than the path pre-checked, since a pre-check covers only the paths
+someone thought of. Refused: re-reading the files inside `Run` for the command, which hashes them twice and could log a
+different file than the header names; and an equality check of a self-test's synthetic header hashes against the loaded
+engine, which H :80 says is not claimed. The path provider is an internal constructor argument, never read from an
+argument or a setting, so no caller of the command can point the witness at another file.
+
+**The closure line spellings live in one block.** `ParityRunLog` holds `parity loaded-engine`, `parity build-witness
+synthetic`, `parity birth-witness`, `parity reconciliation` and `build-witness-unreadable` as constants beside their
+formatters, so a spelling agreed with the closure checker's owner (the brief's open question 10) changes in one place.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. None of

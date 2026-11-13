@@ -619,7 +619,9 @@ namespace DesktopAICompanion.Shimeji
             return b.ToString();
         }
 
-        public void Header(string scenarioId, string scenarioSha, string packSha, Dictionary<string, string> build, string rngJson, double dpiScale)
+        /// <param name="runId">The invocation's one runId, made by ParityRun.Run, which logs it on every closure line of the
+        /// same run (signed revision H :150, :158), so a log line and its trace are bound by it.</param>
+        public void Header(string scenarioId, string scenarioSha, string packSha, Dictionary<string, string> build, string rngJson, double dpiScale, string runId)
         {
             // CONTRACT 10.1 and 10.2: the schema is the trace's only version declaration, and no other header field changes
             // with it. Trace/2 is what the host writes: every footer carries tapeExhausted and a tape's end is not a run
@@ -637,7 +639,7 @@ namespace DesktopAICompanion.Shimeji
                 b.Append(JsonLine.Quote(p.Key)).Append(':').Append(JsonLine.Quote(p.Value));
             }
             w.Raw("build", b.Append('}').ToString()).Raw("rng", rngJson).Num("tickMs", 40).Num("dpiScale", dpiScale)
-                .Str("runId", Guid.NewGuid().ToString()).Str("startedUtc", DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture));
+                .Str("runId", runId).Str("startedUtc", DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture));
             _trace.WriteLine(w.End());
         }
 
@@ -1100,14 +1102,24 @@ namespace DesktopAICompanion.Shimeji
                 log.WriteLine("refused " + converter + ": " + e.Message);
                 return 2;
             }
+            // N-parity-1107-03 (signed revision H :78-80): the EXE and engine hashes are this process's own reads of the files
+            // it loaded, through ParityLoadedEngine, which ParityRun.Run then logs. One that cannot be read (a null
+            // ProcessPath, an empty Location, a file that cannot be opened) is the named build-witness-unreadable refusal,
+            // exit 2 and no trace. Read bare, as it was, each threw out of the command.
+            ParityLoadedEngine engine = ParityLoadedEngine.Read(ParityEnginePaths.Process, out refusal);
+            if (engine == null)
+            {
+                log.WriteLine(refusal);
+                return 2;
+            }
             var build = new Dictionary<string, string>(StringComparer.Ordinal)
             {
                 { "commit", commit },
-                { "exeSha256", ParityRun.Sha256(File.ReadAllBytes(Environment.ProcessPath)) },
-                { "engineSha256", ParityRun.Sha256(File.ReadAllBytes(typeof(TickWorld).Assembly.Location)) },
+                { "exeSha256", engine.ExeSha256 },
+                { "engineSha256", engine.EngineSha256 },
                 { "converterSha256", converterSha256 },
             };
-            return ParityRun.Run(scenario, args[at + 2], args[at + 3], build, log, false);
+            return ParityRun.Run(scenario, args[at + 2], args[at + 3], build, log, false, engine, false);
         }
 
         /// <summary>
@@ -1715,17 +1727,47 @@ namespace DesktopAICompanion.Shimeji
         /// carrying the withheld totals and the event digest (<see cref="ParityTraceWriter"/>).</param>
         public static int Run(string scenarioPath, string petsDir, string tracePath, Dictionary<string, string> build, TextWriter log, bool traceOff = false)
         {
+            return Run(scenarioPath, petsDir, tracePath, build, log, traceOff, ParityEnginePaths.Process);
+        }
+
+        /// <param name="paths">Where this process's own EXE and engine are: ParityEnginePaths.Process, except in
+        /// ShimejiWindowSelfTest, which hands it an empty engine Location to see the build-witness-unreadable refusal.</param>
+        internal static int Run(string scenarioPath, string petsDir, string tracePath, Dictionary<string, string> build, TextWriter log, bool traceOff,
+            ParityEnginePaths paths)
+        {
             // N-bd-w12-review-03: claimed here too, for the callers that come in below the command (the window self-test),
             // in the command's order (ParityRunCommand.Execute says why): the scenario read once, then a trace path that
             // anything is already at, or that is inside an input folder, refused ahead of every other refusal.
             ScenarioFile scenarioFile = ScenarioFile.Read(scenarioPath);
             if (TraceClaim.Claim(scenarioFile, petsDir, tracePath, null, log) == null) return 2;
-            return Run(scenarioFile, petsDir, tracePath, build, log, traceOff);
+            return Run(scenarioFile, petsDir, tracePath, build, log, traceOff, paths);
+        }
+
+        /// <summary>A run below the command on a scenario already read and a trace path already claimed: the overload above,
+        /// and ShimejiWindowSelfTest's race leg, which writes a file between its claim and this run's open.</summary>
+        internal static int Run(ScenarioFile scenarioFile, string petsDir, string tracePath, Dictionary<string, string> build, TextWriter log, bool traceOff,
+            ParityEnginePaths paths = null)
+        {
+            // N-parity-1107-03 (H :80): a caller below the command supplies the build values itself, so this run is labelled
+            // synthetic, and it still reads and logs the engine this process actually loaded, refusing as the command does
+            // when it cannot.
+            string refusal;
+            ParityLoadedEngine engine = ParityLoadedEngine.Read(paths ?? ParityEnginePaths.Process, out refusal);
+            if (engine == null)
+            {
+                log.WriteLine(refusal);
+                return 2;
+            }
+            return Run(scenarioFile, petsDir, tracePath, build, log, traceOff, engine, true);
         }
 
         /// <summary>The run on a scenario already read and a trace path already claimed (<see cref="TraceClaim"/>), which
         /// it opens only as a new file.</summary>
-        internal static int Run(ScenarioFile scenarioFile, string petsDir, string tracePath, Dictionary<string, string> build, TextWriter log, bool traceOff)
+        /// <param name="engine">The EXE and engine this process loaded, read by the caller before anything is opened.</param>
+        /// <param name="synthetic">True when the caller is not ParityRunCommand: the build values were supplied, not read
+        /// by this process, and the run says so (H :80, :187).</param>
+        internal static int Run(ScenarioFile scenarioFile, string petsDir, string tracePath, Dictionary<string, string> build, TextWriter log, bool traceOff,
+            ParityLoadedEngine engine, bool synthetic)
         {
             string scenarioPath = scenarioFile.Argument;
             // N-bd-w11-shimeji-host-1-01: a path argument that names nothing (this scenario file, the pets folder in
@@ -1834,7 +1876,7 @@ namespace DesktopAICompanion.Shimeji
                 using (StreamWriter trace = opened)
                 {
                     trace.NewLine = "\n";
-                    return Run(scenario, scenarioBytes, packSha256, pets, trace, build, log, traceOff);
+                    return Run(scenario, scenarioBytes, packSha256, pets, trace, build, log, traceOff, engine, synthetic);
                 }
             }
         }
@@ -1974,7 +2016,7 @@ namespace DesktopAICompanion.Shimeji
         }
 
         private static int Run(Scenario scenario, byte[] scenarioBytes, string packSha256, List<KeyValuePair<TickType, ParityMap>> pets,
-            TextWriter trace, Dictionary<string, string> build, TextWriter log, bool traceOff)
+            TextWriter trace, Dictionary<string, string> build, TextWriter log, bool traceOff, ParityLoadedEngine engine, bool synthetic)
         {
             {
                 JsonElement s = scenario.Root;
@@ -1988,10 +2030,24 @@ namespace DesktopAICompanion.Shimeji
 
                 ParityRandom random = scenario.Random;
                 var writer = new ParityTraceWriter(trace, maps, traceOff);
-                writer.Header(scenario.Id, Sha256(scenarioBytes), packSha256, build, scenario.Rng, scenario.DpiScale);
+                // N-parity-1107-03 (signed revision H :80, :150, :158): one runId per invocation, made here and handed to the
+                // header, and every closure line this run logs carries the same one. Then the engine this process loaded,
+                // logged on every run that writes a trace, and on a run below the command the synthetic label, since its
+                // header's build values were its caller's (ParityRunLog holds the spellings).
+                string runId = Guid.NewGuid().ToString();
+                writer.Header(scenario.Id, Sha256(scenarioBytes), packSha256, build, scenario.Rng, scenario.DpiScale, runId);
+                log.WriteLine(ParityRunLog.LoadedEngineLine(engine, runId));
+                if (synthetic) log.WriteLine(ParityRunLog.SyntheticWitnessLine(runId));
 
                 var world = new TickWorld(scenario.Environment, random, scenario.Settings, writer);
                 foreach (TickType t in types) world.AddType(t);
+                // policy:birth-cap's witness (H :158): every decision Breed's loop makes, in order, with the operands of the
+                // comparison itself, logged once after the run with the world's limit write record. A parity run installs no
+                // limit writer, so "limitWrites 0 none" is its no-override evidence; it is logged whatever the scenario
+                // declares (policy-blind), and only birth-cap closure grades it.
+                var decisions = new List<TickBirthDecision>();
+                world.BirthDecided = decisions.Add;
+                Action birthWitness = () => log.WriteLine(ParityRunLog.BirthWitnessLine(decisions, world.LimitWrites, world.MaximumCompanions, runId));
                 int ticks = scenario.Ticks;
                 string status = "complete";
                 // CONTRACT v1.1 section 1: a left-button edge for a companion that is not active at dispatch is a scenario
@@ -2031,6 +2087,7 @@ namespace DesktopAICompanion.Shimeji
                     // Nothing more is dispatched and the tick writes no state lines; the footer says aborted, and the exit
                     // is a refusal's, since the scenario, not the runtime, is at fault.
                     log.WriteLine(e.Message);
+                    birthWitness();
                     Finish(writer, ticks, "aborted", random, log);
                     return 2;
                 }
@@ -2039,6 +2096,7 @@ namespace DesktopAICompanion.Shimeji
                     status = "error";
                     log.WriteLine("run failed: " + e);
                 }
+                birthWitness();
                 return Finish(writer, ticks, status, random, log);
             }
         }

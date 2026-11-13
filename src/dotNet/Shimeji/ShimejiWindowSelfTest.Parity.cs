@@ -30,6 +30,7 @@ namespace DesktopAICompanion.Shimeji
                 CheckParityRunRefusals(check, Path.Combine(scratch, "parity-v2"), log);
                 CheckParityBuildRevision(check, Path.Combine(scratch, "parity-revision"));
                 CheckParityErrors(check);
+                CheckParityPolicy(check, Path.Combine(scratch, "parity-policy"), log);
             }
             catch (Exception e)
             {
