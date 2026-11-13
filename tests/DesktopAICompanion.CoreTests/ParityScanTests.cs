@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using System.Security.Cryptography;
 using System.Text;
 using DesktopAICompanion.Shimeji;
 
@@ -13,9 +14,10 @@ namespace DesktopAICompanion
     /// their expected facts unchanged (generated from the file, not retyped). That file says its vectors are hand-derived
     /// and were never executed, so a disagreement between the scanner and a row goes to the policy owner through the
     /// coordinator; it is never settled by editing the expected value here. Until one vector file shared by the host,
-    /// the comparer and the oracle exists, this copy carries the pin below. The second table holds the vectors revision
-    /// H names that the controls file lacks, each derived by hand from the cited line; a none result is at input length
-    /// by H :60, so those rows state the length.
+    /// the comparer and the oracle exists, this copy carries the pin below, and a content digest the generator took from
+    /// the pinned file guards every copied row, so an edited row fails even while its own vector passes. The second
+    /// table holds the vectors revision H names that the controls file lacks, each derived by hand from the cited line;
+    /// a none result is at input length by H :60, so those rows state the length.
     ///
     /// Each vector is its own group, "Parity scan vector NAME", so a mutation case names the vector it must fail. Each
     /// group first runs two WITNESS legs, a clean candidate and a clean no-candidate that both stop none at input
@@ -147,6 +149,11 @@ namespace DesktopAICompanion
                 true, "lexical", 106),
         };
 
+        // The generator's sha256 of the pinned file's 33 rows, computed from SCANNER-CONTROLS.json itself and not from the
+        // table above: per row, name, inputHex, candidate, stopReason and offset, tab-separated, one LF-terminated line
+        // per row in file order (ParityScanContentSha256 writes the table the same way).
+        private const string ParityScanControlsContentSha256 = "96edfdf4a4a7ccaab17c8634ae15146b8beddf563f66c2b01fb638fcf2a6bc85";
+
         // Revision H vectors the controls file lacks (DECLARATION-DRAFT.md c3c261fd, lines cited per row).
         private static readonly ParityScanVector[] ParityScanHostVectors =
         {
@@ -227,6 +234,7 @@ namespace DesktopAICompanion
         private static void RunParityScanGroups()
         {
             Run("Parity scan controls: the pinned table holds all 33 vectors", TestParityScanControlCount);
+            Run("Parity scan controls: the copied rows hash to the pinned file's content digest", TestParityScanControlContent);
             foreach (ParityScanVector vector in ParityScanControls)
                 Run("Parity scan vector " + vector.Name, () => TestParityScanVector(vector));
             foreach (ParityScanVector vector in ParityScanHostVectors)
@@ -236,6 +244,33 @@ namespace DesktopAICompanion
         private static void TestParityScanControlCount()
         {
             AssertEqual(33, ParityScanControls.Length, "The SCANNER-CONTROLS.json copy lost or gained a row.");
+        }
+
+        private static void TestParityScanControlContent()
+        {
+            AssertEqual(ParityScanControlsContentSha256, ParityScanContentSha256(ParityScanControls, -1),
+                "The SCANNER-CONTROLS.json copy no longer holds the pinned file's rows: a name, an input or an expected fact changed.");
+            // WITNESS: the digest sees one changed expected fact, so a match is read from a digest that can differ.
+            AssertTrue(!string.Equals(ParityScanControlsContentSha256, ParityScanContentSha256(ParityScanControls, 0), StringComparison.Ordinal),
+                "WITNESS: changing the first row's offset left the content digest unchanged.");
+        }
+
+        /// <summary>The table's content digest, written as the generator writes the file's rows. A row index of 0 or more
+        /// adds 1 to that row's offset first (the WITNESS); -1 changes nothing.</summary>
+        private static string ParityScanContentSha256(ParityScanVector[] rows, int bumpOffsetRow)
+        {
+            var text = new StringBuilder();
+            for (int index = 0; index < rows.Length; index++)
+            {
+                ParityScanVector row = rows[index];
+                int offset = index == bumpOffsetRow ? row.Offset + 1 : row.Offset;
+                text.Append(row.Name).Append('\t').Append(row.Hex).Append('\t').Append(row.Candidate ? "true" : "false")
+                    .Append('\t').Append(row.Reason).Append('\t').Append(offset.ToString(CultureInfo.InvariantCulture)).Append('\n');
+            }
+            byte[] digest = SHA256.HashData(Encoding.UTF8.GetBytes(text.ToString()));
+            var hex = new StringBuilder(digest.Length * 2);
+            foreach (byte value in digest) hex.Append(value.ToString("x2", CultureInfo.InvariantCulture));
+            return hex.ToString();
         }
 
         private static void TestParityScanVector(ParityScanVector vector)
