@@ -1251,8 +1251,33 @@ namespace DesktopAICompanion.Shimeji
         /// code or ProvenanceFault.</summary>
         public IReadOnlyList<string> Information { get { return _information; } }
 
+        // FC-2 (commit 5b): an exception raised by this observation code is caught here and retained as the read's
+        // provenance defect, "observer exception <type>: <message>". It must never reach TickMute.Apply, which has no catch,
+        // and so TickMascot.Tick's catch-all, where it would become an internal-fault product error, dispose the companion
+        // and still let the run end complete. The engine's own read has already happened and is never inside these regions.
         public void Muted(TickMascot mascot, string clip, TickAction activation, TickParamRead read)
         {
+            try { MutedCore(mascot, clip, activation, read); }
+            catch (Exception e) { MuteFault(mascot, TickParamRead.Defect(e)); }
+        }
+
+        public void MuteReadNoEvent(TickMascot mascot, TickAction activation, TickParamRead read)
+        {
+            try { NoEventCore(mascot, activation, read); }
+            catch (Exception e) { MuteFault(mascot, TickParamRead.Defect(e)); }
+        }
+
+        /// <summary>C18's test seam at one of this writer's observation sites: null in the product. The writer handles only
+        /// the Mute Sound read, so it names that parameter.</summary>
+        private static void Probe(string site)
+        {
+            Action<string, string> probe = TickParamRead.ObservationProbe;
+            if (probe != null) probe(site, "Sound");
+        }
+
+        private void MutedCore(TickMascot mascot, string clip, TickAction activation, TickParamRead read)
+        {
+            Probe("muted");
             var information = new List<string>(2);
             string payload;
             string defect = MuteDisposition(mascot, clip, activation, read, information, out payload);
@@ -1261,14 +1286,16 @@ namespace DesktopAICompanion.Shimeji
                 MuteFault(mascot, defect);
                 return;
             }
+            Probe("writer");
             _out.WriteLine(Event(mascot, "mute").Str("clip", payload).End());
             _information.AddRange(information);
         }
 
         /// <summary>A Mute read that asks for no event (a null with Sounds off) writes nothing: no line and no Event() call.
         /// It is still dispositioned (P2-B, Q1): a provenance defect ends the run in error, and its information is kept.</summary>
-        public void MuteReadNoEvent(TickMascot mascot, TickAction activation, TickParamRead read)
+        private void NoEventCore(TickMascot mascot, TickAction activation, TickParamRead read)
         {
+            Probe("no-event");
             var information = new List<string>(2);
             string payload;
             string defect = MuteDisposition(mascot, null, activation, read, information, out payload);
@@ -1289,12 +1316,17 @@ namespace DesktopAICompanion.Shimeji
         private string MuteDisposition(TickMascot mascot, string clip, TickAction activation, TickParamRead read, List<string> information, out string payload)
         {
             payload = clip;
+            // R9: a read whose engine-side observation threw is a provenance defect, whatever else its record says (its
+            // classification inputs are not trusted), so it forms no information either.
+            if (read.ObservationFault != null) return read.ObservationFault;
             if (read.Selection == TickParamSelection.Absent) return null;
             if (read.Selection == TickParamSelection.Local) return "Sound is a local the action published, which no map row binds";
+            Probe("identity");
             TickType owner = activation.OwnerType;
             if (owner == null) return "the Mute action has no owner type to find a map by";
             ParityMap map;
             if (!_maps.TryGetValue(owner.Name, out map)) return "member " + owner.Name + " has no parity map";
+            Probe("source-value");
             ParityMap.SoundRow row;
             if (!map.TryGetSoundRow(read.Winner, out row)) return "the Sound definition read is bound to no soundParameters row of member " + owner.Name;
             bool literal = row.Mode == "literal";

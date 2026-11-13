@@ -312,7 +312,7 @@ namespace DesktopAICompanion
             foreach (string region in new[] { "selection", "snapshot", "result" })
             {
                 TickLog log;
-                TickParamRead.ObservationProbe = at => { if (at == region) throw new InvalidOperationException("probe " + at); };
+                TickParamRead.ObservationProbe = (at, parameter) => { if (at == region && parameter == "Sound") throw new InvalidOperationException("probe " + at); };
                 try { log = TMuteRun(TMuteType(null, TParam("Sound", "own.wav")), true); }
                 finally { TickParamRead.ObservationProbe = null; }
                 AssertTrue(log.Events.Contains("m1 mute own.wav") && log.Faults.Count == 0 && !log.Events.Exists(e => e.Contains("dispose"))

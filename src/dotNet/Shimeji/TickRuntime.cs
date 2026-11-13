@@ -303,11 +303,15 @@ namespace DesktopAICompanion.Shimeji
         /// exception from that read is never caught here.</summary>
         public string ObservationFault;
 
-        /// <summary>Test seam, null in the product: CoreTests and the window self-test set it to throw inside one
-        /// observation-only region (named "selection", "snapshot" or "result") and prove the throw is retained as a
-        /// provenance defect and never reaches the engine (control C18). Per thread, so no test leaks it into another.</summary>
-        internal static Action<string> ObservationProbe { get { return _observationProbe; } set { _observationProbe = value; } }
-        [ThreadStatic] private static Action<string> _observationProbe;
+        /// <summary>Test seam, null in the product (nothing outside the self-tests sets it): CoreTests and the window self-test
+        /// set it to throw inside one observation-only site and prove the throw is retained as a provenance defect and never
+        /// reaches the engine (control C18). It is given the site and the parameter name of the read, so a fixture arms it
+        /// for the Mute Sound read alone (review note S5: every EvalString caller passes through these sites). The engine's
+        /// sites are "selection", "snapshot" (the fault count before the read) and "result" (the kind and the fault count
+        /// after it); the trace writer's are "muted", "no-event", "identity", "source-value" and "writer". Per thread, so no
+        /// test leaks it into another.</summary>
+        internal static Action<string, string> ObservationProbe { get { return _observationProbe; } set { _observationProbe = value; } }
+        [ThreadStatic] private static Action<string, string> _observationProbe;
 
         internal static string Defect(Exception e) { return "observer exception " + e.GetType().Name + ": " + e.Message; }
     }
@@ -723,18 +727,18 @@ namespace DesktopAICompanion.Shimeji
             int faultsBefore = 0;
             try
             {
-                Action<string> probe = TickParamRead.ObservationProbe;
-                if (probe != null) probe("selection");
+                Action<string, string> probe = TickParamRead.ObservationProbe;
+                if (probe != null) probe("selection", name);
                 read.Selection = Selection(name, guard, out read.Winner);
-                if (probe != null) probe("snapshot");
+                if (probe != null) probe("snapshot", name);
                 faultsBefore = Context.FaultsReported;
             }
             catch (Exception e) { read.ObservationFault = TickParamRead.Defect(e); }
             ScriptValue v = Read(name, guard);
             try
             {
-                Action<string> probe = TickParamRead.ObservationProbe;
-                if (probe != null) probe("result");
+                Action<string, string> probe = TickParamRead.ObservationProbe;
+                if (probe != null) probe("result", name);
                 read.Kind = v.Kind;
                 read.Faulted = Context.FaultsReported != faultsBefore;
             }

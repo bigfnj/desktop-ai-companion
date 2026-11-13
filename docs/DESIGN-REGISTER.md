@@ -7938,9 +7938,14 @@ half, 2026-11-13).** `ParityMap` in `src/dotNet/Shimeji/ParityRun.cs` follows th
   be reached by any input.
 - The literal branch writes `sourceValue` with no fault check and no null-clip check. A literal read evaluates nothing,
   so it never faults, and a literal always displays non-null, so neither condition could be reached.
-- The FC-2 catches in `Muted` and `MuteReadNoEvent`, and the disposition of `TickParamRead.ObservationFault`, arrive in
-  commit 5b with C18's probes, because only a probe can make their removal fail a check. Until 5b the writer has no
-  path that throws on a valid read.
+- The FC-2 catches in `Muted` and `MuteReadNoEvent`, and the disposition of `TickParamRead.ObservationFault`, came in
+  commit 5b with C18's probes rather than in 5a, because only a probe can make their removal fail a check. The catches
+  wrap thin `MutedCore` and `NoEventCore` methods, so the disposition code keeps its bytes and its 5a mutation cases.
+- C18's probe (`TickParamRead.ObservationProbe`) is handed the site and the read's parameter name, and the self-test
+  arms it for Sound alone (review note S5): every `EvalString` caller passes the engine's three sites, and an
+  observation exception caught on a non-Mute read is discarded with its record, which FC-2 forbids in a parity run.
+  The writer's five sites name Sound themselves, since the writer handles only that read. A test-only seam per site was
+  refused: one seam keyed by site name injects at every FC-2 site with no more product surface.
 - Control 12's self-test leg is judged by the exit code and the log alone. The withheld mute line of the defect read
   belongs to the provenance label, so a mutant that writes that line fails one label, not two.
 

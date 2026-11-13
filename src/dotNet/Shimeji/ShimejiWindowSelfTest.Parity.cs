@@ -873,11 +873,13 @@ namespace DesktopAICompanion.Shimeji
         /// engine into a ParityTraceWriter (<see cref="ParMuteRun"/>) and ends through ParityRun.Finish, so the read record,
         /// the activation and the winning definition object are the engine's own. Each leg's outcome (exit code, every mute
         /// line's clip as written, every log line) is declared here, never derived from the run. Never calls
-        /// ParityTraceWriter.Header (critique D2). Its own try, so an exception here hides no other check. C18's
-        /// observation-exception probes and the FC-2 catches are commit 5b.
+        /// ParityTraceWriter.Header (critique D2). Its own try, so an exception here hides no other check. Commit 5b adds
+        /// C18's observation-exception probes at every FC-2 site and the arming witness.
         /// </summary>
         private static void CheckParityMuteTrace(Action<bool, string> check)
         {
+            // Read before anything here sets the probe: no product code does (C18 arming, below).
+            bool probeInert = TickParamRead.ObservationProbe == null;
             try
             {
                 Func<string, string, XmlData.ParamNode> sound = (value, cache) => new XmlData.ParamNode { Name = "Sound", Value = value, Cache = cache };
@@ -1033,6 +1035,67 @@ namespace DesktopAICompanion.Shimeji
                 leg("traced", outcome(ParMuteRun(own("1", "action"), numberRows, true, m => m.PoseFault(2), finishRandom: exhausted)), declared("1", "\"1\"", orderLines));
                 leg("trace-off", outcome(ParMuteRun(own("1", "action"), numberRows, true, m => m.PoseFault(2), traceOff: true, finishRandom: exhausted)), declared("1", "", orderLines));
                 label("parity mute: information follows the parity trace and rng-tape-exhausted lines, before the footer, in both trace modes (FC-6)", 2);
+
+                // C18 (commit 5b; FC-2, revision 3 with host commitment S1 and review note S5): an InvalidOperationException
+                // injected at each FC-2 observation site, the probe armed for the Sound read alone, is retained as that read's
+                // provenance defect with the exact reason, writes no mute line and no information, and ends the run in error
+                // with exit 1, while the engine's run is the unarmed run's: the same trace apart from that read's mute line and
+                // the footer, and no error or dispose event. The sites are FC-2's list, never the catch regions: both fault-count
+                // snapshots ("snapshot" before the read, "result" after it), the passive selection, both callback forms, the
+                // identity lookup on each branch that makes one (named, null with Sounds on, null with Sounds off; each null an
+                // evaluated null through a bound definition, never an absent or local one), the source-value lookup and the
+                // writer. Sounds on except for the no-event branch. An exception escaping the run fails the label.
+                Func<string, string> engineLines = trace =>
+                {
+                    var kept = new List<string>();
+                    foreach (string line in trace.Split('\n'))
+                        if (line.Length > 0 && !line.Contains("\"kind\":\"mute\"") && !line.Contains("\"type\":\"footer\"")) kept.Add(line);
+                    return string.Join("\n", kept);
+                };
+                string[][] c18 =
+                {
+                    new[] { "selection", "to", "none", "on" }, new[] { "snapshot", "to", "none", "on" }, new[] { "result", "to", "none", "on" },
+                    new[] { "muted", "to", "none", "on" }, new[] { "identity", "to", "none", "on" }, new[] { "identity", "null", "action", "on" },
+                    new[] { "identity", "null", "action", "off" }, new[] { "no-event", "null", "action", "off" },
+                    new[] { "source-value", "to", "none", "on" }, new[] { "writer", "to", "none", "on" },
+                };
+                foreach (string[] v in c18)
+                {
+                    string rows = "[" + (v[2] == "none" ? ParMuteRow(v[1], v[1], "string") : ParMuteRow(v[1], null, null, v[2])) + "]";
+                    bool on = v[3] == "on";
+                    string site = v[0], name = site + " " + v[1] + " Sounds " + v[3];
+                    string[] unarmed = ParMuteRun(own(v[1], v[2]), rows, on), armed = null;
+                    string escaped = null;
+                    TickParamRead.ObservationProbe = (at, parameter) => { if (at == site && parameter == "Sound") throw new InvalidOperationException("c18 " + at); };
+                    try { armed = ParMuteRun(own(v[1], v[2]), rows, on); }
+                    catch (Exception e) { escaped = e.GetType().Name + ": " + e.Message; }
+                    finally { TickParamRead.ObservationProbe = null; }
+                    if (escaped != null)
+                    {
+                        faults.Add(name + ": the exception escaped the run: " + escaped);
+                        continue;
+                    }
+                    leg(name, outcome(armed), declared("1", "", missing(0, "observer exception InvalidOperationException: c18 " + site)));
+                    bool engineSame = engineLines(armed[0]) == engineLines(unarmed[0]) && !armed[0].Contains("\"kind\":\"error\"") && !armed[0].Contains("\"kind\":\"dispose");
+                    leg(name + " engine", engineSame ? "unchanged" : "changed: " + OneLine(armed[0]), "unchanged");
+                }
+                label("parity mute: an observation exception at every FC-2 site is retained as MUTE_PROVENANCE_MISSING and the engine's run is unchanged (C18)", c18.Length);
+
+                // The arming (S5): the probe is null until a self-test sets it, and it is handed each read's own parameter name,
+                // so arming it for Sound fires on the Mute read alone. Stand here also has a BorderType param, a read through
+                // EvalString that is not Mute's, which the probe sees under its own name after the Mute read's sites.
+                XmlData.RootNode bordered = own("to", "none");
+                foreach (XmlData.AnimationNode a in bordered.Animations.Animation)
+                    if (a.Id == 31) a.Act.Params = new[] { a.Act.Params[0], new XmlData.ParamNode { Name = "BorderType", Value = "Floor", Cache = "none" } };
+                var sites = new List<string>();
+                TickParamRead.ObservationProbe = (at, parameter) => sites.Add(at + " " + parameter);
+                string[] recorded;
+                try { recorded = ParMuteRun(bordered, literalRows, true); }
+                finally { TickParamRead.ObservationProbe = null; }
+                leg("probe", (probeInert ? "null in the product; " : "already set; ") + string.Join(", ", sites) + "; " + outcome(recorded),
+                    "null in the product; selection Sound, snapshot Sound, result Sound, muted Sound, identity Sound, source-value Sound, writer Sound, "
+                    + "selection BorderType, snapshot BorderType, result BorderType; " + declared("0", "\"to\"", ""));
+                label("parity mute: the observation probe is null in the product and sees each read under its own parameter name (C18 arming, S5)", 1);
             }
             catch (Exception e)
             {

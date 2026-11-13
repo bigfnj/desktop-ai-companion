@@ -21507,10 +21507,10 @@ CASES = (
      b'            int faultsBefore = 0;\n'
      b'            try\n'
      b'            {\n'
-     b'                Action<string> probe = TickParamRead.ObservationProbe;\n'
-     b'                if (probe != null) probe("selection");\n'
+     b'                Action<string, string> probe = TickParamRead.ObservationProbe;\n'
+     b'                if (probe != null) probe("selection", name);\n'
      b'                read.Selection = Selection(name, guard, out read.Winner);\n'
-     b'                if (probe != null) probe("snapshot");\n'
+     b'                if (probe != null) probe("snapshot", name);\n'
      b'                faultsBefore = Context.FaultsReported;\n'
      b'            }\n'
      b'            catch (Exception e) { read.ObservationFault = TickParamRead.Defect(e); }\n'
@@ -21519,10 +21519,10 @@ CASES = (
      b'            ScriptValue v = ScriptValue.Null;\n'
      b'            try\n'
      b'            {\n'
-     b'                Action<string> probe = TickParamRead.ObservationProbe;\n'
-     b'                if (probe != null) probe("selection");\n'
+     b'                Action<string, string> probe = TickParamRead.ObservationProbe;\n'
+     b'                if (probe != null) probe("selection", name);\n'
      b'                read.Selection = Selection(name, guard, out read.Winner);\n'
-     b'                if (probe != null) probe("snapshot");\n'
+     b'                if (probe != null) probe("snapshot", name);\n'
      b'                faultsBefore = Context.FaultsReported;\n'
      b'                v = Read(name, guard);\n'
      b'            }\n'
@@ -21878,7 +21878,9 @@ CASES = (
      'parity map/3: an action param and a behaviour bind named \'sound\' are no Sound definitions (control 17, host half)'),
     # N-bd-codex-converter-1-02, host half, commit 5a: ParityTraceWriter's Mute dispositions (CONTRACT v1.4 revision 3
     # P2-C, FC-2 steps 1-3, FC-3, FC-6) and ParityRun.Finish. Each case breaks one disposition rule and fails the one
-    # "parity mute:" label whose legs depend on it; each label's legs drive real Mute reads through the engine.
+    # "parity mute:" label whose legs depend on it; each label's legs drive real Mute reads through the engine. Since
+    # commit 5b two of them also fail a C18 label, by design: a second Sound read passes the probe sites again, which
+    # the arming witness lists, and C18's defect reads must write no line.
     # "bd-host-mute-1: mute" for one --only.
     ("bd-host-mute-1: mute a qualified literal writes its emitted value, not its source spelling (W1, controls 5, 16)",
      os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
@@ -22019,6 +22021,67 @@ CASES = (
      HOST_CSPROJ, EXE,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
      'parity mute: a faulted read writes the engine\'s value as passed, logs MUTE_VALUE_FAULTED and keeps status complete'),
+    # Commit 5b, C18 (FC-2): each catch an injected observation exception must stop, narrowed or emptied, lets it escape
+    # or swallows it without provenance at the sites it guards; the R9 disposition removed lets an engine-site defect read
+    # be written; a probe given a constant name instead of the read's own fails the arming witness alone.
+    # "bd-host-mute-1: mute C18" for one --only.
+    ("bd-host-mute-1: mute C18 the engine's pre-read observation catch lets the exception through",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'            catch (Exception e) { read.ObservationFault = TickParamRead.Defect(e); }\n'
+     b'            ScriptValue v = Read(name, guard);\n',
+     b'            catch (InvalidCastException e) { read.ObservationFault = TickParamRead.Defect(e); }\n'
+     b'            ScriptValue v = Read(name, guard);\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity mute: an observation exception at every FC-2 site is retained as MUTE_PROVENANCE_MISSING'),
+    ("bd-host-mute-1: mute C18 the engine's after-read observation catch lets the exception through",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'            catch (Exception e) { if (read.ObservationFault == null) read.ObservationFault = TickParamRead.Defect(e); }\n',
+     b'            catch (InvalidCastException e) { if (read.ObservationFault == null) read.ObservationFault = TickParamRead.Defect(e); }\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity mute: an observation exception at every FC-2 site is retained as MUTE_PROVENANCE_MISSING'),
+    ("bd-host-mute-1: mute C18 the Muted callback's catch lets the exception through",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'            try { MutedCore(mascot, clip, activation, read); }\n'
+     b'            catch (Exception e) { MuteFault(mascot, TickParamRead.Defect(e)); }\n',
+     b'            try { MutedCore(mascot, clip, activation, read); }\n'
+     b'            catch (InvalidCastException e) { MuteFault(mascot, TickParamRead.Defect(e)); }\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity mute: an observation exception at every FC-2 site is retained as MUTE_PROVENANCE_MISSING'),
+    ("bd-host-mute-1: mute C18 the Muted callback's catch swallows the exception without provenance",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'            try { MutedCore(mascot, clip, activation, read); }\n'
+     b'            catch (Exception e) { MuteFault(mascot, TickParamRead.Defect(e)); }\n',
+     b'            try { MutedCore(mascot, clip, activation, read); }\n'
+     b'            catch (Exception) { }\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity mute: an observation exception at every FC-2 site is retained as MUTE_PROVENANCE_MISSING'),
+    ("bd-host-mute-1: mute C18 the no-event callback's catch lets the exception through",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'            try { NoEventCore(mascot, activation, read); }\n'
+     b'            catch (Exception e) { MuteFault(mascot, TickParamRead.Defect(e)); }\n',
+     b'            try { NoEventCore(mascot, activation, read); }\n'
+     b'            catch (InvalidCastException e) { MuteFault(mascot, TickParamRead.Defect(e)); }\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity mute: an observation exception at every FC-2 site is retained as MUTE_PROVENANCE_MISSING'),
+    ("bd-host-mute-1: mute C18 an engine-side observation fault is not a provenance defect (R9)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'            if (read.ObservationFault != null) return read.ObservationFault;\n',
+     b'',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity mute: an observation exception at every FC-2 site is retained as MUTE_PROVENANCE_MISSING'),
+    ("bd-host-mute-1: mute C18 the probe is given a constant parameter name, not the read's own (S5)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'                if (probe != null) probe("selection", name);\n',
+     b'                if (probe != null) probe("selection", "Sound");\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity mute: the observation probe is null in the product and sees each read under its own parameter name (C18 arming, S5)'),
     # ---- burndown/codex-converter-1 ----
     ("bd-codex-converter-1: invalid metadata omits the offending key",
      os.path.join(REPO, "tools", "ShimejiConvert.Engine", "PackConversion.cs"),
