@@ -1888,9 +1888,10 @@ namespace DesktopAICompanion.Shimeji
                 }
                 catch (ScenarioInputUnreadableException e)
                 {
-                    // K5 schema-string: a schema value, rng.kind, start sid or start behavior ScenarioInvalid could not
-                    // decode. Before, an InvalidOperationException out of the command.
-                    log.WriteLine(ScenarioInputUnreadableLine("schema-string", "refused " + scenarioPath + ": the scenario's '" + e.Field
+                    // K5, by the getter that failed (Codex Q2): schema-string for the root schema value only, string for an
+                    // rng.kind, start sid or start behavior, the field named in the text. Before, an InvalidOperationException
+                    // out of the command.
+                    log.WriteLine(ScenarioInputUnreadableLine(e.Detail, "refused " + scenarioPath + ": the scenario's '" + e.Field
                         + "' string cannot be decoded: " + e.Message));
                     return 2;
                 }
@@ -1976,30 +1977,41 @@ namespace DesktopAICompanion.Shimeji
         internal const string ScenarioSchema = "shimeji-parity-scenario/1";
 
         /// <summary>
-        /// K5 (signed revision H step 3, :49; the name Codex agreed on 2026-11-13): the named producer-input diagnostic for
-        /// a scenario whose bytes cannot be read (detail "read"), parsed (detail "syntax"), or whose eagerly decoded schema
-        /// strings cannot be decoded (detail "schema-string"). Exit 2, no trace, no fabricated comparer grade. One constant,
-        /// so an adopted respelling is a one-line change.
+        /// K5 (signed revision H step 3, :49; the token Codex agreed on 2026-11-13, its details in the agreed text b4acee38):
+        /// the named producer-input diagnostic, its detail the operation that actually failed: "read" (scenario file I/O),
+        /// "syntax" (the existing JSON parse), "schema-string" (the eager decode of the already-String ROOT schema value
+        /// only) or "string" (the eager decode of an already-String rng.kind, start sid or start behavior, the field named
+        /// in the human text). Exit 2, no trace, no fabricated comparer grade. One constant, so an adopted respelling is a
+        /// one-line change.
         /// </summary>
         internal const string ScenarioInputUnreadable = "scenario-input-unreadable";
 
-        /// <summary>The K5 line: the token and its detail IN FRONT of the line the run wrote before, which follows byte for
-        /// byte, so every existing reader of that line still finds it and a checker finds the token at the start.</summary>
+        /// <summary>K5's detail for the root schema value's decode, and for nothing else (Codex Q2).</summary>
+        private const string SchemaStringDetail = "schema-string";
+
+        /// <summary>K5's detail for the decode of an already-String rng.kind, start sid or start behavior (Codex Q2).</summary>
+        private const string StringDetail = "string";
+
+        /// <summary>The K5 line in the layout Codex agreed (Q3): the token, one space, the detail, then ": " and the line
+        /// the run wrote before, byte for byte. A reader that looked for that line anywhere in the log still finds it, but
+        /// one anchored at its start ("^refused") does not: such a consumer recognises this exact prefix with a known
+        /// detail, or strips only that recognised prefix, before its old match. An unknown detail is not recognised.</summary>
         internal static string ScenarioInputUnreadableLine(string detail, string line)
         {
             return ScenarioInputUnreadable + " " + detail + ": " + line;
         }
 
         /// <summary>A scenario string that cannot be decoded (an escaped unpaired surrogate), thrown by
-        /// <see cref="ScenarioText"/> out of <see cref="ScenarioInvalid"/> and refused at the run's ReadScenario call as the
-        /// schema-string diagnostic.</summary>
+        /// <see cref="ScenarioText"/> or <see cref="RootSchemaText"/> out of <see cref="ScenarioInvalid"/> and refused at
+        /// the run's ReadScenario call with the detail its getter set.</summary>
         private sealed class ScenarioInputUnreadableException : Exception
         {
-            public readonly string Field;
+            public readonly string Field, Detail;
 
-            public ScenarioInputUnreadableException(string field, InvalidOperationException fault) : base(fault.Message, fault)
+            public ScenarioInputUnreadableException(string field, string detail, InvalidOperationException fault) : base(fault.Message, fault)
             {
                 Field = field;
+                Detail = detail;
             }
         }
 
@@ -2011,13 +2023,25 @@ namespace DesktopAICompanion.Shimeji
         /// </summary>
         private static string ScenarioText(JsonElement e, string field)
         {
+            return Decoded(e, field, StringDetail);
+        }
+
+        /// <summary>The root schema value, decoded the same guarded way; its failure alone is K5's schema-string (Codex
+        /// Q2). The detail is set here, by the getter, never inferred later from a field name or a message.</summary>
+        private static string RootSchemaText(JsonElement e)
+        {
+            return Decoded(e, "schema", SchemaStringDetail);
+        }
+
+        private static string Decoded(JsonElement e, string field, string detail)
+        {
             try
             {
                 return e.GetString();
             }
             catch (InvalidOperationException fault)
             {
-                throw new ScenarioInputUnreadableException(field, fault);
+                throw new ScenarioInputUnreadableException(field, detail, fault);
             }
         }
 
@@ -2083,7 +2107,7 @@ namespace DesktopAICompanion.Shimeji
         {
             JsonElement e;
             if (s.ValueKind != JsonValueKind.Object || !s.TryGetProperty("schema", out e) || e.ValueKind != JsonValueKind.String
-                || ScenarioText(e, "schema") != ScenarioSchema)
+                || RootSchemaText(e) != ScenarioSchema)
                 return "schema is not " + ScenarioSchema;
             foreach (string field in ScenarioFields)
                 if (!s.TryGetProperty(field, out e)) return "lacks '" + field + "'";

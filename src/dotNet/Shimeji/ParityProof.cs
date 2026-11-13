@@ -134,12 +134,14 @@ namespace DesktopAICompanion.Shimeji
                 + " stateRecords " + (traceOff ? "final" : "every-checkpoint") + RunIdField + runId;
         }
 
-        /// <summary>A trace-off run whose N+1 checkpoints passed but whose final state records were never compared (the
-        /// final-state write failed): never the witness, which names a comparison that did not happen.</summary>
-        public static string ReconciliationFinalStatesMissingLine(int checkpoints, string runId)
+        /// <summary>A trace-off run whose N+1 checkpoints all ran but whose final state records were never compared (the
+        /// final-state write failed): never the witness, which names a comparison that did not happen. The form Codex
+        /// agreed (Q4): the checkpoints that ran, then the scenario's N+1, each its own value, so the line binds both to the
+        /// scenario rather than to each other; the ledger writes it only when they are equal.</summary>
+        public static string ReconciliationFinalStatesMissingLine(int ran, int expected, string runId)
         {
-            return Reconciliation + " incomplete: checkpoints " + checkpoints.ToString(CultureInfo.InvariantCulture) + " of "
-                + checkpoints.ToString(CultureInfo.InvariantCulture) + ", final state records not compared" + RunIdField + runId;
+            return Reconciliation + " incomplete: checkpoints " + ran.ToString(CultureInfo.InvariantCulture) + " of "
+                + expected.ToString(CultureInfo.InvariantCulture) + ", final state records not compared" + RunIdField + runId;
         }
 
         /// <summary>The first failing checkpoint, logged when it fails; the run goes on to N with status error.</summary>
@@ -502,14 +504,15 @@ namespace DesktopAICompanion.Shimeji
 
         /// <summary>The closing line: when the run stopped early, how many of its N+1 checkpoints ran, whether or not a
         /// failure was logged before (Codex Q-e: the actual incomplete coverage is logged even beside a first-failure line);
-        /// else nothing after a failure, which was logged when it happened; else the positive witness when every checkpoint
-        /// passed and, trace-off, the final state records were compared too. A trace-off run whose final-state write failed
-        /// after checkpoint N names that, never the witness.</summary>
+        /// else, for a trace-off run whose final-state write failed after checkpoint N, that its final state records were
+        /// not compared, again whether or not a failure was logged before (Codex Q4: a failure-first branch must not hide
+        /// it); else nothing after a failure, which was logged when it happened; else the positive witness when every
+        /// checkpoint passed and, trace-off, the final state records were compared too.</summary>
         public string ClosingLine(int ticks)
         {
             if (Checkpoints != ticks + 1) return ParityRunLog.ReconciliationIncompleteLine(Checkpoints, ticks + 1, _runId);
+            if (_traceOff && !_finalStatesCompared) return ParityRunLog.ReconciliationFinalStatesMissingLine(Checkpoints, ticks + 1, _runId);
             if (Failure != null) return null;
-            if (_traceOff && !_finalStatesCompared) return ParityRunLog.ReconciliationFinalStatesMissingLine(Checkpoints, _runId);
             return ParityRunLog.ReconciliationLine(Checkpoints, _traceOff, _runId);
         }
 

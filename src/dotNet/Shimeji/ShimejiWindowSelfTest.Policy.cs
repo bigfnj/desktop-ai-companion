@@ -242,10 +242,11 @@ namespace DesktopAICompanion.Shimeji
 
         /// <summary>
         /// burndown/host-policy-1, N-parity-1107-03 C6 (signed revision H step 3, :45, :49; K5 agreed with Codex): a legacy
-        /// scenario whose read, syntax or eagerly decoded schema strings fail is the named producer-input diagnostic
+        /// scenario whose read, syntax or eagerly decoded scenario strings fail is the named producer-input diagnostic
         /// "scenario-input-unreadable" with its detail, exit 2 and no trace, never an exception out of the command: an
         /// escaped unpaired surrogate in the schema value (25 raw bytes, so no length shortcut tells it from the
-        /// marker), a start sid, rng.kind or a start behavior. A pack value the claim cannot decode is no usable pack
+        /// marker) is schema-string, one in a start sid, rng.kind or a start behavior is string (Codex Q2), each matched
+        /// by its exact anchored prefix (Q3). A pack value the claim cannot decode is no usable pack
         /// folder there, and the run still refuses the scenario by its own line. An accepted scenario/1 is unchanged by a
         /// deep unused member within .NET's depth. Every pet here is generated.
         /// </summary>
@@ -300,23 +301,24 @@ namespace DesktopAICompanion.Shimeji
             };
             Func<string[], string, bool> named = (r, want) => r[0] == "2" && r[1] == null && r[4] != null && r[2].StartsWith(want, StringComparison.Ordinal);
             Func<string[], string> said = r => "exit " + r[0] + ", trace " + (r[1] == null ? "none" : "left") + ", " + r[2];
-            Func<string, string, string> unreadable = (scenario, field) => ParityRun.ScenarioInputUnreadable + " schema-string: refused " + scenario
-                + ": the scenario's '" + field + "' string cannot be decoded: ";
+            // Codex Q3: the exact K5 prefix, one space, the detail, colon-space, then the old line from its start.
+            Func<string, string, string, string> unreadable = (scenario, detail, field) => ParityRun.ScenarioInputUnreadable + " " + detail
+                + ": refused " + scenario + ": the scenario's '" + field + "' string cannot be decoded: ";
 
             // 25 raw bytes, the length of the marker and of scenario/1: \ud800 (6) + x (1) + -parity-scenario/1 (18).
             const string surrogateSchema = "\\ud800x-parity-scenario/1";
             string[] schema = run("S-input-schema", plainText.Replace("shimeji-parity-scenario/1", surrogateSchema));
-            check(surrogateSchema.Length == 25 && named(schema, unreadable(schema[3], "schema")),
+            check(surrogateSchema.Length == 25 && named(schema, unreadable(schema[3], "schema-string", "schema")),
                 "parity policy: a 25-raw-byte surrogate schema value gives the named schema-string diagnostic, exit 2, no trace (" + said(schema) + ")");
             string[] sid = run("S-input-sid", plainText.Replace("\"sid\":\"m1\"", "\"sid\":\"\\ud800\""));
-            check(named(sid, unreadable(sid[3], "sid")),
-                "parity policy: a surrogate sid gives the named diagnostic, exit 2, no trace (" + said(sid) + ")");
+            check(named(sid, unreadable(sid[3], "string", "sid")),
+                "parity policy: a surrogate sid gives the named string diagnostic, exit 2, no trace (" + said(sid) + ")");
             string[] kind = run("S-input-rng-kind", plainText.Replace("\"rng\":{\"kind\":\"none\"}", "\"rng\":{\"kind\":\"\\udc00\"}"));
-            check(named(kind, unreadable(kind[3], "rng.kind")),
-                "parity policy: a surrogate rng.kind gives the named diagnostic, exit 2, no trace (" + said(kind) + ")");
+            check(named(kind, unreadable(kind[3], "string", "rng.kind")),
+                "parity policy: a surrogate rng.kind gives the named string diagnostic, exit 2, no trace (" + said(kind) + ")");
             string[] behavior = run("S-input-behavior", plainText.Replace("\"behavior\":\"Walk\"", "\"behavior\":\"W\\ud800\""));
-            check(named(behavior, unreadable(behavior[3], "behavior")),
-                "parity policy: a surrogate start behavior gives the named diagnostic, exit 2, no trace (" + said(behavior) + ")");
+            check(named(behavior, unreadable(behavior[3], "string", "behavior")),
+                "parity policy: a surrogate start behavior gives the named string diagnostic, exit 2, no trace (" + said(behavior) + ")");
 
             // The read fault and the syntax fault: the token in front, the line as it was after it.
             string[] absent = run("S-input-absent", null);

@@ -218,8 +218,25 @@ namespace DesktopAICompanion.Shimeji
                 return l.ClosingLine(1);
             };
             string withFinal = traceOffClosing(true), withoutFinal = traceOffClosing(false);
-            check(withFinal == ParityRunLog.ReconciliationLine(2, true, "w") && withoutFinal == ParityRunLog.ReconciliationFinalStatesMissingLine(2, "w"),
+            // Codex Q4's exact form, spelled out here rather than through the formatter: both counts are this one-tick
+            // scenario's N+1 = 2.
+            string notCompared = ParityRunLog.Reconciliation + " incomplete: checkpoints 2 of 2, final state records not compared runId w";
+            check(withFinal == ParityRunLog.ReconciliationLine(2, true, "w") && withoutFinal == notCompared,
                 "parity proof: WITNESS a trace-off ledger whose final states were never compared writes no positive witness (" + withoutFinal + " | " + withFinal + ")");
+
+            // Codex Q4: the same missing comparison after a first failure was logged keeps both facts, the failure line and
+            // the not-compared line; a failure-first closing branch used to hide the second. Neither is a positive witness.
+            var failedLog = new StringWriter();
+            var failedOff = new ParityRunLedger(true, failedLog, "w");
+            failedOff.Seed("s1");
+            failedOff.StartupActivated();
+            failedOff.Checkpoint(0, new TickMembership(new[] { "s1" }, new string[0]), default(ParityWindowState));
+            failedOff.Checkpoint(1, new TickMembership(new[] { "s1" }, new[] { "x" }), default(ParityWindowState));
+            string failedClosing = failedOff.ClosingLine(1), failedText = failedLog.ToString().Trim();
+            check(failedOff.Failure != null && failedText.StartsWith(ParityRunLog.Reconciliation + " failed at checkpoint 1: ", StringComparison.Ordinal)
+                  && failedText.IndexOf('\n') < 0 && failedClosing == notCompared,
+                "parity proof: a trace-off ledger that failed and never compared its final states keeps both facts, no positive witness ("
+                + failedText + " | " + (failedClosing ?? "no closing line") + ")");
 
             // Codex's closure ruling Q-e, on the run's own abort ending (ParityRun.EndAborted) with a ledger failed by hand,
             // since no unmutated run fails its ledger: a scenario-invalid abort after a reconciliation failure keeps the

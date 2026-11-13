@@ -7981,15 +7981,20 @@ own tick, one the base never read, and so failed a run the base completed.
 `ParityRunLedger.FinalStates` sets a flag, and `ClosingLine` writes a trace-off run's witness only when it is set. A
 trace-off run whose final-state write failed after checkpoint N (caught as status error) logs "parity reconciliation
 incomplete: checkpoints <N+1> of <N+1>, final state records not compared" instead, a form added beside the existing
-incomplete line and sent to Codex with the other spellings.
+incomplete line. Codex agreed it exactly (Q4, round 6): the two counts are the checkpoints that ran and the scenario's
+N+1, passed separately, and the line is written even after a first failure was logged, since a failure-first closing
+branch would hide the missing comparison; both facts are kept and neither is a positive witness.
 
 **Scenario input that cannot be read, parsed or decoded is the named diagnostic scenario-input-unreadable (K5, H step 3,
-2026-11-13).** The token Codex agreed is one constant, `ParityRun.ScenarioInputUnreadable`, with the detail read
-(scenario file I/O), syntax (a JSON syntax failure) or schema-string (an eagerly decoded scenario string). It is written
-in FRONT of the line, "scenario-input-unreadable read: refused <path>: the scenario cannot be read: ...", so the line
-the run wrote before follows byte for byte and every existing matcher still finds it. `ScenarioInvalid` decodes the
-schema value, rng.kind, each start sid and each start behavior through one guarded read per site, so an escaped
-unpaired surrogate there is the schema-string diagnostic, exit 2 and no trace, where it was an
+2026-11-13).** The token Codex agreed is one constant, `ParityRun.ScenarioInputUnreadable`, its detail the operation
+that failed (agreed text b4acee38): read (scenario file I/O), syntax (the existing JSON parse), schema-string (the root
+schema value's decode, and nothing else) or string (an rng.kind, start sid or start behavior decode, the field named in
+the text; Codex Q2, round 6). The layout is Codex's Q3: "scenario-input-unreadable <detail>: <the line the run wrote
+before>", one space, then colon-space, so a matcher that looks for the old line anywhere still finds it, while one
+anchored at "refused" must recognise the exact prefix with a known detail (or strip only that prefix) first; an unknown
+detail is not recognised. `ScenarioInvalid` decodes the schema value, rng.kind, each start sid and each start behavior
+through one guarded read per site, and the getter sets the detail, never a later guess from a field name or a message,
+so an escaped unpaired surrogate there is the named diagnostic, exit 2 and no trace, where it was an
 InvalidOperationException out of the command: `ScenarioInvalid` runs before `ReadScenario`'s refusal catch, and the
 command's branch of `Main` has no outer catch. One guarded read per site rather than one catch round the method, so each
 site has its own mutant. `PackFolderOf` catches only the pack value's decode failure and treats it as no usable pack
@@ -8014,7 +8019,10 @@ keeps the closing line is not killed by any real run, only by the hand-driven le
 :230-232, 2026-11-13).** `ParityRun.ScenarioFile` takes the full SHA-256 of the retained bytes and the pure scan facts at
 the single read, before the claim and before anything parses the bytes, and the header reuses that digest. The core run
 routes a candidate by those facts, never by a parsed schema, which JsonDocument reads by its last member, so both
-duplicate-schema orders and an escaped marker are candidates. A candidate reaches `ParityPolicyRegistry.EnsureVerified`
+duplicate-schema orders and an escaped marker are candidates. That changes one run: a scenario/2-then-scenario/1
+duplicate-schema document, which the base read by its last member and ran to exit 0 with a trace, is now a candidate and
+refused (registry-integrity internal-defect until C8, scenario-not-registered after), exit 2 and no trace, as H :50 (step 4)
+requires. A candidate reaches `ParityPolicyRegistry.EnsureVerified`
 after the output claim and the command's prerequisites, right after the loaded-engine line. The drift self-test runs once
 per process (a static of the assembly, nothing on disk) and every candidate run logs its verdict with its runId. Until
 registry finalization the production table is not adopted (no resource, no rows, no digest), so every candidate is
