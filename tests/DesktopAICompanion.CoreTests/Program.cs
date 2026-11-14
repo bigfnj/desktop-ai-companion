@@ -191,6 +191,10 @@ namespace DesktopAICompanion
                 Run("Tick geometry: a right-facing hotspot mirrors across the pose image's width, pressed and held", TestTickGeometryHotspot);
                 Run("Tick geometry: Dragged's Origin offset reads the image the last pose set, facing and all", TestTickGeometryDragged);
                 Run("Tick geometry: Regist's Origin offset reads the last pose's anchor", TestTickGeometryRegist);
+                // One group per scanner vector, "Parity scan vector NAME" (ParityScanTests.cs).
+                RunParityScanGroups();
+                // policy:birth-cap's write-recorded limit and birth decision, one group per check (TickPolicyTests.cs).
+                RunTickPolicyGroups();
             }
             finally
             {

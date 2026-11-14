@@ -319,6 +319,34 @@ try {
         if ($null -ne $mutationUnitExit -and $mutationUnitExit -ne 0) { $failures.Add("run_mutation_capture_checks.py (exit $mutationUnitExit)") }
     }
 
+    # The parity policy registry build proof and its units (N-parity-1107-03 C8, signed revision H :64, CONTRACT v1.3):
+    # tests\test_shimeji_parity_policy.py with no exe. The build proof reads the installed REGISTRY.json, the declaration
+    # schema, the four registered inputs with their packs and the rows compiled into ParityPolicyRegistry.cs; --self-test
+    # runs the declaration grammar and CLI isolation units. Neither builds or launches anything (the script's CLI legs need a
+    # built exe and run by hand). Judged by each run's EXIT CODE, in the shape of the step above: a native command that
+    # exits nonzero does not throw in PowerShell, so the exit code is read straight after the call and the failure added
+    # here, with Continue for the call (RA-346). A missing python is a failure that says so, never a skip. CI does not run
+    # it yet: build.yml and Invoke-OfflineScriptChecks.ps1 are a recorded follow-up.
+    Write-Host '=== parity policy build proof (tests\test_shimeji_parity_policy.py)' -ForegroundColor Cyan
+    if ($null -eq $python) {
+        $failures.Add('test_shimeji_parity_policy.py: it needs Python 3, and python is not on PATH, so it did not run')
+    }
+    else {
+        foreach ($policyMode in @('build proof', '--self-test')) {
+            $policyArgs = @($policyMode | Where-Object { $_ -like '--*' })
+            $policyExit = $null
+            $savedPreference = $ErrorActionPreference
+            $ErrorActionPreference = 'Continue'
+            try {
+                & $python.Source -X utf8 (Join-Path $repoRoot 'tests\test_shimeji_parity_policy.py') @policyArgs 2>&1 | ForEach-Object { Write-Host "$_" }
+                $policyExit = $LASTEXITCODE
+            }
+            catch { $failures.Add("test_shimeji_parity_policy.py $policyMode could not be started: " + $_.Exception.Message) }
+            finally { $ErrorActionPreference = $savedPreference }
+            if ($null -ne $policyExit -and $policyExit -ne 0) { $failures.Add("test_shimeji_parity_policy.py $policyMode (exit $policyExit)") }
+        }
+    }
+
     Write-Host '=== catalog integrity' -ForegroundColor Cyan
     try { & (Join-Path $repoRoot 'packaging\Test-ContentCatalogIntegrity.ps1') }
     catch { $failures.Add('Test-ContentCatalogIntegrity.ps1: ' + $_.Exception.Message) }

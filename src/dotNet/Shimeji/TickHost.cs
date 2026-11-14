@@ -347,7 +347,9 @@ namespace DesktopAICompanion.Shimeji
         /// <summary>One step and one render (also the self-test's way to advance the clock deterministically).</summary>
         public void Step()
         {
-            if (CompanionBudget != null) _world.MaximumCompanions = Math.Max(0, CompanionBudget());
+            // Through the recording setter with the budget's opaque writer (policy:birth-cap, H :158): the same value as
+            // before, now with a write record that folds a steady budget into one run however many steps write it.
+            if (CompanionBudget != null) _world.SetMaximumCompanions(Math.Max(0, CompanionBudget()), TickLimitWriter.CompanionBudget);
             _world.StepOnce();
             foreach (TickMascot m in _world.Mascots)
             {

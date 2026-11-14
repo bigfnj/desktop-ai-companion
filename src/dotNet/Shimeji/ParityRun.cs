@@ -440,6 +440,15 @@ namespace DesktopAICompanion.Shimeji
             return _desktopWindow.Minimize(_screenArea);
         }
 
+        /// <summary>A14 (signed revision H :136): the scripted desktop window as it is now, read from the private
+        /// TickDesktopWindow with its per-kind success counters, for ParityRun.Run's reconciliation ledger. Never
+        /// ActiveWindow: that is the area the companions read, refreshed only at the next tick, so a move made this tick
+        /// would not show in it yet.</summary>
+        internal ParityWindowState DesktopWindow
+        {
+            get { return new ParityWindowState(_desktopWindow.Shown, _desktopWindow.Minimised, _desktopWindow.Rect, _desktopWindow.Moves, _desktopWindow.Minimises); }
+        }
+
         private static int[] Rect(JsonElement e)
         {
             return new[] { e.GetProperty("x").GetInt32(), e.GetProperty("y").GetInt32(), e.GetProperty("w").GetInt32(), e.GetProperty("h").GetInt32() };
@@ -586,6 +595,14 @@ namespace DesktopAICompanion.Shimeji
 
         public int Tick { set { _tick = value; } }
 
+        /// <summary>
+        /// Called with every line this writer commits: each event line from its sink (a trace-off run forms and folds it
+        /// too, only not writing it) and each state line, after it is written. ParityRun.Run's reconciliation ledger reads
+        /// the exact committed records here (signed revision H :138, :142); null otherwise. A settable property, so the
+        /// constructor stays as it was, and not an ITickObserver member, so no observer and no trace line changes.
+        /// </summary>
+        internal Action<string> Committed { get { return _out.Committed; } set { _out.Committed = value; } }
+
         /// <summary>The draws and events formed so far, written or withheld.</summary>
         public int Draws { get { return _draws; } }
         public int Events { get { return _events; } }
@@ -602,10 +619,18 @@ namespace DesktopAICompanion.Shimeji
 
             public EventSink(TextWriter output) { _output = output; }
 
+            /// <summary>Where each committed line also goes (<see cref="ParityTraceWriter.Committed"/>); null changes nothing.</summary>
+            public Action<string> Committed;
+
             public void WriteLine(string line)
             {
                 _digest.AppendData(Encoding.UTF8.GetBytes(line + "\n"));
                 if (_output != null) _output.WriteLine(line);
+                // After the digest and the write, so a proof is handed exactly the line committed, in commit order, and the
+                // sink's output and digest are what they were without it (round 4's differential compares
+                // eventSequenceSha256).
+                Action<string> committed = Committed;
+                if (committed != null) committed(line);
             }
 
             /// <summary>The digest so far; GetCurrentHash leaves the running state as it was.</summary>
@@ -619,7 +644,9 @@ namespace DesktopAICompanion.Shimeji
             return b.ToString();
         }
 
-        public void Header(string scenarioId, string scenarioSha, string packSha, Dictionary<string, string> build, string rngJson, double dpiScale)
+        /// <param name="runId">The invocation's one runId, made by ParityRun.Run, which logs it on every closure line of the
+        /// same run (signed revision H :150, :158), so a log line and its trace are bound by it.</param>
+        public void Header(string scenarioId, string scenarioSha, string packSha, Dictionary<string, string> build, string rngJson, double dpiScale, string runId)
         {
             // CONTRACT 10.1 and 10.2: the schema is the trace's only version declaration, and no other header field changes
             // with it. Trace/2 is what the host writes: every footer carries tapeExhausted and a tape's end is not a run
@@ -637,7 +664,7 @@ namespace DesktopAICompanion.Shimeji
                 b.Append(JsonLine.Quote(p.Key)).Append(':').Append(JsonLine.Quote(p.Value));
             }
             w.Raw("build", b.Append('}').ToString()).Raw("rng", rngJson).Num("tickMs", 40).Num("dpiScale", dpiScale)
-                .Str("runId", Guid.NewGuid().ToString()).Str("startedUtc", DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture));
+                .Str("runId", runId).Str("startedUtc", DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture));
             _trace.WriteLine(w.End());
         }
 
@@ -722,8 +749,11 @@ namespace DesktopAICompanion.Shimeji
             w.Bool("lookRight", m.LookRight).Raw("velocity", "[" + velocity.X + "," + velocity.Y + "]")
                 .StrList("affordances", m.Affordances).Str("target", m.Target == null ? null : m.Target.Sid).Bool("dragging", m.Dragging)
                 .Bool("pending", pending).Bool("disposing", m.Disposing).Raw("vars", Vars(m));
-            _trace.WriteLine(w.End());
+            string line = w.End();
+            _trace.WriteLine(line);
             _states++;
+            Action<string> committed = _out.Committed;
+            if (committed != null) committed(line);
         }
 
         private static string Vars(TickMascot m)
@@ -1100,14 +1130,24 @@ namespace DesktopAICompanion.Shimeji
                 log.WriteLine("refused " + converter + ": " + e.Message);
                 return 2;
             }
+            // N-parity-1107-03 (signed revision H :78-80): the EXE and engine hashes are this process's own reads of the files
+            // it loaded, through ParityLoadedEngine, which ParityRun.Run then logs. One that cannot be read (a null
+            // ProcessPath, an empty Location, a file that cannot be opened) is the named build-witness-unreadable refusal,
+            // exit 2 and no trace. Read bare, as it was, each threw out of the command.
+            ParityLoadedEngine engine = ParityLoadedEngine.Read(ParityEnginePaths.Process, out refusal);
+            if (engine == null)
+            {
+                log.WriteLine(refusal);
+                return 2;
+            }
             var build = new Dictionary<string, string>(StringComparer.Ordinal)
             {
                 { "commit", commit },
-                { "exeSha256", ParityRun.Sha256(File.ReadAllBytes(Environment.ProcessPath)) },
-                { "engineSha256", ParityRun.Sha256(File.ReadAllBytes(typeof(TickWorld).Assembly.Location)) },
+                { "exeSha256", engine.ExeSha256 },
+                { "engineSha256", engine.EngineSha256 },
                 { "converterSha256", converterSha256 },
             };
-            return ParityRun.Run(scenario, args[at + 2], args[at + 3], build, log, false);
+            return ParityRun.Run(scenario, args[at + 2], args[at + 3], build, log, false, engine, false);
         }
 
         /// <summary>
@@ -1221,18 +1261,30 @@ namespace DesktopAICompanion.Shimeji
 
         /// <summary>The scenario file as the run reads it, once: its bytes, or the argument fault reading them threw. Read
         /// before the trace path is claimed, because only its bytes name the pack, and refused (the fault) only after the
-        /// claim, so a trace path something is already at is named first.</summary>
+        /// claim, so a trace path something is already at is named first.
+        ///
+        /// N-parity-1107-03 C7 (signed revision H :45, :56-62, :230): the full SHA-256 of these retained bytes and the pure
+        /// candidate scan facts are taken here, at the single read, before the claim and before anything parses the bytes;
+        /// the header reuses this digest. Scan facts alone never refuse anything (H :45-52): the run routes a candidate to
+        /// the registry drift self-test only after the claim and the command's prerequisites.</summary>
         internal sealed class ScenarioFile
         {
             public readonly string Argument;
             public readonly byte[] Bytes;
             public readonly Exception Fault;
+            public readonly string Sha256;
+            public readonly ParityScenarioScan.Result Scan;
 
             private ScenarioFile(string argument, byte[] bytes, Exception fault)
             {
                 Argument = argument;
                 Bytes = bytes;
                 Fault = fault;
+                if (bytes != null)
+                {
+                    Sha256 = ParityRun.Sha256(bytes);
+                    Scan = ParityScenarioScan.Scan(bytes);
+                }
             }
 
             internal static ScenarioFile Read(string scenarioPath)
@@ -1472,7 +1524,19 @@ namespace DesktopAICompanion.Shimeji
                     if (doc.RootElement.ValueKind != JsonValueKind.Object || !doc.RootElement.TryGetProperty("pack", out pack)
                         || pack.ValueKind != JsonValueKind.String)
                         return null;
-                    return PackFolder(scenario.Argument, pack.GetString());
+                    // N-parity-1107-03 C6 (H :45): a pack string with an escaped unpaired surrogate cannot be decoded, so
+                    // it names no usable pack folder; the claim goes on without one and the run refuses the scenario by
+                    // its own line. Caught round the decode only, so nothing else here is taken for it.
+                    string packText;
+                    try
+                    {
+                        packText = pack.GetString();
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        return null;
+                    }
+                    return PackFolder(scenario.Argument, packText);
                 }
             }
             catch (JsonException)
@@ -1715,19 +1779,82 @@ namespace DesktopAICompanion.Shimeji
         /// carrying the withheld totals and the event digest (<see cref="ParityTraceWriter"/>).</param>
         public static int Run(string scenarioPath, string petsDir, string tracePath, Dictionary<string, string> build, TextWriter log, bool traceOff = false)
         {
+            return Run(scenarioPath, petsDir, tracePath, build, log, traceOff, ParityEnginePaths.Process);
+        }
+
+        /// <param name="paths">Where this process's own EXE and engine are: ParityEnginePaths.Process, except in
+        /// ShimejiWindowSelfTest, which hands it an empty engine Location to see the build-witness-unreadable refusal.</param>
+        internal static int Run(string scenarioPath, string petsDir, string tracePath, Dictionary<string, string> build, TextWriter log, bool traceOff,
+            ParityEnginePaths paths)
+        {
             // N-bd-w12-review-03: claimed here too, for the callers that come in below the command (the window self-test),
             // in the command's order (ParityRunCommand.Execute says why): the scenario read once, then a trace path that
             // anything is already at, or that is inside an input folder, refused ahead of every other refusal.
             ScenarioFile scenarioFile = ScenarioFile.Read(scenarioPath);
             if (TraceClaim.Claim(scenarioFile, petsDir, tracePath, null, log) == null) return 2;
-            return Run(scenarioFile, petsDir, tracePath, build, log, traceOff);
+            return Run(scenarioFile, petsDir, tracePath, build, log, traceOff, paths);
+        }
+
+        /// <summary>A run below the command on a scenario already read and a trace path already claimed: the overload above,
+        /// and ShimejiWindowSelfTest's race leg, which writes a file between its claim and this run's open.</summary>
+        internal static int Run(ScenarioFile scenarioFile, string petsDir, string tracePath, Dictionary<string, string> build, TextWriter log, bool traceOff,
+            ParityEnginePaths paths = null)
+        {
+            // N-parity-1107-03 (H :80): a caller below the command supplies the build values itself, so this run is labelled
+            // synthetic, and it still reads and logs the engine this process actually loaded, refusing as the command does
+            // when it cannot.
+            string refusal;
+            ParityLoadedEngine engine = ParityLoadedEngine.Read(paths ?? ParityEnginePaths.Process, out refusal);
+            if (engine == null)
+            {
+                log.WriteLine(refusal);
+                return 2;
+            }
+            return Run(scenarioFile, petsDir, tracePath, build, log, traceOff, engine, true);
         }
 
         /// <summary>The run on a scenario already read and a trace path already claimed (<see cref="TraceClaim"/>), which
         /// it opens only as a new file.</summary>
-        internal static int Run(ScenarioFile scenarioFile, string petsDir, string tracePath, Dictionary<string, string> build, TextWriter log, bool traceOff)
+        /// <param name="engine">The EXE and engine this process loaded, read by the caller before anything is opened.</param>
+        /// <param name="synthetic">True when the caller is not ParityRunCommand: the build values were supplied, not read
+        /// by this process, and the run says so (H :80, :187).</param>
+        internal static int Run(ScenarioFile scenarioFile, string petsDir, string tracePath, Dictionary<string, string> build, TextWriter log, bool traceOff,
+            ParityLoadedEngine engine, bool synthetic)
         {
             string scenarioPath = scenarioFile.Argument;
+            // N-parity-1107-03, Codex's closure ruling Q-c (H :150): the run's one runId is made here, at the core run's
+            // entry, and the engine this process loaded (read by the caller, which refused build-witness-unreadable ahead
+            // of this) is logged at once, before the scenario is validated and before the trace is opened. So a run that
+            // got this far and is then refused (scenario-input-unreadable, scenario-invalid, a pet, the pack, or a file
+            // that appeared at the trace path before the open) still names its engine with a runId that no header
+            // carries. The output claim and the command's prerequisites keep their precedence: they refuse before this.
+            // Refused: logging it only on a run that opens its trace, which left a refusal naming no process at all.
+            string runId = Guid.NewGuid().ToString();
+            log.WriteLine(ParityRunLog.LoadedEngineLine(engine, runId));
+            // N-parity-1107-03 C7 (signed revision H :45, :56-62, :230-232): a scenario/2 candidate, by the scan facts taken at
+            // the single read (ScenarioFile), never by a parsed schema, which JsonDocument reads by its last member, so both
+            // duplicate-schema orders and an escaped marker are candidates. It reaches the registry drift self-test here,
+            // after the output claim and the command's prerequisites, before any registry consultation; a failed self-test
+            // is registry-integrity internal-defect, exit 2, no trace.
+            //
+            // C8 (H steps 4-6, CONTRACT v1.3): then the one admission site, by the full SHA-256 of the retained bytes FIRST
+            // (never by a declared id, case or S-id); a miss is scenario-invalid with predicate scenario-not-registered, exit
+            // 2, no trace, and both duplicate-schema orders end there. A hit carries an Admission, the only thing that lets
+            // the interpreting reader below accept scenario/2, and takes the admitted order: the pack's preflight and digest
+            // once, registered-pack admission, INPUT-ADMITTED, and only then the pets and the CreateNew open. A candidate
+            // never falls through to the legacy schema test. Everything else takes today's route unchanged.
+            ParityPolicyRegistry.Admission admission = null;
+            if (scenarioFile.Scan != null && scenarioFile.Scan.Candidate)
+            {
+                if (!ParityPolicyRegistry.EnsureVerified(engine, runId, log)) return 2;
+                admission = ParityPolicyRegistry.Admission.Find(scenarioFile.Sha256);
+                if (admission == null)
+                {
+                    log.WriteLine("refused " + scenarioPath + ": scenario-invalid: " + ScenarioNotRegistered + ": the scenario's full SHA-256 "
+                        + scenarioFile.Sha256 + " is no registered row");
+                    return 2;
+                }
+            }
             // N-bd-w11-shimeji-host-1-01: a path argument that names nothing (this scenario file, the pets folder in
             // LoadPets, the trace's folder below) is refused by name with exit 2, its line and no trace, as a refused map or
             // pack is. It is the caller's argument error, not scenario-invalid: there is no scenario to judge. Unchecked,
@@ -1735,10 +1862,15 @@ namespace DesktopAICompanion.Shimeji
             // read itself is ScenarioFile.Read's, before the claim; its fault is refused here, after the claim.
             if (scenarioFile.Fault != null)
             {
-                log.WriteLine("refused " + scenarioPath + ": the scenario cannot be read: " + scenarioFile.Fault.Message);
+                log.WriteLine(ScenarioInputUnreadableLine("read", "refused " + scenarioPath + ": the scenario cannot be read: " + scenarioFile.Fault.Message));
                 return 2;
             }
             byte[] scenarioBytes = scenarioFile.Bytes;
+            // No whole-file strict UTF-8 decode before the parse (Codex's correction of round 5, 2026-11-13, b49851f2): it
+            // was a new validator, and it refused no-candidate legacy files the old reader accepts, such as an invalid byte
+            // inside a string the run never decodes (signed revision H :49). K5's detail names the operation that actually
+            // failed: the file read is read, the parse below is syntax, a guarded string getter is schema-string or string.
+            // A raw invalid byte does not by itself select read, and no decoder is added only to obtain that detail.
             // N-bd-w10-shimeji-host-1-01: a scenario that is not JSON, lacks a field or holds one the run cannot read is
             // scenario-invalid (CONTRACT sections 1 and 6), refused here with exit 2, its line and no trace, before the
             // pets and the pack are read. The oracle refuses the same scenario before it writes anything (oracle.py v1_run
@@ -1752,24 +1884,60 @@ namespace DesktopAICompanion.Shimeji
             {
                 doc = JsonDocument.Parse(scenarioBytes);
             }
+            catch (JsonException e) when (admission != null)
+            {
+                // H step 5: admitted bytes are the signed ones, which the registry build proof parsed; failing here is an
+                // internal table defect, never a user-input grade.
+                log.WriteLine(AdmittedDefectLine(admission, "the JSON parse refused it: " + e.Message, runId));
+                return 2;
+            }
             catch (JsonException e)
             {
-                log.WriteLine("refused " + scenarioPath + ": scenario-invalid: the scenario is not JSON: " + e.Message);
+                log.WriteLine(ScenarioInputUnreadableLine("syntax", "refused " + scenarioPath + ": scenario-invalid: the scenario is not JSON: " + e.Message));
                 return 2;
             }
             using (doc)
             {
                 string refusal;
-                Scenario scenario = ReadScenario(doc.RootElement, out refusal);
+                Scenario scenario;
+                try
+                {
+                    scenario = ReadScenario(doc.RootElement, admission, out refusal);
+                }
+                catch (ScenarioInputUnreadableException e) when (admission != null)
+                {
+                    log.WriteLine(AdmittedDefectLine(admission, "its '" + e.Field + "' string cannot be decoded: " + e.Message, runId));
+                    return 2;
+                }
+                catch (ScenarioInputUnreadableException e)
+                {
+                    // K5, by the getter that failed (Codex Q2): schema-string for the root schema value only, string for an
+                    // rng.kind, start sid or start behavior, the field named in the text. Before, an InvalidOperationException
+                    // out of the command.
+                    log.WriteLine(ScenarioInputUnreadableLine(e.Detail, "refused " + scenarioPath + ": the scenario's '" + e.Field
+                        + "' string cannot be decoded: " + e.Message));
+                    return 2;
+                }
+                if (scenario == null && admission != null)
+                {
+                    log.WriteLine(AdmittedDefectLine(admission, "the reader refused it: " + refusal, runId));
+                    return 2;
+                }
                 if (scenario == null)
                 {
                     log.WriteLine("refused " + scenarioPath + ": scenario-invalid: " + refusal);
                     return 2;
                 }
                 // Every map is parsed, compiled and applied before the trace file is opened, so a refused map leaves no
-                // trace behind, not even an empty one a later step could take for a run.
-                List<KeyValuePair<TickType, ParityMap>> pets = LoadPets(petsDir, log);
-                if (pets == null) return 2;
+                // trace behind, not even an empty one a later step could take for a run. On the legacy route the pets come
+                // first and the pack second, as they always did; an admitted scenario loads them only after its pack is
+                // admitted (H step 6), below.
+                List<KeyValuePair<TickType, ParityMap>> pets = null;
+                if (admission == null)
+                {
+                    pets = LoadPets(petsDir, log);
+                    if (pets == null) return 2;
+                }
                 // The pack is hashed before the trace file is opened too, and for the same reason (N-bd-w6-coordinator-01).
                 // Its preflight refuses a link or a pack that is not a folder (pack-invalid, CONTRACT section 3), and that
                 // refusal comes before any run, as it does in the oracle and the comparer: there is no header to write (the
@@ -1810,6 +1978,24 @@ namespace DesktopAICompanion.Shimeji
                     log.WriteLine("refused " + packDir + ": the pack cannot be read: " + e.Message);
                     return 2;
                 }
+                // C8 (H step 6): the admitted scenario's pack, preflighted and hashed once just above with the existing
+                // pack-invalid spellings, must be the registered pack: a readable different pack is scenario-invalid with
+                // predicate pack-not-registered, exit 2 and no trace, before any pet is read. Then INPUT-ADMITTED binds the
+                // verified registry, the row and the two digests this run computed to its runId, and only then are the pets
+                // loaded (a missing map is refused after the pack, never ahead of it).
+                if (admission != null)
+                {
+                    if (!string.Equals(packSha256, admission.Row.PackSha256, StringComparison.Ordinal))
+                    {
+                        log.WriteLine("refused " + scenarioPath + ": scenario-invalid: " + PackNotRegistered + ": the pack " + packDir + " hashes "
+                            + packSha256 + ", the registered pack of " + admission.Row.ScenarioId + " is " + admission.Row.PackSha256);
+                        return 2;
+                    }
+                    log.WriteLine(ParityRunLog.InputAdmittedLine(ParityPolicyRegistry.VerifiedDigest, admission.Row, scenarioFile.Sha256, packSha256, runId));
+                    pets = LoadPets(petsDir, log);
+                    if (pets == null)
+                        return 2;
+                }
                 // The trace is opened last, so every refusal above leaves none. One that cannot be opened (its folder does
                 // not exist, the path is a folder, no access) is refused by name before anything is written; the folder is
                 // not made for it (the rejected alternative): a mistyped folder would hold a trace no later step reads.
@@ -1834,13 +2020,102 @@ namespace DesktopAICompanion.Shimeji
                 using (StreamWriter trace = opened)
                 {
                     trace.NewLine = "\n";
-                    return Run(scenario, scenarioBytes, packSha256, pets, trace, build, log, traceOff);
+                    return Run(scenario, scenarioFile.Sha256, packSha256, pets, trace, build, log, traceOff, engine, synthetic, runId);
                 }
             }
         }
 
         /// <summary>The scenario's schema (CONTRACT section 1).</summary>
         internal const string ScenarioSchema = "shimeji-parity-scenario/1";
+
+        /// <summary>The schema the interpreting reader accepts only with an <see cref="ParityPolicyRegistry.Admission"/>
+        /// (signed revision H step 5, CONTRACT v1.3). The legacy schema test is not widened: with no admission it still
+        /// accepts scenario/1 only, so a scenario/2 document that reached the legacy route (a scanner stop before the
+        /// marker) keeps its scenario-invalid refusal.</summary>
+        internal const string AdmittedScenarioSchema = "shimeji-parity-scenario/2";
+
+        /// <summary>H step 4: a candidate whose full scenario SHA-256 is no registered row.</summary>
+        internal const string ScenarioNotRegistered = "scenario-not-registered";
+
+        /// <summary>H step 6: an admitted scenario whose readable pack is not the registered one.</summary>
+        internal const string PackNotRegistered = "pack-not-registered";
+
+        /// <summary>H step 5: admitted bytes that do not interpret are an internal table defect, never scenario-invalid
+        /// and never a killable user-input guard; named with the adopted registry-integrity internal-defect form.</summary>
+        private static string AdmittedDefectLine(ParityPolicyRegistry.Admission admission, string why, string runId)
+        {
+            return ParityRunLog.RegistryIntegrityDefectLine("the admitted scenario " + admission.Row.ScenarioId + " (" + admission.Row.Id + "/"
+                + admission.Row.Case + ") does not interpret under admission context: " + why, runId);
+        }
+
+        /// <summary>
+        /// K5 (signed revision H step 3, :49; the token Codex agreed on 2026-11-13, its details in the agreed text b4acee38):
+        /// the named producer-input diagnostic, its detail the operation that actually failed: "read" (scenario file I/O),
+        /// "syntax" (the existing JSON parse), "schema-string" (the eager decode of the already-String ROOT schema value
+        /// only) or "string" (the eager decode of an already-String rng.kind, start sid or start behavior, the field named
+        /// in the human text). Exit 2, no trace, no fabricated comparer grade. One constant, so an adopted respelling is a
+        /// one-line change.
+        /// </summary>
+        internal const string ScenarioInputUnreadable = "scenario-input-unreadable";
+
+        /// <summary>K5's detail for the root schema value's decode, and for nothing else (Codex Q2).</summary>
+        private const string SchemaStringDetail = "schema-string";
+
+        /// <summary>K5's detail for the decode of an already-String rng.kind, start sid or start behavior (Codex Q2).</summary>
+        private const string StringDetail = "string";
+
+        /// <summary>The K5 line in the layout Codex agreed (Q3): the token, one space, the detail, then ": " and the line
+        /// the run wrote before, byte for byte. A reader that looked for that line anywhere in the log still finds it, but
+        /// one anchored at its start ("^refused") does not: such a consumer recognises this exact prefix with a known
+        /// detail, or strips only that recognised prefix, before its old match. An unknown detail is not recognised.</summary>
+        internal static string ScenarioInputUnreadableLine(string detail, string line)
+        {
+            return ScenarioInputUnreadable + " " + detail + ": " + line;
+        }
+
+        /// <summary>A scenario string that cannot be decoded (an escaped unpaired surrogate), thrown by
+        /// <see cref="ScenarioText"/> or <see cref="RootSchemaText"/> out of <see cref="ScenarioInvalid"/> and refused at
+        /// the run's ReadScenario call with the detail its getter set.</summary>
+        private sealed class ScenarioInputUnreadableException : Exception
+        {
+            public readonly string Field, Detail;
+
+            public ScenarioInputUnreadableException(string field, string detail, InvalidOperationException fault) : base(fault.Message, fault)
+            {
+                Field = field;
+                Detail = detail;
+            }
+        }
+
+        /// <summary>
+        /// One eagerly decoded scenario string, its kind already checked as String, so the only fault left is the decode
+        /// itself: JsonElement.GetString throws InvalidOperationException on an escaped unpaired surrogate. ScenarioInvalid
+        /// runs before ReadScenario's refusal catch, so that fault left the command unhandled (the dispatcher in Program.cs
+        /// has no outer catch). Guarded per site rather than by one catch round the method, so each site has its own check.
+        /// </summary>
+        private static string ScenarioText(JsonElement e, string field)
+        {
+            return Decoded(e, field, StringDetail);
+        }
+
+        /// <summary>The root schema value, decoded the same guarded way; its failure alone is K5's schema-string (Codex
+        /// Q2). The detail is set here, by the getter, never inferred later from a field name or a message.</summary>
+        private static string RootSchemaText(JsonElement e)
+        {
+            return Decoded(e, "schema", SchemaStringDetail);
+        }
+
+        private static string Decoded(JsonElement e, string field, string detail)
+        {
+            try
+            {
+                return e.GetString();
+            }
+            catch (InvalidOperationException fault)
+            {
+                throw new ScenarioInputUnreadableException(field, detail, fault);
+            }
+        }
 
         /// <summary>The fields CONTRACT section 1 requires, as the comparer's validate_scenario lists them.</summary>
         private static readonly string[] ScenarioFields = { "id", "pack", "screens", "workArea", "dpiScale", "ticks", "rng", "settings", "mascots" };
@@ -1862,10 +2137,11 @@ namespace DesktopAICompanion.Shimeji
         /// <summary>The scenario as the run reads it, or null with why it is scenario-invalid in <paramref name="refusal"/>.
         /// <see cref="ScenarioInvalid"/> names a missing or mistyped field; the readers then run here rather than after the
         /// trace is opened, and anything they still refuse (a screen with no "h", a tape value that is no number, a seed
-        /// that is no hex) is scenario-invalid too, named by what was being read.</summary>
-        private static Scenario ReadScenario(JsonElement s, out string refusal)
+        /// that is no hex) is scenario-invalid too, named by what was being read. <paramref name="admission"/> is null on the
+        /// legacy route; only Find's admission lets the schema test accept scenario/2 (H step 5).</summary>
+        private static Scenario ReadScenario(JsonElement s, ParityPolicyRegistry.Admission admission, out string refusal)
         {
-            refusal = ScenarioInvalid(s);
+            refusal = ScenarioInvalid(s, admission);
             if (refusal != null) return null;
             string reading = "screens, workArea, activeWindow or input";
             try
@@ -1879,8 +2155,12 @@ namespace DesktopAICompanion.Shimeji
                 read.Settings = new ParitySettings(s);
                 reading = "dpiScale";
                 read.DpiScale = s.GetProperty("dpiScale").GetDouble();
+                // N-host-policy-1-r4-01: each value named by itself; "dpiScale" used to cover the id and pack decodes too.
+                reading = "id";
                 read.Id = s.GetProperty("id").GetString();
+                reading = "pack";
                 read.Pack = s.GetProperty("pack").GetString();
+                reading = "ticks";
                 read.Ticks = s.GetProperty("ticks").GetInt32();
                 return read;
             }
@@ -1900,28 +2180,31 @@ namespace DesktopAICompanion.Shimeji
         /// one or more screens, a tape's values and a splitmix64 seed, and each start companion's imageSet, anchor and
         /// lookRight.
         /// </summary>
-        internal static string ScenarioInvalid(JsonElement s)
+        internal static string ScenarioInvalid(JsonElement s, ParityPolicyRegistry.Admission admission)
         {
             JsonElement e;
             if (s.ValueKind != JsonValueKind.Object || !s.TryGetProperty("schema", out e) || e.ValueKind != JsonValueKind.String
-                || e.GetString() != ScenarioSchema)
+                || RootSchemaText(e) != (admission != null ? AdmittedScenarioSchema : ScenarioSchema))
                 return "schema is not " + ScenarioSchema;
             foreach (string field in ScenarioFields)
                 if (!s.TryGetProperty(field, out e)) return "lacks '" + field + "'";
             int ticks;
             if (!Integer(s.GetProperty("ticks"), out ticks) || ticks < 0) return "ticks is not a non-negative integer";
             JsonElement rng = s.GetProperty("rng");
-            string kind = rng.ValueKind == JsonValueKind.Object && rng.TryGetProperty("kind", out e) && e.ValueKind == JsonValueKind.String ? e.GetString() : null;
+            string kind = rng.ValueKind == JsonValueKind.Object && rng.TryGetProperty("kind", out e) && e.ValueKind == JsonValueKind.String ? ScenarioText(e, "rng.kind") : null;
             if (kind != "none" && kind != "tape" && kind != "splitmix64") return "rng.kind is not none, tape or splitmix64";
             JsonElement mascots = s.GetProperty("mascots");
             if (mascots.ValueKind != JsonValueKind.Array || mascots.GetArrayLength() == 0) return "mascots need one or more unique sids";
             var sids = new HashSet<string>(StringComparer.Ordinal);
             foreach (JsonElement m in mascots.EnumerateArray())
-                if (m.ValueKind != JsonValueKind.Object || !m.TryGetProperty("sid", out e) || e.ValueKind != JsonValueKind.String
-                    || e.GetString().Length == 0 || !sids.Add(e.GetString()))
+            {
+                string sidText = m.ValueKind == JsonValueKind.Object && m.TryGetProperty("sid", out e) && e.ValueKind == JsonValueKind.String
+                    ? ScenarioText(e, "sid") : null;
+                if (string.IsNullOrEmpty(sidText) || !sids.Add(sidText))
                     return "mascots need one or more unique sids";
+            }
             foreach (JsonElement m in mascots.EnumerateArray())
-                if (!m.TryGetProperty("behavior", out e) || e.ValueKind != JsonValueKind.String || e.GetString().Length == 0)
+                if (!m.TryGetProperty("behavior", out e) || e.ValueKind != JsonValueKind.String || ScenarioText(e, "behavior").Length == 0)
                     return "start companion '" + m.GetProperty("sid").GetString() + "' names no behavior (a directed start runs no selection draw)";
             foreach (string timeline in new[] { "input", "activeWindow" })
             {
@@ -1973,8 +2256,23 @@ namespace DesktopAICompanion.Shimeji
             return e.ValueKind == JsonValueKind.Number && e.TryGetInt32(out value);
         }
 
-        private static int Run(Scenario scenario, byte[] scenarioBytes, string packSha256, List<KeyValuePair<TickType, ParityMap>> pets,
-            TextWriter trace, Dictionary<string, string> build, TextWriter log, bool traceOff)
+        /// <summary>
+        /// The end of a run a scenario-invalid edge aborted (Codex's closure ruling Q-e): the reconciliation's closing line,
+        /// which on a run that stopped early is the incomplete count even when a first-failure line was logged before, then
+        /// the footer, whose status a prior reconciliation failure keeps at error while the exit stays the refusal's 2.
+        /// The abort path used to write "aborted" over that failure. Internal so ShimejiWindowSelfTest drives these same
+        /// lines with a ledger it failed by hand, since no unmutated run fails its ledger.
+        /// </summary>
+        internal static int EndAborted(ParityTraceWriter writer, ParityRunLedger ledger, int ticks, ParityRandom random, TextWriter log)
+        {
+            string stopped = ledger.ClosingLine(ticks);
+            if (stopped != null) log.WriteLine(stopped);
+            Finish(writer, ticks, ledger.Failure != null ? "error" : "aborted", random, log);
+            return 2;
+        }
+
+        private static int Run(Scenario scenario, string scenarioSha256, string packSha256, List<KeyValuePair<TickType, ParityMap>> pets,
+            TextWriter trace, Dictionary<string, string> build, TextWriter log, bool traceOff, ParityLoadedEngine engine, bool synthetic, string runId)
         {
             {
                 JsonElement s = scenario.Root;
@@ -1988,10 +2286,30 @@ namespace DesktopAICompanion.Shimeji
 
                 ParityRandom random = scenario.Random;
                 var writer = new ParityTraceWriter(trace, maps, traceOff);
-                writer.Header(scenario.Id, Sha256(scenarioBytes), packSha256, build, scenario.Rng, scenario.DpiScale);
+                // N-parity-1107-03 (signed revision H :80, :150, :158): the invocation's one runId, made at the core run's
+                // entry beside the loaded-engine line (Codex Q-c) and handed to the header, so every closure line this run
+                // logs carries the same one. On a run below the command, the synthetic label follows the header, since it
+                // qualifies the header's build values, which were its caller's (ParityRunLog holds the spellings).
+                // C7: the digest taken at the single read (ScenarioFile.Sha256), of the same bytes, so the header is unchanged.
+                writer.Header(scenario.Id, scenarioSha256, packSha256, build, scenario.Rng, scenario.DpiScale, runId);
+                if (synthetic) log.WriteLine(ParityRunLog.SyntheticWitnessLine(runId));
 
                 var world = new TickWorld(scenario.Environment, random, scenario.Settings, writer);
                 foreach (TickType t in types) world.AddType(t);
+                // policy:birth-cap's witness (H :158): every decision Breed's loop makes, in order, with the operands of the
+                // comparison itself, logged once after the run with the world's limit write record. A parity run installs no
+                // limit writer, so "limitWrites 0 none" is its no-override evidence; it is logged whatever the scenario
+                // declares (policy-blind), and only birth-cap closure grades it.
+                var decisions = new List<TickBirthDecision>();
+                world.BirthDecided = decisions.Add;
+                Action birthWitness = () => log.WriteLine(ParityRunLog.BirthWitnessLine(decisions, world.LimitWrites, world.MaximumCompanions, runId));
+                // A15 (H :136, :142-150): the run's own ledger, fed the exact lines the writer commits, seeded from the
+                // validated scenario's start rows before any companion is created (never from the world's lists or a
+                // count of successful starts), and compared with the private lists at every checkpoint 0..N.
+                var ledger = new ParityRunLedger(traceOff, log, runId);
+                writer.Committed = ledger.Commit;
+                foreach (JsonElement row in s.GetProperty("mascots").EnumerateArray()) ledger.Seed(row.GetProperty("sid").GetString());
+                ParityEnvironment desk = scenario.Environment;
                 int ticks = scenario.Ticks;
                 string status = "complete";
                 // CONTRACT v1.1 section 1: a left-button edge for a companion that is not active at dispatch is a scenario
@@ -2000,8 +2318,16 @@ namespace DesktopAICompanion.Shimeji
                 {
                     throw new ScenarioInvalidException("scenario-invalid: tick " + world.Step + ": left-button target " + input.Sid + " is not active");
                 };
+                // A14 (H :136): the window replay starts from the validated scenario's own timeline rows, never from the
+                // environment's state, and is compared with the live desktop window at the same checkpoints. Seeded inside
+                // the try (review of round 4), and each row's rectangle is read only when it takes effect, as the
+                // environment reads it (ParityRunLedger.WindowTimeline): a rectangle neither validator checks fails the run
+                // as it did at the base, exit 1 and an error footer, never an exception out of the command.
                 try
                 {
+                    JsonElement timeline;
+                    if (s.TryGetProperty("activeWindow", out timeline))
+                        foreach (JsonElement entry in timeline.EnumerateArray()) ledger.WindowTimeline(entry);
                     writer.Tick = 0;
                     world.Start();
                     foreach (JsonElement m in s.GetProperty("mascots").EnumerateArray())
@@ -2015,7 +2341,9 @@ namespace DesktopAICompanion.Shimeji
                     }
                     // Every start companion is initialised; now they join the manager without a step (CONTRACT section 4).
                     world.ActivateStartup();
+                    ledger.StartupActivated();
                     writer.States(world);
+                    ledger.Checkpoint(0, world.SnapshotMembership(), desk.DesktopWindow);
                     // A tape's end does not stop the loop (CONTRACT 10.5.1): a draw past it yields 0.5, the run steps on to
                     // tick N, and Finish logs the exhaustion and writes it as the footer's tapeExhausted.
                     for (int t = 1; t <= ticks; t++)
@@ -2023,22 +2351,31 @@ namespace DesktopAICompanion.Shimeji
                         writer.Tick = t;
                         world.StepOnce();
                         writer.States(world);
+                        ledger.Checkpoint(t, world.SnapshotMembership(), desk.DesktopWindow);
                     }
                     writer.FinalStates(world);
+                    ledger.FinalStates(ticks, world.SnapshotMembership());
                 }
                 catch (ScenarioInvalidException e)
                 {
                     // Nothing more is dispatched and the tick writes no state lines; the footer says aborted, and the exit
                     // is a refusal's, since the scenario, not the runtime, is at fault.
                     log.WriteLine(e.Message);
-                    Finish(writer, ticks, "aborted", random, log);
-                    return 2;
+                    birthWitness();
+                    return EndAborted(writer, ledger, ticks, random, log);
                 }
                 catch (Exception e)
                 {
                     status = "error";
                     log.WriteLine("run failed: " + e);
                 }
+                birthWitness();
+                // A15's verdict (H :136, :150): a failing checkpoint was logged when it failed and the run went on to N; its
+                // status is error, set here before Finish, which stays as it was. Then the positive witness, or the count
+                // of checkpoints a run that stopped early reached.
+                if (ledger.Failure != null && status == "complete") status = "error";
+                string closing = ledger.ClosingLine(ticks);
+                if (closing != null) log.WriteLine(closing);
                 return Finish(writer, ticks, status, random, log);
             }
         }

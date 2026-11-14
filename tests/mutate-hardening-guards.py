@@ -5605,6 +5605,69 @@ CASES = (
         b"        $root = $hostName + '" + bytes([92]) + b"home'\n",
         "w14-packaging-ci-1: the build-identity scan proves the leg: a UNC root on the stand-in host under another share",
     ),
+    # ---- burndown/host-policy-1 ----
+    # N-parity-1107-03 C7: the scenario/2 candidate route's order (runtime-hardening-selftest.ps1, host-policy-1 block). Each
+    # case breaks the ORDER or adds the parameter, never deletes the guarded statement. "bd-host-policy-1: registry".
+    (
+        "bd-host-policy-1: registry candidate scanned again at the route instead of from the single read",
+        os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+        b"            if (scenarioFile.Scan != null && scenarioFile.Scan.Candidate)\n",
+        b"            if (ParityScenarioScan.Scan(File.ReadAllBytes(scenarioFile.Argument)).Candidate)\n",
+        "host-policy-1: the scan is taken from the single read",
+    ),
+    (
+        "bd-host-policy-1: registry drift self-test runs before the output claim",
+        os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+        b"            ParityRun.TraceClaim claim = ParityRun.TraceClaim.Claim(scenario, args[at + 2], args[at + 3], args[at + 4], log);\n",
+        b"            string early;\n            ParityLoadedEngine earlyEngine = ParityLoadedEngine.Read(ParityEnginePaths.Process, out early);\n"
+        b"            if (scenario.Scan != null && scenario.Scan.Candidate && earlyEngine != null && !ParityPolicyRegistry.EnsureVerified(earlyEngine, early, log)) return 2;\n"
+        b"            ParityRun.TraceClaim claim = ParityRun.TraceClaim.Claim(scenario, args[at + 2], args[at + 3], args[at + 4], log);\n",
+        "host-policy-1: the output claim precedes the registry drift",
+    ),
+    (
+        "bd-host-policy-1: registry EnsureVerified takes a table parameter",
+        os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityPolicyRegistry.cs"),
+        b"        internal static bool EnsureVerified(ParityLoadedEngine engine, string runId, TextWriter log)\n",
+        b"        internal static bool EnsureVerified(ParityLoadedEngine engine, string runId, TextWriter log, IList<ParityPolicyRow> table = null)\n",
+        "host-policy-1: EnsureVerified takes no table parameter",
+    ),
+    # N-parity-1107-03 C8: the admitted route's order and the external signed-file equality (runtime-hardening-selftest.ps1,
+    # host-policy-1 block). Each case breaks the ORDER, adds the parameter or renames the embedding, never deletes the statement.
+    (
+        'bd-host-policy-1: registry lookup runs before the drift self-test',
+        os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+        b'                if (!ParityPolicyRegistry.EnsureVerified(engine, runId, log)) return 2;\n                admission = ParityPolicyRegistry.Admission.Find(scenarioFile.Sha256);\n',
+        b'                admission = ParityPolicyRegistry.Admission.Find(scenarioFile.Sha256);\n                if (!ParityPolicyRegistry.EnsureVerified(engine, runId, log)) return 2;\n',
+        'host-policy-1: EnsureVerified precedes Find',
+    ),
+    (
+        'bd-host-policy-1: registry Find takes a table parameter',
+        os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityPolicyRegistry.cs"),
+        b'            internal static Admission Find(string scenarioSha256)\n',
+        b'            internal static Admission Find(string scenarioSha256, IList<ParityPolicyRow> table = null)\n',
+        'host-policy-1: EnsureVerified precedes Find',
+    ),
+    (
+        'bd-host-policy-1: registry admitted pets loaded before the pack is hashed',
+        os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+        b'                if (admission == null)\n                {\n                    pets = LoadPets(petsDir, log);\n',
+        b'                if (admission == null || admission != null)\n                {\n                    pets = LoadPets(petsDir, log);\n',
+        'host-policy-1: the admitted branch hashes the pack before LoadPets',
+    ),
+    (
+        'bd-host-policy-1: registry INPUT-ADMITTED written before the pack comparison',
+        os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+        b'                {\n                    if (!string.Equals(packSha256, admission.Row.PackSha256, StringComparison.Ordinal))\n',
+        b'                {\n                    log.WriteLine(ParityRunLog.InputAdmittedLine(ParityPolicyRegistry.VerifiedDigest, admission.Row, scenarioFile.Sha256, packSha256, runId));\n                    if (!string.Equals(packSha256, admission.Row.PackSha256, StringComparison.Ordinal))\n',
+        'host-policy-1: INPUT-ADMITTED follows the registered-pack comparison',
+    ),
+    (
+        'bd-host-policy-1: registry project embeds the registry under another LogicalName',
+        os.path.join(REPO, "src", "DesktopAICompanion_Portable.csproj"),
+        b'LogicalName="DesktopAICompanion.ShimejiParity.PolicyRegistry.json" />',
+        b'LogicalName="DesktopAICompanion.ShimejiParity.PolicyRegistry2.json" />',
+        'host-policy-1: the installed REGISTRY.json and schema equal their signed SHA-256',
+    ),
 )
 
 

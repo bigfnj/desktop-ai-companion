@@ -7883,6 +7883,183 @@ a later reader could take for defects:
   every publish, so the scan judges every zip as soon as the last stale module is republished, and the verdict order
   above it is pinned by its own invariant.
 
+#### burndown/host-policy-1
+
+Signed revision H's host obligations for N-parity-1107-03 (DECLARATION-DRAFT.md c3c261fd, review readings K3 and K9).
+Later commits of this lane add their own entries here.
+
+**The birth cap keeps a run-length write record, not one entry per write (K3, 2026-11-12).** `TickWorld.MaximumCompanions`
+is a property now, and every write after construction goes through `SetMaximumCompanions(value, writer)` into
+`TickLimitWrites`, as H :158 asks: the value and the writer of each write, an equal-value 16 write included, never cleared
+by Start or at a run's entry and never shortened to its last write. Only the field initializer's 16 is exempt.
+`TickHost.Step` writes the budget on every product step, so one entry per write would grow for as long as the app runs.
+Consecutive writes of one value by writers equal in every field share a run with a `long` count. Codex accepted that
+representation on 2026-11-12, provided the logical write count, the order, each value, writer and context, and the
+difference between zero writes and any write stay exact; they do, because a run starts whenever the value or any writer
+field changes. Refused: keeping only the last write, which H :158 forbids, and skipping a write whose value equals the
+current one, which would let an override equal to the default read as no override.
+
+**Writers are named, never inferred.** A plain assignment records the `direct` writer. `TickHost.Step` records
+`TickHost.CompanionBudget` with base and deduction unavailable, because the product's `Func<int>` hands over only its
+result. A writer that exposes the budget's base and classic deduction, as the later test-only variant of H :188 will,
+records both. The product writes the same limit as before; only the write is now recorded.
+
+**The birth decision is one captured room, handed to a hook rather than an observer event.** `TickWorld.BirthRoom()` reads
+the limit and the private active and pending counts once and makes the comparison from those reads. Breed's loop hands
+that same room, with the tick, the parent's sid and the attempt, to `TickWorld.BirthDecided` (null in the product) before
+it acts on the decision. A new `ITickObserver` member was refused: it would change every observer, the trace writer
+among them, for a witness H :158 says is not a trace field. A decision rebuilt from fresh reads after the comparison is a
+defect no single-threaded run can expose, since nothing changes the lists between the comparison and the hook, so no
+mutation case claims it; the CoreTests check compares the room with `SnapshotMembership()` taken at the hook.
+
+**The engine witness is read before anything opens and logged with the trace's runId (H :78-80, :150, 2026-11-13).**
+`ParityLoadedEngine` reads and hashes this process's own EXE and engine assembly. The command builds its header's
+`exeSha256` and `engineSha256` from it; a caller below the command (the window self-test) reads it too. Either way the
+read comes before the trace is opened, so a null `ProcessPath`, an empty `Location` or a file that cannot be opened is the
+named `build-witness-unreadable` refusal, exit 2 and no trace. The core `ParityRun.Run` (the one on a scenario already
+read and a trace path already claimed) makes the run's one runId at its entry and logs the loaded-engine line at once,
+before the scenario is validated or the trace opened; the inner run hands that runId to `Header` (its only caller) and
+logs the synthetic label on a run below the command after the header, and the birth witness after the run, each ending
+with the same runId. These lines are written on every run, traced and trace-off alike. Codex's closure ruling Q-c
+(2026-11-13) changed the refusals: a run the core run refuses after its entry (scenario-input-unreadable,
+scenario-invalid, a pet, the pack, a file that appeared at the trace path before the open) now logs the loaded-engine
+line first, with a runId no header carries, so each of those refusal logs gained exactly that one line. The output claim
+and the command's prerequisites keep their precedence and refuse before it, and so does build-witness-unreadable. The
+synthetic label stays beside the header because it qualifies the header's build values. Refused: logging the engine only
+on a run that opens a trace, which Codex ruled out under H :150. The read is guarded rather than the path pre-checked, since a pre-check covers only the paths
+someone thought of. Refused: re-reading the files inside `Run` for the command, which hashes them twice and could log a
+different file than the header names; and an equality check of a self-test's synthetic header hashes against the loaded
+engine, which H :80 says is not claimed. The path provider is an internal constructor argument, never read from an
+argument or a setting, so no caller of the command can point the witness at another file.
+
+**The closure line spellings live in one block.** `ParityRunLog` holds `parity loaded-engine`, `parity build-witness
+synthetic`, `parity birth-witness`, `parity reconciliation` and `build-witness-unreadable` as constants beside their
+formatters, so a spelling agreed with the closure checker's owner (the brief's open question 10) changes in one place.
+
+**A15 reconciliation reads committed lines through a property hook, and a failure runs on to N (H :136-150, 2026-11-13).**
+`ParityTraceWriter.Committed` is called with every line the writer commits: each event line from its event sink, after the
+digest and the optional write, so a trace-off run's withheld lines reach it too, and each state line. It is a settable
+property, so the writer's constructor and `ITickObserver` stay as they were and no observer, record or digest changes;
+round 4's differential checks `eventSequenceSha256`. `ParityRunLedger` (ParityProof.cs) is owned by the inner
+`ParityRun.Run`: it seeds the validated scenario's start rows before any companion is created, replays only lifecycle
+records, and compares at every checkpoint 0..N with `TickWorld.SnapshotMembership()`, which the writer never reads. A
+traced run also compares each checkpoint's state records, a trace-off run its final states at N. The first failing
+checkpoint is logged when it fails, the run steps on to N, and its status becomes error just before `Finish`, which is
+untouched; this reads H :136 and :150 the way the run already treats a provenance fault, and Codex confirmed it on
+2026-11-13 (continue to N, keep the first failing completed checkpoint, end in error; open question 6). Only a run whose
+N+1 checkpoints all passed logs the positive witness; a run that stopped early logs
+how many ran. Refused: an `ITickObserver` member for the ledger, which H :138 rules out as a source of counts;
+enumerating the public `Mascots` and `Pending` getters for either side, which a getter filter would fool on both at
+once; and seeding from the world's lists or a count of successful starts, which cannot see a failed starter that joined
+anyway. The ledger matches events by kind and sid and spells no error code, as the bd-parity-host-2 invariant requires
+of every non-self-test file under src/dotNet/Shimeji.
+
+**A14 reconciliation replays the window from the scenario's timeline and the committed window events, and compares it
+with the live window and its counters (H :136, 2026-11-13).** `TickDesktopWindow` counts each successful move and
+minimise, one counter per kind, at the success boundary itself (after the rectangle or the minimised state changed),
+never in `Show` or `Hide`, which are the timeline's. Nothing reads the counters but the parity ledger.
+`ParityEnvironment.DesktopWindow` hands the ledger the private window's shown, minimised and rectangle values with those
+counters. Refused: `ActiveWindow`, the area the companions read, which is refreshed only at the next tick, so a move made
+this tick would not show in it. The ledger replays the scenario's own activeWindow rows (a new entry replaces the window
+whole, hiding keeps the rectangle) and the committed window-move and window-minimize lines, checking each move's `from`
+against the replayed rectangle of a shown, unminimised window, and compares the state and both counters at every
+checkpoint 0..N, traced and trace-off alike: the event sink hands a trace-off run's withheld lines to the hook too.
+Cumulative counts compared at every checkpoint are the per-tick counts compared tick by tick. The counters catch what
+state alone cannot: two unobserved moves that put the rectangle back, or an effect made without its observer callback.
+The positive witness stays one line, in the list form Codex agreed exactly (Q-d, 2026-11-13), "parity reconciliation
+window-effects, active-pending-membership checkpoints <N+1> stateRecords <...> runId <id>".
+Refused: a separate window witness line, which would let a log show one proof's witness without the other's. The carry
+class has its own generated pack (WalkWithIE holding the window by its lower corner), on and off, traced and trace-off
+(review of round 4). Codex agreed the list form exactly (Q-d). Review of round 4: the replay seeded every timeline row's
+rectangle before the run's try, and no validator checks a rectangle, so a short, null, string or non-Int32 one threw out
+of the command after the header where the base ended the run in error. The rows are seeded inside the try now, and each
+row's rectangle is read only when the row takes effect, where and when `ParityEnvironment.Tick` reads it, so the replay
+reads no rectangle the environment does not. Refused: moving the seeding alone, which still read a row superseded at its
+own tick, one the base never read, and so failed a run the base completed.
+
+**A trace-off witness names a final-state comparison only when one ran (review of round 3).**
+`ParityRunLedger.FinalStates` sets a flag, and `ClosingLine` writes a trace-off run's witness only when it is set. A
+trace-off run whose final-state write failed after checkpoint N (caught as status error) logs "parity reconciliation
+incomplete: checkpoints <N+1> of <N+1>, final state records not compared" instead, a form added beside the existing
+incomplete line. Codex agreed it exactly (Q4, round 6): the two counts are the checkpoints that ran and the scenario's
+N+1, passed separately, and the line is written even after a first failure was logged, since a failure-first closing
+branch would hide the missing comparison; both facts are kept and neither is a positive witness.
+
+**Scenario input that cannot be read, parsed or decoded is the named diagnostic scenario-input-unreadable (K5, H step 3,
+2026-11-13).** The token Codex agreed is one constant, `ParityRun.ScenarioInputUnreadable`, its detail the operation
+that failed (agreed text b4acee38): read (scenario file I/O), syntax (the existing JSON parse), schema-string (the root
+schema value's decode, and nothing else) or string (an rng.kind, start sid or start behavior decode, the field named in
+the text; Codex Q2, round 6). The layout is Codex's Q3: "scenario-input-unreadable <detail>: <the line the run wrote
+before>", one space, then colon-space, so a matcher that looks for the old line anywhere still finds it, while one
+anchored at "refused" must recognise the exact prefix with a known detail (or strip only that prefix) first; an unknown
+detail is not recognised. `ScenarioInvalid` decodes the schema value, rng.kind, each start sid and each start behavior
+through one guarded read per site, and the getter sets the detail, never a later guess from a field name or a message,
+so an escaped unpaired surrogate there is the named diagnostic, exit 2 and no trace, where it was an
+InvalidOperationException out of the command: `ScenarioInvalid` runs before `ReadScenario`'s refusal catch, and the
+command's branch of `Main` has no outer catch. One guarded read per site rather than one catch round the method, so each
+site has its own mutant. `PackFolderOf` catches only the pack value's decode failure and treats it as no usable pack
+folder (H :45); the run then refuses the scenario by its existing line. Refused: a new refusal for any input the run
+accepted before (a surrogate imageSet or timeline sid still ends the run in error, as it did), and a detail beyond the
+three Codex agreed. Refused, and reverted: a whole-file strict UTF-8 decode before the parse, which round 5 added so that
+invalid UTF-8 anywhere would be "read". Codex corrected that request (2026-11-13, b49851f2): it was a new validator that
+refused no-candidate legacy files the old reader accepts (an invalid byte inside a string the run never decodes ran to a
+complete trace at the base, H :49), and K5's detail names the operation that actually failed, so a raw invalid byte does
+not by itself select read and no decoder is added only to obtain that detail. Such a file runs as at the base again.
+
+**An abort after a reconciliation failure ends in error and logs its incomplete coverage (Codex Q-e, 2026-11-13).** A
+scenario-invalid edge that aborts a run whose ledger already failed keeps its diagnostic and the refusal's exit 2, and the
+footer stays error: the abort path wrote "aborted" over the failure. `ParityRun.EndAborted` is the abort ending, internal
+so the self-test drives it with a ledger failed by hand, since no unmutated run fails its ledger. The closing line now
+reports an early stop's actual coverage ("parity reconciliation incomplete: checkpoints k of N+1") even beside a logged
+first failure, on the abort and the failed paths alike; a positive witness is never written on a failure, abort or
+incomplete run. Recorded gap, as for the complete path's promotion: an inlined abort ending that hardcodes "aborted" but
+keeps the closing line is not killed by any real run, only by the hand-driven leg on `EndAborted`.
+
+**Scenario/2 candidates reach the registry drift self-test, and the table stays not adopted until C8 (C7, H :45, :56-64,
+:230-232, 2026-11-13).** `ParityRun.ScenarioFile` takes the full SHA-256 of the retained bytes and the pure scan facts at
+the single read, before the claim and before anything parses the bytes, and the header reuses that digest. The core run
+routes a candidate by those facts, never by a parsed schema, which JsonDocument reads by its last member, so both
+duplicate-schema orders and an escaped marker are candidates. That changes one run: a scenario/2-then-scenario/1
+duplicate-schema document, which the base read by its last member and ran to exit 0 with a trace, is now a candidate and
+refused (registry-integrity internal-defect until C8, scenario-not-registered after), exit 2 and no trace, as H :50 (step 4)
+requires. A candidate reaches `ParityPolicyRegistry.EnsureVerified`
+after the output claim and the command's prerequisites, right after the loaded-engine line. The drift self-test runs once
+per process (a static of the assembly, nothing on disk) and every candidate run logs its verdict with its runId. Until
+registry finalization the production table is not adopted (no resource, no rows, no digest), so every candidate is
+"parity registry-integrity internal-defect: the registry table is not adopted: ...", exit 2 and no trace, and a candidate
+never falls through to the legacy reader. No table seam ships: Codex ruled on 2026-11-13 that even an internal
+admission-table parameter used only by self-tests is a test-only admission override under H :64, so `EnsureVerified` takes
+no table and the drift checks are graded on the pure `Verify` with tables the self-test builds. A byte order mark stops
+the scan at 0, so a BOM-prefixed scenario/2 takes the legacy route; probed on .NET 10, `JsonDocument.Parse(byte[])` does
+not skip the mark and refuses it as syntax, so its outcome is K5's syntax diagnostic, as for any BOM-prefixed scenario
+(the base parsed the same bytes the same way). Refused: routing by the parsed schema (last-wins duplicates), a raw-byte
+marker search (it misses an escaped marker), and an in-process synthetic table (critique A4). Three source-order
+invariants in runtime-hardening-selftest.ps1 pin the single read, the claim before `EnsureVerified`, and its table-free
+signature; the admission lookup gets the same rule in C8. Codex adopted both registry-integrity spellings unchanged
+(2026-11-13, ef41a984): diagnostic lines only, never positive evidence, never a substitute for INPUT-ADMITTED.
+
+N-parity-1107-03 C8 (H steps 4-6, :64, :232; CONTRACT v1.3, the jointly signed registry). The signed REGISTRY.json, its
+declaration schema and the four scenario/2 inputs with their packs are installed byte-identically under
+tools/ShimejiParity/policy (every file LF or binary, so the repository's eol=lf rule changes no byte), and the host project
+embeds that one file as `DesktopAICompanion.ShimejiParity.PolicyRegistry.json`, never a second copy. Its four rows are
+compiled into `ParityPolicyRegistry` beside the signed digest, and the drift self-test compares the embedded bytes with both;
+the ok line names the digest the check itself computed, so a verdict no process computed (a cached or preset flag) names
+none. Admission is by the full SHA-256 of the retained bytes FIRST, at one site, `ParityPolicyRegistry.Admission.Find`,
+after the drift self-test; a miss is `scenario-invalid: scenario-not-registered`, exit 2, no trace, which is where both
+duplicate-schema orders now end. A hit is an `Admission`, whose only constructor is private to Find, and the interpreting
+reader accepts scenario/2 only with one in hand: the legacy schema test is not widened, so a scenario/2 document that
+reached the legacy route (a scanner stop before its marker) keeps its scenario/1-only refusal. Under admission the order
+is H step 6's: the existing pack preflight and digest once (pack-invalid spellings unchanged), the registered-pack
+comparison (`scenario-invalid: pack-not-registered`, exit 2, no trace), INPUT-ADMITTED, and only then LoadPets and the
+CreateNew open; the legacy route keeps pets before the pack, byte for byte. Admitted bytes that do not interpret are an
+internal table defect, named with the adopted registry-integrity internal-defect form, never scenario-invalid (H step 5);
+no defensive grammar refusal sits behind the full-SHA gate. INPUT-ADMITTED is "parity INPUT-ADMITTED registrySha256 <hex>
+id <id> case <case> scenarioSha256 <hex> packSha256 <hex> runId <id>", the digests being this run's own; the spelling
+awaits Codex's review. Evidence without a seam: the window self-test copies the four installed inputs (found by walking up
+from the build; a build with no checkout says DEGRADED) and runs them as they are, and a script under tests/ launches the
+built exe on them with converted pets in fresh processes. Refused: a table or admission parameter for self-tests (H :64),
+embedding a copy of the registry, and checking the declaration grammar at run time behind the gate (H step 5).
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. None of

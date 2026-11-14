@@ -150,6 +150,11 @@
     <Compile Include="..\..\src\dotNet\Shimeji\TickWindowFamily.cs">
       <Link>Production\Shimeji\TickWindowFamily.cs</Link>
     </Compile>
+    <Compile Include="ParityScanTests.cs" />
+    <Compile Include="..\..\src\dotNet\Shimeji\ParityScenarioScan.cs">
+      <Link>Production\Shimeji\ParityScenarioScan.cs</Link>
+    </Compile>
+    <Compile Include="TickPolicyTests.cs" />
     <Compile Include="TickSoundTests.cs" />
     <Compile Include="..\..\src\dotNet\Shimeji\TickSound.cs">
       <Link>Production\Shimeji\TickSound.cs</Link>
