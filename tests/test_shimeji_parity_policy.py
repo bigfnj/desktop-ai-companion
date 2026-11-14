@@ -16,10 +16,14 @@ behind the full-SHA gate the host adds no runtime grammar refusal, so these guar
 inputs, never through a hash refusal.
 
 The CLI legs launch the built exe with --shimeji-parity-run, one process at a time, each with a fresh trace path under
---work, which must not exist yet. The caller sets the isolation variables (DESKTOP_AI_COMPANION_DATA_ROOT, TEMP, TMP,
-DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT=1); the exe refuses a parity run without an overridden data root. The packs
-are converted with the given converter (its paritypack verb) into --work. Each launch is a fresh process, so each must
-log its own registry-integrity ok line. Exit 0 when every check passed, 1 otherwise.
+--work, which must not exist yet. The caller sets the isolation variables, and the script checks them itself before it
+makes a folder or launches anything (isolation_fault): DESKTOP_AI_COMPANION_DATA_ROOT an absolute folder that is not the
+installed app's data root, TEMP and TMP the same absolute lane folder rather than the shared per-user temp folder, --work
+under it, and DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT=1. Any one missing is a named refusal, "policy CLI: refused to
+launch, the isolation is incomplete: ...", and no CLI leg runs; the exe also refuses a parity run without an overridden
+data root. Each launch gets exactly the environment that was checked. The packs are converted with the given converter
+(its paritypack verb) into --work. Each launch is a fresh process, so each must log its own registry-integrity ok line.
+Exit 0 when every check passed, 1 otherwise.
 """
 from __future__ import annotations
 
@@ -208,15 +212,112 @@ def faults(function, value):
         return False
 
 
+def refusal(function, value):
+    """The guard's own refusal text for the value, or None; an exception is no refusal, as in faults."""
+    try:
+        return function(value)
+    except Exception:
+        return None
+
+
+# The isolation the CLI legs need (review of round 8: the script checked none of it and left it to its caller).
+ISOLATION_DATA_ROOT = "DESKTOP_AI_COMPANION_DATA_ROOT"
+ISOLATION_NO_REAL_INPUT = "DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT"
+ISOLATION_REFUSED = "policy CLI: refused to launch, the isolation is incomplete: "
+
+
+def _folder(path):
+    return os.path.normcase(os.path.normpath(os.path.abspath(str(path))))
+
+
+def _under(path, folder):
+    path, folder = _folder(path), _folder(folder)
+    return path == folder or path.startswith(folder.rstrip(os.sep) + os.sep)
+
+
+def isolation_fault(env, work):
+    """None, or why the CLI legs must not launch under env with this --work folder. The installed app keeps its data in
+    LOCALAPPDATA/DesktopAICompanion (src/Portable/AppPaths.cs) and the shared per-user temp folder is LOCALAPPDATA/Temp;
+    a lane's data root and TEMP are neither. Checked in this order, so each refusal names the first thing missing."""
+    data_root = (env.get(ISOLATION_DATA_ROOT) or "").strip()
+    if not data_root or not os.path.isabs(data_root):
+        return ISOLATION_DATA_ROOT + " is not set to an absolute folder, so the exe would use the real data root"
+    local = (env.get("LOCALAPPDATA") or "").strip()
+    if local and _under(data_root, os.path.join(local, "DesktopAICompanion")):
+        return ISOLATION_DATA_ROOT + " is the installed app's data root"
+    temp, tmp = (env.get("TEMP") or "").strip(), (env.get("TMP") or "").strip()
+    if not temp or not tmp or not os.path.isabs(temp) or not os.path.isabs(tmp):
+        return "TEMP or TMP is not set to an absolute folder"
+    if _folder(temp) != _folder(tmp):
+        return "TEMP and TMP are not the same lane folder"
+    if local and _folder(temp) == _folder(os.path.join(local, "Temp")):
+        return "TEMP is the shared per-user temp folder, not a lane folder"
+    if not _under(work, temp):
+        return "--work is not under TEMP"
+    if (env.get(ISOLATION_NO_REAL_INPUT) or "").strip() != "1":
+        return ISOLATION_NO_REAL_INPUT + " is not 1"
+    return None
+
+
+def isolation_units():
+    """Each isolation fault refused by its own message, a complete isolation passing, and cli_legs refusing by name before
+    it makes a folder or launches anything. No process is launched: the exe and converter paths name nothing."""
+    lane = os.path.abspath(os.path.join(os.sep, "lane-unit"))
+    local = os.path.abspath(os.path.join(os.sep, "profile-unit", "Local"))
+    complete = {ISOLATION_DATA_ROOT: os.path.join(lane, "data"), "TEMP": os.path.join(lane, "temp"), "TMP": os.path.join(lane, "temp"),
+                ISOLATION_NO_REAL_INPUT: "1", "LOCALAPPDATA": local}
+    work = os.path.join(lane, "temp", "work")
+    without = lambda name: {k: v for k, v in complete.items() if k != name}
+    fault = lambda env, folder=work: refusal(lambda e: isolation_fault(e, folder), env) or ""
+    check(isolation_fault(complete, work) is None, "policy CLI isolation unit: WITNESS a lane data root, lane TEMP and TMP, --work under TEMP and NO_REAL_INPUT=1 pass")
+    check(fault(without(ISOLATION_DATA_ROOT)).startswith(ISOLATION_DATA_ROOT + " is not set"), "policy CLI isolation unit: a missing data root override is refused by name")
+    check(fault(dict(complete, **{ISOLATION_DATA_ROOT: os.path.join(local, "DesktopAICompanion")})).startswith(ISOLATION_DATA_ROOT + " is the installed"),
+          "policy CLI isolation unit: the installed app's data root as the override is refused by name")
+    check(fault(without("TMP")).startswith("TEMP or TMP is not set"), "policy CLI isolation unit: a missing TMP is refused by name")
+    check(fault(dict(complete, TMP=os.path.join(lane, "other"))).startswith("TEMP and TMP are not the same"), "policy CLI isolation unit: TEMP and TMP apart are refused by name")
+    shared = os.path.join(local, "Temp")
+    check(fault(dict(complete, TEMP=shared, TMP=shared), os.path.join(shared, "work")).startswith("TEMP is the shared per-user temp folder"),
+          "policy CLI isolation unit: the shared per-user temp folder as TEMP is refused by name")
+    check(fault(complete, os.path.join(lane, "elsewhere", "work")).startswith("--work is not under TEMP"), "policy CLI isolation unit: a --work folder outside TEMP is refused by name")
+    check(fault(dict(complete, **{ISOLATION_NO_REAL_INPUT: "0"})).startswith(ISOLATION_NO_REAL_INPUT + " is not 1"),
+          "policy CLI isolation unit: NO_REAL_INPUT other than 1 is refused by name")
+    global SINK
+    with tempfile.TemporaryDirectory(prefix="parity-policy-isolation-") as temporary:
+        folder = Path(temporary) / "work"
+        saved, SINK = SINK, []
+        try:
+            cli_legs(Path(temporary) / "no-exe" / "DesktopAICompanion.exe", Path(temporary) / "no-converter" / "converter.exe", folder, {})
+            verdicts = SINK
+        except Exception as e:
+            verdicts = [(False, "threw " + repr(e))]
+        finally:
+            SINK = saved
+        made = folder.exists()
+    refused = len(verdicts) == 1 and not verdicts[0][0] and verdicts[0][1].startswith(ISOLATION_REFUSED + ISOLATION_DATA_ROOT) and not made
+    if not refused:
+        print("  detail: folder made " + str(made) + ", verdicts " + str(verdicts)[:300], flush=True)
+    # The label is the whole line (--mutate matches FAIL lines exactly), so the detail goes on its own line above.
+    check(refused, "policy CLI isolation unit: the CLI legs refuse to launch with no isolation, by name, before any folder or process")
+
+
 def self_test():
     good = {"registry": REGISTRY_NAME, "id": "birth-cap", "case": "cap-at"}
     check(all(declaration_fault({"registry": REGISTRY_NAME, "id": i, "case": c}) is None for i, c in TUPLES),
           "policy grammar unit: WITNESS each declared tuple passes")
     check(faults(declaration_fault, {"registry": REGISTRY_NAME, "id": "birth-cap"}), "policy grammar unit: a missing policy member is refused")
     check(faults(declaration_fault, dict(good, note="x")), "policy grammar unit: an extra policy member is refused")
-    # The string-type guard is not mutated: a non-string member can never equal the registry constant or sit in a declared
-    # tuple, so without it the same value is still refused (an equivalent mutant). It stays for its plainer message.
     check(faults(declaration_fault, dict(good, id=5)), "policy grammar unit: a policy member of the wrong type is refused")
+    # The string-type guard is NOT an equivalent mutant (review of round 8, which corrected round 8's record): without it a
+    # list- or object-valued id or case reaches the tuple lookup, which raises TypeError (unhashable type) instead of
+    # refusing, and an exception is no refusal. A number such as 5 is hashable and is still refused at the tuple, so only
+    # these three units show the guard itself working; each must get the guard's own message.
+    string_refusal = "a policy member is not a string"
+    check(refusal(declaration_fault, dict(good, id=["birth-cap"])) == string_refusal,
+          "policy grammar unit: a list-valued policy id is refused as a non-string member")
+    check(refusal(declaration_fault, dict(good, case=["cap-at"])) == string_refusal,
+          "policy grammar unit: a list-valued policy case is refused as a non-string member")
+    check(refusal(declaration_fault, dict(good, id={"id": "birth-cap"})) == string_refusal,
+          "policy grammar unit: an object-valued policy id is refused as a non-string member")
     check(faults(declaration_fault, dict(good, registry="shimeji-parity-policy/2")), "policy grammar unit: another registry is refused")
     check(faults(declaration_fault, dict(good, case="window-carry-off")), "policy grammar unit: a crossed tuple is refused")
     # A number, not a list: set() of a list or string still differs from the three names, so only a number shows the
@@ -244,11 +345,13 @@ def self_test():
           "policy grammar unit: a repeated registry tuple is refused")
     check(faults(tuple_fault, [{"id": "a", "case": "b", "scenarioId": "S1"}, {"id": "a", "case": "c", "scenarioId": "S1"}]),
           "policy grammar unit: a repeated registry scenarioId is refused")
+    isolation_units()
 
 
 # Each guard broken in a private copy of this file; the copy's --self-test must FAIL on the named unit. Never edits the
 # tracked file.
 UNIT = "policy grammar unit: "
+ISO = "policy CLI isolation unit: "
 MUTATIONS = (
     ("missing or extra members accepted", '    if set(policy) != {"registry", "id", "case"}:\n', '    if False:\n',
      (UNIT + "a missing policy member is refused", UNIT + "an extra policy member is refused")),
@@ -266,6 +369,25 @@ MUTATIONS = (
     ("registry tuple uniqueness unchecked", '    if len(set(pairs)) != len(pairs):\n', '    if False:\n', (UNIT + "a repeated registry tuple is refused",)),
     ("registry scenarioId uniqueness unchecked", '    if len(set(ids)) != len(ids):\n', '    if False:\n',
      (UNIT + "a repeated registry scenarioId is refused",)),
+    ("string-type guard removed", '    if not all(isinstance(policy[k], str) for k in ("registry", "id", "case")):\n', '    if False:\n',
+     (UNIT + "a list-valued policy id is refused as a non-string member", UNIT + "a list-valued policy case is refused as a non-string member",
+      UNIT + "an object-valued policy id is refused as a non-string member")),
+    # The CLI legs' isolation (round 9): each condition, and the refusal at the top of cli_legs.
+    ("isolation data root unchecked", '    if not data_root or not os.path.isabs(data_root):\n', '    if False:\n',
+     (ISO + "a missing data root override is refused by name",)),
+    ("isolation installed data root accepted", '    if local and _under(data_root, os.path.join(local, "DesktopAICompanion")):\n', '    if False:\n',
+     (ISO + "the installed app's data root as the override is refused by name",)),
+    ("isolation TEMP and TMP presence unchecked", '    if not temp or not tmp or not os.path.isabs(temp) or not os.path.isabs(tmp):\n', '    if False:\n',
+     (ISO + "a missing TMP is refused by name",)),
+    ("isolation TEMP and TMP apart accepted", '    if _folder(temp) != _folder(tmp):\n', '    if False:\n', (ISO + "TEMP and TMP apart are refused by name",)),
+    ("isolation shared temp accepted", '    if local and _folder(temp) == _folder(os.path.join(local, "Temp")):\n', '    if False:\n',
+     (ISO + "the shared per-user temp folder as TEMP is refused by name",)),
+    ("isolation work outside TEMP accepted", '    if not _under(work, temp):\n', '    if False:\n', (ISO + "a --work folder outside TEMP is refused by name",)),
+    ("isolation NO_REAL_INPUT unchecked", '    if (env.get(ISOLATION_NO_REAL_INPUT) or "").strip() != "1":\n', '    if False:\n',
+     (ISO + "NO_REAL_INPUT other than 1 is refused by name",)),
+    ("CLI legs launch without the isolation check", '    why = isolation_fault(env, work)\n    if why is not None:\n',
+     '    why = isolation_fault(env, work)\n    if False:\n',
+     (ISO + "the CLI legs refuse to launch with no isolation, by name, before any folder or process",)),
 )
 
 
@@ -341,8 +463,10 @@ def mutate():
             check(fired, "policy grammar mutation " + name + " FIRED on '" + "' and '".join(labels) + "'")
 
 
-def launch(argv, cwd):
-    result = subprocess.run([str(a) for a in argv], cwd=str(cwd), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=300)
+def launch(argv, cwd, env):
+    # Exactly the environment isolation_fault checked, never one read again here.
+    result = subprocess.run([str(a) for a in argv], cwd=str(cwd), env=dict(env), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            timeout=300)
     return result.returncode, result.stdout.decode("utf-8", "replace").replace("\r", ""), result.stderr.decode("utf-8", "replace")
 
 
@@ -357,8 +481,14 @@ def run_id(item):
     return None if item is None or " runId " not in item else item.rsplit(" runId ", 1)[1]
 
 
-def cli_legs(exe, converter, work):
+def cli_legs(exe, converter, work, env):
     exe, converter, work = Path(exe), Path(converter), Path(work)
+    # Before any folder is made or any process launched: a run under the real data root, the shared temp folder or with
+    # real input allowed is refused by name, and no CLI leg runs.
+    why = isolation_fault(env, work)
+    if why is not None:
+        check(False, ISOLATION_REFUSED + why)
+        return
     if work.exists():
         check(False, "policy CLI: the work folder " + str(work) + " must not exist yet")
         return
@@ -368,12 +498,12 @@ def cli_legs(exe, converter, work):
     seen = []
     for row in registry["cases"]:
         pets = work / "pets" / row["case"]
-        code, out, err = launch([converter, "paritypack", POLICY / "inputs" / row["pack"], pets], work)
+        code, out, err = launch([converter, "paritypack", POLICY / "inputs" / row["pack"], pets], work, env)
         if code != 0:
             check(False, "policy CLI: the converter converts " + row["pack"] + " (exit " + str(code) + ": " + out[-400:] + err[-400:] + ")")
             continue
         trace = work / (row["scenarioId"] + ".jsonl")
-        code, out, err = launch([exe, "--shimeji-parity-run", POLICY / "inputs" / (row["scenarioId"] + ".json"), pets, trace, converter.parent], work)
+        code, out, err = launch([exe, "--shimeji-parity-run", POLICY / "inputs" / (row["scenarioId"] + ".json"), pets, trace, converter.parent], work, env)
         (work / (row["scenarioId"] + ".log")).write_text(out + err, encoding="utf-8")
         engine = line(out, "parity loaded-engine ")
         rid = run_id(engine)
@@ -402,7 +532,7 @@ def cli_legs(exe, converter, work):
     data = (POLICY / "inputs" / "S-cap-at-01.json").read_bytes().replace(b"Alpha breeds", b"Alpha Breeds", 1)
     (unregistered / "S-cap-at-01.json").write_bytes(data)
     trace = work / "unregistered.jsonl"
-    code, out, err = launch([exe, "--shimeji-parity-run", unregistered / "S-cap-at-01.json", work / "pets" / "cap-at", trace, converter.parent], work)
+    code, out, err = launch([exe, "--shimeji-parity-run", unregistered / "S-cap-at-01.json", work / "pets" / "cap-at", trace, converter.parent], work, env)
     ok_line = line(out, "parity registry-integrity ok ")
     check(code == 2 and not trace.exists() and ok_line is not None and "parity INPUT-ADMITTED" not in out
           and ("scenario-invalid: scenario-not-registered: the scenario's full SHA-256 " + sha(data) + " is no registered row") in out,
@@ -411,7 +541,7 @@ def cli_legs(exe, converter, work):
     # OUTPUT-PRESERVATION: an occupied trace path with a registered input is the claim's refusal only.
     occupied = work / "occupied.jsonl"
     occupied.write_bytes(b"sentinel\n")
-    code, out, err = launch([exe, "--shimeji-parity-run", POLICY / "inputs" / "S-cap-at-01.json", work / "pets" / "cap-at", occupied, converter.parent], work)
+    code, out, err = launch([exe, "--shimeji-parity-run", POLICY / "inputs" / "S-cap-at-01.json", work / "pets" / "cap-at", occupied, converter.parent], work, env)
     check(code == 2 and "is already there" in out and "parity registry-integrity" not in out and "parity INPUT-ADMITTED" not in out
           and occupied.read_bytes() == b"sentinel\n",
           "policy CLI: an occupied trace path plus a registered input gives the occupied refusal only, sentinel unchanged (exit " + str(code) + ")")
@@ -422,7 +552,7 @@ def cli_legs(exe, converter, work):
     (wrong / "packs" / "breed-cap" / "readme.txt").write_bytes(b"not the registered pack\n")
     shutil.copyfile(POLICY / "inputs" / "S-cap-at-01.json", wrong / "S-cap-at-01.json")
     trace = work / "wrong.jsonl"
-    code, out, err = launch([exe, "--shimeji-parity-run", wrong / "S-cap-at-01.json", work / "pets" / "cap-at", trace, converter.parent], work)
+    code, out, err = launch([exe, "--shimeji-parity-run", wrong / "S-cap-at-01.json", work / "pets" / "cap-at", trace, converter.parent], work, env)
     check(code == 2 and not trace.exists() and "scenario-invalid: pack-not-registered: the pack " in out and "parity INPUT-ADMITTED" not in out,
           "policy CLI: a registered scenario beside a readable wrong pack is pack-not-registered, exit 2, no trace (exit " + str(code) + ")")
 
@@ -445,7 +575,7 @@ def main():
             if not (args.exe and args.converter and args.work):
                 check(False, "policy CLI: --exe, --converter and --work go together")
             else:
-                cli_legs(args.exe, args.converter, args.work)
+                cli_legs(args.exe, args.converter, args.work, os.environ)
     print("RESULT=" + ("PASS" if not FAILED else "FAIL (" + str(len(FAILED)) + ")"), flush=True)
     return 1 if FAILED else 0
 
