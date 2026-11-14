@@ -2,6 +2,7 @@
 # Set default behavior to automatically normalize line endings.
 ###############################################################################
 * text=auto eol=lf
+tools/ShimejiParity/policy/SCANNER-CONTROLS.json -text
 
 # Windows command scripts require CRLF for native cmd.exe compatibility. All
 # other text, including PowerShell, project, WiX, JSON, YAML, and shell files,
