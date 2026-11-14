@@ -50,9 +50,14 @@ BASE_FIELDS = ("id", "pack", "screens", "workArea", "dpiScale", "ticks", "rng", 
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
 
 FAILED = []
+# While --mutate runs the build proof on a broken private copy, its verdicts are collected here instead of printed.
+SINK = None
 
 
 def check(ok, label):
+    if SINK is not None:
+        SINK.append((bool(ok), label))
+        return
     print(("PASS: " if ok else "FAIL: ") + label, flush=True)
     if not ok:
         FAILED.append(label)
@@ -137,9 +142,9 @@ def tuple_fault(rows):
     return None
 
 
-def compiled_rows():
+def compiled_rows(registry_cs=REGISTRY_CS):
     """The rows and digest compiled into ParityPolicyRegistry.cs, as its source spells them."""
-    text = REGISTRY_CS.read_text(encoding="utf-8")
+    text = Path(registry_cs).read_text(encoding="utf-8")
     rows = re.findall(r'new ParityPolicyRow\("([^"]*)", "([^"]*)", "([^"]*)", "([^"]*)", (\d+),\s*"([0-9a-fA-F]*)", "([0-9a-fA-F]*)"\)', text)
     digest = re.search(r'internal const string CompiledDigest = "([^"]*)";', text)
     return [{"id": r[0], "case": r[1], "scenarioId": r[2], "pack": r[3], "ticks": int(r[4]), "scenarioSha256": r[5], "packSha256": r[6]}
@@ -153,9 +158,11 @@ def comparer_pack_sha256():
     return module.pack_sha256
 
 
-def build_proof():
-    registry_bytes = (POLICY / "REGISTRY.json").read_bytes()
-    schema_bytes = (POLICY / "schema" / "policy-declaration.schema.json").read_bytes()
+def build_proof(policy=POLICY, registry_cs=REGISTRY_CS):
+    """The proof on the installed files; --mutate hands it private copies with one artefact broken."""
+    policy = Path(policy)
+    registry_bytes = (policy / "REGISTRY.json").read_bytes()
+    schema_bytes = (policy / "schema" / "policy-declaration.schema.json").read_bytes()
     check(sha(registry_bytes) == SIGNED_REGISTRY and sha(schema_bytes) == SIGNED_SCHEMA,
           "policy build proof: the installed registry and declaration schema equal their signed SHA-256 (" + sha(registry_bytes) + ", " + sha(schema_bytes) + ")")
     try:
@@ -172,7 +179,7 @@ def build_proof():
     pack_sha256 = comparer_pack_sha256()
     legacy = set(r.get("legacyScenarioSha256") for r in rows) | {registry.get("generatorSha256")}
     for row in rows:
-        path = POLICY / "inputs" / (row["scenarioId"] + ".json")
+        path = policy / "inputs" / (row["scenarioId"] + ".json")
         data = path.read_bytes()
         try:
             doc, fault = strict_json(data), None
@@ -186,7 +193,7 @@ def build_proof():
               and row["scenarioSha256"] not in legacy and row["packSha256"] not in legacy,
               "policy build proof: " + row["scenarioId"] + " parses strictly, its grammar holds, its id, pack, ticks and tuple are the row's, and its byte"
               " and pack digests recompute to the row's admission keys (" + str(fault) + ", " + sha(data) + ", " + str(pack) + ")")
-    compiled, digest = compiled_rows()
+    compiled, digest = compiled_rows(registry_cs)
     wanted = [{k: r[k] for k in ("id", "case", "scenarioId", "pack", "ticks", "scenarioSha256", "packSha256")} for r in rows]
     check(compiled == wanted and digest == SIGNED_REGISTRY == sha(registry_bytes),
           "policy build proof: every compiled row of ParityPolicyRegistry.cs and its digest equal the signed registry (" + str(len(compiled)) + " rows, digest " + str(digest) + ")")
@@ -212,7 +219,9 @@ def self_test():
     check(faults(declaration_fault, dict(good, id=5)), "policy grammar unit: a policy member of the wrong type is refused")
     check(faults(declaration_fault, dict(good, registry="shimeji-parity-policy/2")), "policy grammar unit: another registry is refused")
     check(faults(declaration_fault, dict(good, case="window-carry-off")), "policy grammar unit: a crossed tuple is refused")
-    check(faults(declaration_fault, ["birth-cap", "cap-at"]), "policy grammar unit: a policy that is not an object is refused")
+    # A number, not a list: set() of a list or string still differs from the three names, so only a number shows the
+    # object guard itself working.
+    check(faults(declaration_fault, 5), "policy grammar unit: a policy that is not an object is refused")
 
     def refused(text):
         try:
@@ -239,24 +248,86 @@ def self_test():
 
 # Each guard broken in a private copy of this file; the copy's --self-test must FAIL on the named unit. Never edits the
 # tracked file.
+UNIT = "policy grammar unit: "
 MUTATIONS = (
     ("missing or extra members accepted", '    if set(policy) != {"registry", "id", "case"}:\n', '    if False:\n',
-     "policy grammar unit: a missing policy member is refused"),
-    ("registry constant unchecked", '    if policy["registry"] != REGISTRY_NAME:\n', '    if False:\n',
-     "policy grammar unit: another registry is refused"),
-    ("crossed tuples accepted", '    if (policy["id"], policy["case"]) not in TUPLES:\n', '    if False:\n',
-     "policy grammar unit: a crossed tuple is refused"),
+     (UNIT + "a missing policy member is refused", UNIT + "an extra policy member is refused")),
+    ("registry constant unchecked", '    if policy["registry"] != REGISTRY_NAME:\n', '    if False:\n', (UNIT + "another registry is refused",)),
+    ("crossed tuples accepted", '    if (policy["id"], policy["case"]) not in TUPLES:\n', '    if False:\n', (UNIT + "a crossed tuple is refused",)),
+    ("a policy that is not an object accepted", '    if not isinstance(policy, dict):\n', '    if False:\n',
+     (UNIT + "a policy that is not an object is refused",)),
     ("repeated members collapse last-wins", '        return json.loads(text, object_pairs_hook=_pairs, parse_constant=_constant)\n',
-     '        return json.loads(text, parse_constant=_constant)\n', "policy grammar unit: a repeated member three objects deep is refused"),
-    ("registry tuple uniqueness unchecked", '    if len(set(pairs)) != len(pairs):\n', '    if False:\n',
-     "policy grammar unit: a repeated registry tuple is refused"),
+     '        return json.loads(text, parse_constant=_constant)\n',
+     (UNIT + "a repeated member three objects deep is refused", UNIT + "a repeated member in the policy object is refused")),
+    ("NaN and Infinity accepted", '        return json.loads(text, object_pairs_hook=_pairs, parse_constant=_constant)\n',
+     '        return json.loads(text, object_pairs_hook=_pairs)\n', (UNIT + "a NaN constant is refused",)),
+    ("scenario schema unchecked", '    if doc.get("schema") != SCENARIO2:\n', '    if False:\n', (UNIT + "a scenario/1 schema is refused",)),
+    ("policy not a required member", '"mascots", "policy")\n', '"mascots")\n', (UNIT + "a scenario with no policy is refused",)),
+    ("registry tuple uniqueness unchecked", '    if len(set(pairs)) != len(pairs):\n', '    if False:\n', (UNIT + "a repeated registry tuple is refused",)),
+    ("registry scenarioId uniqueness unchecked", '    if len(set(ids)) != len(ids):\n', '    if False:\n',
+     (UNIT + "a repeated registry scenarioId is refused",)),
 )
 
 
+# Each artefact the build proof reads, broken in a private copy of the policy folder or of ParityPolicyRegistry.cs; the
+# proof run on that copy must FAIL the named check. (target, old, new, the check's label prefix). Never edits a tracked file.
+PROOF = "policy build proof: "
+ARTEFACT_MUTATIONS = (
+    ("registry byte changed", "REGISTRY.json", b'"SPECIFICATION-ONLY;', b'"SPECIFICATION-ONLX;',
+     PROOF + "the installed registry and declaration schema equal their signed SHA-256"),
+    ("registry member repeated", "REGISTRY.json", b' "registry": "shimeji-parity-policy/1",',
+     b' "registry": "shimeji-parity-policy/1",\n "registry": "shimeji-parity-policy/1",', PROOF + "the registry parses strictly"),
+    ("registry tuple repeated", "REGISTRY.json", b'"case": "window-minimize-off"', b'"case": "window-throw-off"',
+     PROOF + "the registry's tuples are unique"),
+    ("cap-at input byte changed", "inputs/S-cap-at-01.json", b'"description": "', b'"description": "X', PROOF + "S-cap-at-01 parses strictly"),
+    ("carry input byte changed", "inputs/S-window-carry-off-01.json", b'"description": "', b'"description": "X',
+     PROOF + "S-window-carry-off-01 parses strictly"),
+    ("throw input byte changed", "inputs/S-window-throw-off-01.json", b'"description": "', b'"description": "X',
+     PROOF + "S-window-throw-off-01 parses strictly"),
+    ("minimize input byte changed", "inputs/S-window-minimize-off-01.json", b'"description": "', b'"description": "X',
+     PROOF + "S-window-minimize-off-01 parses strictly"),
+    ("cap-at pack byte changed", "inputs/packs/breed-cap/img/Alpha/conf/behaviors.xml", b"<", b" <", PROOF + "S-cap-at-01 parses strictly"),
+    ("compiled row hex flipped", "cs", b'"4914fc64', b'"5914fc64', PROOF + "every compiled row of ParityPolicyRegistry.cs"),
+)
+
+
+def proof_on(root):
+    """The build proof's verdicts on the private copy under root (policy/ and ParityPolicyRegistry.cs)."""
+    global SINK
+    SINK = []
+    try:
+        build_proof(root / "policy", root / "ParityPolicyRegistry.cs")
+    except Exception as e:
+        SINK.append((False, "threw " + repr(e)))
+    results, SINK = SINK, None
+    return results
+
+
 def mutate():
+    with tempfile.TemporaryDirectory(prefix="parity-policy-artefact-") as temporary:
+        clean = Path(temporary) / "clean"
+        shutil.copytree(POLICY, clean / "policy")
+        shutil.copyfile(REGISTRY_CS, clean / "ParityPolicyRegistry.cs")
+        results = proof_on(clean)
+        check(len(results) == 8 and all(ok for ok, _ in results),
+              "policy build proof mutation: WITNESS an unbroken private copy passes all " + str(len(results)) + " proof checks")
+        for index, (name, target, old, new, label) in enumerate(ARTEFACT_MUTATIONS):
+            root = Path(temporary) / ("m" + str(index))
+            shutil.copytree(POLICY, root / "policy")
+            shutil.copyfile(REGISTRY_CS, root / "ParityPolicyRegistry.cs")
+            path = root / "ParityPolicyRegistry.cs" if target == "cs" else root / "policy" / target
+            data = path.read_bytes()
+            if old not in data:
+                check(False, "policy build proof mutation " + name + ": its old bytes are not in " + target)
+                continue
+            path.write_bytes(data.replace(old, new, 1))
+            print("EXECUTED artefact mutant " + name + " sha256=" + sha(path.read_bytes()), flush=True)
+            results = proof_on(root)
+            check(any(not ok and found.startswith(label) for ok, found in results),
+                  "policy build proof mutation " + name + " FIRED on '" + label + "'")
     source = Path(__file__).read_text(encoding="utf-8")
     with tempfile.TemporaryDirectory(prefix="parity-policy-mutate-") as temporary:
-        for name, old, new, label in MUTATIONS:
+        for name, old, new, labels in MUTATIONS:
             if source.count(old) != 1:
                 check(False, "policy grammar mutation " + name + ": its old text occurs " + str(source.count(old)) + " times")
                 continue
@@ -265,9 +336,9 @@ def mutate():
             # The copy runs in a fresh interpreter; its sha proves the mutated bytes are what ran.
             result = subprocess.run([sys.executable, "-I", "-B", str(copy), "--self-test"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                     text=True, encoding="utf-8", errors="replace", timeout=120)
-            fired = result.returncode == 1 and ("FAIL: " + label) in result.stdout.splitlines()
+            fired = result.returncode == 1 and all(("FAIL: " + label) in result.stdout.splitlines() for label in labels)
             print("EXECUTED mutant " + name + " sha256=" + sha(copy.read_bytes()), flush=True)
-            check(fired, "policy grammar mutation " + name + " FIRED on '" + label + "'")
+            check(fired, "policy grammar mutation " + name + " FIRED on '" + "' and '".join(labels) + "'")
 
 
 def launch(argv, cwd):
@@ -313,7 +384,9 @@ def cli_legs(exe, converter, work):
         text = trace.read_text(encoding="utf-8") if trace.exists() else ""
         header = json.loads(text.split("\n", 1)[0]) if text else {}
         footer = json.loads(text.rstrip("\n").rsplit("\n", 1)[-1]) if text else {}
-        seen.append(rid)
+        # This process's own ok line: the signed digest and this run's runId, or None (a defect line, or none at all).
+        seen.append(rid if ok_line is not None and ok_line.startswith("parity registry-integrity ok registrySha256 " + SIGNED_REGISTRY + " ")
+                    and run_id(ok_line) == rid else None)
         check(code == 0 and rid is not None and len(rid) == 36 and admitted == want and ok_line is not None
               and ok_line.startswith("parity registry-integrity ok registrySha256 " + SIGNED_REGISTRY + " engineSha256 " + engine_sha + " ")
               and run_id(ok_line) == rid and header.get("runId") == rid and footer.get("status") == "complete"
