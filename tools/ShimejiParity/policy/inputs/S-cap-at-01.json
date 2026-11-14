@@ -1,0 +1,99 @@
+{
+ "activeWindow": [
+  {
+   "tick": 0,
+   "visible": false
+  }
+ ],
+ "description": "Alpha breeds BornCount 17 on tick 6: births 1 to 15 succeed and attempts 16 and 17 are refused with a birth-refused event, reason cap (policy:birth-cap; the source has no cap and makes all 17)",
+ "dpiScale": 1.0,
+ "id": "S-cap-at-01",
+ "input": [
+  {
+   "cursor": [
+    100,
+    100
+   ],
+   "tick": 0
+  }
+ ],
+ "mascots": [
+  {
+   "anchor": [
+    640,
+    680
+   ],
+   "behavior": "LaySeventeen",
+   "imageSet": "Alpha",
+   "lookRight": false,
+   "sid": "m1"
+  }
+ ],
+ "pack": "packs/breed-cap",
+ "policy": {
+  "case": "cap-at",
+  "id": "birth-cap",
+  "registry": "shimeji-parity-policy/1"
+ },
+ "rng": {
+  "kind": "tape",
+  "values": [
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5
+  ]
+ },
+ "schema": "shimeji-parity-scenario/2",
+ "screens": [
+  {
+   "h": 720,
+   "w": 1280,
+   "x": 0,
+   "y": 0
+  }
+ ],
+ "settings": {
+  "breeding": true,
+  "multiscreen": false,
+  "sounds": false,
+  "throwing": false,
+  "transformation": true,
+  "transients": true
+ },
+ "ticks": 20,
+ "workArea": {
+  "h": 680,
+  "w": 1280,
+  "x": 0,
+  "y": 0
+ }
+}

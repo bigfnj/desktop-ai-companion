@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Mascot xmlns="http://www.group-finity.com/Mascot">
+  <ActionList>
+    <Action Name="Carry" Type="Embedded" Class="com.group_finity.mascot.action.WalkWithIE" BorderType="Floor" TargetX="500" IeOffsetX="0" IeOffsetY="0">
+      <Animation><Pose Image="/shime1.png" ImageAnchor="32,64" Velocity="-2,0" Duration="2"/><Pose Image="/shime2.png" ImageAnchor="32,64" Velocity="-2,0" Duration="2"/></Animation>
+    </Action>
+    <Action Name="Stand" Type="Stay" BorderType="Floor" Duration="200">
+      <Animation><Pose Image="/shime1.png" ImageAnchor="32,64" Velocity="0,0" Duration="5"/></Animation>
+    </Action>
+    <Action Name="Fall" Type="Embedded" Class="com.group_finity.mascot.action.Fall">
+      <Animation><Pose Image="/shime4.png" ImageAnchor="32,64" Velocity="0,0" Duration="250"/></Animation>
+    </Action>
+    <Action Name="Dragged" Type="Embedded" Class="com.group_finity.mascot.action.Dragged">
+      <Animation><Pose Image="/shime5.png" ImageAnchor="32,64" Velocity="0,0" Duration="250"/></Animation>
+    </Action>
+    <Action Name="Thrown" Type="Embedded" Class="com.group_finity.mascot.action.Fall">
+      <Animation><Pose Image="/shime4.png" ImageAnchor="32,64" Velocity="0,0" Duration="250"/></Animation>
+    </Action>
+  </ActionList>
+</Mascot>
