@@ -7276,6 +7276,56 @@ Assert-True ($hpRegistrySha -ceq '954776734f2ab70a4a96645e15e188d2d936e935b89e70
              $hpDigest.Success -and $hpDigest.Groups[1].Value -ceq $hpRegistrySha -and $hpResource.Success -and $hpEmbedded.Count -eq 1 -and
              $hpEmbedded[0].Groups[1].Value -ceq '..\tools\ShimejiParity\policy\REGISTRY.json' -and $hpEmbedded[0].Groups[2].Value -ceq $hpResource.Groups[1].Value) (
     "host-policy-1: the installed REGISTRY.json and schema equal their signed SHA-256, the compiled digest is that value and the project embeds that file under ResourceName (registry $hpRegistrySha, schema $hpSchemaSha)")
+# ---- burndown/coordinator ----
+# NO MODULE PROJECT PINS A WARNING LEVEL BELOW ITS TARGET FRAMEWORK'S DEFAULT (N-bd-w4-contracts-1-01). modules\Directory.Build.props
+# pinned WarningLevel 4, the .NET Framework value, for every module project, so the compiler's warning waves 5 to 10 were off
+# for all nine and TreatWarningsAsErrors could not fire on them (measured 2026-11-14: without the pin all nine rebuilt with 0
+# warnings, Release and Debug, and a type with an all-lowercase name, CS8981, failed BlinkingLed's build without the pin and
+# built clean under it). w4-contracts-1 above covers src\ only. Every project one folder below modules\ is scanned, so the
+# next module is covered without an edit here. Per project, the floor is its target framework's major version (0 when the
+# project names no single netN.M target, so it is not judged), and the files are the project with XML comments stripped
+# plus any Directory.Build.props or .targets MSBuild would import from its folder, modules\ or the repo root.
+# WITNESS: at least nine module projects were read, and modules\Directory.Build.props was read and still sets
+# TreatWarningsAsErrors, so a scan that read nothing, or the wrong folder, fails instead of passing.
+$bdcModulesRoot = Join-Path $repoRoot 'modules'
+$bdcProjects = @(Get-ChildItem -LiteralPath $bdcModulesRoot -Directory | ForEach-Object {
+    Get-ChildItem -LiteralPath $_.FullName -Filter '*.csproj' -File })
+$bdcShared = @(foreach ($bdcAt in @($bdcModulesRoot, $repoRoot)) {
+    foreach ($bdcName in @('Directory.Build.props', 'Directory.Build.targets')) {
+        $bdcPath = Join-Path $bdcAt $bdcName
+        if (Test-Path -LiteralPath $bdcPath -PathType Leaf) { Get-Item -LiteralPath $bdcPath }
+    }
+})
+$bdcPropsPath = Join-Path $bdcModulesRoot 'Directory.Build.props'
+$bdcPropsText = ''
+if (Test-Path -LiteralPath $bdcPropsPath -PathType Leaf) {
+    $bdcPropsText = [regex]::Replace((Get-Content -LiteralPath $bdcPropsPath -Raw), '(?s)<!--.*?-->', '')
+}
+$bdcLowPins = @()
+foreach ($bdcProject in $bdcProjects) {
+    $bdcXml = [regex]::Replace((Get-Content -LiteralPath $bdcProject.FullName -Raw), '(?s)<!--.*?-->', '')
+    $bdcFramework = [regex]::Match($bdcXml, '<TargetFramework>\s*net(\d{1,3})\.\d+(-[A-Za-z0-9.]+)?\s*</TargetFramework>')
+    $bdcFloor = 0
+    if ($bdcFramework.Success) { $bdcFloor = [int] $bdcFramework.Groups[1].Value }
+    $bdcLocal = @(foreach ($bdcName in @('Directory.Build.props', 'Directory.Build.targets')) {
+        $bdcPath = Join-Path $bdcProject.DirectoryName $bdcName
+        if (Test-Path -LiteralPath $bdcPath -PathType Leaf) { Get-Item -LiteralPath $bdcPath }
+    })
+    foreach ($bdcFile in @(@($bdcProject) + $bdcLocal + $bdcShared)) {
+        $bdcText = [regex]::Replace((Get-Content -LiteralPath $bdcFile.FullName -Raw), '(?s)<!--.*?-->', '')
+        foreach ($bdcPin in [regex]::Matches($bdcText, '<WarningLevel\b[^>]*>\s*([^<]*?)\s*</WarningLevel>')) {
+            $bdcValue = $bdcPin.Groups[1].Value
+            if ($bdcValue -cnotmatch '^\d{1,5}$' -or [int] $bdcValue -lt $bdcFloor) {
+                $bdcLowPins += ($bdcProject.Name + ' via ' + $bdcFile.Directory.Name + '\' + $bdcFile.Name + '=' + $bdcValue)
+            }
+        }
+    }
+}
+Assert-True ($bdcProjects.Count -ge 9 -and $bdcPropsText -cmatch '<TreatWarningsAsErrors>true</TreatWarningsAsErrors>') (
+    "coordinator: the module warning-level scan read modules\Directory.Build.props and the module projects (WITNESS: TreatWarningsAsErrors is still set; $($bdcProjects.Count) projects)")
+Assert-True ($bdcLowPins.Count -eq 0) (
+    "coordinator: no module project pins a WarningLevel below its target framework's default" +
+    $(if ($bdcLowPins.Count) { ' -- ' + ($bdcLowPins -join ', ') } else { '' }))
 
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that

@@ -5668,6 +5668,23 @@ CASES = (
         b'LogicalName="DesktopAICompanion.ShimejiParity.PolicyRegistry2.json" />',
         'host-policy-1: the installed REGISTRY.json and schema equal their signed SHA-256',
     ),
+    # ---- burndown/coordinator ----
+    # N-bd-w4-contracts-1-01: the WarningLevel 4 pin comes back in modules\Directory.Build.props, or one module project pins
+    # a level one below its framework's (runtime-hardening-selftest.ps1, coordinator block). "bd-coordinator:" for one --only.
+    (
+        "bd-coordinator: modules Directory.Build.props pins WarningLevel 4 again (N-bd-w4-contracts-1-01)",
+        os.path.join(REPO, "modules", "Directory.Build.props"),
+        b"    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>\n  </PropertyGroup>\n",
+        b"    <WarningLevel>4</WarningLevel>\n    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>\n  </PropertyGroup>\n",
+        "coordinator: no module project pins a WarningLevel below its target framework's default",
+    ),
+    (
+        "bd-coordinator: a module project pins WarningLevel 9 under net10 (N-bd-w4-contracts-1-01)",
+        os.path.join(REPO, "modules", "BlinkingLed", "BlinkingLed.csproj"),
+        b"    <TargetFramework>net10.0-windows</TargetFramework>\n",
+        b"    <TargetFramework>net10.0-windows</TargetFramework>\n    <WarningLevel>9</WarningLevel>\n",
+        "coordinator: no module project pins a WarningLevel below its target framework's default",
+    ),
 )
 
 

@@ -3118,7 +3118,8 @@ def build(relaxed=False):
 
     TreatWarningsAsErrors is turned OFF for the mutation builds only (relaxed=True), and that is a
     fix rather than a loosening. modules/Directory.Build.props gained WarningLevel 4 and
-    TreatWarningsAsErrors on 2026-09-17, which is right for real code -- and it silently broke
+    TreatWarningsAsErrors on 2026-09-17 (the pin went again under N-bd-w4-contracts-1-01), which
+    is right for real code -- and it silently broke
     NINE of this file's cases, taking the suite from 23/23 to 14/23 with the other nine reporting
     BROKEN (does not compile). The cause is that several mutations disable a line with
     `if (false)`, which is CS0162 unreachable code: a warning, and therefore now an error.
