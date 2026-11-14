@@ -105,7 +105,7 @@ internal static class Program
         var frames = new Dictionary<int, FrameGeometry>();
         using (JsonDocument map = JsonDocument.Parse(json))
         {
-            if (map.RootElement.GetProperty("schema").GetString() != "shimeji-parity-map/2")
+            if (map.RootElement.GetProperty("schema").GetString() != "shimeji-parity-map/3")
                 throw new InvalidDataException("parity map has an unsupported schema");
             ValidatePoseMap(document, map.RootElement);
             foreach (JsonElement frame in map.RootElement.GetProperty("frames").EnumerateArray())
@@ -221,6 +221,9 @@ internal static class Program
         JsonNode oldSchema = JsonNode.Parse(map);
         oldSchema["schema"] = "shimeji-parity-map/1";
         results.Add(CheckMap("control-map-v1-schema", mapPath, document, oldSchema.ToJsonString(), false, "schema"));
+        JsonNode retiredSchema = JsonNode.Parse(map);
+        retiredSchema["schema"] = "shimeji-parity-map/2";
+        results.Add(CheckMap("control-map-v2-schema", mapPath, document, retiredSchema.ToJsonString(), false, "schema"));
         CheckPoseMapControls(mapPath, document, map, results);
         XElement visible = document.Descendants(Ns + "pose").First(p => Attribute(p, "frame", -1) >= 0);
         int frame = Attribute(visible, "frame", -1);

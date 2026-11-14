@@ -88,6 +88,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "sound-mute-refusal", Run = (Action)SoundMuteRefusal },
                 new { Name = "sound-mute-match-sets", Run = (Action)SoundMuteMatchSets },
                 new { Name = "sound-scripted-mute", Run = (Action)SoundScriptedMute },
+                new { Name = "source-sound-constant-kinds", Run = (Action)SourceSoundConstantKinds },
+                new { Name = "sound-parameter-map-origins", Run = (Action)SoundParameterMapOrigins },
+                new { Name = "sound-parameter-map-kinds", Run = (Action)SoundParameterMapKinds },
                 new { Name = "sound-alias-order", Run = (Action)SoundAliasOrder },
                 new { Name = "sound-source-identity", Run = (Action)SoundSourceIdentity },
                 new { Name = "sprite-read-diagnostics", Run = (Action)SpriteReadDiagnostics },
@@ -2838,6 +2841,141 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             }
         }
 
+        // These expected kinds are independent source-constant examples. In particular, .NET Trim and the
+        // compiled host kind give the wrong answer for Unicode padding, capital booleans and normalized strings.
+        private static void SourceSoundConstantKinds()
+        {
+            string[] numbers = { "0", "01", "+1", "-1", "1.", ".5", "1e2", "-1E-2F", "1d", "0x1p1",
+                "+0X1.FP-2D", "-.0", "NaN", "+NaN", "-Infinity", "Infinity", " 1 ", "\t1\r\n", "1e9999999" };
+            string[] strings = { "", " ", "null", "TRUE", "False", " true", "false ", "/1", "/true", "/0X1P1",
+                "\u00a01", "\u00851", "1\u2003", "\u30001", "\u0661", "nan", "infinity", "NaNf", "InfinityD",
+                "0x1", "0x1p", "1e", "1_0", "1,0", ".", "+", "1 2" };
+            foreach (string value in numbers)
+                Require(TickPackEmitter.SourceSoundKind(value) == "number", "source-sound-constant-kinds: number misclassified: " + value);
+            foreach (string value in strings)
+                Require(TickPackEmitter.SourceSoundKind(value) == "string", "source-sound-constant-kinds: string misclassified: " + value);
+            foreach (string value in new[] { "true", "false" })
+                Require(TickPackEmitter.SourceSoundKind(value) == "boolean", "source-sound-constant-kinds: exact boolean misclassified: " + value);
+            Require(TickPackEmitter.SourceSoundKind(((char)0x1c) + "1" + ((char)0x1f)) == "number",
+                "source-sound-constant-kinds: Java trim excludes no character below U+0021");
+        }
+
+        private static JsonElement SoundRow(JsonElement[] rows, string kind, int id, int? childIndex = null)
+        {
+            return rows.Single(row => row.GetProperty("kind").GetString() == kind && row.GetProperty("nodeId").GetInt32() == id
+                && (!childIndex.HasValue || row.GetProperty("childIndex").GetInt32() == childIndex.Value));
+        }
+
+        private static void RequireSoundRow(JsonElement row, string source, string emitted, string cache, string mode,
+            string sourceValue = null, string sourceKind = null)
+        {
+            var expected = new HashSet<string>(new[] { "kind", "nodeId", "sourceRefKey", "emittedValue", "emittedCache", "mode" }, StringComparer.Ordinal);
+            if (row.GetProperty("kind").GetString() == "child") expected.Add("childIndex");
+            if (mode == "literal") { expected.Add("sourceValue"); expected.Add("sourceKind"); }
+            Require(expected.SetEquals(row.EnumerateObject().Select(property => property.Name)),
+                "sound-parameter-map: a row has missing or surplus properties");
+            Require(row.GetProperty("sourceRefKey").GetString() == source
+                && row.GetProperty("emittedValue").GetString() == emitted
+                && row.GetProperty("emittedCache").GetString() == cache && row.GetProperty("mode").GetString() == mode,
+                "sound-parameter-map: source, emitted text, explicit cache or mode differs at " + source);
+            if (mode == "literal")
+                Require(row.GetProperty("sourceValue").GetString() == sourceValue && row.GetProperty("sourceKind").GetString() == sourceKind,
+                    "sound-parameter-map: source spelling or source constant kind differs at " + source);
+        }
+
+        private static void SoundParameterMapOrigins()
+        {
+            using (var fixture = new Fixture())
+            {
+                XDocument actions = BuildActions(), behaviours = BuildBehaviors();
+                actions.Root.Element("ActionList").Add(
+                    Embedded("HushMap", "Mute", A("Sound", "/TO")),
+                    S("Action", A("Name", "HushSequence"), A("Type", "Sequence"), A("Sound", "outer"),
+                        S("ActionReference", A("Name", "HushMap"), A("Sound", "/to")),
+                        S("Action", A("Name", "InlineHush"), A("Type", "Embedded"), A("Class", "com.group_finity.mascot.action.Mute"), A("Sound", "")),
+                        S("ActionReference", A("Name", "HushMap"), A("Sound", "${'1'}")),
+                        S("ActionReference", A("Name", "HushMap"), A("Sound", "#{'frame'}")),
+                        S("ActionReference", A("Name", "HushMap"))),
+                    S("Action", A("Name", "UnselectedSound"), A("Type", "Stay"), A("Sound", "same"), S("Animation", Pose("/p.png", 1))));
+                behaviours.Root.Element("BehaviorList").Add(
+                    S("Behavior", A("Name", "HushRoot"), A("Action", "HushMap"), A("Frequency", 0), A("Sound", "/TRUE"),
+                        S("NextBehaviorList", S("BehaviorReference", A("Name", "HushRoot"), A("Action", "HushMap"), A("Frequency", 1), A("Sound", "/01")))));
+                fixture.Actions(actions); fixture.Behaviors(behaviours);
+                XDocument document = fixture.Convert();
+                Validate(document, "sound-parameter-map-origins");
+                using (JsonDocument map = JsonDocument.Parse(File.ReadAllText(fixture.MapPath)))
+                {
+                    JsonElement root = map.RootElement;
+                    Require(root.GetProperty("schema").GetString() == "shimeji-parity-map/3", "sound-parameter-map: schema is not map/3");
+                    JsonElement[] rows = root.GetProperty("soundParameters").EnumerateArray().ToArray();
+                    Require(rows.Length == 9, "sound-parameter-map: every emitted Sound definition, including non-Mute and unselected, must have one row");
+                    Func<string, int> id = name => (int)NamedNode(document, name).Attribute("id");
+                    const string actionPath = "A|conf/actions.xml|/Mascot[1]/ActionList[1]/";
+                    const string behaviourPath = "A|conf/behaviors.xml|/Mascot[1]/BehaviorList[1]/Behavior[5]";
+                    RequireSoundRow(SoundRow(rows, "action", id("HushMap")), actionPath + "Action[6]", "to", "none", "literal", "/TO", "string");
+                    RequireSoundRow(SoundRow(rows, "action", id("HushSequence")), actionPath + "Action[7]", "outer", "none", "literal", "outer", "string");
+                    RequireSoundRow(SoundRow(rows, "action", id("InlineHush")), actionPath + "Action[7]/Action[1]", "", "none", "literal", "", "string");
+                    RequireSoundRow(SoundRow(rows, "action", id("UnselectedSound")), actionPath + "Action[8]", "same", "none", "literal", "same", "string");
+                    RequireSoundRow(SoundRow(rows, "child", id("HushSequence"), 0), actionPath + "Action[7]/ActionReference[1]", "to", "none", "literal", "/to", "string");
+                    RequireSoundRow(SoundRow(rows, "child", id("HushSequence"), 2), actionPath + "Action[7]/ActionReference[2]", "'1'", "action", "evaluated");
+                    RequireSoundRow(SoundRow(rows, "child", id("HushSequence"), 3), actionPath + "Action[7]/ActionReference[3]", "'frame'", "frame", "evaluated");
+                    int rootId = (int)RootBehavior(document, "HushRoot").Attribute("id");
+                    RequireSoundRow(SoundRow(rows, "behaviour", rootId), behaviourPath, "true", "none", "literal", "/TRUE", "string");
+                    int nextId = (int)RootBehavior(document, "HushRoot").Element(Ns + "sequence").Element(Ns + "next");
+                    RequireSoundRow(SoundRow(rows, "behaviour", nextId), behaviourPath + "/NextBehaviorList[1]/BehaviorReference[1]", "01", "none", "literal", "/01", "string");
+                    Require(!rows.Any(row => row.GetProperty("kind").GetString() == "child" && row.GetProperty("nodeId").GetInt32() == id("HushSequence")
+                        && (row.GetProperty("childIndex").GetInt32() == 1 || row.GetProperty("childIndex").GetInt32() == 4)),
+                        "sound-parameter-map: inline action or absent binding acquired a child Sound row");
+                }
+            }
+        }
+
+        private static void SoundParameterMapKinds()
+        {
+            var cases = new[] {
+                new { Value = "/TO", Emitted = "to", Kind = "string" },
+                new { Value = "/1", Emitted = "1", Kind = "string" },
+                new { Value = "/true", Emitted = "true", Kind = "string" },
+                new { Value = "TRUE", Emitted = "true", Kind = "string" },
+                new { Value = "False", Emitted = "false", Kind = "string" },
+                new { Value = "/01", Emitted = "01", Kind = "string" },
+                new { Value = "/0X1P1", Emitted = "0x1p1", Kind = "string" },
+                new { Value = "\u00a01", Emitted = "\u00a01", Kind = "string" },
+                new { Value = "", Emitted = "", Kind = "string" },
+                new { Value = "/", Emitted = "", Kind = "string" },
+                new { Value = "\\", Emitted = "", Kind = "string" },
+                new { Value = "null", Emitted = "null", Kind = "string" },
+                new { Value = " 1 ", Emitted = " 1 ", Kind = "number" },
+                new { Value = "Infinity", Emitted = "infinity", Kind = "number" },
+                new { Value = "-Infinity", Emitted = "-infinity", Kind = "number" },
+                new { Value = "NaN", Emitted = "nan", Kind = "number" },
+                new { Value = "0x1p1", Emitted = "0x1p1", Kind = "number" },
+                new { Value = "1d", Emitted = "1d", Kind = "number" },
+                new { Value = "true", Emitted = "true", Kind = "boolean" },
+                new { Value = "false", Emitted = "false", Kind = "boolean" }
+            };
+            using (var fixture = new Fixture())
+            {
+                XDocument actions = BuildActions();
+                for (int i = 0; i < cases.Length; i++) actions.Root.Element("ActionList").Add(Embedded("Kind" + i, "Mute", A("Sound", cases[i].Value)));
+                fixture.Actions(actions);
+                XDocument document = fixture.Convert();
+                Validate(document, "sound-parameter-map-kinds");
+                using (JsonDocument map = JsonDocument.Parse(File.ReadAllText(fixture.MapPath)))
+                {
+                    JsonElement[] rows = map.RootElement.GetProperty("soundParameters").EnumerateArray().ToArray();
+                    Require(rows.Length == cases.Length, "sound-parameter-map-kinds: a distinct literal definition was lost or combined");
+                    for (int i = 0; i < cases.Length; i++)
+                    {
+                        int nodeId = (int)NamedNode(document, "Kind" + i).Attribute("id");
+                        RequireSoundRow(SoundRow(rows, "action", nodeId),
+                            "A|conf/actions.xml|/Mascot[1]/ActionList[1]/Action[" + (6 + i) + "]",
+                            cases[i].Emitted, "none", "literal", cases[i].Value, cases[i].Kind);
+                    }
+                }
+            }
+        }
+
         private static void SoundAliasOrder()
         {
             foreach (bool trailingFirst in new[] { true, false })
@@ -3268,8 +3406,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 Validate(document, "source-pose-map");
                 using (JsonDocument map = JsonDocument.Parse(File.ReadAllText(fixture.MapPath)))
                 {
-                    Require(map.RootElement.GetProperty("schema").GetString() == "shimeji-parity-map/2",
-                        "source-pose-map: source pose provenance requires map schema 2");
+                    Require(map.RootElement.GetProperty("schema").GetString() == "shimeji-parity-map/3"
+                        && map.RootElement.GetProperty("soundParameters").GetArrayLength() == 0,
+                        "source-pose-map: map schema 3 requires an empty Sound table when no Sound definition exists");
                     JsonElement poses = map.RootElement.GetProperty("poses");
                     string walkId = (string)NamedNode(document, "Walk").Attribute("id");
                     JsonElement first = poses.GetProperty(walkId + ":0:0"), second = poses.GetProperty(walkId + ":0:1");

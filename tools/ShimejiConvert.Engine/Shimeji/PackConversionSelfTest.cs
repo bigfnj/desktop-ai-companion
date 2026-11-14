@@ -34,6 +34,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "independent-results", Run = (Action)IndependentResults },
                 new { Name = "unused-action-diagnostic", Run = (Action)UnusedAction },
                 new { Name = "optional-parity-map", Run = (Action)OptionalParityMap },
+                new { Name = "sound-product-without-map", Run = (Action)(() => SoundProductMap(false)) },
+                new { Name = "sound-product-with-map", Run = (Action)(() => SoundProductMap(true)) },
                 new { Name = "long-member-key", Run = (Action)LongMemberKey },
                 new { Name = "missing-img-refusal", Run = (Action)MissingImages },
                 new { Name = "empty-img-refusal", Run = (Action)EmptyImages },
@@ -160,7 +162,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     "composite literal reference binding was lost");
                 using (JsonDocument map = JsonDocument.Parse(Member(result, "Alpha").ParityMapJson))
                 {
-                    Require(map.RootElement.GetProperty("schema").GetString() == "shimeji-parity-map/2"
+                    Require(map.RootElement.GetProperty("schema").GetString() == "shimeji-parity-map/3"
+                        && map.RootElement.GetProperty("soundParameters").GetArrayLength() == 0
                         && map.RootElement.GetProperty("frames").GetArrayLength() == 3,
                         "requested public parity map was absent or lost the explicit right image");
                     JsonElement origins;
@@ -410,6 +413,41 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     "unrequested parity map was exposed by the public API");
                 Require(!string.IsNullOrEmpty(Member(Accepted(fixture, Options(true)), "Alpha").ParityMapJson),
                     "requested parity map was not returned");
+            }
+        }
+
+        // Separate named cases let a targeted mutation throw inside map provenance while proving the product-only
+        // call still succeeds. This exercises the real public API, not a manually constructed PreparedMember.
+        private static void SoundProductMap(bool includeMap)
+        {
+            using (var fixture = new Fixture())
+            {
+                XDocument actions = Actions(), behaviours = Behaviours();
+                actions.Root.Element("ActionList").Add(E("Action", A("Name", "Hush"), A("Type", "Embedded"),
+                    A("Class", "com.group_finity.mascot.action.Mute"), A("Sound", "/TO")));
+                actions.Root.Element("ActionList").Elements("Action").Single(a => (string)a.Attribute("Name") == "Composite")
+                    .ReplaceNodes(E("ActionReference", A("Name", "Hush"), A("Sound", "/01")));
+                behaviours.Root.Element("BehaviorList").Elements("Behavior").Single(b => (string)b.Attribute("Name") == "Main")
+                    .Add(A("Sound", "outer"));
+                fixture.Member("Alpha", actions, behaviours);
+                PackMemberConversionResult member = Member(Accepted(fixture, Options(includeMap)), "Alpha");
+                XDocument document = Document(member);
+                XElement hush = Node(document, "Hush").Element(Ns + "act");
+                XElement child = Node(document, "Composite").Element(Ns + "act").Element(Ns + "children").Element(Ns + "child");
+                Require(hush.Elements(Ns + "param").Single(p => (string)p.Attribute("name") == "Sound").Attribute("value").Value == "to"
+                    && child.Elements(Ns + "bind").Single(p => (string)p.Attribute("name") == "Sound").Attribute("value").Value == "01",
+                    "sound-product-map: provenance changed the product's normalized Sound definitions");
+                if (!includeMap)
+                {
+                    Require(member.ParityMapJson == null, "sound-product-map: product-only result exposed a map");
+                    return;
+                }
+                using (JsonDocument map = JsonDocument.Parse(member.ParityMapJson))
+                {
+                    Require(map.RootElement.GetProperty("schema").GetString() == "shimeji-parity-map/3"
+                        && map.RootElement.GetProperty("soundParameters").GetArrayLength() == 3,
+                        "sound-product-map: requested map lost an own, reference or non-Mute behaviour Sound definition");
+                }
             }
         }
 

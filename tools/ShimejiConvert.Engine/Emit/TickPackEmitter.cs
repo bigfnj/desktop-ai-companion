@@ -107,6 +107,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             // name, as the pack API (PackConversion) already refuses it.
             foreach (PreparedMember member in prepared)
             {
+                // All maps are prepared before any output file exists. A provenance defect refuses only callers
+                // requesting map output; the in-memory product API never reads Map when IncludeParityMaps is false.
+                string parityMap = member.Map;
+                if (string.IsNullOrEmpty(parityMap)) throw new InvalidDataException("TICK_MAP_MISSING: no parity map was prepared.");
                 XmlData.RootNode validated;
                 string invalid;
                 if (!DesktopAICompanion.CompanionXmlValidator.TryParseWithFeatures(member.Xml, DesktopAICompanion.CompanionFormatFeatures.All, out validated, out invalid))
@@ -285,9 +289,44 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 || string.Equals(name, "unused", StringComparison.OrdinalIgnoreCase);
         }
 
+        /// <summary>The source Variable constant kind, before the Mute string cast: exact booleans, otherwise
+        /// Java Double.parseDouble after String.trim (only U+0000 through U+0020), otherwise a String. This lexical
+        /// test intentionally accepts overflow, underflow, NaN and Infinity, and never uses the host's .NET Trim.</summary>
+        internal static string SourceSoundKind(string value)
+        {
+            if (value == "true" || value == "false") return "boolean";
+            int start = 0, end = value.Length;
+            while (start < end && value[start] <= 0x20) start++;
+            while (end > start && value[end - 1] <= 0x20) end--;
+            string trimmed = value.Substring(start, end - start);
+            return JavaDoubleConstant.IsMatch(trimmed) ? "number" : "string";
+        }
+
+        private static readonly Regex JavaDoubleConstant = new Regex(
+            @"\A[+-]?(?:NaN|Infinity|(?:(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?|0[xX](?:[0-9a-fA-F]+(?:\.[0-9a-fA-F]*)?|\.[0-9a-fA-F]+)[pP][+-]?[0-9]+)[fFdD]?)\z",
+            RegexOptions.CultureInvariant);
+
         internal sealed class PreparedMember
         {
-            public string Name, Xml, Map, SourceIdentity, Error;
+            public string Name, Xml, SourceIdentity, Error;
+            private string _map;
+            internal Func<string> MapFactory;
+            /// <summary>Parity-only metadata is materialized on demand, after the product XML is complete. The public
+            /// pack API does not read this property unless the caller selected IncludeParityMaps.</summary>
+            public string Map
+            {
+                get
+                {
+                    if (MapFactory != null)
+                    {
+                        string generated = MapFactory();
+                        _map = generated;
+                        MapFactory = null;
+                    }
+                    return _map;
+                }
+                set { _map = value; MapFactory = null; }
+            }
             public bool CrossMember;
             /// <summary>Decision 69: an img folder the source does not load, as it has no configuration anywhere the source
             /// looks; it carries only its warning, and no caller converts it.</summary>
@@ -376,6 +415,13 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             {
                 public string RefKey;
                 public int Index;
+            }
+            // One annotation per emitted definition, not per normalized value or action name. An annotation never
+            // enters animations.xml; its location is assigned only while writing the parity map.
+            private sealed class SoundOrigin
+            {
+                public string Value;
+                public ShimejiSourceCache Cache;
             }
             private int _next = 2;
             // The feature tokens the validator demands for what this member USES (grimoire/06 sections 1 and 10).
@@ -578,10 +624,6 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                         variantIndex++;
                     }
                 }
-                string map = JsonSerializer.Serialize(new { schema = "shimeji-parity-map/2", imageSet = _member,
-                    frames = frameMap, actions = _actionMap, children = _childMap, behaviours = _behaviourMap, sourceNames = _sourceNames,
-                    poses = poseMap },
-                    new JsonSerializerOptions { WriteIndented = true });
                 string xml = document.ToString();
                 CheckAudioLimits(clips);
                 if (png.Length > DesktopAICompanion.CompanionXmlValidator.MaximumImageBytes
@@ -590,8 +632,90 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 bool crossMember = _nodes.SelectMany(n => n.Descendants()).Any(n =>
                     (n.Name == Ns + "param" || n.Name == Ns + "bind") &&
                     IsMemberParameter((string)n.Attribute("name")));
-                return new PreparedMember { Name = _member, Xml = xml, Map = map + "\n", CrossMember = crossMember, Dropped = _dropped,
+                return new PreparedMember { Name = _member, Xml = xml,
+                    MapFactory = () => JsonSerializer.Serialize(new { schema = "shimeji-parity-map/3", imageSet = _member,
+                        frames = frameMap, actions = _actionMap, children = _childMap, behaviours = _behaviourMap,
+                        sourceNames = _sourceNames, poses = poseMap, soundParameters = SoundParameters() },
+                        new JsonSerializerOptions { WriteIndented = true }) + "\n",
+                    CrossMember = crossMember, Dropped = _dropped,
                     Warnings = _warnings, SourceIdentity = SourceIdentity(), BehaviourNames = _rootOrder.ToDictionary(name => name, BehaviourName, StringComparer.Ordinal) };
+            }
+
+            private List<object> SoundParameters()
+            {
+                var rows = new List<object>();
+                foreach (XElement node in _nodes)
+                {
+                    int id = (int)node.Attribute("id");
+                    string key = Key(id), source;
+                    XElement action = node.Element(Ns + "act");
+                    if (action != null)
+                    {
+                        foreach (XElement parameter in SoundDefinitions(action, "param"))
+                        {
+                            if (!_actionMap.TryGetValue(key, out source)) throw SoundProvenance("action source is missing at " + key);
+                            AddSoundParameter(rows, "action", id, null, parameter, source);
+                        }
+                        XElement children = action.Element(Ns + "children");
+                        if (children != null)
+                        {
+                            int index = 0;
+                            foreach (XElement child in children.Elements(Ns + "child"))
+                            {
+                                foreach (XElement binding in SoundDefinitions(child, "bind"))
+                                {
+                                    if (!_childMap.TryGetValue(key + ":" + index.ToString(Invariant), out source))
+                                        throw SoundProvenance("child source is missing at " + key + ":" + index.ToString(Invariant));
+                                    AddSoundParameter(rows, "child", id, index, binding, source);
+                                }
+                                index++;
+                            }
+                        }
+                    }
+                    XElement behaviour = node.Element(Ns + "behaviour");
+                    if (behaviour != null)
+                        foreach (XElement binding in SoundDefinitions(behaviour, "bind"))
+                        {
+                            if (!_behaviourMap.TryGetValue(key, out source)) throw SoundProvenance("behaviour source is missing at " + key);
+                            AddSoundParameter(rows, "behaviour", id, null, binding, source);
+                        }
+                }
+                return rows;
+            }
+
+            private static IEnumerable<XElement> SoundDefinitions(XElement parent, string tag)
+            {
+                return parent.Elements(Ns + tag).Where(parameter => (string)parameter.Attribute("name") == "Sound");
+            }
+
+            private void AddSoundParameter(List<object> rows, string kind, int nodeId, int? childIndex,
+                XElement parameter, string sourceRefKey)
+            {
+                SoundOrigin origin = parameter.Annotation<SoundOrigin>();
+                string value = (string)parameter.Attribute("value"), cache = (string)parameter.Attribute("cache");
+                if (origin == null || value == null || cache == null)
+                    throw SoundProvenance("Sound definition lacks its source, value or cache at " + kind + " " + Key(nodeId));
+                bool literal = origin.Cache == ShimejiSourceCache.Literal;
+                string expectedCache = literal ? "none" : origin.Cache == ShimejiSourceCache.Action ? "action" : "frame";
+                if (cache != expectedCache || sourceRefKey == null || !sourceRefKey.StartsWith(_member + "|", StringComparison.Ordinal))
+                    throw SoundProvenance("Sound definition disagrees with its source at " + kind + " " + Key(nodeId));
+                var row = new Dictionary<string, object>(StringComparer.Ordinal) { { "kind", kind }, { "nodeId", nodeId } };
+                if (childIndex.HasValue) row.Add("childIndex", childIndex.Value);
+                row.Add("sourceRefKey", sourceRefKey);
+                row.Add("emittedValue", value);
+                row.Add("emittedCache", cache);
+                row.Add("mode", literal ? "literal" : "evaluated");
+                if (literal)
+                {
+                    row.Add("sourceValue", origin.Value);
+                    row.Add("sourceKind", SourceSoundKind(origin.Value));
+                }
+                rows.Add(row);
+            }
+
+            private static InvalidDataException SoundProvenance(string reason)
+            {
+                return new InvalidDataException("TICK_MAP_SOUND_PROVENANCE: " + reason);
             }
 
             private void CollectRoots(ShimejiSourceElement parent, string condition)
@@ -1363,6 +1487,14 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             }
 
             private XElement Parameter(string tag, ShimejiSourceAttribute attribute, ShimejiSourceElement owner)
+            {
+                XElement parameter = ParameterValue(tag, attribute, owner);
+                if (attribute.Name == "Sound")
+                    parameter.AddAnnotation(new SoundOrigin { Value = attribute.RawValue, Cache = attribute.Cache });
+                return parameter;
+            }
+
+            private XElement ParameterValue(string tag, ShimejiSourceAttribute attribute, ShimejiSourceElement owner)
             {
                 // The host reads a BorderType parameter by its English value (TickBorderedAction.Init), the source by the
                 // action document's schema: a Japanese literal is written mapped, and a Japanese script, whose value is

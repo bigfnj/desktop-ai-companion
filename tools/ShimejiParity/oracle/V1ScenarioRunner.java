@@ -79,7 +79,7 @@ import org.w3c.dom.Node;
  */
 public final class V1ScenarioRunner implements DraftParityHooks.Controller, DraftParityHooks.FaultResolver {
     private static final String SCHEMA = "shimeji-parity-scenario/1";
-    /** Embedded classes whose CONTRACT section 3 events (sound, mute) are not observed yet. */
+    /** Trace/1 retains its archived Mute refusal; trace/2 observes intent through the reviewed Mute hooks. */
     private static final Set<String> UNOBSERVED = new LinkedHashSet<String>(java.util.Arrays.asList("Mute"));
     /** The classes that keep a scan target, the source's own WeakReference field named target. */
     private static final Set<String> SCANNERS = new LinkedHashSet<String>(java.util.Arrays.asList(
@@ -126,6 +126,16 @@ public final class V1ScenarioRunner implements DraftParityHooks.Controller, Draf
     private final IdentityHashMap<VariableMap, Object> actionDeclaration = new IdentityHashMap<VariableMap, Object>();
     private final IdentityHashMap<Object, Object[]> behaviourOrigin = new IdentityHashMap<Object, Object[]>();
     private final IdentityHashMap<Object, Long> entered = new IdentityHashMap<Object, Long>();
+    private static final class MuteObservation {
+        final long entry;
+        boolean soundSeen;
+        String sound;
+        String branch;
+        boolean allStop;
+        boolean done;
+        MuteObservation(long entry) { this.entry = entry; }
+    }
+    private final IdentityHashMap<Object, MuteObservation> muteObservations = new IdentityHashMap<Object, MuteObservation>();
     private final IdentityHashMap<Pose, Integer> poseIndex = new IdentityHashMap<Pose, Integer>();
     private final IdentityHashMap<Document, String> documents = new IdentityHashMap<Document, String>();
     private final IdentityHashMap<Document, String> documentRefusals = new IdentityHashMap<Document, String>();
@@ -626,11 +636,22 @@ public final class V1ScenarioRunner implements DraftParityHooks.Controller, Draf
             else actionOrigin.put(variables, subject);
             actionDeclaration.put(variables, subject);
         } else if (hook.equals("action-enter")) {
-            if (UNOBSERVED.contains(subject.getClass().getSimpleName())) {
+            String className = subject.getClass().getSimpleName();
+            if (UNOBSERVED.contains(className) && !(trace2 && "Mute".equals(className))) {
                 // Their scan-target, interact and sound events have no seam yet: refuse rather than trace a gap.
                 throw new IllegalStateException("V1_UNOBSERVED_ACTION " + subject.getClass().getSimpleName());
             }
             entered.put(subject, ++enterSequence);
+            if (trace2 && "Mute".equals(className)) {
+                // A looping Sequence may re-initialise the same child object. Its read belongs to this entry.
+                MuteObservation previous = muteObservations.get(subject);
+                if (previous != null && previous.soundSeen && !previous.done) {
+                    // Keep the unfinished entry as evidence; observer failure must not alter source control flow.
+                    DraftParityHooks.muteIncomplete(previous.entry);
+                } else muteObservations.put(subject, new MuteObservation(enterSequence));
+            }
+        } else if (hook.startsWith("mute-")) {
+            muteObserved(hook, subject, detail);
         } else if (hook.equals("behavior")) {
             behaviourEntered((Mascot)subject, detail);
         } else if (hook.equals("image-set")) {
@@ -685,6 +706,61 @@ public final class V1ScenarioRunner implements DraftParityHooks.Controller, Draf
             if (trace2) record.put("error", DraftParityHooks.faultRecord(subject));
             emit(record);
         }
+    }
+
+    /** Stored arguments and action identity only: never evaluate Sound, settings, scripts or clip state. */
+    private void muteObserved(String hook, Object action, Object detail) {
+        if (!trace2) throw new IllegalStateException("V1_MUTE_TRACE_VERSION");
+        MuteObservation seen = muteObservations.get(action);
+        Long currentEntry = entered.get(action);
+        if (seen == null || currentEntry == null || seen.entry != currentEntry.longValue() || seen.done)
+            throw new IllegalStateException("V1_MUTE_ACTIVATION_UNBOUND " + hook);
+        if (hook.equals("mute-sound")) {
+            if (seen.soundSeen || (detail != null && !(detail instanceof String)))
+                throw new IllegalStateException("V1_MUTE_SOUND_ORDER");
+            seen.soundSeen = true;
+            seen.sound = (String)detail;
+        } else {
+            if (!seen.soundSeen) throw new IllegalStateException("V1_MUTE_SOUND_MISSING " + hook);
+            if (hook.equals("mute-named")) {
+                if (seen.sound == null || !(detail instanceof String) || !seen.sound.equals(detail) || seen.branch != null)
+                    throw new IllegalStateException("V1_MUTE_NAMED_ORDER");
+                seen.branch = "named";
+                Map<String, Object> record = event(sid((Mascot)read(action, "mascot")), "mute");
+                record.put("clip", detail);
+                emit(record);
+            } else if (hook.equals("mute-all")) {
+                if (seen.sound != null || seen.branch != null) throw new IllegalStateException("V1_MUTE_ALL_ORDER");
+                seen.branch = "all";
+            } else if (hook.equals("mute-all-stop")) {
+                if (!"all".equals(seen.branch) || seen.allStop) throw new IllegalStateException("V1_MUTE_ALL_STOP_ORDER");
+                seen.allStop = true;
+                Map<String, Object> record = event(sid((Mascot)read(action, "mascot")), "mute");
+                record.put("clip", null);
+                emit(record);
+            } else if (hook.equals("mute-lookup")) {
+                if (!"named".equals(seen.branch) || !(detail instanceof Object[]))
+                    throw new IllegalStateException("V1_MUTE_LOOKUP_ORDER");
+                Object[] lookup = (Object[])detail;
+                if (lookup.length != 2 || !(lookup[0] instanceof Integer) || ((Integer)lookup[0]).intValue() < 1
+                    || ((Integer)lookup[0]).intValue() > 3 || !(lookup[1] instanceof Collection<?>))
+                    throw new IllegalStateException("V1_MUTE_LOOKUP_ARGUMENT");
+            } else if (hook.equals("mute-stop")) {
+                if (!"named".equals(seen.branch) || detail == null) throw new IllegalStateException("V1_MUTE_STOP_ORDER");
+            } else if (hook.equals("mute-done")) {
+                if (seen.branch == null) throw new IllegalStateException("V1_MUTE_BRANCH_MISSING");
+                seen.done = true;
+            } else throw new IllegalStateException("V1_MUTE_UNKNOWN_HOOK " + hook);
+        }
+        // Diagnostics are run-log records only. They do not add an event kind, trace property or footer member.
+        System.err.println("MUTE_OBSERVATION tick " + tick + " entry " + seen.entry + " " + hook
+            + " branch " + seen.branch + " done " + seen.done + " allStop " + seen.allStop);
+    }
+
+    /** A failed evaluation/cast before O1 is not a Mute observation. Once O1 ran, O8 is required. */
+    private void validateMuteCompletion() {
+        for (MuteObservation seen : muteObservations.values())
+            if (seen.soundSeen && !seen.done) DraftParityHooks.muteIncomplete(seen.entry);
     }
 
     private void behaviourEntered(Mascot mascot, Object behaviour) {
@@ -1113,6 +1189,17 @@ public final class V1ScenarioRunner implements DraftParityHooks.Controller, Draf
                 status = "aborted";
                 exit = 1;
                 System.err.println("V1_REFUSAL V2_FAULT_CHANNEL_DEFECT " + defects);
+            }
+        }
+        if (runner != null) {
+            // Also validate after source failure: an exception after O1 is unsupported incomplete observation,
+            // never a silent Sounds-off no-op. Original source diagnostics/events remain intact.
+            runner.validateMuteCompletion();
+            List<String> defects = DraftParityHooks.muteDefects();
+            if (!defects.isEmpty()) {
+                status = "aborted";
+                exit = 1;
+                System.err.println("V1_REFUSAL MUTE_OBSERVER_DEFECT " + defects);
             }
         }
         try {

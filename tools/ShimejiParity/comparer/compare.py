@@ -2297,6 +2297,15 @@ def self_test():
 
     oracle, host = _reference()
     judge("baseline (identical behaviour)", "exact", compare(oracle, host))
+    # Mute observes source spelling. No canonicalization or D3 exemption can cover it.
+    mo, mh = _trace2_reference()
+    for trace in (mo, mh):
+        trace.insert(1, _ev(0, "m1", "mute", clip="/TO"))
+        _trace2_refoot(trace)
+    judge("mute: identical source spelling", "exact", compare(mo, mh))
+    mh[1]["clip"] = "to"
+    _trace2_refoot(mh)
+    judge("mute: source /TO differs from canonical to", "event-mismatch", compare(mo, mh))
     for desc, expect, fn, *frag in _cases():
         o, h = copy.deepcopy(oracle), copy.deepcopy(host)
         fn(o, h)

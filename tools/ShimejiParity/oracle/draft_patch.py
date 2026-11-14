@@ -157,9 +157,28 @@ def derive_changes(source, spec, oracle):
     return changes, sorted(random_sites, key=lambda item: (item["file"], item["line"]))
 
 
+def rng_operation_target(spec, oracle):
+    # Identity excludes op so a changed operation fails as wrong-kind, not missing.
+    matches = [edit for edit in spec["edits"]
+               if edit.get("file") == "src/com/group_finity/mascot/action/Regist.java"
+               and edit.get("lineSha256") == "c0541db2141433256489fab421095b0d090b143a1f99615fd93802af0ab16315"]
+    if not matches:
+        raise oracle.Refusal("DRAFT_RNG_TARGET_MISSING_REFUSAL")
+    if len(matches) != 1:
+        raise oracle.Refusal("DRAFT_RNG_TARGET_DUPLICATE_REFUSAL")
+    target, = matches
+    if target.get("op") != "replace-random-token":
+        raise oracle.Refusal("DRAFT_RNG_TARGET_KIND_REFUSAL")
+    if target.get("line") != 69 or target.get("site") != "builtin:regist-facing":
+        raise oracle.Refusal("DRAFT_RNG_TARGET_SHAPE_REFUSAL")
+    return target
+
+
 def spec_negative_cases(source, original, oracle, derive=derive_changes, only=None):
     results = []
-    labels = ("source-pin", "file-sha", "line-sha", "line-range", "rng-count-spec", "rng-operation", "rng-coordinate", "unknown-op",
+    labels = ("source-pin", "file-sha", "line-sha", "line-range", "rng-count-spec",
+              "rng-target-missing", "rng-target-duplicate", "rng-target-wrong-kind",
+              "rng-target-wrong-coordinate", "rng-target-wrong-site", "rng-operation", "rng-coordinate", "unknown-op",
               "assigned-call")
     for label in labels:
         if only is not None and label not in only:
@@ -180,10 +199,30 @@ def spec_negative_cases(source, original, oracle, derive=derive_changes, only=No
         elif label == "rng-count-spec":
             spec["javaRandomCounts"][next(iter(spec["javaRandomCounts"]))] = 99
             expected = "DRAFT_RNG_COUNT_SPEC_REFUSAL"
+        elif label in ("rng-target-missing", "rng-target-duplicate", "rng-target-wrong-kind",
+                       "rng-target-wrong-coordinate", "rng-target-wrong-site"):
+            target = rng_operation_target(spec, oracle)
+            if label == "rng-target-missing":
+                spec["edits"].remove(target)
+                expected = "DRAFT_RNG_TARGET_MISSING_REFUSAL"
+            elif label == "rng-target-duplicate":
+                spec["edits"].append(dict(target))
+                expected = "DRAFT_RNG_TARGET_DUPLICATE_REFUSAL"
+            elif label == "rng-target-wrong-kind":
+                target["op"] = "insert-before"
+                target["code"] = [";"]
+                expected = "DRAFT_RNG_TARGET_KIND_REFUSAL"
+            elif label == "rng-target-wrong-coordinate":
+                target["line"] = 70
+                expected = "DRAFT_RNG_TARGET_SHAPE_REFUSAL"
+            else:
+                target["site"] = "builtin:unexpected"
+                expected = "DRAFT_RNG_TARGET_SHAPE_REFUSAL"
         elif label == "rng-operation":
-            spec["edits"][-1]["op"] = "insert-before"
-            spec["edits"][-1]["code"] = [";"]
-            expected = "DRAFT_RNG_FILE_COUNT_REFUSAL"
+            target = rng_operation_target(spec, oracle)
+            target["op"] = "insert-before"
+            target["code"] = [";"]
+            expected = "DRAFT_RNG_FILE_COUNT_REFUSAL " + target["file"]
         elif label == "rng-coordinate":
             matching = [edit for edit in spec["edits"] if edit["file"].endswith("/Configuration.java")
                         and edit["line"] in (237, 248)]
@@ -197,7 +236,10 @@ def spec_negative_cases(source, original, oracle, derive=derive_changes, only=No
             spec["edits"][0]["op"] = "unexpected"
             expected = "DRAFT_OPERATION_REFUSAL"
         try:
-            derive(source, spec, oracle)
+            if label.startswith("rng-target-"):
+                rng_operation_target(spec, oracle)
+            else:
+                derive(source, spec, oracle)
         except oracle.Refusal as failure:
             if not str(failure).startswith(expected):
                 raise oracle.Refusal("DRAFT_GUARD_WRONG_REFUSAL " + label)
