@@ -5685,6 +5685,25 @@ CASES = (
         b"    <TargetFramework>net10.0-windows</TargetFramework>\n    <WarningLevel>9</WarningLevel>\n",
         "coordinator: no module project pins a WarningLevel below its target framework's default",
     ),
+    # Round 2: a project whose framework floor cannot be read is named, never exempt in silence. One module project
+    # moves to TargetFrameworks (plural), or takes its TFM from a property; the WITNESS must fail naming that project.
+    (
+        "bd-coordinator: a module project names TargetFrameworks (plural) and is not judged (N-bd-w4-contracts-1-01)",
+        os.path.join(REPO, "modules", "TestModule", "TestModule.csproj"),
+        b"    <TargetFramework>net10.0-windows</TargetFramework>\n",
+        b"    <TargetFrameworks>net10.0-windows</TargetFrameworks>\n",
+        "coordinator: the module warning-level scan judged every module project it read against a framework floor of"
+        " at least 5 -- could not judge TestModule.csproj: TargetFrameworks=net10.0-windows",
+    ),
+    (
+        "bd-coordinator: a module project sets its TFM through a property and is not judged (N-bd-w4-contracts-1-01)",
+        os.path.join(REPO, "modules", "PetStudio", "PetStudio.csproj"),
+        b"    <TargetFramework>net10.0-windows</TargetFramework>\n",
+        b"    <BdcModuleFramework>net10.0-windows</BdcModuleFramework>\n"
+        b"    <TargetFramework>$(BdcModuleFramework)</TargetFramework>\n",
+        "coordinator: the module warning-level scan judged every module project it read against a framework floor of"
+        " at least 5 -- could not judge PetStudio.csproj: TargetFramework=$(BdcModuleFramework)",
+    ),
     # N-audit-1106-017: a module ZIP ships a third-party library without its licence text again: the NodaTime licence item
     # leaves Reminder's project, or Fortunes' ONNX Runtime licence item goes back under the Exists condition it had, which
     # skipped it in silence when the package path was missing (runtime-hardening-selftest.ps1, coordinator block).

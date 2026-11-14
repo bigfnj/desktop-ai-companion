@@ -7282,11 +7282,15 @@ Assert-True ($hpRegistrySha -ceq '954776734f2ab70a4a96645e15e188d2d936e935b89e70
 # for all nine and TreatWarningsAsErrors could not fire on them (measured 2026-11-14: without the pin all nine rebuilt with 0
 # warnings, Release and Debug, and a type with an all-lowercase name, CS8981, failed BlinkingLed's build without the pin and
 # built clean under it). w4-contracts-1 above covers src\ only. Every project one folder below modules\ is scanned, so the
-# next module is covered without an edit here. Per project, the floor is its target framework's major version (0 when the
-# project names no single netN.M target, so it is not judged), and the files are the project with XML comments stripped
-# plus any Directory.Build.props or .targets MSBuild would import from its folder, modules\ or the repo root.
-# WITNESS: at least nine module projects were read, and modules\Directory.Build.props was read and still sets
-# TreatWarningsAsErrors, so a scan that read nothing, or the wrong folder, fails instead of passing.
+# next module is covered without an edit here. The files are the project with XML comments stripped plus any
+# Directory.Build.props or .targets MSBuild would import from its folder, modules\ or the repo root. Per project, the floor
+# is its target framework's major version, judged only when those files hold exactly one TargetFramework element, singular,
+# whose value is a literal netN.M of at least net5.0. Anything else (TargetFrameworks, a TFM set through a property, two
+# elements, none, an older framework) leaves the project unjudged, and the WITNESS names it and fails: a project this
+# check cannot judge is never exempt in silence (the round 1 review of the coordinator batch found it read floor 0 then).
+# WITNESS: at least nine module projects were read, EVERY one was judged with a floor of at least 5, and
+# modules\Directory.Build.props was read and still sets TreatWarningsAsErrors, so a scan that read nothing, read the wrong
+# folder or could not judge a project fails instead of passing.
 $bdcModulesRoot = Join-Path $repoRoot 'modules'
 $bdcProjects = @(Get-ChildItem -LiteralPath $bdcModulesRoot -Directory | ForEach-Object {
     Get-ChildItem -LiteralPath $_.FullName -Filter '*.csproj' -File })
@@ -7302,27 +7306,48 @@ if (Test-Path -LiteralPath $bdcPropsPath -PathType Leaf) {
     $bdcPropsText = [regex]::Replace((Get-Content -LiteralPath $bdcPropsPath -Raw), '(?s)<!--.*?-->', '')
 }
 $bdcLowPins = @()
+$bdcUnjudged = @()
+$bdcFloors = @()
 foreach ($bdcProject in $bdcProjects) {
-    $bdcXml = [regex]::Replace((Get-Content -LiteralPath $bdcProject.FullName -Raw), '(?s)<!--.*?-->', '')
-    $bdcFramework = [regex]::Match($bdcXml, '<TargetFramework>\s*net(\d{1,3})\.\d+(-[A-Za-z0-9.]+)?\s*</TargetFramework>')
-    $bdcFloor = 0
-    if ($bdcFramework.Success) { $bdcFloor = [int] $bdcFramework.Groups[1].Value }
     $bdcLocal = @(foreach ($bdcName in @('Directory.Build.props', 'Directory.Build.targets')) {
         $bdcPath = Join-Path $bdcProject.DirectoryName $bdcName
         if (Test-Path -LiteralPath $bdcPath -PathType Leaf) { Get-Item -LiteralPath $bdcPath }
     })
-    foreach ($bdcFile in @(@($bdcProject) + $bdcLocal + $bdcShared)) {
-        $bdcText = [regex]::Replace((Get-Content -LiteralPath $bdcFile.FullName -Raw), '(?s)<!--.*?-->', '')
-        foreach ($bdcPin in [regex]::Matches($bdcText, '<WarningLevel\b[^>]*>\s*([^<]*?)\s*</WarningLevel>')) {
+    $bdcFiles = @(@($bdcProject) + $bdcLocal + $bdcShared)
+    $bdcTexts = @(foreach ($bdcFile in $bdcFiles) {
+        [regex]::Replace((Get-Content -LiteralPath $bdcFile.FullName -Raw), '(?s)<!--.*?-->', '')
+    })
+    $bdcFrameworks = @(foreach ($bdcText in $bdcTexts) {
+        [regex]::Matches($bdcText, '<(TargetFrameworks?)\b[^>]*>\s*([^<]*?)\s*</\1>')
+    })
+    $bdcMajor = 0
+    if ($bdcFrameworks.Count -eq 1 -and $bdcFrameworks[0].Groups[1].Value -ceq 'TargetFramework') {
+        $bdcLiteral = [regex]::Match($bdcFrameworks[0].Groups[2].Value, '^net(\d{1,3})\.\d+(-[A-Za-z0-9.]+)?$')
+        if ($bdcLiteral.Success) { $bdcMajor = [int] $bdcLiteral.Groups[1].Value }
+    }
+    $bdcFloor = 0
+    if ($bdcMajor -ge 5) {
+        $bdcFloor = $bdcMajor
+        $bdcFloors += $bdcFloor
+    } else {
+        $bdcSeen = @($bdcFrameworks | ForEach-Object { $_.Groups[1].Value + '=' + $_.Groups[2].Value })
+        $bdcUnjudged += ($bdcProject.Name + ': ' + $(if ($bdcSeen.Count) { $bdcSeen -join ' and ' } else { 'no TargetFramework' }))
+    }
+    for ($bdcAt = 0; $bdcAt -lt $bdcFiles.Count; $bdcAt++) {
+        foreach ($bdcPin in [regex]::Matches($bdcTexts[$bdcAt], '<WarningLevel\b[^>]*>\s*([^<]*?)\s*</WarningLevel>')) {
             $bdcValue = $bdcPin.Groups[1].Value
             if ($bdcValue -cnotmatch '^\d{1,5}$' -or [int] $bdcValue -lt $bdcFloor) {
-                $bdcLowPins += ($bdcProject.Name + ' via ' + $bdcFile.Directory.Name + '\' + $bdcFile.Name + '=' + $bdcValue)
+                $bdcLowPins += ($bdcProject.Name + ' via ' + $bdcFiles[$bdcAt].Directory.Name + '\' + $bdcFiles[$bdcAt].Name + '=' + $bdcValue)
             }
         }
     }
 }
-Assert-True ($bdcProjects.Count -ge 9 -and $bdcPropsText -cmatch '<TreatWarningsAsErrors>true</TreatWarningsAsErrors>') (
-    "coordinator: the module warning-level scan read modules\Directory.Build.props and the module projects (WITNESS: TreatWarningsAsErrors is still set; $($bdcProjects.Count) projects)")
+$bdcLowestFloor = $(if ($bdcFloors.Count) { ($bdcFloors | Measure-Object -Minimum).Minimum } else { 'none' })
+Assert-True ($bdcProjects.Count -ge 9 -and $bdcFloors.Count -eq $bdcProjects.Count -and
+             $bdcPropsText -cmatch '<TreatWarningsAsErrors>true</TreatWarningsAsErrors>') (
+    "coordinator: the module warning-level scan judged every module project it read against a framework floor of at least 5" +
+    $(if ($bdcUnjudged.Count) { ' -- could not judge ' + ($bdcUnjudged -join ', ') } else { '' }) +
+    " (WITNESS: $($bdcFloors.Count) of $($bdcProjects.Count) projects judged, lowest floor $bdcLowestFloor; TreatWarningsAsErrors is still set)")
 Assert-True ($bdcLowPins.Count -eq 0) (
     "coordinator: no module project pins a WarningLevel below its target framework's default" +
     $(if ($bdcLowPins.Count) { ' -- ' + ($bdcLowPins -join ', ') } else { '' }))
