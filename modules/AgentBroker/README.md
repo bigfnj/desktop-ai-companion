@@ -1,7 +1,7 @@
 # AgentBroker
 
 Thin host module for the separately packaged AgentBroker worker. Requires host 1.6.1.
-The module starts disabled. Enable it in Options, then request pairing from its tray submenu.
+The module starts disabled. Enable it in Options, then request pairing from the Brokers list in its pane or from its tray submenu.
 Compare the complete four-group code and approve sharing separately on both workstations. A request
 or one approval alone grants no access. Pairing authorizes sharing current and future discoverable sessions. Session controls separately hide
 a private session or mute incoming messages. Federation directory and delivery requests authenticate
@@ -36,7 +36,9 @@ the same clientId and incarnation keeps its mailbox receiving for 24 hours after
 its last call, so no renewal sidecar is needed between turns.
 
 The Coding agents group and the tray show separate setup states per client (Claude Code, Codex):
-broker, configuration, endpoint, tools, inbox and native wake. Check client setup runs only the
+broker, configuration, endpoint, tools, inbox and native wake. The pane shows them as one summary
+line per client plus one line for each state that is not ok; the tray lists every state. Open the
+AgentBroker guide opens the embedded offline guide from module storage. Check client setup runs only the
 client's read-only `mcp get` for this entry, on demand. An inbox counts for a client only when its
 own registration request identified that client. LAN firewall access shows the Windows network
 category of the broker's LAN interface beside the rule's Private profile, and observed LAN requests
