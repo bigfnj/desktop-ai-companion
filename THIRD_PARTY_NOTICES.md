@@ -151,7 +151,8 @@ from the upstream one; nothing else about the bytes changes.
 - The application payload: `LICENSE.txt`, this file, and `NAUDIO_LICENSE.txt`.
 - `NAUDIO_LICENSE.txt` (the application payload and `remembrance.zip`): NAudio's `LICENSE` at commit
   `38257478ad2444c80f2a0b7f079d3ae7a820dfec`, the commit the shipped 3.0.0-preview.6 packages name
-  (upstream git blob `034ae805fbf6887e4b415771dd8548e4ac4f179a`, CRLF upstream, committed with LF).
+  (upstream git blob `034ae805fbf6887e4b415771dd8548e4ac4f179a`, CRLF upstream, committed with LF; the
+  committed 1,056 bytes have SHA-256 `4b3ae8070462a97121738eed135fc8e6502187bffcbcd4ed8b0ee12e042158d1`).
   Until 2026-11-14 this file held the text retained from NAudio commit
   `c89fee940ee6f8d7374d18714a6b85d8b7a18ab0`, whose copyright line reads 2020 where 38257478's reads
   2008-2026.
@@ -164,8 +165,16 @@ from the upstream one; nothing else about the bytes changes.
 - `remembrance.zip`: `NAUDIO_LICENSE.txt` (above), and `TENSORS_LICENSE.txt` and
   `TENSORS_THIRD_PARTY_NOTICES.txt`, the `LICENSE.TXT` and `THIRD-PARTY-NOTICES.TXT` of the
   System.Numerics.Tensors 9.0.0 package (dotnet/runtime commit
-  `9d5a6a9aa463d6d10b0b0ba6d5982cc82f363dc3`, as its nuspec names), copied from the package with its
-  CRLF committed as LF.
+  `9d5a6a9aa463d6d10b0b0ba6d5982cc82f363dc3`, as its nuspec names; package SHA-512
+  `razlju7UgILQ/Vb7BoW1RR/xIEBDc8Ynq0sRk74KpLBHay3QMZJfgK8ly4IEzlJlbFYlCOxpdPa7DNBUYaYtIw==`, base64, as
+  NuGet records it). The package carries both files with CRLF, as git blobs
+  `fa3121dfaf73735faa1de75487de977993c40d0b` (`LICENSE.TXT`, 1,139 bytes) and
+  `6c9991ecf9cddf9a19180e91bc618c4869627f91` (`THIRD-PARTY-NOTICES.TXT`, 75,640 bytes). Those are the
+  blobs of the bytes in the package, not compared with dotnet/runtime's own tree at that commit. They
+  are committed with LF and nothing else changed: `TENSORS_LICENSE.txt` is 1,116 bytes with SHA-256
+  `cfc21f5e8bd655ae997eec916138b707b1d290b83272c02a95c9f821b8c87310`, and
+  `TENSORS_THIRD_PARTY_NOTICES.txt` is 74,244 bytes with SHA-256
+  `fa3e9d0a2c52476f04fe798d7dc4f6e7edb7b68a3d2f4d5f59a39bce957eedc8`.
 - `fortunes.zip`: `ONNXRUNTIME_LICENSE.txt` and `ONNXRUNTIME_THIRD_PARTY_NOTICES.txt`, copied at build
   time from the restored Microsoft.ML.OnnxRuntime package, so they cannot drift from its pinned
   version, and `TENSORS_LICENSE.txt` and `TENSORS_THIRD_PARTY_NOTICES.txt` as in `remembrance.zip`.
