@@ -36,11 +36,14 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+# Self-test seam (T3-3); always null outside -SelfTest.
+$script:BeforeHostRuntimeReplaceForSelfTest = $null
 
 function Initialize-InstallerNative {
     if ('AgentBrokerLocalInstallNative' -as [type]) { return }
     Add-Type -TypeDefinition @'
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -143,10 +146,53 @@ public static class AgentBrokerLocalInstallNative {
     public static void CreateTestHardLink(string link, string existing) {
         if (!CreateHardLink(link, existing, IntPtr.Zero)) throw new Win32Exception();
     }
+    // Lane T round 3 (T3-3): something that holds a file for a moment right after it was written (Defender, the indexer) makes
+    // File.Replace or File.Move fail with ERROR_UNABLE_TO_REMOVE_REPLACED (1175) or a sharing violation (32); both leave every file
+    // where it was. The same call is retried, at most ReplaceAttempts times, ReplaceRetryDelayMs apart, and only while the files are
+    // still in their starting state: the source present, no backup yet, and the destination exactly as it was before the first
+    // attempt (absent for a move; for a replace, the same length and last-write time, so a holder that wrote to it is never
+    // overwritten blind). Any other error, a changed state, and the last failure propagate unchanged. Single attempts still: the
+    // rollback's File.Delete of an added file and the installer's directory moves.
+    public const int ReplaceAttempts = 5, ReplaceRetryDelayMs = 100;
+    // Self-test only: retries taken per destination (the witness), and a fault injected before an attempt (null outside the self-test).
+    public static readonly ConcurrentDictionary<string, int> RetriesForTest = new ConcurrentDictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+    public static Func<string, int, Exception> FaultForTest;
+    static bool TransientLock(IOException error) =>
+        error.HResult == unchecked((int)0x80070497) || error.HResult == unchecked((int)0x80070020);
+    static string DestinationState(string path) {
+        var info = new FileInfo(path);
+        return info.Exists ? info.Length + ":" + info.LastWriteTimeUtc.Ticks : "absent";
+    }
+    public static void ReplaceOrMove(string source, string destination, string backup, bool replace) {
+        if (backup != null && backup.Length == 0) throw new ArgumentException("An empty backup path is not an absent one.", nameof(backup));
+        string before = DestinationState(destination);
+        for (int attempt = 1; ; attempt++) {
+            try {
+                Exception fault = FaultForTest?.Invoke(destination, attempt);
+                if (fault != null) throw fault;
+                if (replace) File.Replace(source, destination, backup);
+                else File.Move(source, destination, false);
+                return;
+            } catch (IOException error) when (attempt < ReplaceAttempts && TransientLock(error) && File.Exists(source) &&
+                                              DestinationState(destination) == before && (backup == null || !File.Exists(backup))) {
+                RetriesForTest.AddOrUpdate(Path.GetFullPath(destination), 1, (_, count) => count + 1);
+                Thread.Sleep(ReplaceRetryDelayMs);
+            }
+        }
+    }
     public static void PublishMarkerFile(string temporary, string destination, bool replace) {
         // Pass a real null backup name; PowerShell converts a null string argument into an empty path.
-        if (replace) File.Replace(temporary, destination, null);
-        else File.Move(temporary, destination, false);
+        ReplaceOrMove(temporary, destination, null, replace);
+    }
+    // Self-test only: holds a file with FileShare.None from before this returns until about `milliseconds` later. Opening it may
+    // itself meet a brief outside holder (the very condition under test), so the open is retried for up to a second.
+    public static Task HoldExclusiveForTest(string path, int milliseconds) {
+        FileStream stream = null;
+        for (int tries = 0; stream == null; tries++) {
+            try { stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None); }
+            catch (IOException error) when (tries < 40 && error.HResult == unchecked((int)0x80070020)) { Thread.Sleep(25); }
+        }
+        return Task.Run(async () => { try { await Task.Delay(milliseconds).ConfigureAwait(false); } finally { stream.Dispose(); } });
     }
 
     public static long Created(Process process) {
@@ -391,6 +437,8 @@ function Publish-UpdateMarker([string]$Path, $Snapshot) {
         if ($current.Exists -ne $Snapshot.Exists -or $current.Stamp -cne $Snapshot.Stamp -or $current.Digest -cne $Snapshot.Digest) {
             throw 'The update marker changed during staging; its existing IDs were not replaced.'
         }
+        # Self-test seam (T3-3): after the marker's own reads, immediately before its publication.
+        if ($null -ne $script:BeforeHostRuntimeReplaceForSelfTest) { & $script:BeforeHostRuntimeReplaceForSelfTest 'marker' $null $temporary $Path }
         [AgentBrokerLocalInstallNative]::PublishMarkerFile($temporary, $Path, $Snapshot.Exists)
     }
     finally {
@@ -621,6 +669,8 @@ function Restore-HostRuntimePlan($Plan) {
         if ($record.OldExists) {
             $backup = Assert-ContainedPath (Join-Path $Plan.Previous $record.Name) $Plan.Previous
             if ((Get-HostRuntimeFileSnapshot $backup).Hash -cne $record.OldHash) { throw 'A runtime rollback copy failed verification.' }
+            # Self-test seam (T3-3): after the rollback's own reads, immediately before it puts the previous file back.
+            if ($null -ne $script:BeforeHostRuntimeReplaceForSelfTest) { & $script:BeforeHostRuntimeReplaceForSelfTest 'restore' $record $backup $record.Target }
             [AgentBrokerLocalInstallNative]::PublishMarkerFile($backup, $record.Target, $true)
         } else { [IO.File]::Delete($record.Target) }
     }
@@ -640,12 +690,14 @@ function Publish-HostRuntimePlan($Plan, [int]$FailAfter = -1) {
             $source = Assert-ContainedPath (Join-Path $Plan.New $record.Name) $Plan.New
             Assert-NoReparseComponents $source
             if ((Get-HostRuntimeFileSnapshot $source).Hash -cne $record.Hash) { throw 'A staged host runtime file changed before publication.' }
+            # Self-test seam (T3-3): runs after this record's own reads, immediately before its replace or move.
+            if ($null -ne $script:BeforeHostRuntimeReplaceForSelfTest) { & $script:BeforeHostRuntimeReplaceForSelfTest 'publish' $record $source $record.Target }
             if ($record.OldExists) {
                 $backup = Assert-ContainedPath (Join-Path $Plan.Previous $record.Name) $Plan.Previous
                 Assert-NoReparseComponents $backup
                 if (Test-Path -LiteralPath $backup) { throw 'A unique host runtime rollback destination unexpectedly exists.' }
-                [IO.File]::Replace($source, $record.Target, $backup)
-            } else { [IO.File]::Move($source, $record.Target, $false) }
+                [AgentBrokerLocalInstallNative]::ReplaceOrMove($source, $record.Target, $backup, $true)
+            } else { [AgentBrokerLocalInstallNative]::ReplaceOrMove($source, $record.Target, [NullString]::Value, $false) }
             $Plan.Changed.Add($record)
             if ($FailAfter -ge 0 -and $Plan.Changed.Count -eq $FailAfter) { throw 'Synthetic host runtime publication failure.' }
         }
@@ -763,6 +815,149 @@ function Test-HostRuntimeTransaction([string]$Parent) {
             [IO.File]::Exists((Join-Path $destination 'added.bin'))) { throw 'Explicit runtime rollback did not restore the original file set.' }
         $checks++
         Close-HostRuntimePlan $plan
+
+        # Lane T round 3 (T3-3): a file held for a moment while the installer replaces or moves it (the wave H gate's transient-lock
+        # failure). The seam (phase, record, source, target) starts an exclusive hold after each operation's own reads, right before
+        # it, so the real call sites meet the lock. RetriesForTest counts retries per destination, so no other replace can stand in.
+        function Get-RetriesForTest([string]$Path) {
+            $count = 0
+            [void][AgentBrokerLocalInstallNative]::RetriesForTest.TryGetValue([IO.Path]::GetFullPath($Path), [ref]$count)
+            return $count
+        }
+        function Invoke-HeldPublication($Plan, [string]$Phase, [string]$Name, [string]$Which, [int]$Milliseconds, [int]$FailAfter = -1) {
+            $script:heldFile = $null
+            $script:BeforeHostRuntimeReplaceForSelfTest = {
+                param($phase, $record, $from, $to)
+                if ($phase -ceq $script:holdPhase -and $null -ne $record -and $record.Name -ceq $script:holdName -and $null -eq $script:heldFile) {
+                    $path = if ($script:holdWhich -ceq 'source') { $from } else { $to }
+                    $script:heldFile = [AgentBrokerLocalInstallNative]::HoldExclusiveForTest($path, $script:holdMilliseconds)
+                }
+            }
+            $script:holdPhase = $Phase; $script:holdName = $Name; $script:holdWhich = $Which; $script:holdMilliseconds = $Milliseconds
+            $failure = $null
+            try { Publish-HostRuntimePlan $Plan -FailAfter $FailAfter } catch { $failure = $_.Exception }
+            finally { $script:BeforeHostRuntimeReplaceForSelfTest = $null }
+            $released = $null -ne $script:heldFile -and $script:heldFile.Wait(5000)
+            return [pscustomobject]@{ Failure = $failure; Released = $released }
+        }
+        [AgentBrokerLocalInstallNative]::RetriesForTest.Clear()
+
+        # A replaced destination held for 150 ms.
+        $plan = New-HostRuntimePlan $source $destination $names $null; $plans.Add($plan)
+        Stage-HostRuntimePlan $plan
+        $run = Invoke-HeldPublication $plan 'publish' 'last.bin' 'target' 150
+        $retries = Get-RetriesForTest (Join-Path $destination 'last.bin')
+        if ($null -ne $run.Failure -or -not $run.Released -or -not $plan.Applied -or $retries -lt 1 -or
+            [IO.File]::ReadAllText((Join-Path $destination 'last.bin')) -cne 'new-last.bin') {
+            throw "INSTALL_REPLACE_RETRIES_TRANSIENT_LOCK: a destination held for 150 ms is replaced on a later attempt (applied $($plan.Applied), retries $retries, hold released $($run.Released), error: $(if ($run.Failure) { $run.Failure.Message }))."
+        }
+        $checks++
+        Restore-HostRuntimePlan $plan
+        Close-HostRuntimePlan $plan
+
+        # A moved (new) file whose staged source is held for 150 ms.
+        [AgentBrokerLocalInstallNative]::RetriesForTest.Clear()
+        $plan = New-HostRuntimePlan $source $destination $names $null; $plans.Add($plan)
+        Stage-HostRuntimePlan $plan
+        $run = Invoke-HeldPublication $plan 'publish' 'added.bin' 'source' 150
+        $retries = Get-RetriesForTest (Join-Path $destination 'added.bin')
+        if ($null -ne $run.Failure -or -not $run.Released -or -not $plan.Applied -or $retries -lt 1 -or
+            [IO.File]::ReadAllText((Join-Path $destination 'added.bin')) -cne 'new-added.bin') {
+            throw "INSTALL_MOVE_RETRIES_TRANSIENT_LOCK: a new file whose staged source is held for 150 ms is moved on a later attempt (applied $($plan.Applied), retries $retries, hold released $($run.Released), error: $(if ($run.Failure) { $run.Failure.Message }))."
+        }
+        $checks++
+        Restore-HostRuntimePlan $plan
+        Close-HostRuntimePlan $plan
+
+        # A destination held past the bound: 5 attempts (4 retries), then its own IOException, and the rollback completes.
+        [AgentBrokerLocalInstallNative]::RetriesForTest.Clear()
+        $plan = New-HostRuntimePlan $source $destination $names $null; $plans.Add($plan)
+        Stage-HostRuntimePlan $plan
+        $run = Invoke-HeldPublication $plan 'publish' 'last.bin' 'target' 800
+        $retries = Get-RetriesForTest (Join-Path $destination 'last.bin')
+        $raised = if ($null -ne $run.Failure) { $run.Failure.InnerException } else { $null }
+        # 0x80070020 (sharing violation 32) or 0x80070497 (ERROR_UNABLE_TO_REMOVE_REPLACED 1175), as signed HResults.
+        $transient = $raised -is [IO.IOException] -and $raised.HResult -in @(-2147024864, -2147023721)
+        if ([AgentBrokerLocalInstallNative]::ReplaceAttempts -ne 5 -or -not $transient -or $retries -ne 4 -or -not $run.Released -or
+            $plan.RollbackIncomplete -or $plan.Applied -or $plan.Changed.Count -ne 0 -or
+            [IO.File]::ReadAllText((Join-Path $destination 'existing.bin')) -cne 'old-existing.bin' -or
+            [IO.File]::ReadAllText((Join-Path $destination 'last.bin')) -cne 'old-last.bin' -or
+            [IO.File]::Exists((Join-Path $destination 'added.bin'))) {
+            throw "INSTALL_REPLACE_GIVES_UP_AFTER_BOUND: a destination held past the bound fails with its own IOException after 5 attempts and rolls back as before (error: $(if ($raised) { $raised.GetType().Name + ' ' + $raised.HResult } else { 'none' }), retries $retries, rollback incomplete $($plan.RollbackIncomplete), applied $($plan.Applied))."
+        }
+        $checks++
+        Close-HostRuntimePlan $plan
+
+        # The rollback puts a previous file back while that destination is held for 150 ms (synthetic failure after two records).
+        [AgentBrokerLocalInstallNative]::RetriesForTest.Clear()
+        $plan = New-HostRuntimePlan $source $destination $names $null; $plans.Add($plan)
+        Stage-HostRuntimePlan $plan
+        $run = Invoke-HeldPublication $plan 'restore' 'existing.bin' 'target' 150 2
+        $retries = Get-RetriesForTest (Join-Path $destination 'existing.bin')
+        if ($null -eq $run.Failure -or -not $run.Released -or $retries -lt 1 -or $plan.RollbackIncomplete -or $plan.Applied -or
+            $plan.Changed.Count -ne 0 -or [IO.File]::ReadAllText((Join-Path $destination 'existing.bin')) -cne 'old-existing.bin' -or
+            [IO.File]::Exists((Join-Path $destination 'added.bin'))) {
+            throw "INSTALL_ROLLBACK_REPLACE_RETRIES_TRANSIENT_LOCK: a rollback whose destination is held for 150 ms completes on a later attempt (retries $retries, rollback incomplete $($plan.RollbackIncomplete), hold released $($run.Released))."
+        }
+        $checks++
+        Close-HostRuntimePlan $plan
+
+        # The update marker, published through Publish-UpdateMarker while it is held for 150 ms.
+        [AgentBrokerLocalInstallNative]::RetriesForTest.Clear()
+        $markerPath = Assert-ContainedPath (Join-Path $root 'pending-module-updates.txt') $root
+        [IO.File]::WriteAllText($markerPath, "alpha`n")
+        $markerSnapshot = Read-UpdateMarker $markerPath
+        $script:heldFile = $null
+        $script:BeforeHostRuntimeReplaceForSelfTest = { param($phase, $record, $from, $to)
+            if ($phase -ceq 'marker' -and $null -eq $script:heldFile) { $script:heldFile = [AgentBrokerLocalInstallNative]::HoldExclusiveForTest($to, 150) } }
+        $markerError = $null
+        try { Publish-UpdateMarker $markerPath $markerSnapshot } catch { $markerError = $_.Exception.Message }
+        finally { $script:BeforeHostRuntimeReplaceForSelfTest = $null }
+        $released = $null -ne $script:heldFile -and $script:heldFile.Wait(5000)
+        $retries = Get-RetriesForTest $markerPath
+        if ($null -ne $markerError -or -not $released -or $retries -lt 1 -or [IO.File]::ReadAllText($markerPath) -cne "alpha`nagentbroker`n") {
+            throw "INSTALL_MARKER_REPLACE_RETRIES_TRANSIENT_LOCK: an update marker held for 150 ms is published on a later attempt (retries $retries, hold released $released, error: $markerError)."
+        }
+        $checks++
+
+        # The retry filter, judged deterministically by an injected fault before attempt 1 (no timing involved).
+        function Invoke-InjectedFault([int]$HResult, [scriptblock]$SideEffect, [string]$Backup) {
+            $target = Assert-ContainedPath (Join-Path $root 'fault-target.txt') $root
+            $replacement = Assert-ContainedPath (Join-Path $root 'fault-new.tmp') $root
+            foreach ($path in @($target, $replacement, $Backup)) { if ($path -and [IO.File]::Exists($path)) { [IO.File]::Delete($path) } }
+            [IO.File]::WriteAllText($target, 'old'); [IO.File]::WriteAllText($replacement, 'new')
+            [AgentBrokerLocalInstallNative]::RetriesForTest.Clear()
+            $script:faultHResult = $HResult; $script:faultSideEffect = $SideEffect; $script:faultPaths = @($target, $replacement, $Backup)
+            [AgentBrokerLocalInstallNative]::FaultForTest = [Func[string, int, Exception]] {
+                param($to, $attempt)
+                if ($attempt -ne 1) { return $null }
+                if ($script:faultSideEffect) { & $script:faultSideEffect $script:faultPaths[0] $script:faultPaths[1] $script:faultPaths[2] }
+                return [IO.IOException]::new('synthetic fault', $script:faultHResult)
+            }
+            $raised = $null
+            try { [AgentBrokerLocalInstallNative]::ReplaceOrMove($replacement, $target, $(if ($Backup) { $Backup } else { [NullString]::Value }), $true) }
+            catch { $raised = $_.Exception.InnerException }
+            finally { [AgentBrokerLocalInstallNative]::FaultForTest = $null }
+            return [pscustomobject]@{ Raised = $raised; Retries = (Get-RetriesForTest $target)
+                Target = $(if ([IO.File]::Exists($target)) { [IO.File]::ReadAllText($target) } else { '<absent>' }) }
+        }
+        $only1175 = Invoke-InjectedFault -2147023721 $null $null
+        $denied = Invoke-InjectedFault -2147024891 $null $null
+        if ($null -ne $only1175.Raised -or $only1175.Retries -ne 1 -or $only1175.Target -cne 'new' -or
+            $null -eq $denied.Raised -or $denied.Raised.HResult -ne -2147024891 -or $denied.Retries -ne 0 -or $denied.Target -cne 'old') {
+            throw "INSTALL_REPLACE_RETRY_ONLY_TRANSIENT_ERRORS: 1175 is retried and an access-denied error is not (1175: error $(if ($only1175.Raised) { $only1175.Raised.HResult }), retries $($only1175.Retries), target $($only1175.Target); denied: error $(if ($denied.Raised) { $denied.Raised.HResult }), retries $($denied.Retries), target $($denied.Target))."
+        }
+        $checks++
+        $faultBackup = Assert-ContainedPath (Join-Path $root 'fault-backup.txt') $root
+        $rewritten = Invoke-InjectedFault -2147024864 { param($target, $replacement, $backup) [IO.File]::WriteAllText($target, 'written by the holder') } $null
+        $gone = Invoke-InjectedFault -2147024864 { param($target, $replacement, $backup) [IO.File]::Delete($replacement) } $null
+        $backedUp = Invoke-InjectedFault -2147024864 { param($target, $replacement, $backup) [IO.File]::WriteAllText($backup, 'early') } $faultBackup
+        $cases = @(@('destination rewritten', $rewritten, 'written by the holder'), @('source gone', $gone, 'old'), @('backup present', $backedUp, 'old'))
+        $wrong = @($cases | Where-Object { $null -eq $_[1].Raised -or $_[1].Raised.HResult -ne -2147024864 -or $_[1].Retries -ne 0 -or $_[1].Target -cne $_[2] })
+        if ($wrong.Count -ne 0) {
+            throw "INSTALL_REPLACE_RETRY_STOPS_ON_CHANGED_STATE: a sharing violation is not retried once the files left their starting state (wrong: $(($wrong | ForEach-Object { $_[0] + ' -> error ' + $(if ($_[1].Raised) { $_[1].Raised.HResult } else { 'none' }) + ', retries ' + $_[1].Retries + ', target ' + $_[1].Target }) -join '; '))."
+        }
+        $checks++
 
         $sourceLink = Assert-ContainedPath (Join-Path $root 'source-linked.bin') $root
         [AgentBrokerLocalInstallNative]::CreateTestHardLink($sourceLink, (Join-Path $source 'existing.bin'))

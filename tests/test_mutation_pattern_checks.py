@@ -68,11 +68,21 @@ class GuardsPatternCheck(ScratchCase):
         self.assertNotIn("healthy first", out)
 
     def test_GUARDS_PATTERN_DUPLICATE_ID_FAILS(self):
-        # Round 2, T2-4: the case-ID rule make_plan applies to every run.
+        # Round 2, T2-4: the case-ID rule make_plan applies to every run. Round 3: make_plan compares IDs ignoring case
+        # (casefold), so two IDs that differ only in case are duplicates here too.
         path = self.source("a.cs", b"alpha\nbeta\n")
-        code, out = self.check_cases([self.case("same id", path, b"alpha\n"), self.case("same id", path, b"beta\n")])
+        code, out = self.check_cases([self.case("same id", path, b"alpha\n"), self.case("Same ID", path, b"beta\n")])
         self.assertEqual(code, 1, out)
-        self.assertIn("DUPLICATE CASE ID  same id", out)
+        self.assertIn("DUPLICATE CASE ID  Same ID", out)
+        self.assertNotIn("BAD CASE ID", out)
+
+    def test_GUARDS_PATTERN_BLANK_ID_FAILS(self):
+        # Round 3, T3-2: a blank and a whitespace-only ID are each refused on their own branch, not as duplicates of each other.
+        path = self.source("a.cs", b"alpha\nbeta\n")
+        code, out = self.check_cases([self.case("", path, b"alpha\n"), self.case("   ", path, b"beta\n")])
+        self.assertEqual(code, 1, out)
+        self.assertEqual(out.count("BAD CASE ID"), 2, out)
+        self.assertNotIn("DUPLICATE CASE ID", out)
 
     def test_GUARDS_PATTERN_ZERO_MATCH_FAILS(self):
         code, out = self.check(self.source("a.cs", b"alpha\n"), b"beta\n")

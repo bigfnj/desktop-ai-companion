@@ -111,6 +111,27 @@ $repin7Checks = [int]([regex]::Match([string]$repin7Summary[0], '^PASS: ([0-9]+)
 # and TREE_COMPARE_VACUOUS_REFUSED guard that, and every guard line named below must be present in both children.
 $treeCompare = Join-Path $repoRoot 'tools\agentbroker\Compare-AgentBrokerTree.ps1'
 $treeChecks = @{}
+# Round 2: a stray file below the root (nested extra) and relative arguments judged at the PowerShell location are
+# required by name too: each was a clean MATCH for the wrong tree before its fix.
+$treeGuardNames = @('PASS: TREE_COMPARE_MISSING_DIRECTORY_IS_FILE', 'PASS: TREE_COMPARE_VACUOUS_REFUSED',
+    'PASS: TREE_COMPARE_NESTED_EXTRA_FAILS', 'PASS: TREE_COMPARE_RELATIVE_PATHS_FOLLOW_LOCATION')
+# Round 3 (T3-1): EACH required guard line must appear exactly once. Counting the lines that belong to the set let one name
+# printed twice stand in for another that was missing. The rule is judged on two synthetic receipts first, on every run.
+function Get-TreeGuardNameProblems([object[]]$Output, [string[]]$Names) {
+    foreach ($name in $Names) {
+        $seen = @($Output | Where-Object { "$_" -ceq $name }).Count
+        if ($seen -ne 1) { "$name (seen $seen)" }
+    }
+}
+$healthyGuardProblems = @(Get-TreeGuardNameProblems $treeGuardNames $treeGuardNames)
+# One name printed twice, another present only in the wrong letter case (so it counts as missing): both must be named.
+$swappedGuardProblems = @(Get-TreeGuardNameProblems @($treeGuardNames[0], $treeGuardNames[0], $treeGuardNames[1].ToLowerInvariant(),
+    $treeGuardNames[2], $treeGuardNames[3]) $treeGuardNames)
+if ($healthyGuardProblems.Count -ne 0 -or $swappedGuardProblems.Count -ne 2 -or
+    $swappedGuardProblems -cnotcontains "$($treeGuardNames[0]) (seen 2)" -or $swappedGuardProblems -cnotcontains "$($treeGuardNames[1]) (seen 0)") {
+    throw "AgentBroker tree compare guard-name rule failed its synthetic receipts: healthy [$($healthyGuardProblems -join '; ')], one name repeated and one missing [$($swappedGuardProblems -join '; ')]."
+}
+Write-Host "PASS: the tree compare guard-name rule refuses a repeated name standing in for a missing one ($($swappedGuardProblems -join '; '))"
 foreach ($edition in @(@{ Name = 'Windows PowerShell'; Exe = 'powershell.exe'; Args = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $treeCompare, '-SelfTest') },
                        @{ Name = 'PowerShell 7'; Exe = 'pwsh'; Args = @('-NoProfile', '-File', $treeCompare, '-SelfTest') })) {
     Write-Host "=== AgentBroker tree compare self-test ($($edition.Name))"
@@ -118,13 +139,9 @@ foreach ($edition in @(@{ Name = 'Windows PowerShell'; Exe = 'powershell.exe'; A
     $treeExit = $LASTEXITCODE
     foreach ($line in $treeOutput) { Write-Host $line }
     $treeSummary = @($treeOutput | Where-Object { "$_" -match '^PASS: ([1-9][0-9]*) tree compare fixture checks$' })
-    # Round 2: a stray file below the root (nested extra) and relative arguments judged at the PowerShell location are
-    # required by name too: each was a clean MATCH for the wrong tree before its fix.
-    $treeGuardNames = @('PASS: TREE_COMPARE_MISSING_DIRECTORY_IS_FILE', 'PASS: TREE_COMPARE_VACUOUS_REFUSED',
-        'PASS: TREE_COMPARE_NESTED_EXTRA_FAILS', 'PASS: TREE_COMPARE_RELATIVE_PATHS_FOLLOW_LOCATION')
-    $treeGuards = @($treeOutput | Where-Object { $treeGuardNames -ccontains "$_" })
-    if ($treeExit -ne 0 -or $treeSummary.Count -ne 1 -or $treeGuards.Count -ne $treeGuardNames.Count -or @($treeOutput | Where-Object { "$_" -match '^(FAIL:|RESULT=FAIL)' }).Count -gt 0) {
-        throw "AgentBroker tree compare self-test under $($edition.Name) failed: tools/agentbroker/Compare-AgentBrokerTree.ps1 -SelfTest (exit $treeExit)."
+    $treeGuardProblems = @(Get-TreeGuardNameProblems $treeOutput $treeGuardNames)
+    if ($treeExit -ne 0 -or $treeSummary.Count -ne 1 -or $treeGuardProblems.Count -gt 0 -or @($treeOutput | Where-Object { "$_" -match '^(FAIL:|RESULT=FAIL)' }).Count -gt 0) {
+        throw "AgentBroker tree compare self-test under $($edition.Name) failed: tools/agentbroker/Compare-AgentBrokerTree.ps1 -SelfTest (exit $treeExit; guard lines missing or repeated: $($treeGuardProblems -join '; '))."
     }
     $treeChecks[$edition.Name] = [int]([regex]::Match([string]$treeSummary[0], '^PASS: ([0-9]+)').Groups[1].Value)
 }
