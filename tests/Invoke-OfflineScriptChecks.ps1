@@ -140,6 +140,13 @@ Invoke-CheckedChild 'Test-MutationHarnessRestoration.py' $PythonExecutable `
     @('-B', '-X', 'utf8', (Join-Path $PSScriptRoot 'Test-MutationHarnessRestoration.py')) '^MutationRestorationChecks=[1-9][0-9]*$'
 Invoke-CheckedChild 'run_mutation_capture_checks.py' $PythonExecutable `
     @('-B', '-X', 'utf8', (Join-Path $PSScriptRoot 'run_mutation_capture_checks.py')) '^MutationCaptureChecks=[1-9][0-9]*; Failures=0; Errors=0; Skipped=[0-9]+$'
+# Pattern staleness (AgentBroker 1.10.5 marathon, lane T). Every guards case and every hygiene witness anchor must match
+# exactly as its harness will meet it, or the case guards nothing while its harness prints one NO-OP line among thousands;
+# N-audit-1106-344 found the agentflow harness's check of this kind called by nothing. Read-only, about a second each.
+Invoke-CheckedChild 'mutate-selftest-guards.py --check-patterns' $PythonExecutable `
+    @('-B', '-X', 'utf8', (Join-Path $PSScriptRoot 'mutate-selftest-guards.py'), '--check-patterns') '^[1-9][0-9]* cases, 0 not matching exactly once\.$'
+Invoke-CheckedChild 'run_agentbroker_hygiene_mutations.py --check' $PythonExecutable `
+    @('-B', '-X', 'utf8', (Join-Path $PSScriptRoot 'run_agentbroker_hygiene_mutations.py'), '--check') '^[1-9][0-9]* witnesses, 0 stale$'
 
 if ($failures.Count -gt 0) {
     throw ("$($failures.Count) of $ran offline script check(s) failed: " + ($failures -join ' | '))

@@ -1,0 +1,12 @@
+{
+  "ArchiveSha256": "0000000000000000000000000000000000000000000000000000000000000104",
+  "ArchiveBytes": 180,
+  "EntryCount": 3,
+  "ExpandedBytes": 300,
+  "Entries": [
+    { "Index": 0, "Name": "AgentBroker.dll", "Bytes": 100, "Sha256": "4444444444444444444444444444444444444444444444444444444444444444", "CompressedBytes": 60, "Crc32": "00000004", "Directory": false },
+    { "Index": 1, "Name": "worker/AgentBroker.Core.dll", "Bytes": 100, "Sha256": "5555555555555555555555555555555555555555555555555555555555555555", "CompressedBytes": 60, "Crc32": "00000005", "Directory": false },
+    { "Index": 2, "Name": "worker/AgentBroker.Worker.dll", "Bytes": 100, "Sha256": "6666666666666666666666666666666666666666666666666666666666666666", "CompressedBytes": 60, "Crc32": "00000006", "Directory": false }
+  ],
+  "Extracted": false
+}

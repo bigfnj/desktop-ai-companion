@@ -105,6 +105,46 @@ if ($repin7Exit -ne 0 -or $repin7Summary.Count -ne 1 -or @($repin7Output | Where
     throw "AgentBroker re-pin helper self-test under PowerShell 7 failed: tools/agentbroker/Test-AgentBrokerRepin.ps1 -SelfTest (exit $repin7Exit)."
 }
 $repin7Checks = [int]([regex]::Match([string]$repin7Summary[0], '^PASS: ([0-9]+)').Groups[1].Value)
+# The installed-tree compare (AgentBroker 1.10.5 marathon, lane T, C4). It supports Windows PowerShell 5.1 and 7, so its
+# fixture checks run in a child of each; it reads and writes only its own temporary fixture folder. The 1.10.5 entries map
+# has no Directory field, and a filter on Directory -eq $false compared zero rows and passed: TREE_COMPARE_MISSING_DIRECTORY_IS_FILE
+# and TREE_COMPARE_VACUOUS_REFUSED guard that, and every guard line named below must be present in both children.
+$treeCompare = Join-Path $repoRoot 'tools\agentbroker\Compare-AgentBrokerTree.ps1'
+$treeChecks = @{}
+# Round 2: a stray file below the root (nested extra) and relative arguments judged at the PowerShell location are
+# required by name too: each was a clean MATCH for the wrong tree before its fix.
+$treeGuardNames = @('PASS: TREE_COMPARE_MISSING_DIRECTORY_IS_FILE', 'PASS: TREE_COMPARE_VACUOUS_REFUSED',
+    'PASS: TREE_COMPARE_NESTED_EXTRA_FAILS', 'PASS: TREE_COMPARE_RELATIVE_PATHS_FOLLOW_LOCATION')
+# Round 3 (T3-1): EACH required guard line must appear exactly once. Counting the lines that belong to the set let one name
+# printed twice stand in for another that was missing. The rule is judged on two synthetic receipts first, on every run.
+function Get-TreeGuardNameProblems([object[]]$Output, [string[]]$Names) {
+    foreach ($name in $Names) {
+        $seen = @($Output | Where-Object { "$_" -ceq $name }).Count
+        if ($seen -ne 1) { "$name (seen $seen)" }
+    }
+}
+$healthyGuardProblems = @(Get-TreeGuardNameProblems $treeGuardNames $treeGuardNames)
+# One name printed twice, another present only in the wrong letter case (so it counts as missing): both must be named.
+$swappedGuardProblems = @(Get-TreeGuardNameProblems @($treeGuardNames[0], $treeGuardNames[0], $treeGuardNames[1].ToLowerInvariant(),
+    $treeGuardNames[2], $treeGuardNames[3]) $treeGuardNames)
+if ($healthyGuardProblems.Count -ne 0 -or $swappedGuardProblems.Count -ne 2 -or
+    $swappedGuardProblems -cnotcontains "$($treeGuardNames[0]) (seen 2)" -or $swappedGuardProblems -cnotcontains "$($treeGuardNames[1]) (seen 0)") {
+    throw "AgentBroker tree compare guard-name rule failed its synthetic receipts: healthy [$($healthyGuardProblems -join '; ')], one name repeated and one missing [$($swappedGuardProblems -join '; ')]."
+}
+Write-Host "PASS: the tree compare guard-name rule refuses a repeated name standing in for a missing one ($($swappedGuardProblems -join '; '))"
+foreach ($edition in @(@{ Name = 'Windows PowerShell'; Exe = 'powershell.exe'; Args = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $treeCompare, '-SelfTest') },
+                       @{ Name = 'PowerShell 7'; Exe = 'pwsh'; Args = @('-NoProfile', '-File', $treeCompare, '-SelfTest') })) {
+    Write-Host "=== AgentBroker tree compare self-test ($($edition.Name))"
+    $treeOutput = @(& $edition.Exe @($edition.Args))
+    $treeExit = $LASTEXITCODE
+    foreach ($line in $treeOutput) { Write-Host $line }
+    $treeSummary = @($treeOutput | Where-Object { "$_" -match '^PASS: ([1-9][0-9]*) tree compare fixture checks$' })
+    $treeGuardProblems = @(Get-TreeGuardNameProblems $treeOutput $treeGuardNames)
+    if ($treeExit -ne 0 -or $treeSummary.Count -ne 1 -or $treeGuardProblems.Count -gt 0 -or @($treeOutput | Where-Object { "$_" -match '^(FAIL:|RESULT=FAIL)' }).Count -gt 0) {
+        throw "AgentBroker tree compare self-test under $($edition.Name) failed: tools/agentbroker/Compare-AgentBrokerTree.ps1 -SelfTest (exit $treeExit; guard lines missing or repeated: $($treeGuardProblems -join '; '))."
+    }
+    $treeChecks[$edition.Name] = [int]([regex]::Match([string]$treeSummary[0], '^PASS: ([0-9]+)').Groups[1].Value)
+}
 # The scheduled re-pin check's local runner (lane broker-pins): its selection, binding and de-duplication rules, and the
 # workflow file's contract (two permissions, SHA-pinned actions, never a merge). PowerShell 7 only; offline.
 Write-Host '=== AgentBroker scheduled re-pin check self-test'
@@ -176,4 +216,4 @@ foreach ($harness in $harnesses) {
     catch { $failures.Add($harness.Name + ': ' + $_.Exception.Message) }
 }
 if ($failures.Count -gt 0) { throw ('AgentBroker checks failed: ' + ($failures -join '; ')) }
-Write-Host ("AgentBroker deterministic harnesses PASS: $($harnesses.Count) harnesses, $assertions assertions; Claude connection helper $connectChecks checks; collaboration helper $collaborationChecks checks (process: $collaborationProcessChecks); re-pin helper $repinChecks checks (PowerShell 7: $repin7Checks); scheduled re-pin check $repinCheckChecks checks.")
+Write-Host ("AgentBroker deterministic harnesses PASS: $($harnesses.Count) harnesses, $assertions assertions; Claude connection helper $connectChecks checks; collaboration helper $collaborationChecks checks (process: $collaborationProcessChecks); re-pin helper $repinChecks checks (PowerShell 7: $repin7Checks); tree compare $($treeChecks['Windows PowerShell']) checks (PowerShell 7: $($treeChecks['PowerShell 7'])); scheduled re-pin check $repinCheckChecks checks.")
