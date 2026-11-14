@@ -8274,6 +8274,34 @@ that had to be reverted.
   drop the ceiling region for skins whose ceiling art reads badly. **Not a defect to fix by moving
   pixels between regions.**
 
+- Fortune selection is uniform per line, not per pack (N-audit-1106-384, accepted 2026-11-12). With the full catalog on,
+  showerthoughts (9,752 lines) supplies about one fortune in six, while a 2-line pack appears about once in 28,000 draws.
+  That is the price of the shuffle bag's promise: FortuneProvider.Pick shows every line once before any repeats, which
+  works only while the bag holds lines. Per-pack draws would repeat a small pack's lines within minutes. If more balance
+  is ever wanted, weight by the square root of pack size, and design the bag for it first.
+
+- AI Brain sends two window titles verbatim (N-audit-1106-378, kept 2026-11-12): the front window's and the one the
+  companion stands on, while other open windows go as process names only. The titles are disclosed in PRIVACY.md and on
+  the CLI card's Goes through row, the front one is mostly inside the capture already, and the stood-on one is what the
+  'standing on' remarks are made from. The smallest tightening, if ever wanted, is the stood-on window's process name.
+
+- AgentFlow announces a VS Code panel prompt twice in Notify mode (N-audit-1106-377, accepted 2026-11-12): once from the
+  screen sweep and again from the transcript path 20 to 30 s later. The second is a reminder. Holding transcript notices
+  while a screen prompt stands is refused, because nothing ties a panel to a session and it would silence another
+  session's real prompt; a shared key is the route if the double notice ever matters.
+
+- A companion clip decodes on its first play, on the UI thread (N-shimeji-host-limits-01, accepted 2026-11-12). The stall
+  is bounded by MaximumClipDecodedSamples at 31 to 84 ms for a cap-sized clip, and shipped sounds are 14 times under the
+  cap. Decoding ahead pays for clips never played; decoding on the first trigger silences every first play.
+
+- Classic pets play at the 15.6 ms timer tick (N-shimeji-host-04, accepted 2026-11-12). Their WinForms timer rounds 40 ms
+  up to 46.9 and 20 to 30 ms up to 31.2. Every classic pet was authored and seen at that rate, and classic has no
+  reference clock, so honouring the written numbers would make 50 of 54 bundled pets visibly faster somewhere.
+
+- AgentFlow's focus guard does not wrap window.focus (N-agentflow-focus-03, accepted 2026-11-12). A card could call
+  window.focus() and then focus an element. Wrapping it would break VS Code switching to a card, since VS Code itself calls
+  contentWindow.focus(). FocusHold.cs records the limit; reopen only if a card is seen doing it.
+
 ---
 
 ## Known bugs (post-1.0.0)
