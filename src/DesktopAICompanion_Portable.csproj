@@ -260,6 +260,10 @@
     <!-- fortunes.txt + the classifier-parity TSV moved to modules/Fortunes with the fortune engine;
          the base no longer embeds or reads them. -->
     <EmbeddedResource Include="Resources\pet-thumbnails.zip" />
+    <!-- N-parity-1107-03 C8: the jointly signed parity policy registry, embedded from its one installed file (never a
+         second copy). ParityPolicyRegistry reads it by this LogicalName and checks it against its compiled rows and
+         digest in every process that sees a scenario/2 candidate. -->
+    <EmbeddedResource Include="..\tools\ShimejiParity\policy\REGISTRY.json" LogicalName="DesktopAICompanion.ShimejiParity.PolicyRegistry.json" />
   </ItemGroup>
 
   <ItemGroup>

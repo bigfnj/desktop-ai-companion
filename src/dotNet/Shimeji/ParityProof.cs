@@ -26,20 +26,35 @@ namespace DesktopAICompanion.Shimeji
         public const string Reconciliation = "parity reconciliation";
         public const string BuildWitnessUnreadable = "build-witness-unreadable";
         public const string RegistryIntegrity = "parity registry-integrity";
+        public const string InputAdmitted = "parity INPUT-ADMITTED";
         public const string RunIdField = " runId ";
         // ---- end of the spellings
 
         /// <summary>The registry drift self-test passed (C7, H :230-232): "parity registry-integrity ok registrySha256 D
-        /// engineSha256 H enginePath P runId R", naming the digest and the engine assembly that holds the compiled table.
-        /// A form proposed for Codex's review; nothing logs it before C8 adopts a table.</summary>
+        /// engineSha256 H enginePath P runId R", naming the digest the check computed on the embedded registry and the
+        /// engine assembly that holds the compiled table. Adopted unchanged by Codex's ruling (2026-11-13, ef41a984): a
+        /// diagnostic line only, never a substitute for INPUT-ADMITTED or reconciliation.</summary>
         public static string RegistryIntegrityOkLine(string registrySha256, ParityLoadedEngine engine, string runId)
         {
             return RegistryIntegrity + " ok registrySha256 " + registrySha256 + " engineSha256 " + engine.EngineSha256
                 + " enginePath " + engine.EnginePath + RunIdField + runId;
         }
 
-        /// <summary>The registry drift self-test failed: a named internal defect, exit 2 and no trace. Until C8 every
-        /// candidate gets it, because the production table is not adopted. A form proposed for Codex's review.</summary>
+        /// <summary>C8 (H steps 4-6, :232): a candidate admitted by its full scenario SHA-256 whose pack is the registered
+        /// one: "parity INPUT-ADMITTED registrySha256 D id I case C scenarioSha256 S packSha256 P runId R", in the field
+        /// order the lane brief fixed (registry digest, id, case, scenarioSha256, packSha256, runId). D is the digest this
+        /// process's drift self-test computed; S and P are the digests this run computed on the bytes it read and the pack it
+        /// hashed, equal to the row's by admission. Logged after the pack comparison and before the pets are loaded; a
+        /// diagnostic line only, outside the trace JSONL. The spelling awaits Codex's review.</summary>
+        public static string InputAdmittedLine(string registrySha256, ParityPolicyRow row, string scenarioSha256, string packSha256, string runId)
+        {
+            return InputAdmitted + " registrySha256 " + registrySha256 + " id " + row.Id + " case " + row.Case + " scenarioSha256 " + scenarioSha256
+                + " packSha256 " + packSha256 + RunIdField + runId;
+        }
+
+        /// <summary>The registry drift self-test failed: a named internal defect, exit 2 and no trace; also an admitted
+        /// scenario that does not interpret (H step 5). Adopted unchanged by Codex's ruling (2026-11-13, ef41a984); never
+        /// positive evidence.</summary>
         public static string RegistryIntegrityDefectLine(string defect, string runId)
         {
             return RegistryIntegrity + " internal-defect: " + defect + "; a candidate scenario is admitted only through a verified registry"
@@ -127,7 +142,7 @@ namespace DesktopAICompanion.Shimeji
         /// window-effects, A15's active-pending-membership), how many checkpoints passed, N+1 on a complete run, and which
         /// state records were compared: a traced run's at every checkpoint, a trace-off run's final ones at N. Written only
         /// by the run's own ledger when every checkpoint passed and, trace-off, its final states were compared. The list
-        /// form is the one proposed to Codex for review (closure spellings Q-d).</summary>
+        /// form is the one Codex agreed exactly (closure spellings Q-d, 2026-11-13).</summary>
         public static string ReconciliationLine(int checkpoints, bool traceOff, string runId)
         {
             return Reconciliation + " window-effects, active-pending-membership checkpoints " + checkpoints.ToString(CultureInfo.InvariantCulture)

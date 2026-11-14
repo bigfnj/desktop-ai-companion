@@ -7238,6 +7238,44 @@ Assert-True ([regex]::Matches($hpRun, 'EnsureVerified\(').Count -eq 1 -and $hpEn
 $hpDecl = [regex]::Matches($hpRegistry, 'static bool EnsureVerified\(([^)]*)\)')
 Assert-True ($hpDecl.Count -eq 1 -and $hpDecl[0].Groups[1].Value -ceq 'ParityLoadedEngine engine, string runId, TextWriter log') (
     'host-policy-1: EnsureVerified takes no table parameter (H :64)')
+# N-parity-1107-03 C8 (H steps 4-6, :52, :64, :232; CONTRACT v1.3): the admitted route's ORDER in the core run, on the same
+# comment-stripped body. (4) The drift self-test precedes the lookup, Find is the one admission site in ParityRun.cs, and
+# it takes the scenario digest only. (5) On the admitted branch the pack is hashed before the pets are loaded: the legacy
+# LoadPets is guarded by "no admission" and the admitted one comes after PackSha256. (6) INPUT-ADMITTED is written once,
+# after the registered-pack comparison and before the admitted LoadPets. Then the external signed-file equality: the
+# installed REGISTRY.json and declaration schema hash to their signed values, the compiled digest is the signed one, and
+# the host project embeds exactly that file under ParityPolicyRegistry's ResourceName.
+$hpFind = $hpCore.IndexOf('ParityPolicyRegistry.Admission.Find(scenarioFile.Sha256)', [StringComparison]::Ordinal)
+$hpFindDecl = [regex]::Matches($hpRegistry, 'static Admission Find\(([^)]*)\)')
+Assert-True ($hpEnsure -ge 0 -and $hpFind -gt $hpEnsure -and [regex]::Matches($hpRun, 'Admission\.Find\(').Count -eq 1 -and
+             $hpFindDecl.Count -eq 1 -and $hpFindDecl[0].Groups[1].Value -ceq 'string scenarioSha256') (
+    'host-policy-1: EnsureVerified precedes Find, the single admission site, which takes the scenario digest only (H :52, :64)')
+$hpPackHash = $hpCore.IndexOf('packSha256 = PackSha256(packDir);', [StringComparison]::Ordinal)
+$hpPackCompare = $hpCore.IndexOf('if (!string.Equals(packSha256, admission.Row.PackSha256, StringComparison.Ordinal))', [StringComparison]::Ordinal)
+$hpAdmittedLine = $hpCore.IndexOf('ParityRunLog.InputAdmittedLine(', [StringComparison]::Ordinal)
+$hpLoads = [regex]::Matches($hpCore, 'LoadPets\(petsDir, log\)')
+$hpAdmittedLoad = if ($hpLoads.Count -eq 2) { $hpLoads[1].Index } else { -1 }
+Assert-True ($hpLoads.Count -eq 2 -and $hpCore -cmatch 'if \(admission == null\)\s*\{\s*pets = LoadPets\(petsDir, log\);' -and
+             $hpPackHash -gt $hpLoads[0].Index -and $hpAdmittedLoad -gt $hpPackHash) (
+    'host-policy-1: the admitted branch hashes the pack before LoadPets, the legacy branch keeps pets first (H step 6)')
+Assert-True ([regex]::Matches($hpCore, 'InputAdmittedLine\(').Count -eq 1 -and $hpPackCompare -gt $hpPackHash -and $hpAdmittedLine -gt $hpPackCompare -and
+             $hpAdmittedLoad -gt $hpAdmittedLine) (
+    'host-policy-1: INPUT-ADMITTED follows the registered-pack comparison and precedes the admitted LoadPets (H step 6, :232)')
+$hpPolicy = Join-Path $repoRoot 'tools\ShimejiParity\policy'
+$hpProject = Get-Content -LiteralPath (Join-Path $repoRoot 'src\DesktopAICompanion_Portable.csproj') -Raw
+Assert-True ((Test-Path -LiteralPath (Join-Path $hpPolicy 'REGISTRY.json')) -and (Test-Path -LiteralPath (Join-Path $hpPolicy 'schema\policy-declaration.schema.json')) -and
+             $hpProject.Length -gt 0) (
+    'host-policy-1: WITNESS the installed registry, the declaration schema and the host project were read')
+$hpRegistrySha = (Get-FileHash -LiteralPath (Join-Path $hpPolicy 'REGISTRY.json') -Algorithm SHA256).Hash.ToLowerInvariant()
+$hpSchemaSha = (Get-FileHash -LiteralPath (Join-Path $hpPolicy 'schema\policy-declaration.schema.json') -Algorithm SHA256).Hash.ToLowerInvariant()
+$hpDigest = [regex]::Match($hpRegistry, 'internal const string CompiledDigest = "([0-9a-f]{64})";')
+$hpResource = [regex]::Match($hpRegistry, 'internal const string ResourceName = "([^"]+)";')
+$hpEmbedded = [regex]::Matches($hpProject, '<EmbeddedResource Include="([^"]*REGISTRY\.json)" LogicalName="([^"]+)" />')
+Assert-True ($hpRegistrySha -ceq '954776734f2ab70a4a96645e15e188d2d936e935b89e703e488c9e5de76f1442' -and
+             $hpSchemaSha -ceq 'f76a30eedb8720acdba9c352522fbfe9bbb1391d9cec191fe710eafb7a438335' -and
+             $hpDigest.Success -and $hpDigest.Groups[1].Value -ceq $hpRegistrySha -and $hpResource.Success -and $hpEmbedded.Count -eq 1 -and
+             $hpEmbedded[0].Groups[1].Value -ceq '..\tools\ShimejiParity\policy\REGISTRY.json' -and $hpEmbedded[0].Groups[2].Value -ceq $hpResource.Groups[1].Value) (
+    "host-policy-1: the installed REGISTRY.json and schema equal their signed SHA-256, the compiled digest is that value and the project embeds that file under ResourceName (registry $hpRegistrySha, schema $hpSchemaSha)")
 
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that

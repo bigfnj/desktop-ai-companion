@@ -35,29 +35,43 @@ namespace DesktopAICompanion.Shimeji
     }
 
     /// <summary>
-    /// N-parity-1107-03 C7 (signed revision H :45, :56-64, :230-232): the registry drift self-test a scenario/2 candidate
-    /// reaches after the output claim and the command's prerequisites, before any registry consultation.
+    /// N-parity-1107-03 C7 and C8 (signed revision H :41-64, :230-232, adopted as CONTRACT v1.3): the registry drift
+    /// self-test a scenario/2 candidate reaches after the output claim and the command's prerequisites, and then the one
+    /// scenario admission site, <see cref="Admission.Find"/>, by the full SHA-256 of the retained bytes.
     ///
-    /// Until registry finalization and the joint signature, the production table is NOT ADOPTED: no resource is embedded, no
-    /// row is compiled and no digest is set, so <see cref="EnsureVerified"/> fails for every candidate with the named
-    /// registry-integrity internal defect, exit 2 and no trace. C8 replaces the three with the finalized REGISTRY.json's
-    /// embedded bytes, its compiled rows and its digest, and adds the admission lookup. Refused (brief critique A4, Codex
-    /// 2026-11-13): any table seam or internal admission-table parameter, even for self-tests, which H :64 forbids as a
-    /// test-only admission override, since the self-test ships inside the product exe. So <see cref="EnsureVerified"/> takes
-    /// no table, and the drift self-test's checks are graded on the pure <see cref="Verify"/> with tables built by hand.
+    /// C8 adopts the production table: the jointly signed tools/ShimejiParity/policy/REGISTRY.json is embedded by the host
+    /// project under <see cref="ResourceName"/> (the file itself, never a second copy), its four rows are compiled below and
+    /// its signed digest is <see cref="CompiledDigest"/>. A build whose embedded bytes, rows or digest disagree fails the
+    /// drift self-test for every candidate with the named registry-integrity internal defect, exit 2 and no trace.
+    /// Refused (brief critique A4, Codex 2026-11-13): any table seam or internal admission-table parameter, even for
+    /// self-tests, which H :64 forbids as a test-only admission override, since the self-test ships inside the product exe.
+    /// So <see cref="EnsureVerified"/> and <see cref="Admission.Find"/> take no table, an <see cref="Admission"/> can be made
+    /// nowhere but Find, and the drift self-test's checks are graded on the pure <see cref="Verify"/> with tables built by
+    /// hand.
     ///
     /// The verdict is computed once per process and kept in a static of this assembly; nothing is written to disk, so a
-    /// fresh process verifies again. Every candidate run logs the verdict with its own runId. This file spells no parity
-    /// error code (the bd-parity-host-2 invariant scans it).
+    /// fresh process verifies again. Every candidate run logs the verdict with its own runId, and the ok line names the
+    /// digest the check itself computed on the embedded bytes, so a verdict nobody computed names none. This file spells
+    /// no parity error code (the bd-parity-host-2 invariant scans it).
     /// </summary>
     internal static class ParityPolicyRegistry
     {
-        /// <summary>The embedded resource C8 adds (brief section 7, C8).</summary>
+        /// <summary>The embedded resource's logical name; the host project gives REGISTRY.json this name.</summary>
         internal const string ResourceName = "DesktopAICompanion.ShimejiParity.PolicyRegistry.json";
 
-        // ---- the production table: NOT ADOPTED until C8 (null rows and digest; no resource is embedded)
-        private static readonly ParityPolicyRow[] CompiledRows = null;
-        private static readonly string CompiledDigest = null;
+        // ---- the production table: CONTRACT v1.3, the jointly signed REGISTRY.json (payload eaa9c41d, rows in its order)
+        private static readonly ParityPolicyRow[] CompiledRows =
+        {
+            new ParityPolicyRow("birth-cap", "cap-at", "S-cap-at-01", "packs/breed-cap", 20,
+                "4914fc647a79d33b698b68dbc87a55edef1c196e4a418b68494ef2554aaa5f6f", "711d36cffa52f016a4eb880e69e28f4fa5afe09253c0a21419701dc1e6da8065"),
+            new ParityPolicyRow("window-off-plays", "window-carry-off", "S-window-carry-off-01", "packs/window-carry", 90,
+                "5471944eaa634fcb75857d4790c18fa361db4e9954c1b9de367fd9d2c1d639c6", "f5d4ac604929126542b75e53040c162fab8afcd6e81951f3daf6d47d9ff429e0"),
+            new ParityPolicyRow("window-off-plays", "window-throw-off", "S-window-throw-off-01", "packs/window-throw", 20,
+                "edc9dec2edd0a9e8edad09a8a0518fd494944195d13d7793daf57ba7ffb779e9", "8b0d4b77a722ed515e2e94fae0f99c2ec2c1d262d211cbf5a9611c8a8673ac9a"),
+            new ParityPolicyRow("window-off-plays", "window-minimize-off", "S-window-minimize-off-01", "packs/window-minimize", 20,
+                "1477c1718d24a1b372f36ca26b9b87967b9e0345fa21f081f7876fb94b3ae41d", "28785fabfddcb1e6c466cdbcb0af946deb36168d7b1d071168211f1d02f42074"),
+        };
+        internal const string CompiledDigest = "954776734f2ab70a4a96645e15e188d2d936e935b89e703e488c9e5de76f1442";
         // ---- end of the production table
 
         private static readonly string[] RowMembers =
@@ -68,29 +82,88 @@ namespace DesktopAICompanion.Shimeji
         private static readonly object Gate = new object();
         private static bool _verified;
         private static string _defect;
+        private static string _verifiedDigest;
 
         /// <summary>
         /// The drift self-test, once per process (H :230): the embedded registry's bytes against the compiled rows and digest
-        /// (<see cref="Verify"/>). Logs "parity registry-integrity ok ..." or "parity registry-integrity internal-defect: ..."
-        /// with the run's runId, and answers whether the candidate may go on. Takes no table: the compiled one is the only one.
+        /// (<see cref="Verify"/>). Logs "parity registry-integrity ok ..." with the digest this check computed on those
+        /// bytes, or "parity registry-integrity internal-defect: ..." with the run's runId, and answers whether the candidate
+        /// may go on. Takes no table: the compiled one is the only one.
         /// </summary>
         internal static bool EnsureVerified(ParityLoadedEngine engine, string runId, TextWriter log)
         {
-            string defect;
+            string defect, digest;
             lock (Gate)
             {
                 if (!_verified)
                 {
-                    _defect = Verify(ResourceBytes(), CompiledRows, CompiledDigest);
+                    byte[] resource = ResourceBytes();
+                    _defect = Verify(resource, CompiledRows, CompiledDigest);
+                    if (_defect == null) _verifiedDigest = ParityRun.Sha256(resource);
                     _verified = true;
                 }
                 defect = _defect;
+                digest = _verifiedDigest;
             }
-            log.WriteLine(defect == null ? ParityRunLog.RegistryIntegrityOkLine(CompiledDigest, engine, runId) : ParityRunLog.RegistryIntegrityDefectLine(defect, runId));
+            log.WriteLine(defect == null ? ParityRunLog.RegistryIntegrityOkLine(digest, engine, runId) : ParityRunLog.RegistryIntegrityDefectLine(defect, runId));
             return defect == null;
         }
 
-        /// <summary>The embedded registry's bytes, or null when the build embeds none (every build before C8).</summary>
+        /// <summary>The digest this process's drift self-test computed on the embedded registry when it passed, else null
+        /// (not run yet, or failed). INPUT-ADMITTED names it.</summary>
+        internal static string VerifiedDigest
+        {
+            get
+            {
+                lock (Gate)
+                {
+                    return _verified && _defect == null ? _verifiedDigest : null;
+                }
+            }
+        }
+
+        /// <summary>
+        /// A scenario's admission (H step 4-5): the compiled row whose full scenario SHA-256 equals the retained bytes'. The
+        /// interpreting reader accepts scenario/2 only with one in hand. Its only constructor is private, so nothing makes
+        /// one but <see cref="Find"/>: no shipped path, the self-test included, can hand the reader an admission for bytes
+        /// the signed table does not hold.
+        /// </summary>
+        internal sealed class Admission
+        {
+            public readonly ParityPolicyRow Row;
+
+            private Admission(ParityPolicyRow row)
+            {
+                Row = row;
+            }
+
+            /// <summary>
+            /// The single scenario admission site (H :52): by the full SHA-256 of the retained bytes FIRST, never by a
+            /// declared id, case or S-id. Null on a miss (scenario-not-registered), and null when this process's drift
+            /// self-test has not passed, so a lookup moved ahead of <see cref="EnsureVerified"/> admits nothing in a fresh
+            /// process. Takes no table.
+            /// </summary>
+            internal static Admission Find(string scenarioSha256)
+            {
+                lock (Gate)
+                {
+                    if (!_verified || _defect != null) return null;
+                }
+                foreach (ParityPolicyRow row in CompiledRows)
+                    if (string.Equals(row.ScenarioSha256, scenarioSha256, StringComparison.Ordinal)) return new Admission(row);
+                return null;
+            }
+        }
+
+        /// <summary>The embedded registry's bytes, or null when the build embeds none: the window self-test compares them
+        /// with the compiled digest and with the installed file.</summary>
+        internal static byte[] EmbeddedBytes()
+        {
+            return ResourceBytes();
+        }
+
+        /// <summary>The embedded registry's bytes, or null when the build embeds none (a build whose project lost the
+        /// EmbeddedResource or renamed it).</summary>
         private static byte[] ResourceBytes()
         {
             using (Stream stream = typeof(ParityPolicyRegistry).Assembly.GetManifestResourceStream(ResourceName))

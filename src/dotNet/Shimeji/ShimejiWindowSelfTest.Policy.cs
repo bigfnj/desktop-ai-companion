@@ -347,6 +347,16 @@ namespace DesktopAICompanion.Shimeji
             check(pack[0] == "2" && pack[1] == null && pack[2].StartsWith("refused " + pack[3] + ": scenario-invalid: ", StringComparison.Ordinal),
                 "parity policy: a surrogate pack value is no usable pack folder at the claim and the run still refuses it, exit 2, no trace (" + said(pack) + ")");
 
+            // N-host-policy-1-r4-01: an id or pack value with an escaped unpaired surrogate passes ScenarioInvalid's kind check
+            // and fails ReadScenario's decode, an already handled scenario-invalid refusal; it names the value that failed,
+            // where it used to say "dpiScale cannot be read" for both.
+            string[] surrogateId = run("S-input-id", plainText.Replace("\"id\":\"S-input-plain\"", "\"id\":\"S\\ud800\""));
+            check(surrogateId[0] == "2" && surrogateId[1] == null
+                  && surrogateId[2].StartsWith("refused " + surrogateId[3] + ": scenario-invalid: id cannot be read: ", StringComparison.Ordinal)
+                  && pack[2].StartsWith("refused " + pack[3] + ": scenario-invalid: pack cannot be read: ", StringComparison.Ordinal),
+                "parity policy: a surrogate id or pack value is refused as scenario-invalid naming that value, exit 2, no trace (" + said(surrogateId)
+                + " | " + said(pack) + ")");
+
             // WITNESS: the accepted scenario/1 runs, and the same scenario with a deep unused member (60 nested arrays, inside
             // JsonDocument's default depth of 64) writes the same records after its header.
             var deep = new StringBuilder();
@@ -362,13 +372,15 @@ namespace DesktopAICompanion.Shimeji
         }
 
         /// <summary>
-        /// burndown/host-policy-1, N-parity-1107-03 C7 (signed revision H :45, :56-64, :230-232): a scenario/2 candidate, by
-        /// the scan facts taken at the single read, reaches the registry drift self-test after the output claim, and under
-        /// the not-adopted production table every candidate is the named registry-integrity internal defect, exit 2 and no
-        /// trace: both duplicate-schema orders, an escaped marker, and a candidate whose pack value cannot be decoded. An
-        /// occupied trace path is refused first, with no registry line. A byte order mark stops the scan, so a BOM-prefixed
-        /// scenario/2 takes the legacy route. Then the drift self-test's own checks, on the pure Verify with tables built by
-        /// hand: no table seam ships (Codex 2026-11-13, H :64). Every pet here is generated.
+        /// burndown/host-policy-1, N-parity-1107-03 C7 and C8 (signed revision H :45, :50-52, :56-64, :230-232): a scenario/2
+        /// candidate, by the scan facts taken at the single read, reaches the registry drift self-test after the output
+        /// claim, and with the adopted table (C8) every candidate the signed table does not hold is registry-integrity ok,
+        /// then scenario-invalid scenario-not-registered, exit 2 and no trace: both duplicate-schema orders, an escaped
+        /// marker, and a candidate whose pack value cannot be decoded. An occupied trace path is refused first, with no
+        /// registry line. A byte order mark, or any scanner stop before the marker, means no candidate, so such a scenario/2
+        /// takes the legacy route, whose schema test still accepts scenario/1 only. Then the drift self-test's own checks, on
+        /// the pure Verify with tables built by hand: no table seam ships (Codex 2026-11-13, H :64). Every pet here is
+        /// generated.
         /// </summary>
         private static void CheckParityRegistryRouting(Action<bool, string> check, string root, StringBuilder log)
         {
@@ -417,22 +429,26 @@ namespace DesktopAICompanion.Shimeji
             };
             Func<string, byte[]> utf8 = text => new UTF8Encoding(false).GetBytes(text);
             Func<string[], string> said = r => "exit " + r[0] + ", trace " + (r[1] == null ? "none" : "left") + ", " + r[2].Trim().Replace("\r", "").Replace("\n", " | ");
-            // The candidate outcome under the not-adopted table: the loaded-engine line, then the registry-integrity
-            // internal defect with the same runId, exit 2, no trace, and no legacy refusal.
+            // The outcome of a candidate the signed table does not hold (C8, H step 4): the loaded-engine line, then the
+            // registry-integrity ok line naming the digest the check computed (the compiled, signed one) with the same
+            // runId, then scenario-invalid with predicate scenario-not-registered, exit 2, no trace, no INPUT-ADMITTED,
+            // and never the legacy schema refusal.
             Func<string[], string> defect = r =>
             {
                 string engine = PolicyLine(r[2], ParityRunLog.LoadedEngine + " "), integrity = PolicyLine(r[2], ParityRunLog.RegistryIntegrity + " ");
-                bool ok = r[0] == "2" && r[1] == null && engine != null && integrity != null
-                    && integrity.StartsWith(ParityRunLog.RegistryIntegrity + " internal-defect: the registry table is not adopted", StringComparison.Ordinal)
+                string refusal = PolicyLine(r[2], "refused " + r[3] + ": scenario-invalid: " + ParityRun.ScenarioNotRegistered + ": the scenario's full SHA-256 ");
+                bool ok = r[0] == "2" && r[1] == null && engine != null && integrity != null && refusal != null
+                    && integrity.StartsWith(ParityRunLog.RegistryIntegrity + " ok registrySha256 " + ParityPolicyRegistry.CompiledDigest + " engineSha256 ", StringComparison.Ordinal)
                     && PolicyRunId(integrity) == PolicyRunId(engine) && r[2].IndexOf(engine, StringComparison.Ordinal) < r[2].IndexOf(integrity, StringComparison.Ordinal)
-                    && !r[2].Contains("scenario-invalid");
+                    && r[2].IndexOf(integrity, StringComparison.Ordinal) < r[2].IndexOf(refusal, StringComparison.Ordinal)
+                    && !r[2].Contains(ParityRunLog.InputAdmitted) && !r[2].Contains("schema is not");
                 return ok ? "" : said(r);
             };
 
             string[] candidate = run("S-registry-candidate", utf8(plainText.Replace(v1, v2)));
             string candidateFault = defect(candidate);
             check(candidateFault.Length == 0,
-                "parity policy: a candidate under the not-adopted table gives registry-integrity internal-defect, exit 2, no trace ("
+                "parity policy: an unregistered candidate gives registry-integrity ok with the signed digest, then scenario-not-registered, exit 2, no trace ("
                 + (candidateFault.Length == 0 ? PolicyLine(candidate[2], ParityRunLog.RegistryIntegrity + " ") : candidateFault) + ")");
 
             string twoThenOne = defect(run("S-registry-dup-21", utf8(plainText.Replace(v1, v2 + "," + v1))));
@@ -479,6 +495,18 @@ namespace DesktopAICompanion.Shimeji
                   && bom[2].Contains(ParityRun.ScenarioInputUnreadable + " syntax: refused " + bom[3] + ": scenario-invalid: the scenario is not JSON: '0xEF' is an invalid start of a value.")
                   && !bom[2].Contains(ParityRunLog.RegistryIntegrity),
                 "parity policy: a BOM-prefixed scenario/2 file takes the legacy route, where the parser refuses the mark as syntax, exit 2 (" + said(bom) + ")");
+
+            // C8 (H step 3, step 5): the legacy schema test is not widened. A scenario/2 document whose scanner stops before
+            // its marker (one raw 0xFF in a description ahead of the schema member, which JsonDocument never decodes) is no
+            // candidate, so it reaches the legacy reader with no admission, and that reader still accepts scenario/1 only:
+            // scenario-invalid, exit 2, no trace, and no registry line.
+            byte[] stopped = utf8("{\"description\":\"gen#rated\"," + plainText.Substring(1).Replace(v1, v2).Replace("\"description\":\"generated\",", ""));
+            stopped[Array.IndexOf(stopped, (byte)'#')] = 0xFF;
+            string[] stoppedRun = run("S-registry-stopped-v2", stopped);
+            check(stoppedRun[0] == "2" && stoppedRun[1] == null && !stoppedRun[2].Contains(ParityRunLog.RegistryIntegrity)
+                  && stoppedRun[2].Contains("refused " + stoppedRun[3] + ": scenario-invalid: schema is not " + ParityRun.ScenarioSchema),
+                "parity policy: a scenario/2 document the scanner stopped before its marker keeps the legacy scenario/1-only schema refusal, exit 2, no trace ("
+                + said(stoppedRun) + ")");
 
             // WITNESS: the plain scenario/1 runs as before, with no registry line.
             string[] plainRun = run("S-registry-legacy", utf8(plainText));
@@ -529,6 +557,174 @@ namespace DesktopAICompanion.Shimeji
             string missing = verify(null, goodRows, goodDigest);
             check(missing == "the registry resource " + ParityPolicyRegistry.ResourceName + " is missing",
                 "parity policy: registry drift: a missing resource is an internal defect (" + missing + ")");
+        }
+
+        /// <summary>
+        /// burndown/host-policy-1, N-parity-1107-03 C8 (signed revision H steps 4-6, :64, :232; CONTRACT v1.3): the
+        /// embedded registry is the signed file, and the four REAL registered scenario/2 inputs with their packs take the
+        /// admitted route: the full-SHA admission, the interpreting reader under admission context, registered-pack
+        /// admission, INPUT-ADMITTED with every field, and only then the pets and the trace. A readable wrong pack is
+        /// pack-not-registered before any pet is read; an occupied trace path keeps its precedence over every admission
+        /// line; an occupant made after admission is refused at the CreateNew open and kept. No table seam: the inputs are
+        /// the installed files (tools/ShimejiParity/policy), found by walking up from this build, copied into the self-test
+        /// folder and run as they are; a build with no checkout around it says DEGRADED and grades the embedded registry
+        /// only. The pets are generated (the run only needs an Alpha set to load); a complete run on converted pets is the
+        /// CLI's (tests/test_shimeji_parity_policy.py).
+        /// </summary>
+        private static void CheckParityRegistryAdmitted(Action<bool, string> check, string root, StringBuilder log)
+        {
+            try
+            {
+                CheckParityRegistryAdmittedLegs(check, root, log);
+            }
+            catch (Exception e)
+            {
+                check(false, "parity policy registry: the admitted-route checks ran without an exception: " + e);
+            }
+        }
+
+        /// <summary>The installed policy folder (REGISTRY.json and inputs) of the checkout this build sits in, or null.</summary>
+        private static string PolicyInstalledFolder()
+        {
+            string dir = AppContext.BaseDirectory;
+            for (int i = 0; i < 10 && !string.IsNullOrEmpty(dir); i++)
+            {
+                string candidate = Path.Combine(dir, "tools", "ShimejiParity", "policy");
+                if (File.Exists(Path.Combine(candidate, "REGISTRY.json")) && Directory.Exists(Path.Combine(candidate, "inputs"))) return candidate;
+                dir = Path.GetDirectoryName(dir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            }
+            return null;
+        }
+
+        private static void PolicyCopyTree(string from, string to)
+        {
+            Directory.CreateDirectory(to);
+            foreach (string file in Directory.GetFiles(from)) File.Copy(file, Path.Combine(to, Path.GetFileName(file)));
+            foreach (string folder in Directory.GetDirectories(from)) PolicyCopyTree(folder, Path.Combine(to, Path.GetFileName(folder)));
+        }
+
+        private static void CheckParityRegistryAdmittedLegs(Action<bool, string> check, string root, StringBuilder log)
+        {
+            Directory.CreateDirectory(root);
+            byte[] embedded = ParityPolicyRegistry.EmbeddedBytes();
+            string embeddedSha = embedded == null ? "none" : ParityRun.Sha256(embedded);
+            string installed = PolicyInstalledFolder();
+            if (installed == null)
+            {
+                log.AppendLine("DEGRADED: parity policy registry: the installed registry and the four registered inputs are not beside this build"
+                    + " (no tools/ShimejiParity/policy above it), so only the embedded registry is graded and the admitted legs do not run");
+                check(embeddedSha == ParityPolicyRegistry.CompiledDigest,
+                    "parity policy registry: resource sha equals compiled digest equals signed file (resource " + embeddedSha + ", file not beside this build)");
+                return;
+            }
+            byte[] file = File.ReadAllBytes(Path.Combine(installed, "REGISTRY.json"));
+            string fileSha = ParityRun.Sha256(file);
+            check(embedded != null && embeddedSha == ParityPolicyRegistry.CompiledDigest && fileSha == ParityPolicyRegistry.CompiledDigest
+                  && Convert.ToBase64String(embedded) == Convert.ToBase64String(file),
+                "parity policy registry: resource sha equals compiled digest equals signed file (resource " + embeddedSha + ", file " + fileSha + ")");
+
+            var build = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                { "commit", "selftest" }, { "exeSha256", new string('0', 64) }, { "engineSha256", new string('1', 64) }, { "converterSha256", new string('2', 64) },
+            };
+            string inputs = Path.Combine(root, "inputs");
+            PolicyCopyTree(Path.Combine(installed, "inputs"), inputs);
+            string pets = PolicyPets(root, "pets-admitted", new KeyValuePair<string, XmlData.RootNode>("Alpha", PolicyBreedDocument("Alpha")));
+            Func<string, string, string[]> run = (scenario, trace) =>
+            {
+                var runLog = new StringWriter();
+                string exit;
+                try { exit = ParityRun.Run(scenario, pets, trace, build, runLog).ToString(CultureInfo.InvariantCulture); }
+                catch (Exception e) { exit = "threw " + e.GetType().Name; runLog.Write(e.Message); }
+                log.AppendLine("LOG: parity admitted " + Path.GetFileName(trace) + ": " + runLog.ToString().TrimEnd());
+                return new[] { exit, File.Exists(trace) ? File.ReadAllText(trace) : null, runLog.ToString() };
+            };
+            Func<string[], string> said = r => "exit " + r[0] + ", trace " + (r[1] == null ? "none" : "left") + ", " + r[2].Trim().Replace("\r", "").Replace("\n", " | ");
+
+            // Each registered input on the admitted route: the ok line with the signed digest, then INPUT-ADMITTED with every
+            // field (the computed digests, the row's id and case, one runId), and a trace whose header carries the same
+            // scenario and pack digests and runId. The generated pets are no converted pack, so the run's own outcome
+            // (complete or error) is not graded here, only that a trace followed admission.
+            string[][] rows =
+            {
+                new[] { "S-cap-at-01", "birth-cap", "cap-at", "4914fc647a79d33b698b68dbc87a55edef1c196e4a418b68494ef2554aaa5f6f", "711d36cffa52f016a4eb880e69e28f4fa5afe09253c0a21419701dc1e6da8065" },
+                new[] { "S-window-carry-off-01", "window-off-plays", "window-carry-off", "5471944eaa634fcb75857d4790c18fa361db4e9954c1b9de367fd9d2c1d639c6", "f5d4ac604929126542b75e53040c162fab8afcd6e81951f3daf6d47d9ff429e0" },
+                new[] { "S-window-throw-off-01", "window-off-plays", "window-throw-off", "edc9dec2edd0a9e8edad09a8a0518fd494944195d13d7793daf57ba7ffb779e9", "8b0d4b77a722ed515e2e94fae0f99c2ec2c1d262d211cbf5a9611c8a8673ac9a" },
+                new[] { "S-window-minimize-off-01", "window-off-plays", "window-minimize-off", "1477c1718d24a1b372f36ca26b9b87967b9e0345fa21f081f7876fb94b3ae41d", "28785fabfddcb1e6c466cdbcb0af946deb36168d7b1d071168211f1d02f42074" },
+            };
+            int interpreted = 0;
+            foreach (string[] row in rows)
+            {
+                string scenario = Path.Combine(inputs, row[0] + ".json");
+                string[] r = run(scenario, Path.Combine(root, row[0] + ".jsonl"));
+                string engine = PolicyLine(r[2], ParityRunLog.LoadedEngine + " "), runId = PolicyRunId(engine);
+                string integrity = PolicyLine(r[2], ParityRunLog.RegistryIntegrity + " "), admitted = PolicyLine(r[2], ParityRunLog.InputAdmitted + " ");
+                string want = ParityRunLog.InputAdmitted + " registrySha256 " + ParityPolicyRegistry.CompiledDigest + " id " + row[1] + " case " + row[2]
+                    + " scenarioSha256 " + row[3] + " packSha256 " + row[4] + ParityRunLog.RunIdField + runId;
+                bool header = r[1] != null && r[1].StartsWith("{", StringComparison.Ordinal) && PolicyHeaderRunId(r[1]) == runId
+                    && r[1].Substring(0, r[1].IndexOf('\n') < 0 ? r[1].Length : r[1].IndexOf('\n')).Contains("\"sha256\":\"" + row[3] + "\"")
+                    && r[1].Substring(0, r[1].IndexOf('\n') < 0 ? r[1].Length : r[1].IndexOf('\n')).Contains("\"packSha256\":\"" + row[4] + "\"");
+                bool ok = runId != null && runId.Length == 36 && admitted == want && integrity != null
+                    && integrity.StartsWith(ParityRunLog.RegistryIntegrity + " ok registrySha256 " + ParityPolicyRegistry.CompiledDigest + " engineSha256 ", StringComparison.Ordinal)
+                    && PolicyRunId(integrity) == runId && r[2].IndexOf(integrity, StringComparison.Ordinal) < r[2].IndexOf(admitted, StringComparison.Ordinal)
+                    && header && (r[0] == "0" || r[0] == "1");
+                if (admitted != null) interpreted++;
+                check(ok, "parity policy registry: INPUT-ADMITTED with every field, then a trace with its digests and runId, for " + row[0] + " (" + said(r) + ")");
+            }
+            check(interpreted == 4, "parity policy registry: four admitted documents interpret under admission context (" + interpreted + " of 4)");
+
+            // A registered scenario beside a readable wrong pack (a different file in the pack folder), with a pet folder
+            // that holds animations.xml and no parity-map.json: pack-not-registered, before the missing-map refusal, with
+            // no INPUT-ADMITTED line, exit 2, no trace.
+            string wrong = Path.Combine(root, "wrong");
+            Directory.CreateDirectory(Path.Combine(wrong, "packs", "breed-cap"));
+            File.Copy(Path.Combine(inputs, "S-cap-at-01.json"), Path.Combine(wrong, "S-cap-at-01.json"));
+            File.WriteAllText(Path.Combine(wrong, "packs", "breed-cap", "readme.txt"), "not the registered pack\n", new UTF8Encoding(false));
+            string mapless = Path.Combine(root, "pets-mapless");
+            Directory.CreateDirectory(Path.Combine(mapless, "Alpha"));
+            File.WriteAllText(Path.Combine(mapless, "Alpha", "animations.xml"), Serialize(PolicyBreedDocument("Alpha"), Color.Red, Color.Blue), new UTF8Encoding(false));
+            string wrongTrace = Path.Combine(root, "wrong.jsonl");
+            var wrongLog = new StringWriter();
+            string wrongExit;
+            try { wrongExit = ParityRun.Run(Path.Combine(wrong, "S-cap-at-01.json"), mapless, wrongTrace, build, wrongLog).ToString(CultureInfo.InvariantCulture); }
+            catch (Exception e) { wrongExit = "threw " + e.GetType().Name; wrongLog.Write(e.Message); }
+            string wrongText = wrongLog.ToString();
+            log.AppendLine("LOG: parity admitted wrong pack: " + wrongText.TrimEnd());
+            check(wrongExit == "2" && !File.Exists(wrongTrace) && !wrongText.Contains(ParityRunLog.InputAdmitted) && !wrongText.Contains("no parity-map.json")
+                  && wrongText.Contains("refused " + Path.Combine(wrong, "S-cap-at-01.json") + ": scenario-invalid: " + ParityRun.PackNotRegistered + ": the pack "),
+                "parity policy registry: a registered scenario beside a readable wrong pack gives pack-not-registered before the missing-map line, no INPUT-ADMITTED, exit 2, no trace (exit "
+                + wrongExit + ", " + wrongText.Trim().Replace("\r", "").Replace("\n", " | ") + ")");
+
+            // OUTPUT-PRESERVATION: an occupied trace path with a registered input is the claim's refusal only, ahead of the
+            // core run: no loaded-engine, registry-integrity or INPUT-ADMITTED line, the occupant's bytes unchanged.
+            string occupied = Path.Combine(root, "occupied.jsonl");
+            File.WriteAllText(occupied, "sentinel\n", new UTF8Encoding(false));
+            string[] occupiedRun = run(Path.Combine(inputs, "S-cap-at-01.json"), occupied);
+            check(occupiedRun[0] == "2" && occupiedRun[2].Contains("is already there") && !occupiedRun[2].Contains(ParityRunLog.RegistryIntegrity)
+                  && !occupiedRun[2].Contains(ParityRunLog.InputAdmitted) && !occupiedRun[2].Contains(ParityRunLog.LoadedEngine) && File.ReadAllText(occupied) == "sentinel\n",
+                "parity policy registry: an occupied trace path plus an admitted input gives the occupied refusal only, no registry-integrity or INPUT-ADMITTED line, sentinel bytes unchanged ("
+                + said(occupiedRun) + ")");
+
+            // The late CreateNew leg: an occupant made after the claim (so after nothing was there) and before the open, the
+            // race seam the legacy route's leg uses. The admitted run logs INPUT-ADMITTED, then the open refuses the occupant
+            // with the claim's own line; the occupant is kept and no header is written.
+            string late = Path.Combine(root, "late.jsonl");
+            ParityRun.ScenarioFile lateFile = ParityRun.ScenarioFile.Read(Path.Combine(inputs, "S-cap-at-01.json"));
+            var lateLog = new StringWriter();
+            string lateExit = "unclaimed";
+            if (ParityRun.TraceClaim.Claim(lateFile, pets, late, null, lateLog) != null)
+            {
+                File.WriteAllText(late, "occupant\n", new UTF8Encoding(false));
+                try { lateExit = ParityRun.Run(lateFile, pets, late, build, lateLog, false).ToString(CultureInfo.InvariantCulture); }
+                catch (Exception e) { lateExit = "threw " + e.GetType().Name; lateLog.Write(e.Message); }
+            }
+            string lateText = lateLog.ToString();
+            log.AppendLine("LOG: parity admitted late open: " + lateText.TrimEnd());
+            string lateAdmitted = PolicyLine(lateText, ParityRunLog.InputAdmitted + " ");
+            check(lateExit == "2" && lateAdmitted != null && lateText.IndexOf("is already there", StringComparison.Ordinal) > lateText.IndexOf(lateAdmitted, StringComparison.Ordinal)
+                  && File.ReadAllText(late) == "occupant\n",
+                "parity policy registry: an occupant created after admission and before the open gives INPUT-ADMITTED then the occupied refusal, occupant kept, no header (exit "
+                + lateExit + ", " + lateText.Trim().Replace("\r", "").Replace("\n", " | ") + ")");
         }
 
         /// <summary>The text between the first <paramref name="start"/> and the last <paramref name="end"/>, or null.</summary>

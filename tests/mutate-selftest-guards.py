@@ -24578,6 +24578,26 @@ CASES = (
      b'                    log.WriteLine("refused " + packDir + ": the pack cannot be read: " + e.Message);\n'
      b'                    return 2;\n'
      b'                }\n'
+     # Re-pointed by burndown/host-policy-1 round 8 (N-parity-1107-03 C8), which put the admitted scenario's pack
+     # admission between the pack's refusals and the open: kept in the old bytes, and after the moved hash below.
+     b"                // C8 (H step 6): the admitted scenario's pack, preflighted and hashed once just above with the existing\n"
+     b'                // pack-invalid spellings, must be the registered pack: a readable different pack is scenario-invalid with\n'
+     b'                // predicate pack-not-registered, exit 2 and no trace, before any pet is read. Then INPUT-ADMITTED binds the\n'
+     b'                // verified registry, the row and the two digests this run computed to its runId, and only then are the pets\n'
+     b'                // loaded (a missing map is refused after the pack, never ahead of it).\n'
+     b'                if (admission != null)\n'
+     b'                {\n'
+     b'                    if (!string.Equals(packSha256, admission.Row.PackSha256, StringComparison.Ordinal))\n'
+     b'                    {\n'
+     b'                        log.WriteLine("refused " + scenarioPath + ": scenario-invalid: " + PackNotRegistered + ": the pack " + packDir + " hashes "\n'
+     b'                            + packSha256 + ", the registered pack of " + admission.Row.ScenarioId + " is " + admission.Row.PackSha256);\n'
+     b'                        return 2;\n'
+     b'                    }\n'
+     b'                    log.WriteLine(ParityRunLog.InputAdmittedLine(ParityPolicyRegistry.VerifiedDigest, admission.Row, scenarioFile.Sha256, packSha256, runId));\n'
+     b'                    pets = LoadPets(petsDir, log);\n'
+     b'                    if (pets == null)\n'
+     b'                        return 2;\n'
+     b'                }\n'
      # Re-pointed by burndown/w12-shimeji-host-1 (N-bd-w11-shimeji-host-1-01), which put the trace's open in its own
      # refusal: the mutant still opens the trace first and hashes the pack inside it with no refusal. Re-pointed again
      # by burndown/w13-shimeji-host-1 follow-up 3, which opens the trace only as a new file, with its own refusal of a
@@ -24622,7 +24642,25 @@ CASES = (
      b'                }\n'
      b'                using (StreamWriter trace = opened)\n'
      b'                {\n'
-     b'                    packSha256 = PackSha256(packDir);\n',
+     b'                    packSha256 = PackSha256(packDir);\n'
+     b"                // C8 (H step 6): the admitted scenario's pack, preflighted and hashed once just above with the existing\n"
+     b'                // pack-invalid spellings, must be the registered pack: a readable different pack is scenario-invalid with\n'
+     b'                // predicate pack-not-registered, exit 2 and no trace, before any pet is read. Then INPUT-ADMITTED binds the\n'
+     b'                // verified registry, the row and the two digests this run computed to its runId, and only then are the pets\n'
+     b'                // loaded (a missing map is refused after the pack, never ahead of it).\n'
+     b'                if (admission != null)\n'
+     b'                {\n'
+     b'                    if (!string.Equals(packSha256, admission.Row.PackSha256, StringComparison.Ordinal))\n'
+     b'                    {\n'
+     b'                        log.WriteLine("refused " + scenarioPath + ": scenario-invalid: " + PackNotRegistered + ": the pack " + packDir + " hashes "\n'
+     b'                            + packSha256 + ", the registered pack of " + admission.Row.ScenarioId + " is " + admission.Row.PackSha256);\n'
+     b'                        return 2;\n'
+     b'                    }\n'
+     b'                    log.WriteLine(ParityRunLog.InputAdmittedLine(ParityPolicyRegistry.VerifiedDigest, admission.Row, scenarioFile.Sha256, packSha256, runId));\n'
+     b'                    pets = LoadPets(petsDir, log);\n'
+     b'                    if (pets == null)\n'
+     b'                        return 2;\n'
+     b'                }\n',
      HOST_CSPROJ, EXE,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
      'parity run: a pack holding a link is refused before the trace is opened, with exit 2 and no trace file'),
@@ -24715,7 +24753,7 @@ CASES = (
     # one --only.
     ("bd-w11-shimeji-host-1: the named scenario check is skipped (N-bd-w10-shimeji-host-1-01)",
      os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
-     b'            refusal = ScenarioInvalid(s);\n'
+     b'            refusal = ScenarioInvalid(s, admission);\n'
      b'            if (refusal != null) return null;\n',
      b'            refusal = null;\n',
      HOST_CSPROJ, EXE,
@@ -26271,8 +26309,8 @@ CASES = (
      'parity policy: a surrogate pack value is no usable pack folder at the claim and the run still refuses it, exit 2, no trace ('),
     ('bd-host-policy-1: input schema value decoded bare',
      os.path.join(REPO, "src", "dotNet", "Shimeji", 'ParityRun.cs'),
-     b'                || RootSchemaText(e) != ScenarioSchema)\n',
-     b'                || e.GetString() != ScenarioSchema)\n',
+     b'                || RootSchemaText(e) != (admission != null ? AdmittedScenarioSchema : ScenarioSchema))\n',
+     b'                || e.GetString() != (admission != null ? AdmittedScenarioSchema : ScenarioSchema))\n',
      HOST_CSPROJ, EXE,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
      'parity policy: a 25-raw-byte surrogate schema value gives the named schema-string diagnostic, exit 2, no trace ('),
@@ -26392,8 +26430,9 @@ CASES = (
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
      'parity proof: a run that stops at tick k prints no positive witness and logs checkpoint k ('),
     # N-parity-1107-03 C7, graded through --shimeji-window-selftest (ShimejiWindowSelfTest.Policy.cs): the scenario/2
-    # candidate route to the registry drift self-test under the not-adopted table (H :45, :56-64, :230-232), and the drift
-    # self-test's own checks on the pure Verify. Named "bd-host-policy-1: registry" for one --only.
+    # candidate route to the registry drift self-test and, from C8, the full-SHA lookup under the adopted table (H :45,
+    # :56-64, :230-232), and the drift self-test's own checks on the pure Verify. Named "bd-host-policy-1: registry" for
+    # one --only.
     ('bd-host-policy-1: registry routes by the parsed schema, whose last member wins',
      os.path.join(REPO, "src", "dotNet", "Shimeji", 'ParityRun.cs'),
      b'            if (scenarioFile.Scan != null && scenarioFile.Scan.Candidate)\n',
@@ -26415,13 +26454,13 @@ CASES = (
      HOST_CSPROJ, EXE,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
      'parity policy: WITNESS a scenario/1 file is no candidate and runs the legacy route with no registry line ('),
-    ('bd-host-policy-1: registry drift self-test skipped, the candidate falls to the legacy route',
+    ('bd-host-policy-1: registry drift self-test skipped, so the lookup runs unverified',
      os.path.join(REPO, "src", "dotNet", "Shimeji", 'ParityRun.cs'),
-     b'                if (!ParityPolicyRegistry.EnsureVerified(engine, runId, log)) return 2;\n                log.WriteLine(ParityRunLog.RegistryIntegrityDefectLine("this build has no admission route for a verified registry", runId));\n                return 2;\n',
+     b'                if (!ParityPolicyRegistry.EnsureVerified(engine, runId, log)) return 2;\n',
      b'',
      HOST_CSPROJ, EXE,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
-     'parity policy: a candidate under the not-adopted table gives registry-integrity internal-defect, exit 2, no trace ('),
+     'parity policy: an unregistered candidate gives registry-integrity ok with the signed digest, then scenario-not-registered, exit 2, no trace ('),
     ('bd-host-policy-1: registry drift self-test ahead of the output claim',
      os.path.join(REPO, "src", "dotNet", "Shimeji", 'ParityRun.cs'),
      b'            if (TraceClaim.Claim(scenarioFile, petsDir, tracePath, null, log) == null) return 2;\n',
@@ -26538,6 +26577,112 @@ CASES = (
      HOST_CSPROJ, EXE,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
      'parity proof: WITNESS a trace-off ledger whose final states were never compared writes no positive witness ('),
+    # N-parity-1107-03 C8 (CONTRACT v1.3, H steps 4-6, :64, :232), graded through --shimeji-window-selftest
+    # (ShimejiWindowSelfTest.Policy.cs CheckParityRegistryAdmitted, on the four installed registered inputs): the admitted
+    # route's pack admission and order, INPUT-ADMITTED, the unwidened legacy schema, the late CreateNew open, the per-process
+    # verdict, and the production table and resource. Each table or resource mutant fails the drift self-test, so every
+    # candidate becomes registry-integrity internal-defect; the case names the first admitted leg that sees it.
+    ('bd-host-policy-1: registry admitted pack admission skipped',
+     os.path.join(REPO, "src", "dotNet", "Shimeji", 'ParityRun.cs'),
+     b'                    if (!string.Equals(packSha256, admission.Row.PackSha256, StringComparison.Ordinal))\n',
+     b'                    if (packSha256 == null)\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity policy registry: a registered scenario beside a readable wrong pack gives pack-not-registered before the missing-map line, no INPUT-ADMITTED, exit 2, no trace ('),
+    ('bd-host-policy-1: registry admitted pets loaded before the pack comparison',
+     os.path.join(REPO, "src", "dotNet", "Shimeji", 'ParityRun.cs'),
+     b'                if (admission == null)\n                {\n                    pets = LoadPets(petsDir, log);\n',
+     b'                if (admission == null || admission != null)\n                {\n                    pets = LoadPets(petsDir, log);\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity policy registry: a registered scenario beside a readable wrong pack gives pack-not-registered before the missing-map line, no INPUT-ADMITTED, exit 2, no trace ('),
+    ('bd-host-policy-1: registry INPUT-ADMITTED written after the scenario lookup only',
+     os.path.join(REPO, "src", "dotNet", "Shimeji", 'ParityRun.cs'),
+     b'                {\n                    if (!string.Equals(packSha256, admission.Row.PackSha256, StringComparison.Ordinal))\n',
+     b'                {\n                    log.WriteLine(ParityRunLog.InputAdmittedLine(ParityPolicyRegistry.VerifiedDigest, admission.Row, scenarioFile.Sha256, admission.Row.PackSha256, runId));\n                    if (!string.Equals(packSha256, admission.Row.PackSha256, StringComparison.Ordinal))\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity policy registry: a registered scenario beside a readable wrong pack gives pack-not-registered before the missing-map line, no INPUT-ADMITTED, exit 2, no trace ('),
+    ('bd-host-policy-1: registry legacy schema widened to accept scenario/2 without admission',
+     os.path.join(REPO, "src", "dotNet", "Shimeji", 'ParityRun.cs'),
+     b'                || RootSchemaText(e) != (admission != null ? AdmittedScenarioSchema : ScenarioSchema))\n',
+     b'                || (RootSchemaText(e) != ScenarioSchema && RootSchemaText(e) != AdmittedScenarioSchema))\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity policy: a scenario/2 document the scanner stopped before its marker keeps the legacy scenario/1-only schema refusal, exit 2, no trace ('),
+    ('bd-host-policy-1: registry admitted open truncates an occupant that appeared after admission',
+     os.path.join(REPO, "src", "dotNet", "Shimeji", 'ParityRun.cs'),
+     b'                    opened = new StreamWriter(new FileStream(tracePath, FileMode.CreateNew, FileAccess.Write, FileShare.Read), new UTF8Encoding(false));\n',
+     b'                    opened = new StreamWriter(new FileStream(tracePath, FileMode.Create, FileAccess.Write, FileShare.Read), new UTF8Encoding(false));\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity policy registry: an occupant created after admission and before the open gives INPUT-ADMITTED then the occupied refusal, occupant kept, no header ('),
+    ('bd-host-policy-1: registry verified flag preset true, so no process computes its verdict',
+     os.path.join(REPO, "src", "dotNet", "Shimeji", 'ParityPolicyRegistry.cs'),
+     b'        private static bool _verified;\n',
+     b'        private static bool _verified = true;\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity policy: an unregistered candidate gives registry-integrity ok with the signed digest, then scenario-not-registered, exit 2, no trace ('),
+    ('bd-host-policy-1: registry compiled table hex digit flipped',
+     os.path.join(REPO, "src", "dotNet", "Shimeji", 'ParityPolicyRegistry.cs'),
+     b'"4914fc647a79d33b698b68dbc87a55edef1c196e4a418b68494ef2554aaa5f6f"',
+     b'"5914fc647a79d33b698b68dbc87a55edef1c196e4a418b68494ef2554aaa5f6f"',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity policy registry: INPUT-ADMITTED with every field, then a trace with its digests and runId, for S-cap-at-01 ('),
+    ('bd-host-policy-1: registry compiled table hex digit uppercased',
+     os.path.join(REPO, "src", "dotNet", "Shimeji", 'ParityPolicyRegistry.cs'),
+     b'"4914fc647a79d33b698b68dbc87a55edef1c196e4a418b68494ef2554aaa5f6f"',
+     b'"4914FC647a79d33b698b68dbc87a55edef1c196e4a418b68494ef2554aaa5f6f"',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity policy registry: INPUT-ADMITTED with every field, then a trace with its digests and runId, for S-cap-at-01 ('),
+    ('bd-host-policy-1: registry compiled table holds an extra row',
+     os.path.join(REPO, "src", "dotNet", "Shimeji", 'ParityPolicyRegistry.cs'),
+     b'        };\n        internal const string CompiledDigest',
+     b'            new ParityPolicyRow("birth-cap", "cap-at", "S-cap-at-01", "packs/breed-cap", 20,\n                "4914fc647a79d33b698b68dbc87a55edef1c196e4a418b68494ef2554aaa5f6f", "711d36cffa52f016a4eb880e69e28f4fa5afe09253c0a21419701dc1e6da8065"),\n        };\n        internal const string CompiledDigest',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity policy registry: INPUT-ADMITTED with every field, then a trace with its digests and runId, for S-cap-at-01 ('),
+    ('bd-host-policy-1: registry compiled table keys a row by its legacyScenarioSha256',
+     os.path.join(REPO, "src", "dotNet", "Shimeji", 'ParityPolicyRegistry.cs'),
+     b'"4914fc647a79d33b698b68dbc87a55edef1c196e4a418b68494ef2554aaa5f6f"',
+     b'"b607cd71bc18b41e826991c9a47ae5935da425f3c976d75cce0463d06a95c1a8"',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity policy registry: INPUT-ADMITTED with every field, then a trace with its digests and runId, for S-cap-at-01 ('),
+    ('bd-host-policy-1: registry project embeds the registry under another LogicalName',
+     os.path.join(REPO, "src", 'DesktopAICompanion_Portable.csproj'),
+     b'LogicalName="DesktopAICompanion.ShimejiParity.PolicyRegistry.json" />',
+     b'LogicalName="DesktopAICompanion.ShimejiParity.PolicyRegistry2.json" />',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity policy registry: resource sha equals compiled digest equals signed file ('),
+    ('bd-host-policy-1: registry resource lookup name changed',
+     os.path.join(REPO, "src", "dotNet", "Shimeji", 'ParityPolicyRegistry.cs'),
+     b'        internal const string ResourceName = "DesktopAICompanion.ShimejiParity.PolicyRegistry.json";\n',
+     b'        internal const string ResourceName = "DesktopAICompanion.ShimejiParity.PolicyRegistry.Json";\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity policy registry: resource sha equals compiled digest equals signed file ('),
+    # Brief section 25: the refused-run loaded-engine order. The engine line moves from the core run's entry to just after
+    # the scenario read, so successful runs still log it and only runs refused before that point lose it.
+    ('bd-host-policy-1: policy loaded-engine line moved after the scenario read',
+     os.path.join(REPO, "src", "dotNet", "Shimeji", 'ParityRun.cs'),
+     b'            log.WriteLine(ParityRunLog.LoadedEngineLine(engine, runId));\n            // N-parity-1107-03 C7 (signed revision H :45, :56-62, :230-232): a scenario/2 candidate, by the scan facts taken at\n            // the single read (ScenarioFile), never by a parsed schema, which JsonDocument reads by its last member, so both\n            // duplicate-schema orders and an escaped marker are candidates. It reaches the registry drift self-test here,\n            // after the output claim and the command\'s prerequisites, before any registry consultation; a failed self-test\n            // is registry-integrity internal-defect, exit 2, no trace.\n            //\n            // C8 (H steps 4-6, CONTRACT v1.3): then the one admission site, by the full SHA-256 of the retained bytes FIRST\n            // (never by a declared id, case or S-id); a miss is scenario-invalid with predicate scenario-not-registered, exit\n            // 2, no trace, and both duplicate-schema orders end there. A hit carries an Admission, the only thing that lets\n            // the interpreting reader below accept scenario/2, and takes the admitted order: the pack\'s preflight and digest\n            // once, registered-pack admission, INPUT-ADMITTED, and only then the pets and the CreateNew open. A candidate\n            // never falls through to the legacy schema test. Everything else takes today\'s route unchanged.\n            ParityPolicyRegistry.Admission admission = null;\n            if (scenarioFile.Scan != null && scenarioFile.Scan.Candidate)\n            {\n                if (!ParityPolicyRegistry.EnsureVerified(engine, runId, log)) return 2;\n                admission = ParityPolicyRegistry.Admission.Find(scenarioFile.Sha256);\n                if (admission == null)\n                {\n                    log.WriteLine("refused " + scenarioPath + ": scenario-invalid: " + ScenarioNotRegistered + ": the scenario\'s full SHA-256 "\n                        + scenarioFile.Sha256 + " is no registered row");\n                    return 2;\n                }\n            }\n            // N-bd-w11-shimeji-host-1-01: a path argument that names nothing (this scenario file, the pets folder in\n            // LoadPets, the trace\'s folder below) is refused by name with exit 2, its line and no trace, as a refused map or\n            // pack is. It is the caller\'s argument error, not scenario-invalid: there is no scenario to judge. Unchecked,\n            // each threw FileNotFound or DirectoryNotFoundException out of the command, an unhandled exception\'s exit. The\n            // read itself is ScenarioFile.Read\'s, before the claim; its fault is refused here, after the claim.\n            if (scenarioFile.Fault != null)\n            {\n                log.WriteLine(ScenarioInputUnreadableLine("read", "refused " + scenarioPath + ": the scenario cannot be read: " + scenarioFile.Fault.Message));\n                return 2;\n            }\n            byte[] scenarioBytes = scenarioFile.Bytes;\n            // No whole-file strict UTF-8 decode before the parse (Codex\'s correction of round 5, 2026-11-13, b49851f2): it\n            // was a new validator, and it refused no-candidate legacy files the old reader accepts, such as an invalid byte\n            // inside a string the run never decodes (signed revision H :49). K5\'s detail names the operation that actually\n            // failed: the file read is read, the parse below is syntax, a guarded string getter is schema-string or string.\n            // A raw invalid byte does not by itself select read, and no decoder is added only to obtain that detail.\n            // N-bd-w10-shimeji-host-1-01: a scenario that is not JSON, lacks a field or holds one the run cannot read is\n            // scenario-invalid (CONTRACT sections 1 and 6), refused here with exit 2, its line and no trace, before the\n            // pets and the pack are read. The oracle refuses the same scenario before it writes anything (oracle.py v1_run\n            // calls the comparer\'s validate_scenario first), and 10.7 decides a scenario refused from the scenario alone\n            // before either trace is read, so there is no run to abort. The refused alternative was an aborted run with a\n            // complete footer: the header needs the id, rng and dpiScale such a scenario may lack, and a trace with no\n            // header line is missing-field to the comparer. Read where the trace was already open and outside the run\'s\n            // try, a missing field threw KeyNotFoundException out of the command and left an empty trace.\n            JsonDocument doc;\n            try\n            {\n                doc = JsonDocument.Parse(scenarioBytes);\n            }\n            catch (JsonException e) when (admission != null)\n            {\n                // H step 5: admitted bytes are the signed ones, which the registry build proof parsed; failing here is an\n                // internal table defect, never a user-input grade.\n                log.WriteLine(AdmittedDefectLine(admission, "the JSON parse refused it: " + e.Message, runId));\n                return 2;\n            }\n            catch (JsonException e)\n            {\n                log.WriteLine(ScenarioInputUnreadableLine("syntax", "refused " + scenarioPath + ": scenario-invalid: the scenario is not JSON: " + e.Message));\n                return 2;\n            }\n            using (doc)\n            {\n                string refusal;\n                Scenario scenario;\n                try\n                {\n                    scenario = ReadScenario(doc.RootElement, admission, out refusal);\n                }\n                catch (ScenarioInputUnreadableException e) when (admission != null)\n                {\n                    log.WriteLine(AdmittedDefectLine(admission, "its \'" + e.Field + "\' string cannot be decoded: " + e.Message, runId));\n                    return 2;\n                }\n                catch (ScenarioInputUnreadableException e)\n                {\n                    // K5, by the getter that failed (Codex Q2): schema-string for the root schema value only, string for an\n                    // rng.kind, start sid or start behavior, the field named in the text. Before, an InvalidOperationException\n                    // out of the command.\n                    log.WriteLine(ScenarioInputUnreadableLine(e.Detail, "refused " + scenarioPath + ": the scenario\'s \'" + e.Field\n                        + "\' string cannot be decoded: " + e.Message));\n                    return 2;\n                }\n                if (scenario == null && admission != null)\n                {\n                    log.WriteLine(AdmittedDefectLine(admission, "the reader refused it: " + refusal, runId));\n                    return 2;\n                }\n                if (scenario == null)\n                {\n                    log.WriteLine("refused " + scenarioPath + ": scenario-invalid: " + refusal);\n                    return 2;\n                }\n',
+     b'            // N-parity-1107-03 C7 (signed revision H :45, :56-62, :230-232): a scenario/2 candidate, by the scan facts taken at\n            // the single read (ScenarioFile), never by a parsed schema, which JsonDocument reads by its last member, so both\n            // duplicate-schema orders and an escaped marker are candidates. It reaches the registry drift self-test here,\n            // after the output claim and the command\'s prerequisites, before any registry consultation; a failed self-test\n            // is registry-integrity internal-defect, exit 2, no trace.\n            //\n            // C8 (H steps 4-6, CONTRACT v1.3): then the one admission site, by the full SHA-256 of the retained bytes FIRST\n            // (never by a declared id, case or S-id); a miss is scenario-invalid with predicate scenario-not-registered, exit\n            // 2, no trace, and both duplicate-schema orders end there. A hit carries an Admission, the only thing that lets\n            // the interpreting reader below accept scenario/2, and takes the admitted order: the pack\'s preflight and digest\n            // once, registered-pack admission, INPUT-ADMITTED, and only then the pets and the CreateNew open. A candidate\n            // never falls through to the legacy schema test. Everything else takes today\'s route unchanged.\n            ParityPolicyRegistry.Admission admission = null;\n            if (scenarioFile.Scan != null && scenarioFile.Scan.Candidate)\n            {\n                if (!ParityPolicyRegistry.EnsureVerified(engine, runId, log)) return 2;\n                admission = ParityPolicyRegistry.Admission.Find(scenarioFile.Sha256);\n                if (admission == null)\n                {\n                    log.WriteLine("refused " + scenarioPath + ": scenario-invalid: " + ScenarioNotRegistered + ": the scenario\'s full SHA-256 "\n                        + scenarioFile.Sha256 + " is no registered row");\n                    return 2;\n                }\n            }\n            // N-bd-w11-shimeji-host-1-01: a path argument that names nothing (this scenario file, the pets folder in\n            // LoadPets, the trace\'s folder below) is refused by name with exit 2, its line and no trace, as a refused map or\n            // pack is. It is the caller\'s argument error, not scenario-invalid: there is no scenario to judge. Unchecked,\n            // each threw FileNotFound or DirectoryNotFoundException out of the command, an unhandled exception\'s exit. The\n            // read itself is ScenarioFile.Read\'s, before the claim; its fault is refused here, after the claim.\n            if (scenarioFile.Fault != null)\n            {\n                log.WriteLine(ScenarioInputUnreadableLine("read", "refused " + scenarioPath + ": the scenario cannot be read: " + scenarioFile.Fault.Message));\n                return 2;\n            }\n            byte[] scenarioBytes = scenarioFile.Bytes;\n            // No whole-file strict UTF-8 decode before the parse (Codex\'s correction of round 5, 2026-11-13, b49851f2): it\n            // was a new validator, and it refused no-candidate legacy files the old reader accepts, such as an invalid byte\n            // inside a string the run never decodes (signed revision H :49). K5\'s detail names the operation that actually\n            // failed: the file read is read, the parse below is syntax, a guarded string getter is schema-string or string.\n            // A raw invalid byte does not by itself select read, and no decoder is added only to obtain that detail.\n            // N-bd-w10-shimeji-host-1-01: a scenario that is not JSON, lacks a field or holds one the run cannot read is\n            // scenario-invalid (CONTRACT sections 1 and 6), refused here with exit 2, its line and no trace, before the\n            // pets and the pack are read. The oracle refuses the same scenario before it writes anything (oracle.py v1_run\n            // calls the comparer\'s validate_scenario first), and 10.7 decides a scenario refused from the scenario alone\n            // before either trace is read, so there is no run to abort. The refused alternative was an aborted run with a\n            // complete footer: the header needs the id, rng and dpiScale such a scenario may lack, and a trace with no\n            // header line is missing-field to the comparer. Read where the trace was already open and outside the run\'s\n            // try, a missing field threw KeyNotFoundException out of the command and left an empty trace.\n            JsonDocument doc;\n            try\n            {\n                doc = JsonDocument.Parse(scenarioBytes);\n            }\n            catch (JsonException e) when (admission != null)\n            {\n                // H step 5: admitted bytes are the signed ones, which the registry build proof parsed; failing here is an\n                // internal table defect, never a user-input grade.\n                log.WriteLine(AdmittedDefectLine(admission, "the JSON parse refused it: " + e.Message, runId));\n                return 2;\n            }\n            catch (JsonException e)\n            {\n                log.WriteLine(ScenarioInputUnreadableLine("syntax", "refused " + scenarioPath + ": scenario-invalid: the scenario is not JSON: " + e.Message));\n                return 2;\n            }\n            using (doc)\n            {\n                string refusal;\n                Scenario scenario;\n                try\n                {\n                    scenario = ReadScenario(doc.RootElement, admission, out refusal);\n                }\n                catch (ScenarioInputUnreadableException e) when (admission != null)\n                {\n                    log.WriteLine(AdmittedDefectLine(admission, "its \'" + e.Field + "\' string cannot be decoded: " + e.Message, runId));\n                    return 2;\n                }\n                catch (ScenarioInputUnreadableException e)\n                {\n                    // K5, by the getter that failed (Codex Q2): schema-string for the root schema value only, string for an\n                    // rng.kind, start sid or start behavior, the field named in the text. Before, an InvalidOperationException\n                    // out of the command.\n                    log.WriteLine(ScenarioInputUnreadableLine(e.Detail, "refused " + scenarioPath + ": the scenario\'s \'" + e.Field\n                        + "\' string cannot be decoded: " + e.Message));\n                    return 2;\n                }\n                if (scenario == null && admission != null)\n                {\n                    log.WriteLine(AdmittedDefectLine(admission, "the reader refused it: " + refusal, runId));\n                    return 2;\n                }\n                if (scenario == null)\n                {\n                    log.WriteLine("refused " + scenarioPath + ": scenario-invalid: " + refusal);\n                    return 2;\n                }\n                log.WriteLine(ParityRunLog.LoadedEngineLine(engine, runId));\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity policy: a scenario-invalid refusal logs the loaded-engine line first with its own runId and writes no header ('),
+    # N-host-policy-1-r4-01 (folded into C8): ReadScenario names the id decode as dpiScale again.
+    ('bd-host-policy-1: input ReadScenario names the id decode as dpiScale again',
+     os.path.join(REPO, "src", "dotNet", "Shimeji", 'ParityRun.cs'),
+     b'                reading = "id";\n',
+     b'',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity policy: a surrogate id or pack value is refused as scenario-invalid naming that value, exit 2, no trace ('),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

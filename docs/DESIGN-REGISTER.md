@@ -7966,8 +7966,8 @@ against the replayed rectangle of a shown, unminimised window, and compares the 
 checkpoint 0..N, traced and trace-off alike: the event sink hands a trace-off run's withheld lines to the hook too.
 Cumulative counts compared at every checkpoint are the per-tick counts compared tick by tick. The counters catch what
 state alone cannot: two unobserved moves that put the rectangle back, or an effect made without its observer callback.
-The positive witness stays one line, now in the list form proposed to Codex, "parity reconciliation window-effects,
-active-pending-membership checkpoints <N+1> stateRecords <...> runId <id>", which awaits Codex's answer on Q-d.
+The positive witness stays one line, in the list form Codex agreed exactly (Q-d, 2026-11-13), "parity reconciliation
+window-effects, active-pending-membership checkpoints <N+1> stateRecords <...> runId <id>".
 Refused: a separate window witness line, which would let a log show one proof's witness without the other's. The carry
 class has its own generated pack (WalkWithIE holding the window by its lower corner), on and off, traced and trace-off
 (review of round 4). Codex agreed the list form exactly (Q-d). Review of round 4: the replay seeded every timeline row's
@@ -8035,8 +8035,30 @@ not skip the mark and refuses it as syntax, so its outcome is K5's syntax diagno
 (the base parsed the same bytes the same way). Refused: routing by the parsed schema (last-wins duplicates), a raw-byte
 marker search (it misses an escaped marker), and an in-process synthetic table (critique A4). Three source-order
 invariants in runtime-hardening-selftest.ps1 pin the single read, the claim before `EnsureVerified`, and its table-free
-signature; the admission lookup gets the same rule in C8. The registry-integrity spellings are proposals for Codex's
-review, beside the seven already reviewed.
+signature; the admission lookup gets the same rule in C8. Codex adopted both registry-integrity spellings unchanged
+(2026-11-13, ef41a984): diagnostic lines only, never positive evidence, never a substitute for INPUT-ADMITTED.
+
+N-parity-1107-03 C8 (H steps 4-6, :64, :232; CONTRACT v1.3, the jointly signed registry). The signed REGISTRY.json, its
+declaration schema and the four scenario/2 inputs with their packs are installed byte-identically under
+tools/ShimejiParity/policy (every file LF or binary, so the repository's eol=lf rule changes no byte), and the host project
+embeds that one file as `DesktopAICompanion.ShimejiParity.PolicyRegistry.json`, never a second copy. Its four rows are
+compiled into `ParityPolicyRegistry` beside the signed digest, and the drift self-test compares the embedded bytes with both;
+the ok line names the digest the check itself computed, so a verdict no process computed (a cached or preset flag) names
+none. Admission is by the full SHA-256 of the retained bytes FIRST, at one site, `ParityPolicyRegistry.Admission.Find`,
+after the drift self-test; a miss is `scenario-invalid: scenario-not-registered`, exit 2, no trace, which is where both
+duplicate-schema orders now end. A hit is an `Admission`, whose only constructor is private to Find, and the interpreting
+reader accepts scenario/2 only with one in hand: the legacy schema test is not widened, so a scenario/2 document that
+reached the legacy route (a scanner stop before its marker) keeps its scenario/1-only refusal. Under admission the order
+is H step 6's: the existing pack preflight and digest once (pack-invalid spellings unchanged), the registered-pack
+comparison (`scenario-invalid: pack-not-registered`, exit 2, no trace), INPUT-ADMITTED, and only then LoadPets and the
+CreateNew open; the legacy route keeps pets before the pack, byte for byte. Admitted bytes that do not interpret are an
+internal table defect, named with the adopted registry-integrity internal-defect form, never scenario-invalid (H step 5);
+no defensive grammar refusal sits behind the full-SHA gate. INPUT-ADMITTED is "parity INPUT-ADMITTED registrySha256 <hex>
+id <id> case <case> scenarioSha256 <hex> packSha256 <hex> runId <id>", the digests being this run's own; the spelling
+awaits Codex's review. Evidence without a seam: the window self-test copies the four installed inputs (found by walking up
+from the build; a build with no checkout says DEGRADED) and runs them as they are, and a script under tests/ launches the
+built exe on them with converted pets in fresh processes. Refused: a table or admission parameter for self-tests (H :64),
+embedding a copy of the registry, and checking the declaration grammar at run time behind the gate (H step 5).
 
 ## Known ABI gaps
 

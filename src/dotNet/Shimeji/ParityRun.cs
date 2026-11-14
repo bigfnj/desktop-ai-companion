@@ -1834,15 +1834,26 @@ namespace DesktopAICompanion.Shimeji
             // N-parity-1107-03 C7 (signed revision H :45, :56-62, :230-232): a scenario/2 candidate, by the scan facts taken at
             // the single read (ScenarioFile), never by a parsed schema, which JsonDocument reads by its last member, so both
             // duplicate-schema orders and an escaped marker are candidates. It reaches the registry drift self-test here,
-            // after the output claim and the command's prerequisites, before any registry consultation. Until C8 adopts a
-            // table the self-test fails for every candidate: registry-integrity internal-defect, exit 2, no trace. A
-            // candidate never falls through to the legacy reader below; with no admission route in this build, a verified
-            // registry (impossible before C8) is the same named defect. Everything else takes today's route unchanged.
+            // after the output claim and the command's prerequisites, before any registry consultation; a failed self-test
+            // is registry-integrity internal-defect, exit 2, no trace.
+            //
+            // C8 (H steps 4-6, CONTRACT v1.3): then the one admission site, by the full SHA-256 of the retained bytes FIRST
+            // (never by a declared id, case or S-id); a miss is scenario-invalid with predicate scenario-not-registered, exit
+            // 2, no trace, and both duplicate-schema orders end there. A hit carries an Admission, the only thing that lets
+            // the interpreting reader below accept scenario/2, and takes the admitted order: the pack's preflight and digest
+            // once, registered-pack admission, INPUT-ADMITTED, and only then the pets and the CreateNew open. A candidate
+            // never falls through to the legacy schema test. Everything else takes today's route unchanged.
+            ParityPolicyRegistry.Admission admission = null;
             if (scenarioFile.Scan != null && scenarioFile.Scan.Candidate)
             {
                 if (!ParityPolicyRegistry.EnsureVerified(engine, runId, log)) return 2;
-                log.WriteLine(ParityRunLog.RegistryIntegrityDefectLine("this build has no admission route for a verified registry", runId));
-                return 2;
+                admission = ParityPolicyRegistry.Admission.Find(scenarioFile.Sha256);
+                if (admission == null)
+                {
+                    log.WriteLine("refused " + scenarioPath + ": scenario-invalid: " + ScenarioNotRegistered + ": the scenario's full SHA-256 "
+                        + scenarioFile.Sha256 + " is no registered row");
+                    return 2;
+                }
             }
             // N-bd-w11-shimeji-host-1-01: a path argument that names nothing (this scenario file, the pets folder in
             // LoadPets, the trace's folder below) is refused by name with exit 2, its line and no trace, as a refused map or
@@ -1873,6 +1884,13 @@ namespace DesktopAICompanion.Shimeji
             {
                 doc = JsonDocument.Parse(scenarioBytes);
             }
+            catch (JsonException e) when (admission != null)
+            {
+                // H step 5: admitted bytes are the signed ones, which the registry build proof parsed; failing here is an
+                // internal table defect, never a user-input grade.
+                log.WriteLine(AdmittedDefectLine(admission, "the JSON parse refused it: " + e.Message, runId));
+                return 2;
+            }
             catch (JsonException e)
             {
                 log.WriteLine(ScenarioInputUnreadableLine("syntax", "refused " + scenarioPath + ": scenario-invalid: the scenario is not JSON: " + e.Message));
@@ -1884,7 +1902,12 @@ namespace DesktopAICompanion.Shimeji
                 Scenario scenario;
                 try
                 {
-                    scenario = ReadScenario(doc.RootElement, out refusal);
+                    scenario = ReadScenario(doc.RootElement, admission, out refusal);
+                }
+                catch (ScenarioInputUnreadableException e) when (admission != null)
+                {
+                    log.WriteLine(AdmittedDefectLine(admission, "its '" + e.Field + "' string cannot be decoded: " + e.Message, runId));
+                    return 2;
                 }
                 catch (ScenarioInputUnreadableException e)
                 {
@@ -1895,15 +1918,26 @@ namespace DesktopAICompanion.Shimeji
                         + "' string cannot be decoded: " + e.Message));
                     return 2;
                 }
+                if (scenario == null && admission != null)
+                {
+                    log.WriteLine(AdmittedDefectLine(admission, "the reader refused it: " + refusal, runId));
+                    return 2;
+                }
                 if (scenario == null)
                 {
                     log.WriteLine("refused " + scenarioPath + ": scenario-invalid: " + refusal);
                     return 2;
                 }
                 // Every map is parsed, compiled and applied before the trace file is opened, so a refused map leaves no
-                // trace behind, not even an empty one a later step could take for a run.
-                List<KeyValuePair<TickType, ParityMap>> pets = LoadPets(petsDir, log);
-                if (pets == null) return 2;
+                // trace behind, not even an empty one a later step could take for a run. On the legacy route the pets come
+                // first and the pack second, as they always did; an admitted scenario loads them only after its pack is
+                // admitted (H step 6), below.
+                List<KeyValuePair<TickType, ParityMap>> pets = null;
+                if (admission == null)
+                {
+                    pets = LoadPets(petsDir, log);
+                    if (pets == null) return 2;
+                }
                 // The pack is hashed before the trace file is opened too, and for the same reason (N-bd-w6-coordinator-01).
                 // Its preflight refuses a link or a pack that is not a folder (pack-invalid, CONTRACT section 3), and that
                 // refusal comes before any run, as it does in the oracle and the comparer: there is no header to write (the
@@ -1944,6 +1978,24 @@ namespace DesktopAICompanion.Shimeji
                     log.WriteLine("refused " + packDir + ": the pack cannot be read: " + e.Message);
                     return 2;
                 }
+                // C8 (H step 6): the admitted scenario's pack, preflighted and hashed once just above with the existing
+                // pack-invalid spellings, must be the registered pack: a readable different pack is scenario-invalid with
+                // predicate pack-not-registered, exit 2 and no trace, before any pet is read. Then INPUT-ADMITTED binds the
+                // verified registry, the row and the two digests this run computed to its runId, and only then are the pets
+                // loaded (a missing map is refused after the pack, never ahead of it).
+                if (admission != null)
+                {
+                    if (!string.Equals(packSha256, admission.Row.PackSha256, StringComparison.Ordinal))
+                    {
+                        log.WriteLine("refused " + scenarioPath + ": scenario-invalid: " + PackNotRegistered + ": the pack " + packDir + " hashes "
+                            + packSha256 + ", the registered pack of " + admission.Row.ScenarioId + " is " + admission.Row.PackSha256);
+                        return 2;
+                    }
+                    log.WriteLine(ParityRunLog.InputAdmittedLine(ParityPolicyRegistry.VerifiedDigest, admission.Row, scenarioFile.Sha256, packSha256, runId));
+                    pets = LoadPets(petsDir, log);
+                    if (pets == null)
+                        return 2;
+                }
                 // The trace is opened last, so every refusal above leaves none. One that cannot be opened (its folder does
                 // not exist, the path is a folder, no access) is refused by name before anything is written; the folder is
                 // not made for it (the rejected alternative): a mistyped folder would hold a trace no later step reads.
@@ -1975,6 +2027,26 @@ namespace DesktopAICompanion.Shimeji
 
         /// <summary>The scenario's schema (CONTRACT section 1).</summary>
         internal const string ScenarioSchema = "shimeji-parity-scenario/1";
+
+        /// <summary>The schema the interpreting reader accepts only with an <see cref="ParityPolicyRegistry.Admission"/>
+        /// (signed revision H step 5, CONTRACT v1.3). The legacy schema test is not widened: with no admission it still
+        /// accepts scenario/1 only, so a scenario/2 document that reached the legacy route (a scanner stop before the
+        /// marker) keeps its scenario-invalid refusal.</summary>
+        internal const string AdmittedScenarioSchema = "shimeji-parity-scenario/2";
+
+        /// <summary>H step 4: a candidate whose full scenario SHA-256 is no registered row.</summary>
+        internal const string ScenarioNotRegistered = "scenario-not-registered";
+
+        /// <summary>H step 6: an admitted scenario whose readable pack is not the registered one.</summary>
+        internal const string PackNotRegistered = "pack-not-registered";
+
+        /// <summary>H step 5: admitted bytes that do not interpret are an internal table defect, never scenario-invalid
+        /// and never a killable user-input guard; named with the adopted registry-integrity internal-defect form.</summary>
+        private static string AdmittedDefectLine(ParityPolicyRegistry.Admission admission, string why, string runId)
+        {
+            return ParityRunLog.RegistryIntegrityDefectLine("the admitted scenario " + admission.Row.ScenarioId + " (" + admission.Row.Id + "/"
+                + admission.Row.Case + ") does not interpret under admission context: " + why, runId);
+        }
 
         /// <summary>
         /// K5 (signed revision H step 3, :49; the token Codex agreed on 2026-11-13, its details in the agreed text b4acee38):
@@ -2065,10 +2137,11 @@ namespace DesktopAICompanion.Shimeji
         /// <summary>The scenario as the run reads it, or null with why it is scenario-invalid in <paramref name="refusal"/>.
         /// <see cref="ScenarioInvalid"/> names a missing or mistyped field; the readers then run here rather than after the
         /// trace is opened, and anything they still refuse (a screen with no "h", a tape value that is no number, a seed
-        /// that is no hex) is scenario-invalid too, named by what was being read.</summary>
-        private static Scenario ReadScenario(JsonElement s, out string refusal)
+        /// that is no hex) is scenario-invalid too, named by what was being read. <paramref name="admission"/> is null on the
+        /// legacy route; only Find's admission lets the schema test accept scenario/2 (H step 5).</summary>
+        private static Scenario ReadScenario(JsonElement s, ParityPolicyRegistry.Admission admission, out string refusal)
         {
-            refusal = ScenarioInvalid(s);
+            refusal = ScenarioInvalid(s, admission);
             if (refusal != null) return null;
             string reading = "screens, workArea, activeWindow or input";
             try
@@ -2082,8 +2155,12 @@ namespace DesktopAICompanion.Shimeji
                 read.Settings = new ParitySettings(s);
                 reading = "dpiScale";
                 read.DpiScale = s.GetProperty("dpiScale").GetDouble();
+                // N-host-policy-1-r4-01: each value named by itself; "dpiScale" used to cover the id and pack decodes too.
+                reading = "id";
                 read.Id = s.GetProperty("id").GetString();
+                reading = "pack";
                 read.Pack = s.GetProperty("pack").GetString();
+                reading = "ticks";
                 read.Ticks = s.GetProperty("ticks").GetInt32();
                 return read;
             }
@@ -2103,11 +2180,11 @@ namespace DesktopAICompanion.Shimeji
         /// one or more screens, a tape's values and a splitmix64 seed, and each start companion's imageSet, anchor and
         /// lookRight.
         /// </summary>
-        internal static string ScenarioInvalid(JsonElement s)
+        internal static string ScenarioInvalid(JsonElement s, ParityPolicyRegistry.Admission admission)
         {
             JsonElement e;
             if (s.ValueKind != JsonValueKind.Object || !s.TryGetProperty("schema", out e) || e.ValueKind != JsonValueKind.String
-                || RootSchemaText(e) != ScenarioSchema)
+                || RootSchemaText(e) != (admission != null ? AdmittedScenarioSchema : ScenarioSchema))
                 return "schema is not " + ScenarioSchema;
             foreach (string field in ScenarioFields)
                 if (!s.TryGetProperty(field, out e)) return "lacks '" + field + "'";
