@@ -7355,12 +7355,17 @@ Assert-True ($bdcLowPins.Count -eq 0) (
 # remembrance.zip and fortunes.zip carried Ical.Net, NodaTime, NAudio and System.Numerics.Tensors with no licence text beside
 # them, and Fortunes' two ONNX Runtime licence items were conditioned on the package path existing, so a build without it
 # shipped fortunes.zip with no licence and said nothing. The modules and their files are the FIXED list below, Reminder,
-# Remembrance and Fortunes, the three whose licence files ship from their own project file. THIRD_PARTY_NOTICES.md's
-# tables are NOT read for module names, so this check does not cover every module they name: a module added to them is
-# not judged until it is added to the list by hand, and AI Brain (its one component, the Windows SDK projection, is an
-# unresolved item there), PetStudio and AgentBroker (whose notices ship by the routes that file describes) are not judged
-# here. For each module on the list, its project (parsed as XML, so a commented-out item does not count) must ship each
-# named file as exactly one None item whose Link element is that name, copied to the output, with NO Condition on the item,
+# Remembrance and Fortunes, the three ZIPs that finding was about. THIRD_PARTY_NOTICES.md's tables are NOT read for
+# module names, so this check does not cover every module they name: a module added to them is not judged until it is
+# added to the list by hand. AI Brain ships no licence file (its one component, the Windows SDK projection, is an
+# unresolved item there), and AgentBroker's notices ship by the route that file describes. PetStudio is outside the list
+# by choice, not because it ships nothing: its project ships base-conf\NOTICE.txt and native\NOTICE-libwebp.txt, the BSD
+# notices of the base behaviour XML and the dwebp decoder it takes from the converter engine (N-bd-w2-docs-1-01). Those
+# are not the NuGet library licences this finding was about, both name Link as an attribute, a form this check does not
+# read, and base-conf\NOTICE.txt is held by the bd-w5-converter-1 assertion above; no assertion in this file holds
+# native\NOTICE-libwebp.txt. For each module on the list, its project (parsed as XML, so a commented-out item does not
+# count) must ship each named file as exactly one None item whose Link element is that name, copied to the output,
+# with NO Condition on the item,
 # on any element that holds it (its ItemGroup, or a Choose's When) or on any element inside it (its CopyToOutputDirectory
 # or Link metadata among them: MSBuild drops metadata whose Condition is false, so the item falls back to not copied, or
 # to no Link, while the element still reads as present), so a missing file fails the build instead of being skipped.
@@ -7374,7 +7379,8 @@ Assert-True ($bdcLowPins.Count -eq 0) (
 # and the None Remove were found by the round 1 review of the coordinator batch, each skipping a licence in silence while
 # the check passed. The round 2 review found the Condition on a metadata element (the round 1 block's exact-text match
 # refused it, and the round 2 XML rewrite let it through), the Choose, the None Update, the Exclude and the equivalent
-# path spelling; MSBuild, run on a scratch project, drops the item or sets it to Never in each of those shapes.
+# path spelling; MSBuild, run on a scratch project, drops the item, drops the metadata or sets it to Never in each of
+# those shapes.
 # WITNESS: Fortunes' ONNX Runtime licence item was read, its Include naming the restored package's LICENSE, and the
 # notices section was found.
 $bdcLicenceShips = [ordered]@{
