@@ -26580,8 +26580,7 @@ CASES = (
     # N-parity-1107-03 C8 (CONTRACT v1.3, H steps 4-6, :64, :232), graded through --shimeji-window-selftest
     # (ShimejiWindowSelfTest.Policy.cs CheckParityRegistryAdmitted, on the four installed registered inputs): the admitted
     # route's pack admission and order, INPUT-ADMITTED, the unwidened legacy schema, the late CreateNew open, the per-process
-    # verdict, and the production table and resource. Each table or resource mutant fails the drift self-test, so every
-    # candidate becomes registry-integrity internal-defect; the case names the first admitted leg that sees it.
+    # verdict, and the production table and resource (the multi-label rule for those two is beside their cases below).
     ('bd-host-policy-1: registry admitted pack admission skipped',
      os.path.join(REPO, "src", "dotNet", "Shimeji", 'ParityRun.cs'),
      b'                    if (!string.Equals(packSha256, admission.Row.PackSha256, StringComparison.Ordinal))\n',
@@ -26610,13 +26609,9 @@ CASES = (
      HOST_CSPROJ, EXE,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
      'parity policy: a scenario/2 document the scanner stopped before its marker keeps the legacy scenario/1-only schema refusal, exit 2, no trace ('),
-    ('bd-host-policy-1: registry admitted open truncates an occupant that appeared after admission',
-     os.path.join(REPO, "src", "dotNet", "Shimeji", 'ParityRun.cs'),
-     b'                    opened = new StreamWriter(new FileStream(tracePath, FileMode.CreateNew, FileAccess.Write, FileShare.Read), new UTF8Encoding(false));\n',
-     b'                    opened = new StreamWriter(new FileStream(tracePath, FileMode.Create, FileAccess.Write, FileShare.Read), new UTF8Encoding(false));\n',
-     HOST_CSPROJ, EXE,
-     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
-     'parity policy registry: an occupant created after admission and before the open gives INPUT-ADMITTED then the occupied refusal, occupant kept, no header ('),
+    # Round 9 (review of round 8): "registry admitted open truncates an occupant that appeared after admission" is gone. It
+    # was a byte-identical copy (same file, old and new bytes) of bd-w13's "the open truncates a file that appeared after the
+    # claim", which stays unchanged and whose mutant also fails the C8 late-open leg (FAIL lines in the lane ledger).
     ('bd-host-policy-1: registry verified flag preset true, so no process computes its verdict',
      os.path.join(REPO, "src", "dotNet", "Shimeji", 'ParityPolicyRegistry.cs'),
      b'        private static bool _verified;\n',
@@ -26624,6 +26619,17 @@ CASES = (
      HOST_CSPROJ, EXE,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
      'parity policy: an unregistered candidate gives registry-integrity ok with the signed digest, then scenario-not-registered, exit 2, no trace ('),
+    # THE TABLE AND RESOURCE FAMILY IS A MULTI-LABEL KILL, ACCEPTED AS INHERENT (brief section 27). Each compiled-table or
+    # resource mutant below makes the one shared drift self-test (ParityPolicyRegistry.Verify on the production table and
+    # resource) fail, so EnsureVerified refuses every candidate in the process: the routing legs' unregistered, duplicate-
+    # order, escaped and surrogate-pack candidates, all four per-input INPUT-ADMITTED legs, "four admitted documents
+    # interpret", the wrong-pack leg and the late-open leg fail together, so the FAIL count is many, never one (counts in
+    # the lane ledger). Each case names the first C8 leg in run order that it fails: the S-cap-at-01 leg for a table mutant,
+    # the resource leg for a resource mutant. Round 8 pointed three table cases at the carry-off, throw-off and minimize-off
+    # legs, which implied a row-specific kill these mutants do not have, so round 9 points them back. A mutant of Verify
+    # itself ("registry Verify calls every table not adopted", above) keeps the drift WITNESS as its label. The row-specific
+    # kill is "registry admitted Find skips the throw-off row" after this family: it fails that row's leg alone among the
+    # four per-input legs.
     ('bd-host-policy-1: registry compiled table hex digit flipped',
      os.path.join(REPO, "src", "dotNet", "Shimeji", 'ParityPolicyRegistry.cs'),
      b'"4914fc647a79d33b698b68dbc87a55edef1c196e4a418b68494ef2554aaa5f6f"',
@@ -26637,21 +26643,21 @@ CASES = (
      b'"5471944EAA634fcb75857d4790c18fa361db4e9954c1b9de367fd9d2c1d639c6"',
      HOST_CSPROJ, EXE,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
-     'parity policy registry: INPUT-ADMITTED with every field, then a trace with its digests and runId, for S-window-carry-off-01 ('),
+     'parity policy registry: INPUT-ADMITTED with every field, then a trace with its digests and runId, for S-cap-at-01 ('),
     ('bd-host-policy-1: registry compiled table holds an extra row',
      os.path.join(REPO, "src", "dotNet", "Shimeji", 'ParityPolicyRegistry.cs'),
      b'        };\n        internal const string CompiledDigest',
      b'            new ParityPolicyRow("birth-cap", "cap-at", "S-cap-at-01", "packs/breed-cap", 20,\n                "4914fc647a79d33b698b68dbc87a55edef1c196e4a418b68494ef2554aaa5f6f", "711d36cffa52f016a4eb880e69e28f4fa5afe09253c0a21419701dc1e6da8065"),\n        };\n        internal const string CompiledDigest',
      HOST_CSPROJ, EXE,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
-     'parity policy registry: INPUT-ADMITTED with every field, then a trace with its digests and runId, for S-window-throw-off-01 ('),
+     'parity policy registry: INPUT-ADMITTED with every field, then a trace with its digests and runId, for S-cap-at-01 ('),
     ('bd-host-policy-1: registry compiled table keys a row by its legacyScenarioSha256',
      os.path.join(REPO, "src", "dotNet", "Shimeji", 'ParityPolicyRegistry.cs'),
      b'"1477c1718d24a1b372f36ca26b9b87967b9e0345fa21f081f7876fb94b3ae41d"',
      b'"b80512bb2db2e9c463f869d1e83951c0be2232fffd64f8693a0557d12ae0104e"',
      HOST_CSPROJ, EXE,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
-     'parity policy registry: INPUT-ADMITTED with every field, then a trace with its digests and runId, for S-window-minimize-off-01 ('),
+     'parity policy registry: INPUT-ADMITTED with every field, then a trace with its digests and runId, for S-cap-at-01 ('),
     ('bd-host-policy-1: registry project embeds the registry under another LogicalName',
      os.path.join(REPO, "src", 'DesktopAICompanion_Portable.csproj'),
      b'LogicalName="DesktopAICompanion.ShimejiParity.PolicyRegistry.json" />',
@@ -26666,6 +26672,16 @@ CASES = (
      HOST_CSPROJ, EXE,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
      'parity policy registry: resource sha equals compiled digest equals signed file ('),
+    # Round 9, the row-specific kill (brief section 27 item 2): Find skips exactly the window-throw-off row, so that one
+    # registered input is scenario-not-registered while the other three are admitted as before. It fails the throw-off
+    # per-input leg and "four admitted documents interpret" and leaves the cap-at, carry-off and minimize-off legs passing.
+    ('bd-host-policy-1: registry admitted Find skips the throw-off row',
+     os.path.join(REPO, "src", "dotNet", "Shimeji", 'ParityPolicyRegistry.cs'),
+     b'                    if (string.Equals(row.ScenarioSha256, scenarioSha256, StringComparison.Ordinal)) return new Admission(row);\n',
+     b'                    if (row.Case != "window-throw-off" && string.Equals(row.ScenarioSha256, scenarioSha256, StringComparison.Ordinal)) return new Admission(row);\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity policy registry: INPUT-ADMITTED with every field, then a trace with its digests and runId, for S-window-throw-off-01 ('),
     ('bd-host-policy-1: registry admitted reader refuses scenario/2 under admission context',
      os.path.join(REPO, "src", "dotNet", "Shimeji", 'ParityRun.cs'),
      b'                || RootSchemaText(e) != (admission != null ? AdmittedScenarioSchema : ScenarioSchema))\n',
@@ -26673,13 +26689,9 @@ CASES = (
      HOST_CSPROJ, EXE,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
      'parity policy registry: four admitted documents interpret under admission context ('),
-    ('bd-host-policy-1: registry drift self-test ahead of the output claim, an admitted input',
-     os.path.join(REPO, "src", "dotNet", "Shimeji", 'ParityRun.cs'),
-     b'            if (TraceClaim.Claim(scenarioFile, petsDir, tracePath, null, log) == null) return 2;\n',
-     b'            string earlyWhy;\n            ParityLoadedEngine earlyEngine = ParityLoadedEngine.Read(paths, out earlyWhy);\n            if (scenarioFile.Scan != null && scenarioFile.Scan.Candidate && earlyEngine != null && !ParityPolicyRegistry.EnsureVerified(earlyEngine, "early", log)) return 2;\n            if (TraceClaim.Claim(scenarioFile, petsDir, tracePath, null, log) == null) return 2;\n',
-     HOST_CSPROJ, EXE,
-     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
-     'parity policy registry: an occupied trace path plus an admitted input gives the occupied refusal only, no registry-integrity or INPUT-ADMITTED line, sentinel bytes unchanged ('),
+    # Round 9 (review of round 8): "registry drift self-test ahead of the output claim, an admitted input" is gone. It was a
+    # byte-identical copy of this lane's C7 case "registry drift self-test ahead of the output claim", which stays unchanged
+    # and whose mutant also fails the C8 admitted occupied leg (FAIL lines in the lane ledger).
     # Brief section 25: the refused-run loaded-engine order. The engine line moves from the core run's entry to just after
     # the scenario read, so successful runs still log it and only runs refused before that point lose it.
     ('bd-host-policy-1: policy loaded-engine line moved after the scenario read',

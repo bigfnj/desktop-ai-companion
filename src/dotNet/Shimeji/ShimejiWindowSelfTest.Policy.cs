@@ -565,7 +565,7 @@ namespace DesktopAICompanion.Shimeji
         /// admitted route: the full-SHA admission, the interpreting reader under admission context, registered-pack
         /// admission, INPUT-ADMITTED with every field, and only then the pets and the trace. A readable wrong pack is
         /// pack-not-registered before any pet is read; an occupied trace path keeps its precedence over every admission
-        /// line; an occupant made after admission is refused at the CreateNew open and kept. No table seam: the inputs are
+        /// line; an occupant written after the claim and before the run is refused at the CreateNew open and kept. No table seam: the inputs are
         /// the installed files (tools/ShimejiParity/policy), found by walking up from this build, copied into the self-test
         /// folder and run as they are; a build with no checkout around it says DEGRADED and grades the embedded registry
         /// only. The pets are generated (the run only needs an Alpha set to load); a complete run on converted pets is the
@@ -705,8 +705,10 @@ namespace DesktopAICompanion.Shimeji
                 "parity policy registry: an occupied trace path plus an admitted input gives the occupied refusal only, no registry-integrity or INPUT-ADMITTED line, sentinel bytes unchanged ("
                 + said(occupiedRun) + ")");
 
-            // The late CreateNew leg: an occupant made after the claim (so after nothing was there) and before the open, the
-            // race seam the legacy route's leg uses. The admitted run logs INPUT-ADMITTED, then the open refuses the occupant
+            // The late CreateNew leg: an occupant written after the claim (so after nothing was there) and before the core run
+            // is called, the race seam the legacy route's leg uses. That is BEFORE admission, not after it (review of round 8):
+            // nothing between admission and the open looks at the trace path, so the outcome is the one an occupant made
+            // after admission would get. The admitted run logs INPUT-ADMITTED, then the CreateNew open refuses the occupant
             // with the claim's own line; the occupant is kept and no header is written.
             string late = Path.Combine(root, "late.jsonl");
             ParityRun.ScenarioFile lateFile = ParityRun.ScenarioFile.Read(Path.Combine(inputs, "S-cap-at-01.json"));
@@ -723,7 +725,7 @@ namespace DesktopAICompanion.Shimeji
             string lateAdmitted = PolicyLine(lateText, ParityRunLog.InputAdmitted + " ");
             check(lateExit == "2" && lateAdmitted != null && lateText.IndexOf("is already there", StringComparison.Ordinal) > lateText.IndexOf(lateAdmitted, StringComparison.Ordinal)
                   && File.ReadAllText(late) == "occupant\n",
-                "parity policy registry: an occupant created after admission and before the open gives INPUT-ADMITTED then the occupied refusal, occupant kept, no header (exit "
+                "parity policy registry: an occupant written after the claim and before the run gives INPUT-ADMITTED then the occupied refusal at the open, occupant kept, no header (exit "
                 + lateExit + ", " + lateText.Trim().Replace("\r", "").Replace("\n", " | ") + ")");
         }
 
