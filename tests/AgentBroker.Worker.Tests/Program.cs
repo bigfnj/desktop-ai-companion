@@ -13,6 +13,12 @@ using System.Text.Json;
 if (args.Length == 3 && args[0] == "--durable-failure-child")
     return await DurableFailureChecks.RunChildAsync(args[1], args[2]);
 
+if (args.Contains("--inbox-watch-parent-child", StringComparer.Ordinal))
+{
+    if (!args.SequenceEqual(["--inbox-watch-parent-child"])) { Console.WriteLine("INBOX_WATCH_PARENT_MODE_REFUSED"); return 2; }
+    Console.WriteLine("INBOX_WATCH_PARENT_READY"); await Task.Delay(Timeout.Infinite); return 0;
+}
+
 using var scratchAudit = new ScratchAudit();
 Console.WriteLine("WITNESS: POSTPUSH_WORKER_EXECUTED");
 Console.WriteLine("WORKER_PRODUCT_SHA256=" + Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(typeof(BrokerRuntime).Assembly.Location))));
@@ -22,6 +28,16 @@ Console.WriteLine("WORKER_HARNESS_SHA256=" + Convert.ToHexString(SHA256.HashData
 int assertions = 0;
 void Check(bool value, string name)
 { if (!value) { scratchAudit.PrimaryFailureReported = true; throw new InvalidOperationException(name); } assertions++; Console.WriteLine("PASS: " + name); }
+if (args.SequenceEqual(["--inbox-watch-only"]))
+{
+    try { await InboxWatchChecks.RunAsync(Check); Console.WriteLine($"RESULT=PASS assertions={assertions}"); return 0; }
+    catch (Exception error) { Console.Error.WriteLine(error); Console.WriteLine("RESULT=FAIL"); return 1; }
+}
+if (args.SequenceEqual(["--waiting-mail-only"]))
+{
+    try { await WaitingMailToolChecks.RunAsync(Check); Console.WriteLine($"RESULT=PASS assertions={assertions}"); return 0; }
+    catch (Exception error) { Console.Error.WriteLine(error); Console.WriteLine("RESULT=FAIL"); return 1; }
+}
 if (args.SequenceEqual(["--certificate-continuity-only"]) ||
     args.SequenceEqual(["--certificate-renewal-only"]) ||
     args.SequenceEqual(["--certificate-renewal-lifecycle-only"]))
@@ -382,11 +398,12 @@ if (args.Length == 1 && args[0] == "--claude-observation-only")
     }
     catch (Exception ex) { Console.Error.WriteLine(ex); Console.WriteLine("RESULT=FAIL"); return 1; }
 }
-if (args.Length == 1 && args[0] == "--reply-only")
+if (args.Length == 1 && args[0] is "--reply-only" or "--reply-runtime-only")
 {
     try
     {
-        await ReplyToolChecks.RunStandaloneAsync(Check);
+        if (args[0] == "--reply-runtime-only") await ReplyToolChecks.RunRuntimeAsync(Check);
+        else await ReplyToolChecks.RunStandaloneAsync(Check);
         Console.WriteLine($"RESULT=PASS assertions={assertions}");
         return 0;
     }
@@ -474,6 +491,7 @@ try
     await McpCallClientChecks.RunAsync(Check);
     await HandoffClientChecks.RunAsync(Check);
     await ClaudeTitleHookChecks.RunAsync(Check);
+    await InboxWatchChecks.RunAsync(Check);
     await ClaudeSubmissionBoundaryChecks.RunAsync(Check);
     await ClaudeObservationChecks.RunAsync(Check);
     await PaginationChecks.RunAsync(Check);
@@ -502,6 +520,7 @@ try
         await WaitLifecycleChecks.RunAsync(Check);
         await DirectoryStopChecks.RunAsync(Check);
         await PendingInboxToolChecks.RunAsync(Check);
+        await WaitingMailToolChecks.RunAsync(Check);
         await RecoveryGuidanceChecks.RunAsync(Check);
         await NativeRecoveryToolChecks.RunAsync(Check);
         await MetadataChecks.RunAsync(Check);

@@ -53,9 +53,6 @@ internal static class CompactReceiptChecks
         var legacy = tools.SendMessageTool(record);
         check(legacy.Message.Id == record.Id && legacy.Message.Text is null && legacy.TextBytes == Encoding.UTF8.GetByteCount(Text),
             "COMPACT_SEND_MESSAGE: send_message returns the compact receipt too");
-        var reply = tools.ReplyTool(id, Guid.NewGuid(), Text);
-        check(reply.Message.ReplyTo == id && reply.Message.Text is null && reply.TextBytes is > 0,
-            "COMPACT_REPLY: reply_to_message returns the reply's compact receipt");
         var waited = await tools.WaitForReceipt(id, default, timeoutSeconds: 0);
         check(waited.Message.Id == id && waited.Message.Text is null && waited.Status == MessageStatus.Accepted,
             "COMPACT_WAIT_NO_TEXT: wait_for_receipt returns the receipt without its text");
@@ -65,11 +62,16 @@ internal static class CompactReceiptChecks
             "COMPACT_GET_INCLUDE: get_message_receipt with includeText returns the text");
         string json = JsonSerializer.Serialize(tools.GetMessageReceipt(id), McpJsonUtilities.DefaultOptions);
         check(!json.Contains("\"text\"", StringComparison.Ordinal) && !json.Contains("busySince", StringComparison.Ordinal) &&
+            !json.Contains("\"waits\"", StringComparison.Ordinal) &&
             json.Contains("\"readAt\"", StringComparison.Ordinal),
-            "COMPACT_JSON_OMITS: the serialized receipt has no text member and no busySince while nothing was seen busy");
+            "COMPACT_JSON_OMITS: the serialized receipt has no text, busySince or waits while nothing was seen busy");
 
         var inbox = tools.ReadInbox(recipient.Address);
         var incoming = await tools.WaitForMessages(recipient.Address, default, timeoutSeconds: 0);
+        // Read the pending parent's text before the reply records its recipient acknowledgement.
+        var reply = tools.ReplyTool(id, Guid.NewGuid(), Text);
+        check(reply.Message.ReplyTo == id && reply.Message.Text is null && reply.TextBytes is > 0,
+            "COMPACT_REPLY: reply_to_message returns the reply's compact receipt");
         var replies = await tools.WaitForReply(id, default, timeoutSeconds: 0);
         check(inbox.Any(r => r.Message.Id == id && r.Message.Text == Text) && incoming.Any(r => r.Message.Id == id && r.Message.Text == Text) &&
             replies.Count == 1 && replies[0].Message.Text == Text,

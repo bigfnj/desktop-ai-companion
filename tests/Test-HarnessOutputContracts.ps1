@@ -36,9 +36,9 @@ $floorNodes = @($syntax.FindAll({ param($node) $node -is [Management.Automation.
 Check ($errors.Count -eq 0 -and $floorNodes.Count -eq 1) 'BROKER_FLOORS_HAVE_ONE_AUTHORITY'
 $tables = @($floorNodes[0].Right.FindAll({ param($node) $node -is [Management.Automation.Language.HashtableAst] }, $true))
 $assertionFloors = $tables[0].SafeGetValue()
-Check ($assertionFloors.Count -eq 7 -and $assertionFloors.Core -eq 517 -and $assertionFloors.Relay -eq 40 -and
+Check ($assertionFloors.Count -eq 7 -and $assertionFloors.Core -eq 643 -and $assertionFloors.Relay -eq 40 -and
     $assertionFloors.Claude -eq 212 -and $assertionFloors.Desktop -eq 594 -and $assertionFloors.Adapter -eq 84 -and
-    $assertionFloors.Network -eq 250 -and $assertionFloors.Worker -eq 2021) 'BROKER_FINAL_INVENTORY_FLOORS'
+    $assertionFloors.Network -eq 250 -and $assertionFloors.Worker -eq 2234) 'BROKER_FINAL_INVENTORY_FLOORS'
 $calls = @($syntax.FindAll({ param($node)
     $node -is [Management.Automation.Language.AssignmentStatementAst] -and
     @($node.Right.FindAll({ param($inner) $inner -is [Management.Automation.Language.CommandAst] -and
@@ -47,8 +47,8 @@ $calls = @($syntax.FindAll({ param($node)
 Check ($calls.Count -eq 1 -and $calls[0].Parent.Parent -is [Management.Automation.Language.TryStatementAst]) 'BROKER_DIRECT_SUMMARY_GUARD_REQUIRED'
 # Exercise the actual public caller for both measured inventories; retained old counts are rejection inputs.
 foreach ($harness in @(
-    [pscustomobject]@{ Name='Core'; Summary='^AgentBroker core smoke and regression: ([1-9][0-9]*) assertions passed\.$'; PreviousActual=488 },
-    [pscustomobject]@{ Name='Worker'; Summary='^RESULT=PASS assertions=([1-9][0-9]*)$'; PreviousActual=1624 }
+    [pscustomobject]@{ Name='Core'; Summary='^AgentBroker core smoke and regression: ([1-9][0-9]*) assertions passed\.$'; PreviousActual=488; Previous104=517 },
+    [pscustomobject]@{ Name='Worker'; Summary='^RESULT=PASS assertions=([1-9][0-9]*)$'; PreviousActual=1624; Previous104=2021 }
 )) {
     $floor = [int]$assertionFloors[$harness.Name]
     foreach ($count in @($floor,($floor + 1))) {
@@ -58,7 +58,7 @@ foreach ($harness in @(
         . ([scriptblock]::Create($calls[0].Extent.Text))
         Check ($assertions -eq $count) ('BROKER_ACTUAL_' + $harness.Name.ToUpperInvariant() + '_ACCEPTS_' + $count)
     }
-    foreach ($count in @(($floor - 1),$harness.PreviousActual)) {
+    foreach ($count in @(($floor - 1),$harness.PreviousActual,$harness.Previous104)) {
         Check ($count -lt $floor) ('BROKER_' + $harness.Name.ToUpperInvariant() + '_OLD_OUTPUT_BELOW_FINAL_FLOOR')
         if ($harness.Name -ceq 'Core') { $output = @("AgentBroker core smoke and regression: $count assertions passed.") }
         else { $output = @("RESULT=PASS assertions=$count") }

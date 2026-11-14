@@ -79,8 +79,9 @@ internal static class ReplyLifetimeChecks
             var fresh = reopened.AcceptReply(parent.Id, Guid.NewGuid(), "New reply uses the new setting.", broker);
             Check(fresh.Message.ExpiresAt == clock.GetUtcNow().AddMinutes(current),
                 "Only new replies use the changed default lifetime.");
-            Check(reopened.FindReceipt(parent.Id)?.Message == parent,
-                "A new default never changes an explicit incoming message deadline.");
+            Check(reopened.FindReceipt(parent.Id) is { Status: MessageStatus.Delivered, Reason: "reply_receipt" } settled &&
+                settled.Message == parent with { Text = "" },
+                "A reply receipt tombstones local parent text without changing its explicit routing, budget or deadline.");
         }
         return passed;
     }

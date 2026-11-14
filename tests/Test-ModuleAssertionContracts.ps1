@@ -54,12 +54,22 @@ $floorsCode = Assignment 'moduleAssertionFloors'
 $minimumCode = Assignment 'minimum'
 $counterCode = Assignment 'assertions'
 . ([scriptblock]::Create($floorsCode))
-Check ($moduleAssertionFloors.Count -eq 1 -and $moduleAssertionFloors.agentbroker -eq 520) 'MODULE_RECORDED_FLOOR_520'
+Check ($moduleAssertionFloors.Count -eq 1 -and $moduleAssertionFloors.agentbroker -eq 632) 'MODULE_RECORDED_FLOOR_632'
+$actualModuleFloor = [int]$moduleAssertionFloors.agentbroker
+$actualTerse = '[agentbroker] ' + $actualModuleFloor + ' checks passed'
 $id = 'agentbroker'
-$r = [pscustomobject]@{ Result = 'PASS'; Lines = @($terse) }
+$r = [pscustomobject]@{ Result = 'PASS'; Lines = @($actualTerse) }
 . ([scriptblock]::Create($minimumCode))
 . ([scriptblock]::Create($counterCode))
-Check ($assertions -eq 520) 'MODULE_ACTUAL_CALLER_TERSE'
+Check ($assertions -eq $actualModuleFloor) 'MODULE_ACTUAL_CALLER_TERSE'
+foreach ($count in @(($actualModuleFloor - 1),520)) {
+    $r.Lines = @('[agentbroker] ' + $count + ' checks passed')
+    $failure = ''
+    try { . ([scriptblock]::Create($counterCode)) } catch { $failure = $_.Exception.Message }
+    $expected = 'HarnessOutput.ps1: agentbroker module assertion inventory fell below its recorded floor (' + $count + ' < ' + $actualModuleFloor + ').'
+    $name = if ($count -eq ($actualModuleFloor - 1)) { 'MODULE_ACTUAL_CALLER_REFUSES_ONE_ASSERTION_LOSS' } else { 'MODULE_ACTUAL_CALLER_REFUSES_104_FLOOR_520' }
+    Check ($failure -ceq $expected) $name
+}
 $r.Lines = @('[agentbroker] 385 checks passed')
 Refuses { . ([scriptblock]::Create($counterCode)) } 'MODULE_ACTUAL_CALLER_REFUSES_REGISTRATION_LOSS'
 $id = 'other'
@@ -230,14 +240,14 @@ function Invoke-SyntheticCoveredArtifactCaller([string]$Mode, [string]$FixtureMo
             elseif ($state.Mode -ceq 'failed') { $result = 'FAIL'; $reasons = @('original-module-failure') }
             elseif ($state.Mode -ceq 'pass') {
                 $snapshot = Get-AgentBrokerArtifactSnapshot $modulesRoot
-                $lines = @('[agentbroker] 520 checks passed',
+                $lines = @($actualTerse,
                     ('WITNESS: MODULE_SELFTEST_LOADED_SHA256 agentbroker ' + $snapshot.LOADED),
                     ('WITNESS: MODULE_SELFTEST_WORKER_PAYLOAD_SHA256 agentbroker ' + $snapshot.WORKER_PAYLOAD))
             }
             elseif ($state.Mode -ceq 'changed') {
                 [IO.File]::WriteAllBytes($assemblyPath, [Text.Encoding]::ASCII.GetBytes('changed-during-synthetic-invocation'))
                 $changed = Get-AgentBrokerArtifactSnapshot $modulesRoot
-                $lines = @('[agentbroker] 520 checks passed',
+                $lines = @($actualTerse,
                     ('WITNESS: MODULE_SELFTEST_LOADED_SHA256 agentbroker ' + $changed.LOADED),
                     ('WITNESS: MODULE_SELFTEST_WORKER_PAYLOAD_SHA256 agentbroker ' + $changed.WORKER_PAYLOAD))
             }

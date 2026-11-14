@@ -155,7 +155,8 @@ def mutation_artifact(source: str) -> str:
 # WIRE_FRAME check per child process), before the cut-off.
 # 788 -> 801 (2026-11-10, shipping cadence, measured): RuntimeLifecycleChecks gains 13 checks before the cut-off.
 # The complete seven-harness run measured Worker 2021 and 3718 total; the existing-suite subset marker was 801.
-EXISTING_COUNTS = {"worker": 801, "desktop": 157}
+# 2026-11-12, 1.10.5 G2: Worker 2234, seven-harness total 4057; the same full run reports existing subset 976.
+EXISTING_COUNTS = {"worker": 976, "desktop": 157}
 FOCUSED_COUNTS = {"worker": 92, "desktop": 23}  # desktop 15 -> 23: installed-version image-mismatch witnesses and layout controls
 CLAUDE_SCENARIOS = ("early-reject", "unsupported-version", "hash-mismatch", "mixed", "recovery", "bounded-snapshot")
 
@@ -271,7 +272,7 @@ WITNESSES = (
     ),), failure_check="a second concurrent wait for one session is refused as wait_in_progress"),
     # ---- lane feature/agentbroker-wait-classes (AgentBroker next campaign, 2026-11-08) ----
     # Each mutant breaks one rule of the two wait classes or the listening count; failure_check names the one check it
-    # must fail first. These checks remain after the --existing-tests-only cut-off; its measured pin is now 801
+    # must fail first. These checks remain after the --existing-tests-only cut-off; the recorded 1.10.4 pin was 801
     # (EXISTING_COUNTS above, with each step from 696).
     Witness("wait-class-receipt-joins-incoming", "tools", "worker", ("--receipt-wait-only",), "ReceiptWaitChecks.cs", ((
         "var answered = await WaitAsync(original.Sender, WaitClass.Receipt, timeoutSeconds, () =>",
@@ -737,7 +738,7 @@ WITNESSES = (
         "    private bool Tombstoned(MessageReceipt receipt) => receipt.Status is MessageStatus.Delivered or MessageStatus.Refused or MessageStatus.Held &&",
     ),)),
     Witness("broker-e-acknowledged-count-toward-limit", "store", "worker", ("--tombstone-case", "capacity"), "TombstoneChecks.cs", ((
-        '            if (retained.Count >= limits.MaximumMessages) Fail("message_limit");',
+        '            if (retained.Count(receipt => !Tombstoned(receipt)) >= limits.MaximumMessages) Fail("message_limit");',
         '            if (retained.Count + tombstones.Count >= limits.MaximumMessages) Fail("message_limit");',
     ),)),
     Witness("broker-e-tombstone-cap-unbounded", "store", "worker", ("--tombstone-case", "capacity"), "TombstoneChecks.cs", ((

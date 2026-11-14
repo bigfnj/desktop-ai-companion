@@ -38,6 +38,12 @@ BrokerMessage Message(BrokerSession from, BrokerSession to) => new(Guid.NewGuid(
 
 try
 {
+    if (args.SequenceEqual(["--waiting-mail-only"]))
+    {
+        passed += WaitingMailChecks.Run(root);
+        Console.WriteLine($"AgentBroker waiting-mail smoke: {passed} assertions passed.");
+        return 0;
+    }
     if (args.Length > 0 && args[0] == "--uncertain-notices-only")
     {
         if (args.Length is not (1 or 3)) throw new ArgumentException("UNCERTAIN_NOTICE_LEGACY_ARGUMENTS: supply both the pinned baseline assembly path and its expected SHA-256, or neither.");
@@ -73,6 +79,12 @@ try
     {
         passed += ReplyLifetimeChecks.Run(root);
         Console.WriteLine($"AgentBroker reply lifetime smoke: {passed} assertions passed.");
+        return 0;
+    }
+    if (args.SequenceEqual(["--reply-receipt-only"]))
+    {
+        passed += ReplyReceiptChecks.Run(root);
+        Console.WriteLine($"AgentBroker reply receipt smoke: {passed} assertions passed.");
         return 0;
     }
     if (args.SequenceEqual(["--peer-receipt-only"]))
@@ -214,8 +226,10 @@ try
     AuditReceiptRecoveryQuery();
     AuditReceiptQueryFairness();
     AuditAtomicReplyRetries();
+    passed += ReplyReceiptChecks.Run(root);
     passed += ReplyLifetimeChecks.Run(root);
     passed += SenderNoticeChecks.Run(root);
+    passed += WaitingMailChecks.Run(root);
     passed += UncertainNoticeChecks.Run(root);
     passed += DeliveryOrderChecks.Run(root);
     passed += PeerReceiptChecks.Run(root);

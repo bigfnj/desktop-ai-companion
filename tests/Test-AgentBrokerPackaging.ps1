@@ -11,22 +11,24 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 if ([string]::IsNullOrWhiteSpace($RepoRoot)) { $RepoRoot = Split-Path $PSScriptRoot -Parent }
 $RepoRoot = [IO.Path]::GetFullPath($RepoRoot)
+. (Join-Path $RepoRoot 'tests\HarnessOutput.ps1')
+# Non-payload 30 and stamped G4 payload 54 are measured by Root on 2026-11-12.
+$minimum = if ($CheckPayload) { 54 } else { 30 }
 # The ZIP publisher deliberately requires PowerShell 7 for reproducible compression. Keep the
 # standalone check callable from Windows PowerShell while running its complete contract on that runtime.
 if ($PSVersionTable.PSVersion.Major -lt 7) {
-    . (Join-Path $RepoRoot 'tests\HarnessOutput.ps1')
     $childArguments = @('-NoProfile', '-File', $PSCommandPath, '-RepoRoot', $RepoRoot)
     if ($CheckPayload) { $childArguments += '-CheckPayload' }
     $childOutput = @(& pwsh @childArguments)
     $childExit = $LASTEXITCODE
     foreach ($line in $childOutput) { Write-Host $line }
     if ($childExit -ne 0) { throw "AgentBroker packaging PowerShell 7 child failed (exit $childExit)." }
-    $minimum = if ($CheckPayload) { 52 } else { 28 }
     [void](Assert-HarnessSummary $childOutput 'AgentBroker packaging PowerShell 7 child' '^AgentBroker packaging PASS: ([1-9][0-9]*) assertions\.$' $minimum)
     return
 }
 . (Join-Path $RepoRoot 'packaging\ModuleWatchSet.ps1')
 . (Join-Path $RepoRoot 'packaging\StagingPathSafety.ps1')
+. (Join-Path $RepoRoot 'tests\AgentBrokerResourceWatch.ps1')
 $checks = 0
 function Assert-Check([bool]$Condition, [string]$Description) {
     if (-not $Condition) { throw "AgentBroker packaging assertion failed: $Description" }
@@ -93,6 +95,30 @@ try {
     Assert-Check ($groups.Pathspecs -contains ':(exclude)tools/Worker/**/*.md') 'payload project directory watches exclude documentation'
     Assert-Check ($groups.Pathspecs -contains 'packaging/publish.ps1') 'the publisher itself participates in both guard and freshness pathspecs'
 
+    # An unborn owned Git fixture lets the actual --others pathspec evaluation refuse a
+    # compiled Markdown input excluded by the production module-directory watch rules.
+    Write-Fixture (Join-Path $fixture '.git\HEAD') "ref: refs/heads/fixture`n"
+    Write-Fixture (Join-Path $fixture '.git\config') "[core]`nrepositoryformatversion = 0`nbare = false`n"
+    [void][IO.Directory]::CreateDirectory((Join-Path $fixture '.git\objects'))
+    [void][IO.Directory]::CreateDirectory((Join-Path $fixture '.git\refs'))
+    Write-Fixture (Join-Path $module 'Resources\guide.md') '# embedded fixture guide'
+    Write-Fixture $moduleProject ($projectText.Replace('</ItemGroup>', '<EmbeddedResource Include="Resources\guide.md" /></ItemGroup>'))
+    $negativeResourcePath = 'modules/Broker/Resources/guide.md'
+    # Prove --others can see the exact input before the module Markdown exclusions are applied.
+    # A caller's global ignore must fail this fixture precondition rather than mask a broken exclusion.
+    $negativeResourceLanding = Invoke-AgentBrokerWatchGit -RepoRoot $fixture -Pathspecs @($negativeResourcePath)
+    $negativeResourceLandingBytes = [Text.Encoding]::UTF8.GetBytes($negativeResourcePath + [char]0)
+    $negativeResourceWatch = Get-ModuleWatchPathspecs -RepoRoot $fixture -ModuleDirectory (Get-Item -LiteralPath $module)
+    $negativeResourceCoverage = Get-AgentBrokerResourceWatchCoverage -RepoRoot $fixture -ProjectPath $moduleProject -Pathspecs $negativeResourceWatch.Pathspecs
+    Assert-Check ($negativeResourceLanding.NativeExit -eq 0 -and
+        [Convert]::ToBase64String([byte[]]$negativeResourceLanding.Stdout) -ceq [Convert]::ToBase64String($negativeResourceLandingBytes) -and
+        $negativeResourceWatch.Degraded.Count -eq 0 -and
+        $negativeResourceCoverage.Covered -eq $false -and $negativeResourceCoverage.NativeExit -eq 0 -and
+        @($negativeResourceCoverage.Inputs).Count -eq 1 -and $negativeResourceCoverage.Inputs[0] -ceq $negativeResourcePath -and
+        @($negativeResourceCoverage.Missing).Count -eq 1 -and $negativeResourceCoverage.Missing[0] -ceq $negativeResourcePath) (
+        'PAYLOAD_RESOURCE_WATCH_NEGATIVE_FIXTURE: an embedded Markdown resource is reported missing from the actual watch set')
+    Write-Fixture $moduleProject $projectText
+
     Write-Fixture $moduleProject ($projectText.Replace('packaging\publish.ps1', 'packaging\missing.ps1'))
     $missing = Get-ModuleWatchSet -RepoRoot $fixture -ModuleDirectory $module
     Assert-Check (@($missing.Degraded | Where-Object { $_ -like 'payload input is missing:*' }).Count -eq 1) 'a missing declared publisher fails closed'
@@ -124,6 +150,9 @@ try {
                             'packaging/AgentBrokerNotices')) {
         Assert-Check ($real.External -contains $expected) ("the production graph watches " + $expected)
     }
+    $resourceWatch = Get-ModuleWatchPathspecs -RepoRoot $RepoRoot -ModuleDirectory (Get-Item -LiteralPath (Join-Path $RepoRoot 'modules\AgentBroker'))
+    $resourceCoverage = Get-AgentBrokerResourceWatchCoverage -RepoRoot $RepoRoot -ProjectPath (Join-Path $RepoRoot 'modules\AgentBroker\AgentBroker.csproj') -Pathspecs $resourceWatch.Pathspecs
+    Assert-Check $resourceCoverage.Covered ('PAYLOAD_RESOURCE_WATCH_COVERAGE: explicit module payload resources and copies are watched; missing: ' + ($resourceCoverage.Missing -join ', '))
     if ($CheckPayload) {
         $output = Join-Path $RepoRoot 'build\DesktopAICompanionPortable\bin\Release\x64\modules\agentbroker'
         $worker = Join-Path $output 'worker'
@@ -194,7 +223,9 @@ try {
         finally { $archive.Dispose() }
         Write-Host ("AgentBroker packaged ZIP: {0:N0} bytes." -f $zip.Bytes)
     }
-    Write-Host ("AgentBroker packaging PASS: {0} assertions." -f $checks)
+    $packagingSummary = "AgentBroker packaging PASS: {0} assertions." -f $checks
+    [void](Assert-HarnessSummary @($packagingSummary) 'AgentBroker packaging' '^AgentBroker packaging PASS: ([1-9][0-9]*) assertions\.$' $minimum)
+    Write-Host $packagingSummary
 }
 finally {
     if (Test-Path -LiteralPath $scratch) {
@@ -202,6 +233,7 @@ finally {
         # file makes cleanup fail without reading or deleting it; no recursive delete is needed.
         foreach ($relative in @('agentbroker.zip.tmp', 'agentbroker.zip',
                                 'repo-sibling\Outside.fixtureproj', 'repo\global.json',
+                                'repo\.git\HEAD', 'repo\.git\config', 'repo\modules\Broker\Resources\guide.md',
                                 'repo\modules\Directory.Build.props', 'repo\src\Directory.Build.props',
                                 'repo\packaging\publish.ps1', 'repo\src\Atomic.cs',
                                 'repo\src\Host\Host.csproj', 'repo\src\ModuleKit\Kit.csproj',
@@ -212,7 +244,9 @@ finally {
                 Remove-DesktopAICompanionSafeFile -Path $path -AllowedRoot $scratch -TrustedRoot $scratchBase
             }
         }
-        foreach ($relative in @('repo\src\ModuleKit', 'repo\src\Host', 'repo\src\Core',
+        foreach ($relative in @('repo\.git\objects', 'repo\.git\refs', 'repo\.git',
+                                'repo\modules\Broker\Resources',
+                                'repo\src\ModuleKit', 'repo\src\Host', 'repo\src\Core',
                                 'repo\tools\Native', 'repo\tools\Worker', 'repo\modules\Broker',
                                 'repo\src', 'repo\tools', 'repo\modules', 'repo\packaging', 'repo-sibling', 'repo')) {
             $directory = Join-Path $scratch $relative
