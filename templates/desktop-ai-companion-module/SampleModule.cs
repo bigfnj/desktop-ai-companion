@@ -84,8 +84,9 @@ namespace DesktopAICompanion.SampleModule
             // It does NOT encrypt a Secret field, and this comment said it did until 2026-09-17. Secret
             // controls how the value is DISPLAYED (write-only, "leave blank to keep it"); IModuleSettings
             // never sees the schema, so it cannot know which key you declared that way. If you store an API
-            // key, encrypt it yourself -- modules/AiBrain uses DPAPI and is the worked example. Save() is
-            // also a plain write with no lock: ModuleKit.AtomicFile and CrossSessionLock ship beside you.
+            // key, encrypt it yourself -- modules/AiBrain uses DPAPI and is the worked example. Save() writes
+            // atomically on hosts built after 2026-11-14 (older hosts: a plain write), and a damaged file is
+            // kept as settings.json.corrupt-<utc>; there is no cross-process lock: CrossSessionLock ships beside you.
             //
             // An Int field's Min/Max ARE honoured by the host as of 1.1.5, and were decoration before that,
             // so keep validating in your own Save if you support an older host.
