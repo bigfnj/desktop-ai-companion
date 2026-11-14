@@ -50,6 +50,8 @@ namespace DesktopAICompanion.ModuleKit.Testing
         // yet, but the fake now has one rule for everything a module can append, and the last live list was
         // the one a module's reaction appends to beside the sound it plays. AgentFlow's three resets between
         // phases moved from PlayedAnimations.Clear(), which would have cleared a copy, to ClearPlayedAnimations().
+        // PickFilesToOpen's requests joined the set on 2026-11-14 (N-bd-w3-remembrance-1-02): the host's picker runs
+        // on the UI thread, but the fake keeps the one rule for everything it records.
         private readonly object _recordSync = new object();
         private readonly List<string> _saidLines = new List<string>();
         private readonly List<string> _loggedLines = new List<string>();
@@ -60,6 +62,7 @@ namespace DesktopAICompanion.ModuleKit.Testing
         private readonly List<byte[]> _playedSounds = new List<byte[]>();
         private readonly List<string> _stoppedSoundOwners = new List<string>();
         private readonly List<string> _playedAnimations = new List<string>();
+        private readonly List<PickFileRequest> _pickFileRequests = new List<PickFileRequest>();
 
         /// <summary>Every line, targeted or broadcast, in order (a snapshot; see above).</summary>
         public List<string> SaidLines { get { lock (_recordSync) return new List<string>(_saidLines); } }
@@ -130,6 +133,12 @@ namespace DesktopAICompanion.ModuleKit.Testing
         public ScreenContext ScreenContextValue { get; set; }
         public ICompanionManager CompanionManager { get; set; }
         public IReadOnlyList<string> PickedFiles { get; set; }
+        /// <summary>Every PickFilesToOpen call, in order, with the title, file kind and extensions the module asked
+        /// for (a snapshot, N-bd-w3-remembrance-1-02; see the recorded lists above). Reset between presses with
+        /// <see cref="ClearPickFileRequests"/>.</summary>
+        public List<PickFileRequest> PickFileRequests { get { lock (_recordSync) return new List<PickFileRequest>(_pickFileRequests); } }
+        /// <summary>Forget the recorded picker requests, so a second press can be asserted on its own.</summary>
+        public void ClearPickFileRequests() { lock (_recordSync) _pickFileRequests.Clear(); }
         public Dictionary<string, List<CatalogItem>> CatalogItems { get; private set; }
         public Dictionary<string, byte[]> CatalogPayloads { get; private set; }
         /// <summary>Context values a module published via PublishContext, keyed by key, for assertions.</summary>
@@ -563,8 +572,14 @@ namespace DesktopAICompanion.ModuleKit.Testing
             return PublishedContext.TryGetValue(key ?? "", out v) ? v : "";
         }
 
+        /// <summary>Answers <see cref="PickedFiles"/> and records the request in <see cref="PickFileRequests"/>. Until
+        /// 2026-11-14 it dropped the title, the file kind and the extensions, so a module that asked the host's dialog
+        /// for the wrong kind of file passed its self-test while the user's dialog filtered for it
+        /// (N-bd-w3-remembrance-1-02).</summary>
         public IReadOnlyList<string> PickFilesToOpen(string title, string fileKindLabel, IReadOnlyList<string> extensions)
         {
+            var request = new PickFileRequest(title, fileKindLabel, extensions);
+            lock (_recordSync) _pickFileRequests.Add(request);
             return PickedFiles ?? new List<string>();
         }
 
@@ -593,5 +608,32 @@ namespace DesktopAICompanion.ModuleKit.Testing
         // with the method deleted ModuleKit compiled clean, and as the control, emptying RaiseHostShutdown's
         // body made CS0067 fire on HostShutdown (F235). A fake host that declares an event and never raises
         // it does need a raiser, and the raiser is the fix, not a method nothing calls.
+    }
+
+    /// <summary>
+    /// One <see cref="IHost.PickFilesToOpen"/> call as a module made it, recorded by
+    /// <see cref="RecordingHost.PickFileRequests"/> (N-bd-w3-remembrance-1-02). The title and file kind are kept as
+    /// passed, null included; the extensions are a copy taken at the call (null stays null), so a module that reuses
+    /// its array cannot rewrite the record afterwards.
+    /// </summary>
+    public sealed class PickFileRequest
+    {
+        internal PickFileRequest(string title, string fileKindLabel, IReadOnlyList<string> extensions)
+        {
+            Title = title;
+            FileKindLabel = fileKindLabel;
+            Extensions = extensions == null ? null : new List<string>(extensions).AsReadOnly();
+        }
+
+        public string Title { get; private set; }
+        public string FileKindLabel { get; private set; }
+        public IReadOnlyList<string> Extensions { get; private set; }
+
+        /// <summary>"title | kind | ext,ext", for a check's failure text.</summary>
+        public override string ToString()
+        {
+            return (Title ?? "(null)") + " | " + (FileKindLabel ?? "(null)") + " | " +
+                   (Extensions == null ? "(null)" : string.Join(",", Extensions));
+        }
     }
 }

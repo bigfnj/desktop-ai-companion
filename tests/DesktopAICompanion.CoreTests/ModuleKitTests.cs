@@ -713,6 +713,27 @@ namespace DesktopAICompanion
             AssertTrue(host.PlayedAnimations[0] == "wave" && host.PlayedAnimations[2] == "jump", "The recorded animations are not the ones handed in, in order.");
             host.ClearPlayedAnimations();
             AssertEqual(0, host.PlayedAnimations.Count, "ClearPlayedAnimations left an animation behind.");
+            // PickFilesToOpen records each request with all three values (N-bd-w3-remembrance-1-02): the fake answered
+            // PickedFiles and dropped the title, the file kind and the extensions, so a module that asked the host's
+            // dialog for the wrong kind of file passed its self-test. The extensions are a copy, so a module reusing its
+            // array cannot rewrite the record. WITNESS: PickedFiles is still what comes back.
+            var picker = new RecordingHost { PickedFiles = new List<string> { "a.wav" } };
+            string[] askedFor = { "wav", "mp3" };
+            IReadOnlyList<string> pickedBack = picker.PickFilesToOpen("Choose a recording", "Audio", askedFor);
+            AssertTrue(pickedBack != null && pickedBack.Count == 1 && pickedBack[0] == "a.wav",
+                "WITNESS: PickFilesToOpen no longer answers PickedFiles.");
+            askedFor[0] = "txt";
+            List<PickFileRequest> pickRequests = picker.PickFileRequests;
+            AssertEqual(1, pickRequests.Count, "A PickFilesToOpen request was not recorded.");
+            AssertTrue(pickRequests[0].Title == "Choose a recording" && pickRequests[0].FileKindLabel == "Audio" &&
+                       pickRequests[0].Extensions != null && pickRequests[0].Extensions.Count == 2 &&
+                       pickRequests[0].Extensions[0] == "wav" && pickRequests[0].Extensions[1] == "mp3",
+                "The recorded PickFilesToOpen request does not hold the title, file kind and extensions passed: " + pickRequests[0]);
+            picker.PickFilesToOpen("Second", "Text", new[] { "txt" });
+            AssertEqual(1, pickRequests.Count, "A PickFileRequests view handed to a test moved under it.");
+            AssertEqual(2, picker.PickFileRequests.Count, "A fresh PickFileRequests read did not see the second request.");
+            picker.ClearPickFileRequests();
+            AssertEqual(0, picker.PickFileRequests.Count, "ClearPickFileRequests left a request behind.");
 
             // The recorded lists are SNAPSHOTS taken under a lock (N-remembrance-01): a module appends from
             // whatever thread it calls on, the test reads on its own, and List<T> is safe for neither an

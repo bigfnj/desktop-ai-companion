@@ -26709,6 +26709,23 @@ CASES = (
      HOST_CSPROJ, EXE,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
      'parity policy: a surrogate id or pack value is refused as scenario-invalid naming that value, exit 2, no trace ('),
+    # ---- burndown/coordinator ----
+    # N-bd-w3-remembrance-1-02: RecordingHost drops the PickFilesToOpen request again (CoreTests), and "Transcribe a WAV
+    # file..." asks the host's picker for transcripts (the Remembrance self-test reads the recorded request). "bd-coordinator:"
+    # for one --only.
+    ("bd-coordinator: RecordingHost drops the PickFilesToOpen request again (N-bd-w3-remembrance-1-02)",
+     MODULEKIT_RECORDING_HOST,
+     b"            lock (_recordSync) _pickFileRequests.Add(request);\n",
+     b"",
+     CORETESTS_CSPROJ, CORETESTS_MODULEKIT_DLL,
+     CORETESTS, None, "A PickFilesToOpen request was not recorded."),
+    ("bd-coordinator: Transcribe a WAV file asks the host for transcripts (N-bd-w3-remembrance-1-02)",
+     REMEMBRANCE_MODULE,
+     b'_host.PickFilesToOpen("Choose a WAV recording to transcribe", "WAV audio", new[] { "wav" });',
+     b'_host.PickFilesToOpen("Choose a WAV recording to transcribe", "WAV audio", new[] { "txt" });',
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "Transcribe a WAV file asks the host's picker for one WAV audio file, extension wav"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
