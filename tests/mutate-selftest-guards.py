@@ -26726,6 +26726,27 @@ CASES = (
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "Transcribe a WAV file asks the host's picker for one WAV audio file, extension wav"),
+    # N-audit-1106-379 (b) and (c): RecordingHost publishes an empty context key again, and a throwing ContextChanged
+    # subscriber escapes the fake's publish again (CoreTests, TestModuleKitRecordingHost).
+    ("bd-coordinator: RecordingHost publishes an empty context key again (N-audit-1106-379)",
+     MODULEKIT_RECORDING_HOST,
+     b"            if (string.IsNullOrEmpty(key)) return;\n            PublishedContext[key] = valueJson ?? \"\";\n",
+     b"            PublishedContext[key] = valueJson ?? \"\";\n",
+     CORETESTS_CSPROJ, CORETESTS_MODULEKIT_DLL,
+     CORETESTS, None, "An empty context key was stored or raised; the host drops it."),
+    ("bd-coordinator: a throwing ContextChanged subscriber escapes the fake's publish again (N-audit-1106-379)",
+     MODULEKIT_RECORDING_HOST,
+     b"            if (handler == null) return;\n"
+     b"            foreach (Delegate subscriber in handler.GetInvocationList())\n"
+     b"            {\n"
+     b"                try { ((Action<string>)subscriber)(key); }\n",
+     b"            if (handler == null) return;\n"
+     b"            handler(key ?? \"\");\n"
+     b"            foreach (Delegate subscriber in new Delegate[0])\n"
+     b"            {\n"
+     b"                try { ((Action<string>)subscriber)(key); }\n",
+     CORETESTS_CSPROJ, CORETESTS_MODULEKIT_DLL,
+     CORETESTS, None, "A throwing ContextChanged subscriber escaped into the publisher."),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

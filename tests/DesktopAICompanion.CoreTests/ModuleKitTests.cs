@@ -735,6 +735,34 @@ namespace DesktopAICompanion
             picker.ClearPickFileRequests();
             AssertEqual(0, picker.PickFileRequests.Count, "ClearPickFileRequests left a request behind.");
 
+            // PublishContext as the host does it (N-audit-1106-379). An empty key is dropped: the host returns at once,
+            // and the fake stored and raised it as "", which ReadContext("") then answered. A subscriber that throws is
+            // logged and skipped, and the next subscriber still runs: the fake invoked the multicast with no catch, so the
+            // first throw escaped into the publisher and starved the rest. WITNESS: a normal subscriber sees a real key,
+            // and ReadContext answers it.
+            var context = new RecordingHost();
+            var heard = new List<string>();
+            context.ContextChanged += delegate(string key) { heard.Add("first:" + key); };
+            context.PublishContext("m", "", "{\"v\":1}");
+            AssertTrue(heard.Count == 0 && !context.PublishedContext.ContainsKey("") && context.ReadContext("") == "",
+                "An empty context key was stored or raised; the host drops it.");
+            context.PublishContext("m", null, "{\"v\":1}");
+            AssertTrue(heard.Count == 0 && context.PublishedContext.Count == 0, "A null context key was stored or raised; the host drops it.");
+            context.ContextChanged += delegate(string key) { throw new InvalidOperationException("boom"); };
+            context.ContextChanged += delegate(string key) { heard.Add("third:" + key); };
+            int contextLogBefore = context.LoggedLines.Count;
+            bool escaped = false;
+            try { context.PublishContext("m", "probe.key", "{\"v\":2}"); }
+            catch (InvalidOperationException) { escaped = true; }
+            AssertFalse(escaped, "A throwing ContextChanged subscriber escaped into the publisher.");
+            AssertTrue(heard.Count == 2 && heard[0] == "first:probe.key",
+                "WITNESS: a normal ContextChanged subscriber did not see the published key.");
+            AssertEqual("third:probe.key", heard[1], "The subscriber after a throwing one did not run: the throw starved the rest.");
+            AssertTrue(context.LoggedLines.Count == contextLogBefore + 1 &&
+                       context.LoggedLines[contextLogBefore].Contains("ContextChanged subscriber threw and was skipped: InvalidOperationException: boom"),
+                "A throwing ContextChanged subscriber was not recorded in the log.");
+            AssertEqual("{\"v\":2}", context.ReadContext("probe.key"), "WITNESS: ReadContext did not answer the published key.");
+
             // The recorded lists are SNAPSHOTS taken under a lock (N-remembrance-01): a module appends from
             // whatever thread it calls on, the test reads on its own, and List<T> is safe for neither an
             // append during a foreach nor a Count read during a growth. A view handed out before an append
