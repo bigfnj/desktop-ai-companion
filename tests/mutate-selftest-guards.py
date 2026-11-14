@@ -22507,6 +22507,17 @@ def check_patterns(cases):
     without anyone reading it (N-audit-1106-344). Counted exactly as score() counts: read() bytes, line_ending_variant,
     exactly once. NEEDS_REAL_INPUT cases are counted too; only their run is withheld. 1 on any case not matching once."""
     bad = 0
+    # The same case-ID rule make_plan applies to every run (round 2, T2-4): a blank or duplicated ID is a broken inventory.
+    seen = set()
+    for case in cases:
+        name = case[0] if isinstance(case, (tuple, list)) and case else None
+        if not isinstance(name, str) or not name.strip():
+            print("  BAD CASE ID  %r" % (name,))
+            bad += 1
+        elif name in seen:
+            print("  DUPLICATE CASE ID  %s" % name)
+            bad += 1
+        seen.add(name)
     for case in cases:
         name, path, old, new = case[0], case[1], case[2], case[3]
         if not os.path.isfile(path):

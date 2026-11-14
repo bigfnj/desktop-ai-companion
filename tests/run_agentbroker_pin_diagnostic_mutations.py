@@ -495,6 +495,12 @@ WITNESSES = (
         "            var until = now.AddMinutes(1);",
         "            var until = now.AddMinutes(3);",
     ),), failure_check="PRESENCE_CADENCE_180: a mailbox renewed every 180 s is peer-visible for exactly 60 of each 180 s and accepts a paired peer's send while it is not listed"),
+    # Lane T round 2 (T2-11): the lease SHORTENED to 51 s, which the old 10-second grid could not tell from 60 s. Only the
+    # one-second samples with the +59 s / +60 s boundary see it.
+    Witness("presence-cadence-lease-shortened", "store", "worker", ("--polling-lease-only",), "PollingLeaseChecks.cs", ((
+        "            var until = now.AddMinutes(1);",
+        "            var until = now.AddSeconds(51);",
+    ),), failure_check="PRESENCE_CADENCE_180: a mailbox renewed every 180 s is peer-visible for exactly 60 of each 180 s and accepts a paired peer's send while it is not listed"),
     Witness("bus-native-retained", "store", "worker", ("--polling-lease-only",), "PollingLeaseChecks.cs", (
         ('            if (session.Adapter == "mcp") mailboxActivity[session.Address] = Now;\n'
          '            else mailboxActivity.Remove(session.Address);',

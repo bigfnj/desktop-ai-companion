@@ -17,24 +17,35 @@ internal static class PollingLeaseChecks
             var session = fixture.Register("Synthetic 180-second poller");
             var peer = Guid.NewGuid();
             fixture.Store.AuthorizePeer(new PeerTrust(peer, "Synthetic paired peer", "https://192.0.2.41/", new string('E', 64), fixture.Clock.GetUtcNow()));
-            int visible = 0, samples = 0;
+            // Sampled every second (lane T round 2, T2-11/T2-16): a 10-second grid pinned the lease only to (50 s, 60 s], and
+            // totals over three cycles let 0/6/12 pass for 6/6/6. Each cycle must show exactly 60 visible seconds, listed at
+            // +59 s and gone at +60 s, so a lease of 51 s (or 61 s) fails here. The check text stays word for word: the
+            // pin-diagnostic witnesses match it exactly.
+            var visiblePerCycle = new int[3];
+            var listedAt59 = new bool[3];
+            var listedAt60 = new bool[3];
+            int samples = 0;
             MessageReceipt? whileUnlisted = null;
             for (int cycle = 0; cycle < 3; cycle++)
             {
                 fixture.Tools.ReadInbox(session.Address);   // the owner's one call per 180 s, which renews presence
-                for (int second = 0; second < 180; second += 10)
+                for (int second = 0; second < 180; second++)
                 {
                     samples++;
-                    if (fixture.Store.PresentedDirectory(forPeer: true).Any(row => row.Address == session.Address)) visible++;
+                    bool listed = fixture.Store.PresentedDirectory(forPeer: true).Any(row => row.Address == session.Address);
+                    if (listed) visiblePerCycle[cycle]++;
+                    if (second == 59) listedAt59[cycle] = listed;
+                    if (second == 60) listedAt60[cycle] = listed;
                     if (cycle == 0 && second == 170)
                     {
                         var sender = new SessionAddress(peer, "claude:" + Guid.NewGuid(), Guid.NewGuid());
                         whileUnlisted = fixture.Store.Accept(fixture.Message(sender, session.Address), peer);
                     }
-                    fixture.Clock.Advance(TimeSpan.FromSeconds(10));
+                    fixture.Clock.Advance(TimeSpan.FromSeconds(1));
                 }
             }
-            check(visible == 18 && samples == 54 && whileUnlisted is { Status: MessageStatus.Accepted },
+            check(samples == 540 && visiblePerCycle.All(count => count == 60) && listedAt59.All(listed => listed) &&
+                !listedAt60.Any(listed => listed) && whileUnlisted is { Status: MessageStatus.Accepted },
                 "PRESENCE_CADENCE_180: a mailbox renewed every 180 s is peer-visible for exactly 60 of each 180 s and accepts a paired peer's send while it is not listed");
         }
 

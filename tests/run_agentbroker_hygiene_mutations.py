@@ -1038,6 +1038,12 @@ def check_anchors(selected: list[Witness]) -> int:
     Nothing is built, written or started. 1 on any witness whose source is missing or whose anchor count is wrong."""
     bad = 0
     for w in selected:
+        # A witness --apply would refuse is not healthy either (round 2, T2-3): its project must be known and its healthy
+        # group pinned in EXPECTED_COUNTS, the same two conditions main() enforces before any build.
+        if w.project not in PROJECTS or EXPECTED_COUNTS.get((w.project, w.args)) is None:
+            print(f"UNPINNED {w.name}: {group_key(w.project, w.args)}")
+            bad += 1
+            continue
         path = ROOT / w.source
         if not path.is_file():
             print(f"NO_SOURCE {w.name}: {w.source}")

@@ -45,12 +45,34 @@ class GuardsPatternCheck(ScratchCase):
     def setUpClass(cls):
         cls.guards = load("mutate-selftest-guards.py", "pattern_check_guards_under_test")
 
-    def check(self, path, old):
-        case = ("synthetic case", str(path), old, b"replaced\n", None, None, "--synthetic", "synthetic.txt", "never")
+    @staticmethod
+    def case(name, path, old):
+        return (name, str(path), old, b"replaced\n", None, None, "--synthetic", "synthetic.txt", "never")
+
+    def check_cases(self, cases):
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            code = self.guards.check_patterns([case])
+            code = self.guards.check_patterns(cases)
         return code, out.getvalue()
+
+    def check(self, path, old):
+        return self.check_cases([self.case("synthetic case", path, old)])
+
+    def test_GUARDS_PATTERN_SECOND_ENTRY_STALE_FAILS(self):
+        # Round 2, T2-14: a healthy first case must not stand for the rest.
+        healthy = self.source("a.cs", b"alpha\n")
+        stale = self.source("b.cs", b"beta\n")
+        code, out = self.check_cases([self.case("healthy first", healthy, b"alpha\n"), self.case("stale second", stale, b"gamma\n")])
+        self.assertEqual(code, 1, out)
+        self.assertIn("stale second", out)
+        self.assertNotIn("healthy first", out)
+
+    def test_GUARDS_PATTERN_DUPLICATE_ID_FAILS(self):
+        # Round 2, T2-4: the case-ID rule make_plan applies to every run.
+        path = self.source("a.cs", b"alpha\nbeta\n")
+        code, out = self.check_cases([self.case("same id", path, b"alpha\n"), self.case("same id", path, b"beta\n")])
+        self.assertEqual(code, 1, out)
+        self.assertIn("DUPLICATE CASE ID  same id", out)
 
     def test_GUARDS_PATTERN_ZERO_MATCH_FAILS(self):
         code, out = self.check(self.source("a.cs", b"alpha\n"), b"beta\n")
@@ -85,13 +107,37 @@ class HygieneAnchorCheck(ScratchCase):
     def setUpClass(cls):
         cls.hygiene = load("run_agentbroker_hygiene_mutations.py", "pattern_check_hygiene_under_test")
 
-    def check(self, path, replacements):
-        witness = self.hygiene.Witness("synthetic-witness", str(path), "worker", ("--synthetic-only",),
-                                       tuple(replacements), "SYNTHETIC_CHECK")
+    # A group the real runner pins, so a fixture witness is judged on its anchors alone (round 2, T2-3 flags unpinned ones).
+    PINNED = ("--instructions-only",)
+
+    def witness(self, name, path, replacements, args=PINNED):
+        return self.hygiene.Witness(name, str(path), "worker", args, tuple(replacements), "SYNTHETIC_CHECK")
+
+    def check_witnesses(self, witnesses):
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            code = self.hygiene.check_anchors([witness])
+            code = self.hygiene.check_anchors(witnesses)
         return code, out.getvalue()
+
+    def check(self, path, replacements):
+        return self.check_witnesses([self.witness("synthetic-witness", path, replacements)])
+
+    def test_HYGIENE_CHECK_UNPINNED_GROUP_FAILS(self):
+        # Round 2, T2-3: a witness whose healthy group --apply would refuse as unpinned is not healthy.
+        path = self.source("a.cs", b"a\n")
+        code, out = self.check_witnesses([self.witness("synthetic-witness", path, [("a\n", "b\n", 1)], args=("--synthetic-only",))])
+        self.assertEqual(code, 1, out)
+        self.assertIn("UNPINNED synthetic-witness: worker:--synthetic-only", out)
+
+    def test_HYGIENE_CHECK_SECOND_WITNESS_STALE_FAILS(self):
+        # Round 2, T2-14: a healthy first witness must not stand for the rest.
+        healthy = self.source("a.cs", b"a\n")
+        stale = self.source("b.cs", b"b\n")
+        code, out = self.check_witnesses([self.witness("healthy-first", healthy, [("a\n", "x\n", 1)]),
+                                          self.witness("stale-second", stale, [("c\n", "x\n", 1)])])
+        self.assertEqual(code, 1, out)
+        self.assertIn("STALE stale-second", out)
+        self.assertNotIn("healthy-first", out)
 
     def test_HYGIENE_CHECK_COUNT_MISMATCH_FAILS(self):
         over, out_over = self.check(self.source("a.cs", b"a\na\n"), [("a\n", "b\n", 1)])

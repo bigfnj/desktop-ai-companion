@@ -108,7 +108,7 @@ $repin7Checks = [int]([regex]::Match([string]$repin7Summary[0], '^PASS: ([0-9]+)
 # The installed-tree compare (AgentBroker 1.10.5 marathon, lane T, C4). It supports Windows PowerShell 5.1 and 7, so its
 # fixture checks run in a child of each; it reads and writes only its own temporary fixture folder. The 1.10.5 entries map
 # has no Directory field, and a filter on Directory -eq $false compared zero rows and passed: TREE_COMPARE_MISSING_DIRECTORY_IS_FILE
-# and TREE_COMPARE_VACUOUS_REFUSED are the two lines that guard that, so both must be present in both children.
+# and TREE_COMPARE_VACUOUS_REFUSED guard that, and every guard line named below must be present in both children.
 $treeCompare = Join-Path $repoRoot 'tools\agentbroker\Compare-AgentBrokerTree.ps1'
 $treeChecks = @{}
 foreach ($edition in @(@{ Name = 'Windows PowerShell'; Exe = 'powershell.exe'; Args = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $treeCompare, '-SelfTest') },
@@ -118,8 +118,12 @@ foreach ($edition in @(@{ Name = 'Windows PowerShell'; Exe = 'powershell.exe'; A
     $treeExit = $LASTEXITCODE
     foreach ($line in $treeOutput) { Write-Host $line }
     $treeSummary = @($treeOutput | Where-Object { "$_" -match '^PASS: ([1-9][0-9]*) tree compare fixture checks$' })
-    $treeGuards = @($treeOutput | Where-Object { "$_" -ceq 'PASS: TREE_COMPARE_MISSING_DIRECTORY_IS_FILE' -or "$_" -ceq 'PASS: TREE_COMPARE_VACUOUS_REFUSED' })
-    if ($treeExit -ne 0 -or $treeSummary.Count -ne 1 -or $treeGuards.Count -ne 2 -or @($treeOutput | Where-Object { "$_" -match '^(FAIL:|RESULT=FAIL)' }).Count -gt 0) {
+    # Round 2: a stray file below the root (nested extra) and relative arguments judged at the PowerShell location are
+    # required by name too: each was a clean MATCH for the wrong tree before its fix.
+    $treeGuardNames = @('PASS: TREE_COMPARE_MISSING_DIRECTORY_IS_FILE', 'PASS: TREE_COMPARE_VACUOUS_REFUSED',
+        'PASS: TREE_COMPARE_NESTED_EXTRA_FAILS', 'PASS: TREE_COMPARE_RELATIVE_PATHS_FOLLOW_LOCATION')
+    $treeGuards = @($treeOutput | Where-Object { $treeGuardNames -ccontains "$_" })
+    if ($treeExit -ne 0 -or $treeSummary.Count -ne 1 -or $treeGuards.Count -ne $treeGuardNames.Count -or @($treeOutput | Where-Object { "$_" -match '^(FAIL:|RESULT=FAIL)' }).Count -gt 0) {
         throw "AgentBroker tree compare self-test under $($edition.Name) failed: tools/agentbroker/Compare-AgentBrokerTree.ps1 -SelfTest (exit $treeExit)."
     }
     $treeChecks[$edition.Name] = [int]([regex]::Match([string]$treeSummary[0], '^PASS: ([0-9]+)').Groups[1].Value)

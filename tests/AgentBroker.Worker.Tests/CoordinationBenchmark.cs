@@ -47,9 +47,20 @@ internal static class CoordinationBenchmark
     // stays Busy, the state whose recipient_busy directory observations A8 rate-limits. A real runtime with its loops and a
     // fake native adapter that lists the one Busy row; nothing leaves the process. Reported, not asserted: the process CPU
     // share over an idle window of `seconds`, and the directory observations per second summed over the N messages.
+    //
+    // Lane T round 2. T2-17: the seeded messages live SeededLifetimeMinutes (store.Send takes MINUTES, TimeSpan.FromMinutes in
+    // BrokerStore.Send), and the window is capped far inside that, so the "still Accepted" postcondition can fail only for a
+    // real delivery or refusal, never for expiry. T2-12: a window of at least 3 s spans A8's 2 s directory observation interval
+    // (loops every 500 ms), so with messages waiting, fewer observations than messages means the window measured nothing for
+    // some of them: that is an error, not a rate of 0/s.
+    private const int SeededLifetimeMinutes = 60, MinimumIdleSeconds = 3, MaximumIdleSeconds = 120;
+
     private static async Task<string> BusyIdleAsync(int pending, int seconds, string root)
     {
-        if (pending is < 0 or > 4096 || seconds is < 1 or > 120) throw new ArgumentOutOfRangeException(nameof(pending));
+        if (pending is < 0 or > 4096) throw new ArgumentOutOfRangeException(nameof(pending));
+        if (seconds < MinimumIdleSeconds || seconds > MaximumIdleSeconds || seconds >= SeededLifetimeMinutes * 60)
+            throw new ArgumentOutOfRangeException(nameof(seconds), "busy-idle windows are " + MinimumIdleSeconds + ".." + MaximumIdleSeconds +
+                " s, inside the seeded messages' " + SeededLifetimeMinutes + "-minute lifetime.");
         string directory = NewDirectory(root, "");
         try
         {
@@ -68,7 +79,7 @@ internal static class CoordinationBenchmark
             var sender = runtime.RegisterPollingAgent(Guid.NewGuid(), Guid.NewGuid(), "Benchmark sender", false);
             var receipts = new List<MessageReceipt>(pending);
             for (int index = 0; index < pending; index++)
-                receipts.Add(store.Send(sender.Address, busy.Address, Guid.NewGuid(), "busy-idle " + index, null, 60, store.BrokerId));
+                receipts.Add(store.Send(sender.Address, busy.Address, Guid.NewGuid(), "busy-idle " + index, null, SeededLifetimeMinutes, store.BrokerId));
             if (receipts.Any(receipt => receipt.Status != MessageStatus.Accepted)) throw new InvalidOperationException("A seeded message was not Accepted.");
             long before = BusyObservations(store, receipts);
             using var process = Process.GetCurrentProcess();
@@ -83,6 +94,9 @@ internal static class CoordinationBenchmark
             // What was timed was a wait: every message must still be waiting, none delivered or refused.
             if (store.Messages(busy.Address).Count(receipt => receipt.Status == MessageStatus.Accepted) != pending)
                 throw new InvalidOperationException("A message stopped waiting during the measured window.");
+            if (pending > 0 && observations < pending)
+                throw new InvalidOperationException("Only " + observations + " recipient_busy directory observation(s) for " + pending +
+                    " waiting message(s): the window measured nothing for some of them.");
             return JsonSerializer.Serialize(new { scenario = "busy-idle", pending, seconds, wallMs, cpuMs, cpuShare = cpuMs / wallMs,
                 directoryObservations = observations, observationsPerSecond = observations / (wallMs / 1000), adapterSubmits = adapter.Submits });
         }

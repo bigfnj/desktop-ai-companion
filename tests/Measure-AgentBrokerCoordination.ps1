@@ -103,6 +103,9 @@ if ($Scenario -in @('all', 'tombstone')) {
 # busy-idle <pending> <seconds>: AgentBroker 1.10.5 marathon, lane T (A9). A report, not a gate: the CPU share and the
 # recipient_busy directory observation rate while N messages wait on one Busy native row for 20 s. Both builds (the control
 # is the build from before A8's observation interval). Not part of 'all': it holds each process for its full 20 s.
+# The driver takes 3..120 s and refuses anything else (lane T round 2, T2-17): the seeded messages live 60 MINUTES
+# (store.Send's lifetime argument is in minutes), so no window it accepts can outlast them, and with messages waiting a sample
+# with fewer observations than messages fails as BENCHMARK-FAILED instead of reading as 0/s (T2-12).
 if ($Scenario -eq 'busy-idle') {
     foreach ($pending in @(0, 16, 64)) { Add-Configuration @('busy-idle', "$pending", '20') $true }
 }
