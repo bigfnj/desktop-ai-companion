@@ -27533,6 +27533,55 @@ CASES = (
      b"                try { ((Action<string>)subscriber)(key); }\n",
      CORETESTS_CSPROJ, CORETESTS_MODULEKIT_DLL,
      CORETESTS, None, "A throwing ContextChanged subscriber escaped into the publisher."),
+    # ---- burndown/integration-step8 ----
+    # Plan step 8 item 1, graded through --shimeji-window-selftest. "bd-int-step8:" for one --only.
+    # Codex Q3: the three K5 consumers in ShimejiWindowSelfTest.Parity.cs (not JSON, a scenario file that does not exist,
+    # a scenario path that is a folder) match the exact prefix "scenario-input-unreadable <detail>: " on a whole log line.
+    # Their substring match passed each mutant below, which keeps the old line after a wrong detail. Inherent shared
+    # failures, since the policy legs read the same refusals and no reachable input tells those runs apart: the not-JSON
+    # mutant also fails the policy labels "the read fault and the syntax fault carry the token" and "a BOM-prefixed
+    # scenario/2 file takes the legacy route" (3 failure lines), and the missing-file mutant the first of those (2). The
+    # folder mutant fails its own label alone (1), since no other leg reads a scenario path that is a folder. The older
+    # token-drop cases ("bd-host-policy-1: input read fault" and "input syntax fault") now fail these labels too.
+    ("bd-int-step8: the not-JSON refusal's K5 line names the read detail (Parity.cs notJson anchor)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", 'ParityRun.cs'),
+     b'                log.WriteLine(ScenarioInputUnreadableLine("syntax", "refused " + scenarioPath + ": scenario-invalid: the scenario is not JSON: " + e.Message));\n',
+     b'                log.WriteLine(ScenarioInputUnreadableLine("read", "refused " + scenarioPath + ": scenario-invalid: the scenario is not JSON: " + e.Message));\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity run: a scenario that is not JSON is refused as scenario-invalid, with exit 2 and no trace file ('),
+    ("bd-int-step8: a missing scenario file's K5 read detail is split off by exception type (Parity.cs noScenario anchor)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", 'ParityRun.cs'),
+     b'                log.WriteLine(ScenarioInputUnreadableLine("read", "refused " + scenarioPath + ": the scenario cannot be read: " + scenarioFile.Fault.Message));\n',
+     b'                log.WriteLine(ScenarioInputUnreadableLine(scenarioFile.Fault is FileNotFoundException ? "missing" : "read", "refused " + scenarioPath + ": the scenario cannot be read: " + scenarioFile.Fault.Message));\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity run: a scenario file that does not exist is refused by name, with exit 2 and no trace file ('),
+    ("bd-int-step8: a folder scenario path's K5 read detail is split off by exception type (Parity.cs asFolder anchor)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", 'ParityRun.cs'),
+     b'                log.WriteLine(ScenarioInputUnreadableLine("read", "refused " + scenarioPath + ": the scenario cannot be read: " + scenarioFile.Fault.Message));\n',
+     b'                log.WriteLine(ScenarioInputUnreadableLine(scenarioFile.Fault is UnauthorizedAccessException ? "access" : "read", "refused " + scenarioPath + ": the scenario cannot be read: " + scenarioFile.Fault.Message));\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity run: a scenario path that is a folder (UnauthorizedAccessException) is refused by name, with exit 2 and no trace file ('),
+    # N-bd-host-mute-1-06: a mute label counts the legs that ran. One leg of the absent-Sound label deleted: before, its
+    # label still printed "3 legs as declared" and passed; now 2 legs ran against 3 declared and it fails.
+    ("bd-int-step8: a mute label skips a declared leg (N-bd-host-mute-1-06)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", 'ShimejiWindowSelfTest.Parity.cs'),
+     b'                    leg("on, map", outcome(ParMuteRun(ParMuteDocument(null), "[]", true)), declared("0", "null", ""));\n',
+     b'',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity mute: an absent Sound writes null with Sounds on and no line with Sounds off, with or without an owner map ('),
+    # N-host-policy-1-r4-01, the pack half: ReadScenario labels the pack decode with the shared "dpiScale" the bug used.
+    # The id half is "bd-host-policy-1: input ReadScenario names the id decode as dpiScale again".
+    ("bd-int-step8: ReadScenario names the pack decode as dpiScale again (N-host-policy-1-r4-01 pack half)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", 'ParityRun.cs'),
+     b'                reading = "pack";\n',
+     b'                reading = "dpiScale";\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity policy: a surrogate id or pack value is refused as scenario-invalid naming that value, exit 2, no trace ('),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

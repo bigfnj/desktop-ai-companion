@@ -680,7 +680,7 @@ namespace DesktopAICompanion.Shimeji
                 });
                 shadowed.Animations.Animation = shadowNodes.ToArray();
                 string rootEntry = "\"10\":" + JsonLine.Quote("Par|conf/behaviors.xml|/Mascot[1]/BehaviorList[1]/Behavior[1]");
-                string nextRef = "Par|conf/behaviors.xml|/Mascot[1]/BehaviorList[1]/Behavior[1]/NextBehaviorList[1]/Behavior[1]";
+                string nextRef = "Par|conf/behaviors.xml|/Mascot[1]/BehaviorList[1]/Behavior[1]/NextBehaviorList[1]/BehaviorReference[1]";
                 string offRouteRow = "{\"kind\":\"behaviour\",\"nodeId\":11,\"sourceRefKey\":" + JsonLine.Quote(nextRef)
                     + ",\"emittedValue\":\"next\",\"emittedCache\":\"none\",\"mode\":\"literal\",\"sourceValue\":\"/Next\",\"sourceKind\":\"string\"}";
                 string shadowJson = rows("[" + string.Join(",", complete) + "," + offRouteRow + "]").Replace(rootEntry, rootEntry + ",\"11\":" + JsonLine.Quote(nextRef));
@@ -978,11 +978,16 @@ namespace DesktopAICompanion.Shimeji
                 };
                 Func<string, string, string[]> runMute = ParRunner(root, "Mu", "Go");
                 var faults = new List<string>();
-                Action<string, string, string> leg = (name, got, want) => { if (got != want) faults.Add(name + ": " + got + " (declared " + want + ")"); };
+                // N-bd-host-mute-1-06: each label counts the legs that actually ran and fails when that count is not the one
+                // declared, so "N legs as declared" is a count, never the constant echoed back over a leg that was skipped.
+                int legsRan = 0;
+                Action<string, string, string> leg = (name, got, want) => { legsRan++; if (got != want) faults.Add(name + ": " + got + " (declared " + want + ")"); };
                 Action<string, int> label = (text, legs) =>
                 {
-                    check(faults.Count == 0, text + " (" + (faults.Count == 0 ? legs + " legs as declared" : string.Join("; ", faults)) + ")");
+                    if (legsRan != legs) faults.Add(legsRan + " legs ran, " + legs + " declared");
+                    check(faults.Count == 0, text + " (" + (faults.Count == 0 ? legsRan + " legs as declared" : string.Join("; ", faults)) + ")");
                     faults.Clear();
+                    legsRan = 0;
                 };
                 // Round 5: one try per label. A leg that throws ends that label's legs, adds its exception to that label's
                 // faults and fails that label alone; every later label still runs.
@@ -1169,7 +1174,8 @@ namespace DesktopAICompanion.Shimeji
                         "exit 0, clips written [\"beh\"], log []");
 
                     // The next-reference half (round 6). The host's NextNode carries no binds, so a source next-list entry
-                    // that binds Sound (a Behavior inside a NextBehaviorList, Action= naming what it runs) arrives as an
+                    // that binds Sound (a BehaviorReference inside a NextBehaviorList, Action= naming what it runs; the writer
+                    // keys it /NextBehaviorList[1]/BehaviorReference[n], n its place among them) arrives as an
                     // off-route behaviour node with its own binds, named like the root behaviour whose list it continues into
                     // (the validator requires that name). The engine builds a chosen edge from the edge's own target
                     // (BuildNextBehaviour), never from its name, so the entry's bind is Hush's incoming definition. Go (10)
@@ -1199,7 +1205,7 @@ namespace DesktopAICompanion.Shimeji
                     nextNodes.Find(a => a.Id == 1).Sequence.Next = new[] { new XmlData.NextNode { Value = 10, Probability = 1 }, new XmlData.NextNode { Value = 12, Probability = 1 } };
                     nextBound.Animations.Animation = nextNodes.ToArray();
                     string goEntry = "\"10\":" + JsonLine.Quote("Mu|conf/behaviors.xml|/Mascot[1]/BehaviorList[1]/Behavior[1]");
-                    string nextEntryRef = "Mu|conf/behaviors.xml|/Mascot[1]/BehaviorList[1]/Behavior[1]/NextBehaviorList[1]/Behavior[1]";
+                    string nextEntryRef = "Mu|conf/behaviors.xml|/Mascot[1]/BehaviorList[1]/Behavior[1]/NextBehaviorList[1]/BehaviorReference[1]";
                     string nextRow = "{\"kind\":\"behaviour\",\"nodeId\":11,\"sourceRefKey\":" + JsonLine.Quote(nextEntryRef)
                         + ",\"emittedValue\":\"nxt\",\"emittedCache\":\"none\",\"mode\":\"literal\",\"sourceValue\":\"nxt\",\"sourceKind\":\"string\"}";
                     string nextMap = ParMuteMap("[" + ParMuteRow("own", "own", "string") + "," + nextRow + "]").Replace(goEntry, goEntry
@@ -1310,8 +1316,10 @@ namespace DesktopAICompanion.Shimeji
                 // from it; it stays as the result site's run on an information-forming read and is credited with nothing more.
                 // Round 5 also adds a parity run through ParityRun.Run with the writer site armed: exit 1, footer status error in the trace file,
                 // the parity trace line in the run's log, and the engine's lines those of the same run unarmed (control 11's
-                // synthetic pair for compare.py is these two trace files).
-                group("parity mute: an observation exception at every FC-2 site is retained as MUTE_PROVENANCE_MISSING and the engine's run is unchanged (C18)", 13, () =>
+                // synthetic pair for compare.py is these two trace files). Its 25 legs are two per variant (the defect and the
+                // engine's run) and the run leg; it declared 13, the variants plus the run, which nothing counted until
+                // N-bd-host-mute-1-06.
+                group("parity mute: an observation exception at every FC-2 site is retained as MUTE_PROVENANCE_MISSING and the engine's run is unchanged (C18)", 25, () =>
                 {
                     string[][] c18 =
                     {
@@ -1685,16 +1693,27 @@ namespace DesktopAICompanion.Shimeji
             // writes anything. Read after the trace was opened and outside the run's try, a missing field threw out of the
             // command and left an empty trace; a missing settings ran to a complete trace and a missing mascots to an error
             // footer, neither of which any comparison can use. Each line names what fails: "" when every run is refused.
-            Func<string, Func<string, string>, string, string> refused = (what, edit, reason) =>
+            // Codex Q3: a leg whose refusal is a K5 line anchors on its exact prefix, the token, one space, the detail and
+            // colon-space, then the old line from its start ("refused <path>: ..."), as the policy legs do. It looks at each
+            // whole log line, since a run's log may carry the loaded-engine line first. A substring match passed with the
+            // token missing or its detail wrong. Legs with a null detail write no K5 line and keep their substring match.
+            Func<string, string, string, bool> k5Line = (logText, detail, line) =>
+            {
+                foreach (string logLine in logText.Split('\n'))
+                    if (logLine.StartsWith(ParityRun.ScenarioInputUnreadable + " " + detail + ": " + line, StringComparison.Ordinal)) return true;
+                return false;
+            };
+            Func<string, Func<string, string>, string, string, string> refusedBy = (what, edit, reason, k5Detail) =>
             {
                 scenarioEdit = edit;
                 string[] r;
                 try { r = goCaught(); }
                 finally { scenarioEdit = null; }
                 string want = "refused " + Path.Combine(root, "S-host-" + run + ".json") + ": scenario-invalid: " + reason;
-                return r[0] == "2" && r[1] == null && r[2].Contains(want) ? ""
+                return r[0] == "2" && r[1] == null && (k5Detail == null ? r[2].Contains(want) : k5Line(r[2], k5Detail, want)) ? ""
                     : what + " (exit " + r[0] + ", trace " + (r[1] == null ? "none" : "left with " + r[1].Length + " chars") + ", " + r[2].Trim() + "); ";
             };
+            Func<string, Func<string, string>, string, string> refused = (what, edit, reason) => refusedBy(what, edit, reason, null);
             Func<Action<System.Text.Json.Nodes.JsonObject>, Func<string, string>> edited = change => text =>
             {
                 System.Text.Json.Nodes.JsonObject o = System.Text.Json.Nodes.JsonNode.Parse(text).AsObject();
@@ -1709,7 +1728,7 @@ namespace DesktopAICompanion.Shimeji
             check(missing.Length == 0,
                 "parity run: a scenario missing a field is refused as scenario-invalid by name, with exit 2 and no trace file ("
                 + (missing.Length == 0 ? "id, pack, screens, workArea, dpiScale, ticks, rng, settings, mascots, rng.kind, anchor" : missing.Trim()) + ")");
-            string notJson = refused("not JSON", text => text.Substring(0, text.Length - 1), "the scenario is not JSON: ");
+            string notJson = refusedBy("not JSON", text => text.Substring(0, text.Length - 1), "the scenario is not JSON: ", "syntax");
             check(notJson.Length == 0,
                 "parity run: a scenario that is not JSON is refused as scenario-invalid, with exit 2 and no trace file (" + (notJson.Length == 0 ? "refused" : notJson.Trim()) + ")");
             string unreadable = refused("a screen with no h", edited(o => o["screens"] = System.Text.Json.Nodes.JsonNode.Parse("[{\"x\":0,\"y\":0,\"w\":1280}]")),
@@ -1739,19 +1758,22 @@ namespace DesktopAICompanion.Shimeji
             // no trace file, as a refused map or pack is. Unchecked, a scenario file or pets folder that did not exist, or a
             // trace in a folder that did not exist, threw FileNotFound or DirectoryNotFoundException out of the command,
             // which ended the process as an unhandled exception. Each run here has one bad argument beside good ones.
-            Func<string, string, string, string, string> argument = (scenarioArg, petsArg, traceArg, want) =>
+            // The scenario's own read fault is a K5 line (detail read), matched by k5Line; the other arguments' refusals are
+            // not, and keep their substring match (a null detail).
+            Func<string, string, string, string, string, string> argumentBy = (scenarioArg, petsArg, traceArg, want, k5Detail) =>
             {
                 var argLog = new StringWriter();
                 string exit;
                 try { exit = ParityRun.Run(scenarioArg, petsArg, traceArg, build, argLog).ToString(CultureInfo.InvariantCulture); }
                 catch (Exception e) { exit = "threw"; argLog.Write(e.GetType().Name + ": " + e.Message); }
                 bool traced = File.Exists(traceArg);
-                return exit == "2" && !traced && argLog.ToString().Contains(want) ? ""
+                return exit == "2" && !traced && (k5Detail == null ? argLog.ToString().Contains(want) : k5Line(argLog.ToString(), k5Detail, want)) ? ""
                     : "exit " + exit + ", trace " + (traced ? "left" : "none") + ", " + argLog.ToString().Trim();
             };
+            Func<string, string, string, string, string> argument = (scenarioArg, petsArg, traceArg, want) => argumentBy(scenarioArg, petsArg, traceArg, want, null);
             string absentScenario = Path.Combine(root, "absent-scenario.json");
-            string noScenario = argument(absentScenario, goodPets, Path.Combine(root, "trace-absent-scenario.jsonl"),
-                "refused " + absentScenario + ": the scenario cannot be read: ");
+            string noScenario = argumentBy(absentScenario, goodPets, Path.Combine(root, "trace-absent-scenario.jsonl"),
+                "refused " + absentScenario + ": the scenario cannot be read: ", "read");
             check(noScenario.Length == 0,
                 "parity run: a scenario file that does not exist is refused by name, with exit 2 and no trace file ("
                 + (noScenario.Length == 0 ? "refused" : noScenario) + ")");
@@ -1771,8 +1793,8 @@ namespace DesktopAICompanion.Shimeji
             // here; an empty converter path, below, throws ArgumentException.
             string folderScenario = Path.Combine(root, "scenario-is-a-folder");
             Directory.CreateDirectory(folderScenario);
-            string asFolder = argument(folderScenario, goodPets, Path.Combine(root, "trace-folder-scenario.jsonl"),
-                "refused " + folderScenario + ": the scenario cannot be read: ");
+            string asFolder = argumentBy(folderScenario, goodPets, Path.Combine(root, "trace-folder-scenario.jsonl"),
+                "refused " + folderScenario + ": the scenario cannot be read: ", "read");
             check(asFolder.Length == 0,
                 "parity run: a scenario path that is a folder (UnauthorizedAccessException) is refused by name, with exit 2 and no trace file ("
                 + (asFolder.Length == 0 ? "refused" : asFolder) + ")");
