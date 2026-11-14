@@ -7351,18 +7351,23 @@ Assert-True ($bdcProjects.Count -ge 9 -and $bdcFloors.Count -eq $bdcProjects.Cou
 Assert-True ($bdcLowPins.Count -eq 0) (
     "coordinator: no module project pins a WarningLevel below its target framework's default" +
     $(if ($bdcLowPins.Count) { ' -- ' + ($bdcLowPins -join ', ') } else { '' }))
-# EVERY MODULE ZIP THAT SHIPS A THIRD-PARTY LIBRARY SHIPS ITS LICENCE TEXT (N-audit-1106-017). reminder.zip, remembrance.zip and
-# fortunes.zip carried Ical.Net, NodaTime, NAudio and System.Numerics.Tensors with no licence text beside them, and Fortunes'
-# two ONNX Runtime licence items were conditioned on the package path existing, so a build without it shipped fortunes.zip
-# with no licence and said nothing. For each module THIRD_PARTY_NOTICES.md names a third-party package for, its project
-# (parsed as XML, so a commented-out item does not count) must ship each named file as exactly one None item whose Link
-# element is that name, copied to the output, with NO Condition on the item or on any element that holds it (its ItemGroup,
-# or a Choose's When), so a missing file fails the build instead of being skipped; no None Remove in the project may take it
-# out again (one naming its Include, or one with a wildcard or an item or property reference, which this check cannot
-# resolve and so refuses); a source inside the repository must exist; and the notices' "License files that ship" bullet for
-# that ZIP must name the file. The ItemGroup Condition and the None Remove were found by the round 1 review of the
-# coordinator batch, each skipping a licence in silence while the check passed. WITNESS: Fortunes' ONNX Runtime licence
-# item was read, its Include naming the restored package's LICENSE, and the notices section was found.
+# THE MODULE ZIPS ON A FIXED LIST SHIP THE LICENCE TEXTS OF THE LIBRARIES THEY CARRY (N-audit-1106-017). reminder.zip,
+# remembrance.zip and fortunes.zip carried Ical.Net, NodaTime, NAudio and System.Numerics.Tensors with no licence text beside
+# them, and Fortunes' two ONNX Runtime licence items were conditioned on the package path existing, so a build without it
+# shipped fortunes.zip with no licence and said nothing. The modules and their files are the FIXED list below, Reminder,
+# Remembrance and Fortunes, the three whose licence files ship from their own project file. THIRD_PARTY_NOTICES.md's
+# tables are NOT read for module names, so this check does not cover every module they name: a module added to them is
+# not judged until it is added to the list by hand, and AI Brain (its one component, the Windows SDK projection, is an
+# unresolved item there), PetStudio and AgentBroker (whose notices ship by the routes that file describes) are not judged
+# here. For each module on the list, its project (parsed as XML, so a commented-out item does not count) must ship each
+# named file as exactly one None item whose Link element is that name, copied to the output, with NO Condition on the item
+# or on any element that holds it (its ItemGroup, or a Choose's When), so a missing file fails the build instead of being
+# skipped; no None Remove in the project may take it out again (one naming its Include, or one with a wildcard or an item
+# or property reference, which this check cannot resolve and so refuses); a source inside the repository must exist; and
+# the notices' "License files that ship" bullet for that ZIP must name the file. The ItemGroup Condition and the None
+# Remove were found by the round 1 review of the coordinator batch, each skipping a licence in silence while the check
+# passed. WITNESS: Fortunes' ONNX Runtime licence item was read, its Include naming the restored package's LICENSE, and
+# the notices section was found.
 $bdcLicenceShips = [ordered]@{
     'Reminder'    = @('ICALNET_LICENSE.txt', 'NODATIME_LICENSE.txt', 'NODATIME_NOTICE.txt')
     'Remembrance' = @('NAUDIO_LICENSE.txt', 'TENSORS_LICENSE.txt', 'TENSORS_THIRD_PARTY_NOTICES.txt')
@@ -7410,7 +7415,7 @@ foreach ($bdcModule in $bdcLicenceShips.Keys) {
 Assert-True ($bdcOnnxWitness -and $bdcShipsSection.Length -gt 0) (
     'coordinator: WITNESS the licence scan read Fortunes'' ONNX Runtime licence item and the notices'' License files that ship section')
 Assert-True ($bdcLicenceFaults.Count -eq 0) (
-    "coordinator: every module that ships a third-party library ships its licence text, with no Condition" +
+    "coordinator: each module on the fixed licence list ships the licence texts of the libraries it carries, with no Condition" +
     $(if ($bdcLicenceFaults.Count) { ' -- ' + ($bdcLicenceFaults -join '; ') } else { '' }))
 
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source

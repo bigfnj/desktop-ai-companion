@@ -5715,7 +5715,7 @@ CASES = (
         b"      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>\n"
         b"    </None>\n",
         b"",
-        "coordinator: every module that ships a third-party library ships its licence text, with no Condition",
+        "coordinator: each module on the fixed licence list ships the licence texts of the libraries it carries, with no Condition",
     ),
     (
         "bd-coordinator: a module licence item is skipped in silence when its file is missing (N-audit-1106-017)",
@@ -5723,7 +5723,7 @@ CASES = (
         b'    <None Include="$(PkgMicrosoft_ML_OnnxRuntime)\\LICENSE">\n',
         b'    <None Include="$(PkgMicrosoft_ML_OnnxRuntime)\\LICENSE"\n'
         b"          Condition=\"Exists('$(PkgMicrosoft_ML_OnnxRuntime)\\LICENSE')\">\n",
-        "coordinator: every module that ships a third-party library ships its licence text, with no Condition",
+        "coordinator: each module on the fixed licence list ships the licence texts of the libraries it carries, with no Condition",
     ),
     # Round 2 (the round 1 review's finding): a licence item is still skipped in silence when the ItemGroup that holds
     # it carries the Condition, or when a later None Remove takes it out again, by its own path or by a wildcard the
@@ -5735,7 +5735,7 @@ CASES = (
         b'    <None Include="..\\..\\packaging\\licenses\\ICALNET_LICENSE.txt">\n',
         b"  <ItemGroup Condition=\"Exists('$(BdcNoSuchProperty)')\">\n"
         b'    <None Include="..\\..\\packaging\\licenses\\ICALNET_LICENSE.txt">\n',
-        "coordinator: every module that ships a third-party library ships its licence text, with no Condition"
+        "coordinator: each module on the fixed licence list ships the licence texts of the libraries it carries, with no Condition"
         " -- Reminder ICALNET_LICENSE.txt: skipped in silence under a Condition on its ItemGroup",
     ),
     (
@@ -5752,7 +5752,7 @@ CASES = (
         b"  <ItemGroup>\n"
         b'    <None Remove="..\\..\\packaging\\licenses\\TENSORS_LICENSE.txt" />\n'
         b"  </ItemGroup>\n",
-        "coordinator: every module that ships a third-party library ships its licence text, with no Condition"
+        "coordinator: each module on the fixed licence list ships the licence texts of the libraries it carries, with no Condition"
         " -- Remembrance TENSORS_LICENSE.txt: a None Remove can take it out again (",
     ),
     (
@@ -5769,7 +5769,7 @@ CASES = (
         b"  <ItemGroup>\n"
         b'    <None Remove="..\\..\\packaging\\licenses\\*.txt" />\n'
         b"  </ItemGroup>\n",
-        "coordinator: every module that ships a third-party library ships its licence text, with no Condition"
+        "coordinator: each module on the fixed licence list ships the licence texts of the libraries it carries, with no Condition"
         " -- Fortunes ONNXRUNTIME_LICENSE.txt: a None Remove can take it out again (",
     ),
 )
