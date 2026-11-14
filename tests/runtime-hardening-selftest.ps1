@@ -7363,14 +7363,20 @@ Assert-True ($bdcLowPins.Count -eq 0) (
 # named file as exactly one None item whose Link element is that name, copied to the output, with NO Condition on the item,
 # on any element that holds it (its ItemGroup, or a Choose's When) or on any element inside it (its CopyToOutputDirectory
 # or Link metadata among them: MSBuild drops metadata whose Condition is false, so the item falls back to not copied, or
-# to no Link, while the element still reads as present), so a missing file fails the build instead of being
-# skipped; no None Remove in the project may take it out again (one naming its Include, or one with a wildcard or an item
-# or property reference, which this check cannot resolve and so refuses); a source inside the repository must exist; and
-# the notices' "License files that ship" bullet for that ZIP must name the file. The ItemGroup Condition and the None
-# Remove were found by the round 1 review of the coordinator batch, each skipping a licence in silence while the check
-# passed, and the Condition on a metadata element by the round 2 review (the round 1 block's exact-text match refused it,
-# and the round 2 XML rewrite let it through). WITNESS: Fortunes' ONNX Runtime licence item was read, its Include naming the restored package's LICENSE, and
-# the notices section was found.
+# to no Link, while the element still reads as present), so a missing file fails the build instead of being skipped.
+# The item may not sit inside a Choose at all, since this check cannot evaluate which branch is taken (an item in the
+# Otherwise of a Choose whose When is true is dropped), and it may carry no Exclude. No None Remove and no None Update in
+# the project may name it: one with a wildcard or an item, property or metadata reference, or one whose path cannot be
+# resolved, is refused because this check cannot resolve it, and any other is compared with the item's Include as MSBuild
+# matches them (%XX escapes decoded, "." and ".." resolved against the project folder, slashes one way, case ignored, and
+# the item type None matched in any case), so an equivalent spelling cannot slip past. A source inside the repository
+# must exist, and the notices' "License files that ship" bullet for that ZIP must name the file. The ItemGroup Condition
+# and the None Remove were found by the round 1 review of the coordinator batch, each skipping a licence in silence while
+# the check passed. The round 2 review found the Condition on a metadata element (the round 1 block's exact-text match
+# refused it, and the round 2 XML rewrite let it through), the Choose, the None Update, the Exclude and the equivalent
+# path spelling; MSBuild, run on a scratch project, drops the item or sets it to Never in each of those shapes.
+# WITNESS: Fortunes' ONNX Runtime licence item was read, its Include naming the restored package's LICENSE, and the
+# notices section was found.
 $bdcLicenceShips = [ordered]@{
     'Reminder'    = @('ICALNET_LICENSE.txt', 'NODATIME_LICENSE.txt', 'NODATIME_NOTICE.txt')
     'Remembrance' = @('NAUDIO_LICENSE.txt', 'TENSORS_LICENSE.txt', 'TENSORS_THIRD_PARTY_NOTICES.txt')
@@ -7380,12 +7386,32 @@ $bdcNotices = Get-Content -LiteralPath (Join-Path $repoRoot 'THIRD_PARTY_NOTICES
 $bdcShipsSection = [regex]::Match($bdcNotices, '(?s)\n### License files that ship\r?\n(.*?)\r?\n## ').Groups[1].Value
 $bdcLicenceFaults = @()
 $bdcOnnxWitness = $false
+# A path as MSBuild matches it: %XX escapes decoded, joined to the project folder, "." and ".." resolved, slashes one way.
+# $null when GetFullPath refuses it, and the caller then treats it as naming the item.
+$bdcMsbuildPath = {
+    param([string] $bdcDir, [string] $bdcSpec)
+    $bdcPlain = [regex]::Replace($bdcSpec, '%([0-9A-Fa-f]{2})', { param($bdcEscape) [string] [char] [Convert]::ToInt32($bdcEscape.Groups[1].Value, 16) })
+    try { return [System.IO.Path]::GetFullPath([System.IO.Path]::Combine($bdcDir, $bdcPlain.Replace('/', '\'))) } catch { return $null }
+}
+# Whether a None Remove or Update spec can name the item: a wildcard or an item, property or metadata reference, which this
+# check cannot resolve; a path it cannot resolve; or the item's own Include as MSBuild matches it, case ignored.
+$bdcNamesItem = {
+    param([string] $bdcDir, [string] $bdcSpec, [string] $bdcInclude)
+    if ($bdcSpec -match '[*?]|[$@%]\(') { return $true }
+    $bdcSpecPath = & $bdcMsbuildPath $bdcDir $bdcSpec
+    $bdcIncludePath = & $bdcMsbuildPath $bdcDir $bdcInclude
+    return ($null -eq $bdcSpecPath -or $null -eq $bdcIncludePath -or $bdcSpecPath -ieq $bdcIncludePath)
+}
 foreach ($bdcModule in $bdcLicenceShips.Keys) {
     $bdcProjectPath = Join-Path $repoRoot ('modules\' + $bdcModule + '\' + $bdcModule + '.csproj')
+    $bdcProjectDir = Split-Path -Parent $bdcProjectPath
     $bdcProjectDoc = New-Object System.Xml.XmlDocument
     $bdcProjectDoc.LoadXml((Get-Content -LiteralPath $bdcProjectPath -Raw))
-    $bdcNones = @($bdcProjectDoc.GetElementsByTagName('None'))
+    # MSBuild matches an item type in any case, so a <none Remove> takes a None item out too (measured).
+    $bdcNones = @($bdcProjectDoc.SelectNodes('//*') | Where-Object { $_.LocalName -ieq 'None' })
     $bdcRemoves = @($bdcNones | Where-Object { $_.HasAttribute('Remove') } | ForEach-Object { $_.GetAttribute('Remove') -split ';' } |
+        ForEach-Object { $_.Trim() } | Where-Object { $_.Length -gt 0 })
+    $bdcUpdates = @($bdcNones | Where-Object { $_.HasAttribute('Update') } | ForEach-Object { $_.GetAttribute('Update') -split ';' } |
         ForEach-Object { $_.Trim() } | Where-Object { $_.Length -gt 0 })
     $bdcZip = '`' + $bdcModule.ToLowerInvariant() + '.zip`:'
     $bdcBullet = [regex]::Match($bdcShipsSection, '(?s)\n- ' + [regex]::Escape($bdcZip) + '(.*?)(?=\r?\n- |\r?\n\r?\n|\z)').Groups[1].Value
@@ -7404,8 +7430,15 @@ foreach ($bdcModule in $bdcLicenceShips.Keys) {
         if ($bdcHolders.Count) { $bdcLicenceFaults += ($bdcModule + ' ' + $bdcName + ': skipped in silence under a Condition on its ' + ($bdcHolders -join ' and its ')) }
         $bdcInner = @($bdcItem.SelectNodes('.//*') | Where-Object { $_.HasAttribute('Condition') } | ForEach-Object { $_.LocalName })
         if ($bdcInner.Count) { $bdcLicenceFaults += ($bdcModule + ' ' + $bdcName + ': a Condition on its ' + ($bdcInner -join ' and its ') + ' metadata can stop it shipping in silence') }
-        $bdcRemovedBy = @($bdcRemoves | Where-Object { ($_ -replace '/', '\') -ieq ($bdcInclude -replace '/', '\') -or $_ -match '[*?]|[$@%]\(' })
+        $bdcChooses = @(for ($bdcUp = $bdcItem.ParentNode; $bdcUp -is [System.Xml.XmlElement]; $bdcUp = $bdcUp.ParentNode) {
+            if ($bdcUp.LocalName -ieq 'Choose') { $bdcUp.LocalName }
+        })
+        if ($bdcChooses.Count) { $bdcLicenceFaults += ($bdcModule + ' ' + $bdcName + ': inside a Choose, whose branch this check cannot evaluate') }
+        if ($bdcItem.HasAttribute('Exclude')) { $bdcLicenceFaults += ($bdcModule + ' ' + $bdcName + ': an Exclude on it can drop it (' + $bdcItem.GetAttribute('Exclude') + ')') }
+        $bdcRemovedBy = @($bdcRemoves | Where-Object { & $bdcNamesItem $bdcProjectDir $_ $bdcInclude })
         if ($bdcRemovedBy.Count) { $bdcLicenceFaults += ($bdcModule + ' ' + $bdcName + ': a None Remove can take it out again (' + ($bdcRemovedBy -join ';') + ')') }
+        $bdcUpdatedBy = @($bdcUpdates | Where-Object { & $bdcNamesItem $bdcProjectDir $_ $bdcInclude })
+        if ($bdcUpdatedBy.Count) { $bdcLicenceFaults += ($bdcModule + ' ' + $bdcName + ': a None Update can change it (' + ($bdcUpdatedBy -join ';') + ')') }
         if (@($bdcItem.ChildNodes | Where-Object { $_.LocalName -ceq 'CopyToOutputDirectory' -and $_.InnerText.Trim() -cmatch '^(PreserveNewest|Always)$' }).Count -eq 0) {
             $bdcLicenceFaults += ($bdcModule + ' ' + $bdcName + ': not copied to the output')
         }
