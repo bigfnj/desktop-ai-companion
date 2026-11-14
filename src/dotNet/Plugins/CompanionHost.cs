@@ -1385,8 +1385,9 @@ namespace DesktopAICompanion.Plugins
         /// AtomicFile and a damaged file is kept. Save used File.WriteAllText, which truncates the file in place, so a failed
         /// or interrupted save left it half-written; and Load swallowed a read failure and returned an empty dictionary, so the
         /// next Save overwrote the damaged file and every setting of the module was gone, with no line in any log. Now a file
-        /// that exists but cannot be read or parsed is moved aside to settings.json.corrupt-&lt;utc&gt; (and logged) before the
-        /// first save writes a new one; a handle whose load failed merges only the keys it Set over a file that reads as
+        /// that exists but does not parse is moved aside to settings.json.corrupt-&lt;utc&gt; (and logged) before the first save
+        /// writes a new one; a file that cannot be opened is left where it is and the save refused (H-6); a handle whose load
+        /// failed merges only the keys it Set over a file that reads as
         /// healthy again at save time (H-10), and logs that once; and a save lands whole or not at all. Two handles are still
         /// two dictionaries: outside that repair, the last Save wins. Internal for --module-host-selftest.
         ///
@@ -1469,7 +1470,7 @@ namespace DesktopAICompanion.Plugins
                         }
                         bool written = Write(_path, JsonSerializer.Serialize(_d));
                         // Only a write that landed lifts the guard (H-1): after a set-aside whose write failed, a healthy file
-                        // restored in the meantime must still be refused, not overwritten by this handle's partial values.
+                        // restored in the meantime is merged over by the next save (H-10), never replaced by this handle's values.
                         if (written) _loadFailed = false;
                         return written;
                     }
@@ -1515,7 +1516,10 @@ namespace DesktopAICompanion.Plugins
                 catch (UnauthorizedAccessException) { state = FileState.CannotTell; return null; }
                 catch { state = FileState.CannotTell; return null; }
                 try { var parsed = Parse(json); state = FileState.Healthy; return parsed; }
-                catch { state = FileState.Damaged; return null; }
+                // The lead's ruling R2-Q1: only content the JSON reader rejects is damaged. Any other exception while parsing (a
+                // resource or serializer failure) says nothing about the content, so it is CannotTell: refuse, move nothing.
+                catch (JsonException) { state = FileState.Damaged; return null; }
+                catch { state = FileState.CannotTell; return null; }
             }
             private static Dictionary<string, string> Parse(string json)
             {

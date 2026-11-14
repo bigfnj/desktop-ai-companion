@@ -1202,6 +1202,20 @@ CASES = [
      "            res[FieldBorderKey] = LightFieldBorder;\n"
      "            Implicit(res, typeof(CheckBox), new Setter(FrameworkElement.FocusVisualStyleProperty, new Style()));\n",
      "wpf", "host-a11y: focus: WITNESS the light theme keeps the stock focus cue"),
+    # Round 3, R2-1: an explicit null-valued setter also replaces the stock cue; the witness judges the setter's property.
+    ("host-a11y: R2-1 the light theme takes an explicit null cue", WPFTHEME,
+     "            res[FieldBorderKey] = LightFieldBorder;\n",
+     "            res[FieldBorderKey] = LightFieldBorder;\n"
+     "            Implicit(res, typeof(CheckBox), new Setter(FrameworkElement.FocusVisualStyleProperty, null));\n",
+     "wpf", "host-a11y: focus: WITNESS the light theme keeps the stock focus cue"),
+    # Round 3, R2-2: a trigger-only cue (no ordinary setter), which only the witness's trigger scan can see. The control
+    # proving that branch is live (this mutant plus the scan removed: the witness passes) is a hand run in the lane report.
+    ("host-a11y: R2-2 the light theme takes a trigger-only cue", WPFTHEME,
+     "            res[FieldBorderKey] = LightFieldBorder;\n",
+     "            res[FieldBorderKey] = LightFieldBorder;\n"
+     "            { var trigged = new Style(typeof(CheckBox)); var onLabel = new Trigger { Property = ContentControl.HasContentProperty, Value = true }; "
+     "onLabel.Setters.Add(new Setter(FrameworkElement.FocusVisualStyleProperty, BuildDarkFocusVisual())); trigged.Triggers.Add(onLabel); res[typeof(CheckBox)] = trigged; }\n",
+     "wpf", "host-a11y: focus: WITNESS the light theme keeps the stock focus cue"),
     # H-14: a whitespace-only Detail is a detail again.
     ("host-a11y: H-14 the detail is not trimmed", OPTIONSWINDOW,
      '                    string detailText = (it.Detail ?? "").Trim();\n',

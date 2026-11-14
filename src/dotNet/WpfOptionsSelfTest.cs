@@ -3206,11 +3206,16 @@ namespace DesktopAICompanion
             return CueRectangleOf(cue, out described);
         }
 
-        /// <summary>Whether a style sets FocusVisualStyle at all, by a setter or by a trigger's setter.</summary>
+        /// <summary>Whether a style sets FocusVisualStyle at all, by a setter or by a trigger's setter. Judged by the setter's
+        /// PROPERTY, whatever its value (lane H round 3, R2-1): an explicit null-valued setter replaces the stock cue too.</summary>
         private static bool SetsFocusCue(System.Windows.Style style)
         {
             if (style == null) return false;
-            if (SetterValue(style, System.Windows.FrameworkElement.FocusVisualStyleProperty) != null) return true;
+            foreach (System.Windows.SetterBase b in style.Setters)
+            {
+                var s = b as System.Windows.Setter;
+                if (s != null && s.Property == System.Windows.FrameworkElement.FocusVisualStyleProperty) return true;
+            }
             foreach (System.Windows.TriggerBase trigger in style.Triggers)
             {
                 var plain = trigger as System.Windows.Trigger;

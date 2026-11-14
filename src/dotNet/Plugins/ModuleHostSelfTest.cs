@@ -244,9 +244,18 @@ namespace DesktopAICompanion.Plugins
                 stale.Set("volume", "1");
                 bool staleSaved = stale.Save();
                 var againNow = new CompanionHost.ModuleSettings(again);
+                // R2-4: the SAME repaired handle now holds the merged values, so its next save keeps the key it never Set.
+                string themeThroughHandle = stale.Get("theme", "<gone>");
+                stale.Set("size", "2");
+                bool staleSavedAgain = stale.Save();
+                var againLater = new CompanionHost.ModuleSettings(again);
                 ok &= Check(sb, "host-a11y: settings: a failed-load handle merges its own keys over a file that reads healthy again (saved " + staleSaved +
-                    ", theme " + againNow.Get("theme", "<gone>") + ", volume " + againNow.Get("volume", "<gone>") + ", " + Directory.GetFiles(againDir).Length + " file(s))",
-                    staleSaved && againNow.Get("theme", "") == "dark" && againNow.Get("volume", "") == "1" && Directory.GetFiles(againDir).Length == 1);
+                    ", theme " + againNow.Get("theme", "<gone>") + ", volume " + againNow.Get("volume", "<gone>") + ", " + Directory.GetFiles(againDir).Length +
+                    " file(s); the same handle then reads theme " + themeThroughHandle + " and saves again " + staleSavedAgain + ", keeping theme " +
+                    againLater.Get("theme", "<gone>") + ")",
+                    staleSaved && againNow.Get("theme", "") == "dark" && againNow.Get("volume", "") == "1" && Directory.GetFiles(againDir).Length == 1 &&
+                    themeThroughHandle == "dark" && staleSavedAgain && againLater.Get("theme", "") == "dark" &&
+                    againLater.Get("volume", "") == "1" && againLater.Get("size", "") == "2");
 
                 // ---- round 2 (X1's audit H-r1, the lead's 003-H-round2.md) ----
                 // H-1: the damaged file was set aside and the replacement write failed; a healthy file restored before the
@@ -281,23 +290,30 @@ namespace DesktopAICompanion.Plugins
                 firstHandle.Set("first", "1");
                 secondHandle.Set("second", "2");
                 System.Threading.Tasks.Task<bool> secondSave = null;
-                bool secondDoneInside = false;
+                bool secondDoneInside = false, secondStarted = false;
                 int seamCalls = 0;
+                var secondAboutToSave = new System.Threading.ManualResetEventSlim(false);
                 CompanionHost.ModuleSettings.BetweenCheckAndWriteForSelfTest = delegate
                 {
                     if (System.Threading.Interlocked.Increment(ref seamCalls) != 1) return;   // the first handle's own pass only
-                    secondSave = System.Threading.Tasks.Task.Run(() => secondHandle.Save());
+                    // R2-3: the second handle signals right before it calls Save, and so before it asks for the path's lock;
+                    // the 1.5 s window starts only once that signal is seen, so a slow pool cannot pass "not started" off as
+                    // "waiting". What remains assumed is that an unblocked Save finishes within those 1.5 s.
+                    secondSave = System.Threading.Tasks.Task.Run(() => { secondAboutToSave.Set(); return secondHandle.Save(); });
+                    secondStarted = secondAboutToSave.Wait(10000);
                     secondDoneInside = secondSave.Wait(1500);
                 };
                 bool firstSavedRace;
                 try { firstSavedRace = firstHandle.Save(); }
                 finally { CompanionHost.ModuleSettings.BetweenCheckAndWriteForSelfTest = null; }
                 bool secondResult = secondSave != null && secondSave.Wait(10000) && secondSave.Result;
+                secondAboutToSave.Dispose();
                 int raceKept = Directory.GetFiles(raceDir, "settings.json.corrupt-*").Length;
                 var raceNow = new CompanionHost.ModuleSettings(race);
                 ok &= Check(sb, "host-a11y: settings: two handles saving the same damaged file are serialized (the second waits, then merges over the first's file; " +
-                    "second finished inside the first's save " + secondDoneInside + ", second saved " + secondResult + ", kept " + raceKept + ")",
-                    firstSavedRace && secondSave != null && !secondDoneInside && secondResult &&
+                    "second started before the window " + secondStarted + ", finished inside the first's save " + secondDoneInside +
+                    ", second saved " + secondResult + ", kept " + raceKept + "; assumes an unblocked Save ends within 1.5 s)",
+                    firstSavedRace && secondSave != null && secondStarted && !secondDoneInside && secondResult &&
                     raceNow.Get("first", "") == "1" && raceNow.Get("second", "") == "2" && raceKept == 1);
 
                 // H-3: a settings.json this account may not read is a failed load, not an empty one. Denied on the FOLDER,

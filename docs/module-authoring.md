@@ -321,7 +321,8 @@ deliberately preserving the data directory.
 Settings: use the host's `IModuleSettings` (`GetSettings`) for flat keys behind a pane — the host persists it
 as cleartext JSON in your data folder. Hosts built after 2026-11-14 write it atomically (a temporary file, then a
 replace) and keep a settings.json that does not parse as `settings.json.corrupt-<utc>`; older hosts used a plain write.
-There is no cross-process lock, and two `GetSettings` handles are two dictionaries, so the last `Save` wins. It does NOT encrypt
+There is no cross-process lock, and two `GetSettings` handles are two dictionaries, so the last `Save` wins, except that a
+handle whose load failed merges only the keys it Set over a file that reads healthy again by save time. It does NOT encrypt
 `Secret` fields: that kind only controls how a value is displayed (write-only, "leave blank to keep it"), and the
 store never sees the schema. Keep a key in DPAPI yourself, as AI Brain does (`IModuleSettings` in
 `PluginApi.cs` says so); the Claude Code sign-in token is the one secret the host keeps for you, since host 1.8.0
