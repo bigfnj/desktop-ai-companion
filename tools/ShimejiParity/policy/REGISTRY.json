@@ -1,0 +1,53 @@
+{
+ "cases": [
+  {
+   "case": "cap-at",
+   "id": "birth-cap",
+   "legacyScenarioSha256": "b607cd71bc18b41e826991c9a47ae5935da425f3c976d75cce0463d06a95c1a8",
+   "pack": "packs/breed-cap",
+   "packSha256": "711d36cffa52f016a4eb880e69e28f4fa5afe09253c0a21419701dc1e6da8065",
+   "qualificationStatus": "SPECIFICATION-AND-FRESH-PAIRED-WITNESSES-REQUIRED",
+   "scenarioId": "S-cap-at-01",
+   "scenarioSha256": "4914fc647a79d33b698b68dbc87a55edef1c196e4a418b68494ef2554aaa5f6f",
+   "ticks": 20
+  },
+  {
+   "case": "window-carry-off",
+   "id": "window-off-plays",
+   "legacyScenarioSha256": "bea46118b95ee1dada54c31f6f4a1eb0c5ee3f4fc26e0fabbe3a1f3e588c18bf",
+   "pack": "packs/window-carry",
+   "packSha256": "f5d4ac604929126542b75e53040c162fab8afcd6e81951f3daf6d47d9ff429e0",
+   "qualificationStatus": "SPECIFICATION-AND-FRESH-PAIRED-WITNESSES-REQUIRED",
+   "scenarioId": "S-window-carry-off-01",
+   "scenarioSha256": "5471944eaa634fcb75857d4790c18fa361db4e9954c1b9de367fd9d2c1d639c6",
+   "ticks": 90
+  },
+  {
+   "case": "window-throw-off",
+   "id": "window-off-plays",
+   "legacyScenarioSha256": "b94a8dbc33e4b0d52eaaa580fa87ea136f11400429a33784eb6a897e98910394",
+   "pack": "packs/window-throw",
+   "packSha256": "8b0d4b77a722ed515e2e94fae0f99c2ec2c1d262d211cbf5a9611c8a8673ac9a",
+   "qualificationStatus": "SPECIFICATION-AND-FRESH-PAIRED-WITNESSES-REQUIRED",
+   "scenarioId": "S-window-throw-off-01",
+   "scenarioSha256": "edc9dec2edd0a9e8edad09a8a0518fd494944195d13d7793daf57ba7ffb779e9",
+   "ticks": 20
+  },
+  {
+   "case": "window-minimize-off",
+   "id": "window-off-plays",
+   "legacyScenarioSha256": "b80512bb2db2e9c463f869d1e83951c0be2232fffd64f8693a0557d12ae0104e",
+   "pack": "packs/window-minimize",
+   "packSha256": "28785fabfddcb1e6c466cdbcb0af946deb36168d7b1d071168211f1d02f42074",
+   "qualificationStatus": "SPECIFICATION-AND-FRESH-PAIRED-WITNESSES-REQUIRED",
+   "scenarioId": "S-window-minimize-off-01",
+   "scenarioSha256": "1477c1718d24a1b372f36ca26b9b87967b9e0345fa21f081f7876fb94b3ae41d",
+   "ticks": 20
+  }
+ ],
+ "generatorSha256": "d47781d0a3ae9342e499466fdcc8609f26a0542d425cea3585c170094b1b96f8",
+ "registry": "shimeji-parity-policy/1",
+ "schema": "shimeji-parity-policy-registry/1",
+ "sourceRevision": "35d9d1d05161a22fe4e95b4f2b4455d1819ca98f",
+ "status": "SPECIFICATION-ONLY; NOT-QUALIFICATION-EVIDENCE"
+}

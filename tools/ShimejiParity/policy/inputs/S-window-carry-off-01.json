@@ -1,0 +1,107 @@
+{
+ "activeWindow": [
+  {
+   "rect": [
+    400,
+    380,
+    640,
+    680
+   ],
+   "tick": 0,
+   "title": "Scratch",
+   "visible": true
+  }
+ ],
+ "description": "window actions OFF (Throwing on): WalkWithIE plays as a Move to x 500 and the window never moves (policy:window-off-plays)",
+ "dpiScale": 1.0,
+ "id": "S-window-carry-off-01",
+ "input": [
+  {
+   "cursor": [
+    100,
+    100
+   ],
+   "tick": 0
+  }
+ ],
+ "mascots": [
+  {
+   "anchor": [
+    640,
+    680
+   ],
+   "behavior": "Carry",
+   "imageSet": "Alpha",
+   "lookRight": false,
+   "sid": "m1"
+  }
+ ],
+ "pack": "packs/window-carry",
+ "policy": {
+  "case": "window-carry-off",
+  "id": "window-off-plays",
+  "registry": "shimeji-parity-policy/1"
+ },
+ "rng": {
+  "kind": "tape",
+  "values": [
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5
+  ]
+ },
+ "schema": "shimeji-parity-scenario/2",
+ "screens": [
+  {
+   "h": 720,
+   "w": 1280,
+   "x": 0,
+   "y": 0
+  }
+ ],
+ "settings": {
+  "breeding": true,
+  "multiscreen": false,
+  "sounds": false,
+  "throwing": true,
+  "transformation": true,
+  "transients": true,
+  "windowActions": false
+ },
+ "ticks": 90,
+ "workArea": {
+  "h": 680,
+  "w": 1280,
+  "x": 0,
+  "y": 0
+ }
+}

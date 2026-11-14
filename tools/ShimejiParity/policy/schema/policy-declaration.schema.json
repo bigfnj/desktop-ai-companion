@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:shimeji-parity:policy-declaration:1",
+  "title": "Scenario/2 policy declaration",
+  "description": "Schema for the value of scenario/2 policy. Recognition is not qualification. Registry and trace predicates must also pass.",
+  "type": "object",
+  "required": ["registry", "id", "case"],
+  "additionalProperties": false,
+  "properties": {
+    "registry": {"const": "shimeji-parity-policy/1"},
+    "id": {"enum": ["birth-cap", "window-off-plays"]},
+    "case": {"enum": ["cap-at", "window-carry-off", "window-throw-off", "window-minimize-off"]}
+  },
+  "oneOf": [
+    {"properties": {"id": {"const": "birth-cap"}, "case": {"const": "cap-at"}}},
+    {"properties": {"id": {"const": "window-off-plays"}, "case": {"const": "window-carry-off"}}},
+    {"properties": {"id": {"const": "window-off-plays"}, "case": {"const": "window-throw-off"}}},
+    {"properties": {"id": {"const": "window-off-plays"}, "case": {"const": "window-minimize-off"}}}
+  ],
+  "examples": [
+    {"registry": "shimeji-parity-policy/1", "id": "birth-cap", "case": "cap-at"},
+    {"registry": "shimeji-parity-policy/1", "id": "window-off-plays", "case": "window-carry-off"},
+    {"registry": "shimeji-parity-policy/1", "id": "window-off-plays", "case": "window-throw-off"},
+    {"registry": "shimeji-parity-policy/1", "id": "window-off-plays", "case": "window-minimize-off"}
+  ]
+}

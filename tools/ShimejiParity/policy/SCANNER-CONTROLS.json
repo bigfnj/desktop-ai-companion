@@ -1,0 +1,302 @@
+{
+  "scope": "Hand-derived future scanner controls only; no scanner implementation/runtime proof.",
+  "vectors": [
+    {
+      "name": "before-marker-NaN",
+      "inputHex": "7b2261223a4e614e2c22736368656d61223a227368696d656a692d7061726974792d7363656e6172696f2f32227d",
+      "candidate": false,
+      "stopReason": "lexical",
+      "offset": 5,
+      "derivation": "At byte 5, N cannot begin a JSON value; no marker has completed.",
+      "status": "normative expected facts; not executed by this proposal"
+    },
+    {
+      "name": "before-marker-Infinity",
+      "inputHex": "7b2261223a496e66696e6974792c22736368656d61223a227368696d656a692d7061726974792d7363656e6172696f2f32227d",
+      "candidate": false,
+      "stopReason": "lexical",
+      "offset": 5,
+      "derivation": "At byte 5, I cannot begin a JSON value; no marker has completed.",
+      "status": "normative expected facts; not executed by this proposal"
+    },
+    {
+      "name": "before-marker--Infinity",
+      "inputHex": "7b2261223a2d496e66696e6974792c22736368656d61223a227368696d656a692d7061726974792d7363656e6172696f2f32227d",
+      "candidate": false,
+      "stopReason": "lexical",
+      "offset": 6,
+      "derivation": "The minus at byte 5 can begin a number, but I at byte 6 cannot continue it.",
+      "status": "normative expected facts; not executed by this proposal"
+    },
+    {
+      "name": "before-marker-01",
+      "inputHex": "7b2261223a30312c22736368656d61223a227368696d656a692d7061726974792d7363656e6172696f2f32227d",
+      "candidate": false,
+      "stopReason": "lexical",
+      "offset": 6,
+      "derivation": "Zero at byte 5 forms the permitted leading-zero number; the second digit at byte 6 is not a permitted continuation.",
+      "status": "normative expected facts; not executed by this proposal"
+    },
+    {
+      "name": "after-marker-minus-infinity",
+      "inputHex": "7b22736368656d61223a227368696d656a692d7061726974792d7363656e6172696f2f32222c202261223a2d496e66696e6974797d",
+      "candidate": true,
+      "stopReason": "lexical",
+      "offset": 44,
+      "derivation": "Completed marker survives later lexical error.",
+      "status": "normative expected facts; not executed by this proposal"
+    },
+    {
+      "name": "after-root-invalid-raw-byte",
+      "inputHex": "7b22736368656d61223a227368696d656a692d7061726974792d7363656e6172696f2f32227dff",
+      "candidate": true,
+      "stopReason": "utf8",
+      "offset": 38,
+      "derivation": "Decode the next scalar before trailing-root lexical classification.",
+      "status": "normative expected facts; not executed by this proposal"
+    },
+    {
+      "name": "after-root-nonascii-scalar",
+      "inputHex": "7b22736368656d61223a227368696d656a692d7061726974792d7363656e6172696f2f32227dc2a0",
+      "candidate": true,
+      "stopReason": "lexical",
+      "offset": 38,
+      "derivation": "Decode the next scalar before trailing-root lexical classification.",
+      "status": "normative expected facts; not executed by this proposal"
+    },
+    {
+      "name": "after-root-ascii-junk",
+      "inputHex": "7b22736368656d61223a227368696d656a692d7061726974792d7363656e6172696f2f32227d78",
+      "candidate": true,
+      "stopReason": "lexical",
+      "offset": 38,
+      "derivation": "Decode the next scalar before trailing-root lexical classification.",
+      "status": "normative expected facts; not executed by this proposal"
+    },
+    {
+      "name": "complete-with-trailing-whitespace",
+      "inputHex": "7b22736368656d61223a227368696d656a692d7061726974792d7363656e6172696f2f32227d200d0a09",
+      "candidate": true,
+      "stopReason": "none",
+      "offset": 42,
+      "derivation": "Complete JSON plus allowed whitespace, absolute offset includes whitespace.",
+      "status": "normative expected facts; not executed by this proposal"
+    },
+    {
+      "name": "completed-marker-before-eof",
+      "inputHex": "7b22736368656d61223a227368696d656a692d7061726974792d7363656e6172696f2f3222",
+      "candidate": true,
+      "stopReason": "eof",
+      "offset": 37,
+      "derivation": "Completed value token is enough even though root is incomplete.",
+      "status": "normative expected facts; not executed by this proposal"
+    },
+    {
+      "name": "unfinished-marker-string",
+      "inputHex": "7b22736368656d61223a227368696d656a692d7061726974792d7363656e6172696f2f32",
+      "candidate": false,
+      "stopReason": "eof",
+      "offset": 36,
+      "derivation": "No completed STRING value token.",
+      "status": "normative expected facts; not executed by this proposal"
+    },
+    {
+      "name": "six-raw-byte-unpaired-root-name",
+      "inputHex": "7b225c7544383030223a312c22736368656d61223a227368696d656a692d7061726974792d7363656e6172696f2f32227d",
+      "candidate": true,
+      "stopReason": "none",
+      "offset": 49,
+      "derivation": "Code-unit name unequal to schema, no scalar-decoding stop.",
+      "status": "normative expected facts; not executed by this proposal"
+    },
+    {
+      "name": "twenty-five-raw-byte-unpaired-marker-value",
+      "inputHex": "7b22736368656d61223a227368696d656a692d7061726974792d7363656e5c7544383030227d",
+      "candidate": false,
+      "stopReason": "none",
+      "offset": 38,
+      "derivation": "Equal raw length is deliberate; decoded value is not the ASCII marker.",
+      "status": "normative expected facts; not executed by this proposal"
+    },
+    {
+      "name": "before-marker-raw-ff",
+      "inputHex": "7b22ff223a312c22736368656d61223a227368696d656a692d7061726974792d7363656e6172696f2f32227d",
+      "candidate": false,
+      "stopReason": "utf8",
+      "offset": 2,
+      "derivation": "The FF byte at 2 can begin no well-formed UTF-8 sequence; its first maximal subpart starts at 2, before any marker.",
+      "status": "normative expected facts; not executed by this proposal"
+    },
+    {
+      "name": "before-marker-encoded-surrogate",
+      "inputHex": "7b22eda080223a312c22736368656d61223a227368696d656a692d7061726974792d7363656e6172696f2f32227d",
+      "candidate": false,
+      "stopReason": "utf8",
+      "offset": 2,
+      "derivation": "The first maximal subpart of ED A0 80 starts at ED at byte 2; encoded surrogate scalars are ill-formed UTF-8, so no later marker is discovered.",
+      "status": "normative expected facts; not executed by this proposal"
+    },
+    {
+      "name": "before-marker-overlong",
+      "inputHex": "7b22c0af223a312c22736368656d61223a227368696d656a692d7061726974792d7363656e6172696f2f32227d",
+      "candidate": false,
+      "stopReason": "utf8",
+      "offset": 2,
+      "derivation": "C0 at byte 2 can begin no well-formed UTF-8 sequence; the first maximal subpart starts there, before any marker.",
+      "status": "normative expected facts; not executed by this proposal"
+    },
+    {
+      "name": "before-marker-above-max",
+      "inputHex": "7b22f4908080223a312c22736368656d61223a227368696d656a692d7061726974792d7363656e6172696f2f32227d",
+      "candidate": false,
+      "stopReason": "utf8",
+      "offset": 2,
+      "derivation": "F4 followed by 90 would encode above U+10FFFF; the first maximal subpart begins at byte 2, before any marker.",
+      "status": "normative expected facts; not executed by this proposal"
+    },
+    {
+      "name": "truncated-multibyte-at-eof",
+      "inputHex": "7b2278223a22e282",
+      "candidate": false,
+      "stopReason": "utf8",
+      "offset": 6,
+      "derivation": "The scalar starting with E2 at byte 6 lacks its last continuation byte at EOF; report utf8 at first maximal-subpart start 6, not eof at input length 8.",
+      "status": "normative expected facts; not executed by this proposal"
+    },
+    {
+      "name": "raw-utf8-fault-before-invalid-escape",
+      "inputHex": "7b2278223a22ff5c71222c22736368656d61223a227368696d656a692d7061726974792d7363656e6172696f2f32227d",
+      "candidate": false,
+      "stopReason": "utf8",
+      "offset": 6,
+      "derivation": "No token-wide lazy decoder may prefer the later invalid escape.",
+      "status": "normative expected facts; not executed by this proposal"
+    },
+    {
+      "name": "earlier-json-stop-before-later-utf8",
+      "inputHex": "21ff7b22736368656d61223a227368696d656a692d7061726974792d7363656e6172696f2f32227d",
+      "candidate": false,
+      "stopReason": "lexical",
+      "offset": 0,
+      "derivation": "No whole-file UTF8 prevalidation or recovery into the later marker.",
+      "status": "normative expected facts; not executed by this proposal"
+    },
+    {
+      "name": "leading-complete-bom",
+      "inputHex": "efbbbf7b22736368656d61223a227368696d656a692d7061726974792d7363656e6172696f2f32227d",
+      "candidate": false,
+      "stopReason": "bom",
+      "offset": 0,
+      "derivation": "The complete initial BOM is the explicit profile exception.",
+      "status": "normative expected facts; not executed by this proposal"
+    },
+    {
+      "name": "root-plus-63-arrays-depth64",
+      "inputHex": "7b2278223a5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b305d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d7d",
+      "candidate": false,
+      "stopReason": "none",
+      "offset": 133,
+      "derivation": "Root container depth1 plus63 arrays is allowed.",
+      "status": "normative expected facts; not executed by this proposal"
+    },
+    {
+      "name": "root-plus-64-arrays-depth65",
+      "inputHex": "7b2278223a5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b305d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d7d",
+      "candidate": false,
+      "stopReason": "depth",
+      "offset": 68,
+      "derivation": "Opening array64 is container65 at absolute byte5+63.",
+      "status": "normative expected facts; not executed by this proposal"
+    },
+    {
+      "name": "marker-before-depth65",
+      "inputHex": "7b22736368656d61223a227368696d656a692d7061726974792d7363656e6172696f2f32222c2278223a5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b305d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d7d",
+      "candidate": true,
+      "stopReason": "depth",
+      "offset": 105,
+      "derivation": "Earlier completed root marker survives the depth stop.",
+      "status": "normative expected facts; not executed by this proposal"
+    },
+    {
+      "name": "nonobject-root-with-nested-lookalike",
+      "inputHex": "5b7b22736368656d61223a227368696d656a692d7061726974792d7363656e6172696f2f32227d5d",
+      "candidate": false,
+      "stopReason": "none",
+      "offset": 40,
+      "derivation": "Nonobject root yields no candidate but scanning facts still cover the full document.",
+      "status": "normative expected facts; not executed by this proposal"
+    },
+    {
+      "name": "empty-input",
+      "inputHex": "",
+      "candidate": false,
+      "stopReason": "eof",
+      "offset": 0,
+      "derivation": "No complete root at EOF.",
+      "status": "normative expected facts; not executed by this proposal"
+    },
+    {
+      "name": "whitespace-only",
+      "inputHex": "2020",
+      "candidate": false,
+      "stopReason": "eof",
+      "offset": 2,
+      "derivation": "No root value begins before input length 2; otherwise well-formed UTF-8 is exhausted.",
+      "status": "normative expected facts; hand-derived, not executed by this proposal"
+    },
+    {
+      "name": "multibyte-cut-short-by-string-quote",
+      "inputHex": "7b2278223a22e282227d",
+      "candidate": false,
+      "stopReason": "utf8",
+      "offset": 6,
+      "derivation": "The scalar beginning with E2 at byte 6 has one continuation byte, then a quote rather than the required continuation. First maximal-subpart start is 6, not the rejection-detection position 8.",
+      "status": "normative expected facts; hand-derived, not executed by this proposal"
+    },
+    {
+      "name": "depth64-number-then-forbidden-array",
+      "inputHex": "5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b315b",
+      "candidate": false,
+      "stopReason": "lexical",
+      "offset": 65,
+      "derivation": "At byte 65 a bracket cannot follow the number in an array without a comma; it does not open container 65.",
+      "status": "normative expected facts; hand-derived, not executed by this proposal"
+    },
+    {
+      "name": "depth64-object-forbidden-array-name",
+      "inputHex": "5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b7b5b",
+      "candidate": false,
+      "stopReason": "lexical",
+      "offset": 64,
+      "derivation": "The object at byte 63 is container 64. At byte 64 only a member name or object end is legal, so [ is lexical and opens nothing.",
+      "status": "normative expected facts; hand-derived, not executed by this proposal"
+    },
+    {
+      "name": "depth64-value-position-array65",
+      "inputHex": "5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b",
+      "candidate": false,
+      "stopReason": "depth",
+      "offset": 64,
+      "derivation": "The bracket at byte 64 is in a permitted value position and would open container 65.",
+      "status": "normative expected facts; hand-derived, not executed by this proposal"
+    },
+    {
+      "name": "candidate-with-unpaired-pack-value",
+      "inputHex": "7b22736368656d61223a227368696d656a692d7061726974792d7363656e6172696f2f32222c227061636b223a225c7544383030227d",
+      "candidate": true,
+      "stopReason": "none",
+      "offset": 54,
+      "derivation": "The completed schema marker is remembered. The pack escape follows the code-unit lexical grammar. A protective eager getter must yield no usable folder, then full-byte admission rejects the unregistered candidate.",
+      "status": "normative expected facts; hand-derived, not executed by this proposal"
+    },
+    {
+      "name": "marker-before-depth64-forbidden-array",
+      "inputHex": "7b22736368656d61223a227368696d656a692d7061726974792d7363656e6172696f2f32222c2278223a5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b315b",
+      "candidate": true,
+      "stopReason": "lexical",
+      "offset": 106,
+      "derivation": "Root object plus 63 arrays reaches depth 64. A bracket after 1 is grammatically forbidden, so the earlier marker survives a lexical stop, not a depth stop.",
+      "status": "normative expected facts; hand-derived, not executed by this proposal"
+    }
+  ]
+}

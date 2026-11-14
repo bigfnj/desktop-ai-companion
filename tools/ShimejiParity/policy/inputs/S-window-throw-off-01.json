@@ -1,0 +1,107 @@
+{
+ "activeWindow": [
+  {
+   "rect": [
+    300,
+    200,
+    600,
+    500
+   ],
+   "tick": 0,
+   "title": "Scratch",
+   "visible": true
+  }
+ ],
+ "description": "window actions OFF: ThrowIE plays its 10-tick animation and the window never moves (policy:window-off-plays)",
+ "dpiScale": 1.0,
+ "id": "S-window-throw-off-01",
+ "input": [
+  {
+   "cursor": [
+    100,
+    100
+   ],
+   "tick": 0
+  }
+ ],
+ "mascots": [
+  {
+   "anchor": [
+    640,
+    680
+   ],
+   "behavior": "Toss",
+   "imageSet": "Alpha",
+   "lookRight": false,
+   "sid": "m1"
+  }
+ ],
+ "pack": "packs/window-throw",
+ "policy": {
+  "case": "window-throw-off",
+  "id": "window-off-plays",
+  "registry": "shimeji-parity-policy/1"
+ },
+ "rng": {
+  "kind": "tape",
+  "values": [
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5,
+   0.5
+  ]
+ },
+ "schema": "shimeji-parity-scenario/2",
+ "screens": [
+  {
+   "h": 720,
+   "w": 1280,
+   "x": 0,
+   "y": 0
+  }
+ ],
+ "settings": {
+  "breeding": true,
+  "multiscreen": false,
+  "sounds": false,
+  "throwing": true,
+  "transformation": true,
+  "transients": true,
+  "windowActions": false
+ },
+ "ticks": 20,
+ "workArea": {
+  "h": 680,
+  "w": 1280,
+  "x": 0,
+  "y": 0
+ }
+}
