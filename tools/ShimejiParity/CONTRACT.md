@@ -1,4 +1,4 @@
-# Shimeji parity contract, version 1.3
+# Shimeji parity contract, version 1.4
 
 Signed 2026-11-07 by Codex (proposal author) and Claude (host review). Version 1.1 replaces version 1, which was frozen
 and signed: v1's text is `git show 2d9c6f5:tools/ShimejiParity/CONTRACT.md`. Every passage v1.1 adds or changes is
@@ -11,9 +11,11 @@ to section 10 marked **(v1.2)**. A trace/1 pair is still judged under v1.1 exact
 `CONTRACT-v1.2-trace2-consolidated.md`, is kept beside this file unchanged, with its change table, host-code checks,
 control matrix and open items; the v1.2 signature record at the end of this file says how section 10 differs from it.
 
-**(v1.3)** Version 1.3 adds section 11's finite registered scenario/2 exception. It deliberately retains trace/2 and map/2 wire versions while amending dispatch, optional engine binding, policy grading, metadata and proof obligations only as section 11 specifies. Historical legacy results without the new engine option or a registered scenario/2 claim remain unchanged. The bounded CLI input-error handling below is an invocation-diagnostic exception, not a new legacy policy grade. The frozen H declaration is retained as tools/ShimejiParity/CONTRACT-v1.3-policy-H.md at SHA-256 c3c261fdd41c984d437a4b3e84c4128f53503425eb4cff297605f64969631886.
+**(v1.3)** Version 1.3 adds section 11's finite registered scenario/2 exception. It deliberately retains trace/2 and map/2 wire versions while amending dispatch, optional engine binding, policy grading, metadata and proof obligations only as section 11 specifies. (v1.4) Superseded for new host parity runs by map/3 (9.1). Historical legacy results without the new engine option or a registered scenario/2 claim remain unchanged. The bounded CLI input-error handling below is an invocation-diagnostic exception, not a new legacy policy grade. The frozen H declaration is retained as tools/ShimejiParity/CONTRACT-v1.3-policy-H.md at SHA-256 c3c261fdd41c984d437a4b3e84c4128f53503425eb4cff297605f64969631886.
 
-**(v1.3)** The v1.2 statement above that sections 1 to 9 are unchanged describes its historical snapshot. The separately adopted screens clarification, the explicitly marked passages of v1.3 and later versions, and section 11 below, are the prospective amendments to that snapshot; all earlier signature records retain their historical meaning.
+**(v1.3)** The v1.2 statement above that sections 1 to 9 are unchanged describes its historical snapshot. The separately adopted screens clarification, the explicitly marked passages of v1.3 and later versions, and section 11 below, are the prospective amendments to that snapshot; all earlier signature records retain their historical meaning. **(v1.4)** Version 1.4 also amends sections 2, 3 and 9 of that snapshot.
+
+(v1.4) Version 1.4 requires shimeji-parity-map/3 (section 9) and adds Mute read, observation and host failure-channel obligations to 10.8. Explicit exceptions, each retaining its schema version: trace/2 is retained and mute.clip in trace/2 has the source-intent meaning of 9.2; scenario/1 and scenario/2 are retained with fields unchanged. This version defines no trace/1 Mute meaning. Pre-v1.4 host trace/2 artifacts retain their archived meaning and are not regraded. Map/2 retention is superseded prospectively for new host parity runs only. The signed v1.4 Mute proposal, CONTRACT-v1.4-mute-proposal.md, is kept beside this file unchanged; its Required directed controls table and its Ownership and review evidence section bind by reference, and its SHA-256 is in the v1.4 signature record.
 
 Two runtimes run the same scenario and each writes a trace; the comparer decides whether they behaved the same.
 
@@ -112,8 +114,7 @@ Every consumer draws from the one stream: the oracle's Java `Math.random` call s
 - `site`: what drew it, named the same way by both runtimes. A built-in site is one of the table below. A script
   site is `script:<refKey>#<attribute>#<k>`: the element's `refKey` (section 3), the attribute holding the
   expression, and k, the 1-based ordinal of that `Math.random` call among the expression's direct calls, in source
-  order. It is an ordinal, not a character offset: a runtime that records offsets converts them. **(v1.1)** Map/2
-  does not yet let the host write this form (section 9).
+  order. It is an ordinal, not a character offset: a runtime that records offsets converts them. **(v1.1)** (v1.4) Map/2 and map/3 do not yet let the host write this form (section 9).
 - `purpose` is informational (what the draw was for, in the runtime's own words). It is written but never compared.
 
 | site | what draws (source location, for the oracle) |
@@ -219,7 +220,7 @@ tick. `{ "type": "event", "tick": 12, "sid": "m1", "kind": "...", ... }` with th
 | `window-move` | `from` and `to`, each `[left, top, right, bottom]` as the scenario writes a window |
 | `window-minimize` | none |
 | `sound` | `clip`, `op` (`start` / `stop`) |
-| `mute` | `clip` or null |
+| `mute` | `clip` or null; (v1.4) In trace/2, clip has the meaning of 9.2. |
 | `rng-draw` | `site`, `occurrence`, `value`, `purpose` |
 | `drag` | `op` (`start` / `end`) |
 | `hotspot` | `op` (`press` / `release`), `behavior` |
@@ -417,11 +418,10 @@ scenarios live in `tools/ShimejiParity/scenarios/`. Traces, clips and corpus sce
 
 ## 9. The host's map back to the source
 
-**(v1.3)** H retains map/2 and the section 9 mapping fields as written in v1.2. Its section 11 proof obligations bind the converted pet/map inventory as evidence without creating a new trace channel. A later separately reviewed Mute map/3 adoption is outside v1.3 and does not rewrite historical H or legacy artifacts.
+**(v1.3)** H retains map/2 and the section 9 mapping fields as written in v1.2. (v1.4) Superseded for new host parity runs by map/3 (9.1). Its section 11 proof obligations bind the converted pet/map inventory as evidence without creating a new trace channel. A later separately reviewed Mute map/3 adoption is outside v1.3 and does not rewrite historical H or legacy artifacts.
 
 The host runs a converted pet, so it names source things through a parity map the converter writes beside the pet
-when asked to (a test artefact, never shipped and never read outside parity mode). **(v1.1)** A host parity run
-reads shimeji-parity-map/2 only; map/1 is refused before the run with a regenerate message. A map/2 object has these
+when asked to (a test artefact, never shipped and never read outside parity mode). (v1.4) A new host parity run reads shimeji-parity-map/3 only (9.1). A map/2 object has these
 top-level properties: `schema` (`shimeji-parity-map/2`), `imageSet`, `frames` (an array of
 `{frame, image, anchor, size}`), `actions` (`{<nodeId>: refKey}`), `children` (`{<nodeId>:<childIndex>: refKey}`),
 `behaviours` (`{<nodeId>: refKey}`), optional `sourceNames` (`{<nodeId>: name or null}`), and `poses`, which must be an
@@ -462,7 +462,7 @@ The map contains:
   image set. A missing binding during tracing is a provenance fault; never fall back to emitted indices;
 - every action node and every edge that carries parameter bindings: the refKey of the declaration or reference it
   was lowered from;
-- **(v1.1 clarification)** no script-site table yet. The host cannot name a script draw in section 2's form from map/2,
+- **(v1.1 clarification)** (v1.4) no script-site table yet. The host cannot name a script draw in section 2's form from map/2 or map/3,
   because conversion merges and moves script expressions. This clarification was approved by Codex and Claude on
   2026-11-07. Until a later map revision adds a table from the host's (node, attribute, ordinal) to the source site,
   unresolved attribution prevents grading the remaining directed parity claim; attribution-dependent site/event
@@ -475,9 +475,90 @@ The map contains:
   `unjudgeable` with class `aborted` until an attribution channel exists; it is not converted to `pending`.
 - (v1.1) Every behaviour and action node whose emitted name differs from its source-observable name: that source name, keyed by its node id, as `actions` and `behaviours` are (each map is one member's). Preserve an absent Name as JSON null and an explicitly empty Name as the empty string. A present null or empty value is distinct from a missing map entry.
 
-The map is what lets the host write `pose.image`, **(v1.1)** `pose.index`, `poseAnchor`, `refKey`, `actionStack` and (v1.1)
+The map is what lets the host write `pose.image`, **(v1.1)** `pose.index`, `poseAnchor`, `refKey`, `actionStack`, (v1.4) mute.clip and (v1.1)
 state `behavior` and `action` and every name-bearing event payload whose name conversion changed in the oracle's
 terms. A host trace written without one is unjudgeable (`missing-field`).
+
+### 9.1 Map/3
+
+**(v1.4) P1-B Row shape.** A map/3 object has `schema` exactly `shimeji-parity-map/3`, retains every other map/2 property with its map/2 meaning, and adds required top-level `soundParameters`, an array. It is empty when the converted member has no emitted Sound parameter or binding.
+
+Each row has exactly the following properties. Field names and string comparisons are ordinal and case-sensitive.
+
+| Property | Meaning and type |
+|---|---|
+| `kind` | String, exactly `action`, `behaviour` or `child` |
+| `nodeId` | Canonical nonnegative JSON integer within Int32, read from its raw token; the emitted owning node's id |
+| `childIndex` | Present for `child` only; canonical nonnegative JSON integer within Int32, read from its raw token; position in final emitted child order |
+| `sourceRefKey` | String; the source element defining the parameter or binding, under P1-D |
+| `emittedValue` | String; exact decoded `value` attribute of the emitted Sound param or bind, including a lowered script body rather than its original wrapper |
+| `emittedCache` | String, exactly `none`, `action` or `frame`; exact emitted `cache` attribute |
+| `mode` | String, exactly `literal` or `evaluated` |
+| `sourceValue` | Required for `literal` only, forbidden for `evaluated`; string containing the exact decoded authored Sound attribute, including empty or unchanged text |
+| `sourceKind` | Required for `literal` only, forbidden for `evaluated`; string, exactly `string`, `number` or `boolean`, computed under P1-C |
+
+Canonical integer tokens have no negative sign, negative zero, fraction, exponent, whitespace or leading zero except `0` itself. A literal row has `emittedCache` `none`. An evaluated row has `emittedCache` `action` or `frame`. An evaluated definition does not require a non-null compiled Program: an empty evaluated body can compile to no program.
+
+**(v1.4) P1-C Source constant classification.** Compute `sourceKind` from `sourceValue` without evaluating a script. The script-envelope check uses the untrimmed decoded sourceValue:
+
+0. A literal row whose sourceValue has length at least 3, ends with `}` and starts with `${` or `#{` is a source script, not a constant; refuse the map as a source-kind disagreement.
+
+1. Exactly `true` or `false`, before any trimming or case conversion, is `boolean`.
+2. Otherwise, a value accepted by Java's `Double.parseDouble` after Java's `String.trim` is `number`.
+3. Everything else is `string`, including `null` and the empty string.
+
+Java trim removes only U+0000 through U+0020 at the ends. It does not remove U+0085, U+00A0, U+2003 or U+3000. Boolean equality is exact before trimming: padded `true` is not classified as a Boolean by this rule. The Java number language includes its accepted signed decimal and hexadecimal floating forms, NaN and Infinity, and the accepted f/F/d/D suffix forms; a suffix is not accepted merely because one of those letters appears. Java acceptance, rather than the host's general `.NET string.Trim` or `double.TryParse` behavior, defines the result.
+
+The converter records the kind and the host independently recomputes it. A disagreement refuses the map. `TickType.ParseLiteral` or its current `TryParseJavaDouble` cannot be reused unmodified for this classification: their number path uses .NET trim.
+
+Literal restoration is qualified by `sourceKind` `string` alone. Neither emitted text nor the compiled host kind qualifies or disqualifies it. Source String literals `/1`, `/true`, `TRUE`, `False`, `/01` and `/0X1P1` can become numeric or Boolean host constants; their exact source text is still restored for raw intent. Actual TickSound arguments and effects remain unchanged and outside that restoration claim.
+
+**(v1.4) P1-D Host binding.** Each row binds to the compiled definition under the ordinal parameter name `Sound` at this location:
+
+| `kind` | Compiled location | Required source map entry |
+|---|---|---|
+| `action` | `ActionsById[nodeId].Params["Sound"]` | `actions[nodeId]` |
+| `behaviour` | `BehavioursById[nodeId].Binds["Sound"]` | `behaviours[nodeId]` |
+| `child` | `ActionsById[nodeId].Children[childIndex].Binds["Sound"]` | `children["nodeId:childIndex"]` |
+
+Hold the binding in a map-owned dictionary keyed by `TickParamDef` reference identity, never value equality. `emittedValue` and `emittedCache` must equal the actual validated XML node's decoded `value` and `cache` attributes as exact strings. The `cache` attribute must be present. Parsed constant-value equality is insufficient because distinct XML strings can compile to the same Number. Reading a script's stored text is passive, but it never substitutes for the XML attribute comparison above; evaluating a script to validate a map is forbidden.
+
+`mode` matches the compiled definition: `literal` exactly when its cache is none; otherwise `evaluated`. `sourceRefKey` equals the required action, behaviour or child map entry at that location, and its first pipe-separated field equals the map's `imageSet`. An absent required entry refuses the map, including an absent `children` entry for a child with a Sound binding. `sourceRefKey` need not be unique across rows.
+
+**(v1.4) P1-E Coverage and refusals.** Rows form a bijection with every compiled Sound definition in the three container kinds, including unchanged, unselected, unreachable and non-Mute sites. Inventory by node id includes definitions shadowed by name lookup. No row represents absent Sound.
+
+Before opening the trace, refuse with exit 2 and no trace for each of the following:
+
+- `soundParameters` absent or not an array, or a row that is not an object;
+- repeated, unknown or missing row properties;
+- `childIndex` present on a non-child row or absent on a child row;
+- `sourceValue` or `sourceKind` present on an evaluated row or absent on a literal row;
+- any required string field that is not a string;
+- a noncanonical, negative or out-of-range `nodeId` or `childIndex`;
+- `kind`, `mode`, `emittedCache` or `sourceKind` outside its closed set, or a mode/cache inconsistency;
+- duplicate locations, counting `(kind, nodeId, childIndex when applicable)`;
+- a location naming no compiled container or one without Sound, which is surplus;
+- a compiled Sound definition consumed by no row, which is missing;
+- emitted value/cache, source refKey, image-set or source-kind disagreement;
+- an unknown top-level map/3 property.
+
+The allowed top-level map/3 properties are the map/2 properties `schema`, `imageSet`, `frames`, `actions`, `children`, `behaviours`, optional `sourceNames`, and `poses`, plus `soundParameters`. `schema` must be exactly `shimeji-parity-map/3`; existing map/2 requirements govern the presence and contents of the other retained properties. Unknown-property refusal is new for map/3; duplicate-root checks already exist.
+
+**(v1.4) P1-F Retirement and readers.** A new host parity run reads map/3 only. Refuse map/1 or map/2 before opening a trace, exit 2 and no trace, with exactly the following diagnostic, where N is the refused file's map version:
+
+`the map is shimeji-parity-map/N; regenerate it with the current converter (map/3 required)`
+
+For an admitted scenario/2 candidate this is a LoadPets refusal after scenario and pack admission. Regeneration runs the converter on the source pack into a new output folder; hand-editing a map/2 file, including changing its schema string, is not migration. Archived traces, verdicts, revision H's P2 calibration packet and other frozen packets retain their map/2 manifests and are reproducible only with their original build. Every map reader, including validation probes and self-test readers, moves in one integration change; no map reader accepts two map versions. The comparer's grading code is unchanged; P3-D adds one pair to compare.py's self_test, changing its bytes and hash.
+
+**(v1.4) P1-G Product neutrality.** Emitted animations.xml is byte-identical to the base converter's output for every existing converter self-test input and every make_packs pack that the base converter converts; without an injected defect the new converter refuses none of them. Sound provenance adds no PackConversion refusal when IncludeParityMaps is false. A converter provenance defect is confined to conversions requesting maps: the public API then returns a refused member naming the defect, with no EmittedXml, and ConvertPack refuses before writing any output. No-map conversion, underlying XML generation and TickSound arguments remain unchanged.
+
+The existing TICK_SOUND_MUTE_OBSERVED conversion refusal remains. Controls whose input reads Sound in a script use members with no normalizing Mute literal; normalizing-literal controls use members whose scripts do not read Sound. C15 separately proves the no-map path and the actual public API's map-defect disposition.
+
+### 9.2 Mute source-intent payload
+
+**(v1.4) P3-A Intent payload.** P3 is an explicit version exception recorded in the adopted preamble; its date and signatures belong to that version's signature record. Retain trace/2 and scenario/1, and scenario/2, with fields unchanged. mute.clip is a name-bearing payload under section 9. For a qualified P2-C read it is the String returned by the source Sound accessor for that activation, in source spelling, including the empty string; a qualified literal read records that String from the bound sourceValue. For evaluated String, the host writes its own evaluation of the lowered script; equality with the source accessor is what the fresh pair tests, not what the host asserts. Null is written only for the actual all-clips branch with current image-set Sounds on.
+
+This is intent, not cache-key, tier or stop evidence. Non-qualified values preserve the actual host result under P2-C without a source-intent claim and are graded ordinarily. No policy exception hides a mismatch.
 
 ## 10. Trace schema `shimeji-parity-trace/2` (v1.2)
 
@@ -495,9 +576,11 @@ Trace/2 is trace/1 (section 3, with the v1.1 rules) plus exactly these changes:
    `trace-off-not-comparable` (10.5.3) and `error-unclassified` (10.3.5);
 7. startup faults and an interrupted startup snapshot are judged by 10.6.
 
-8. **(v1.3)** Section 11 adds a finite registered scenario/2 exception to dispatch, optional engine binding, policy grading, result metadata and proof obligations, deliberately retaining trace/2 and map/2 wire versions. This exception does not fold policy fields into the trace/2 wire definition.
+8. **(v1.3)** Section 11 adds a finite registered scenario/2 exception to dispatch, optional engine binding, policy grading, result metadata and proof obligations, deliberately retaining trace/2 and map/2 wire versions. (v1.4) Superseded for new host parity runs by map/3 (9.1). This exception does not fold policy fields into the trace/2 wire definition.
 
-Everything else in sections 1 to 9 applies to trace/2 unchanged. A trace/1 pair is judged under v1.1 exactly as
+9. (v1.4) mute.clip has the source-intent meaning of 9.2, for trace/2 only; a pre-v1.4 host trace/2 artifact retains its archived meaning.
+
+(v1.4) Everything else in sections 1 to 9, as amended, applies to trace/2 unchanged. A trace/1 pair is judged under v1.1 exactly as
 before, including the exact comparison of error-event messages; it is never re-judged under v1.2 without fresh
 traces. Both runtimes regenerate their traces to obtain a trace/2 verdict.
 
@@ -760,8 +843,7 @@ Both producers:
 - write `shimeji-parity-trace/2` in the header and `tapeExhausted` in every footer, trace-off included;
 - classify by 10.3.3 and 10.3.4, and write `unclassified` wherever no typed cause with its operands is available;
 - continue past a tape's end on `0.5` (10.4, 10.5.1);
-- Instrumentation must preserve existing exception type/catch behavior and state-write order, except the explicitly
-  agreed RNG continuation rule.
+- Instrumentation must preserve existing exception type/catch behavior and state-write order, except the explicitly agreed RNG continuation rule and (v1.4) the host's private observation-only fault counter (P2-A) and its observation catches (FC-2), which also cover the existing Mute writer.
 
 Host (`src/dotNet/Shimeji`):
 
@@ -775,15 +857,86 @@ Host (`src/dotNet/Shimeji`):
   fault when it is missing or invalid, and ends the run in error;
 - runs its section 5 observation proof by 10.5.3.
 
+**(v1.4) P2-A Single read and passive capture.** TickMute.Apply reads Sound through one helper preserving EvalString's engine steps: Present, followed by one Read when present. Alongside the unchanged engine string, retain from that same read the selection (absent when Present is false, local, or the exact winning TickParamDef from merged own-then-incoming definitions), and the ScriptValue kind before ToDisplayString.
+
+Also retain whether a fault was reported through the reading action's own script context between the start of Present and the end of Read. Use a private observation-only counter for faults reported through that context; the host chooses its location. That counter is the one permitted added state write and changes no engine-visible state. Faults reported before Present, including during Condition, never mark a later read as faulted. Faults reported through other contexts do not mark this read as faulted. Snapshot operations themselves are observation code; a snapshot exception is handled under FC-2, without skipping or catching the engine's Present/Read.
+
+Selection uses a passive view of the same TickVars state, no second Get or Has. The helper adds no evaluation, cache write, settings read, draw, script call site, Clip call or TickSound call. Observer delivery follows P2-B; no second callback is added on a branch that already delivers Muted. Engine-side observation code may consult one test-only injection point per FC-2 site. It is null in every product and parity build unless a host self-test installs it, does no engine work, and exists only so C18 can raise an exception inside that site. Cached and fresh reads keep their existing cache behavior. A Read that throws is not a completed read and propagates exactly as before; no observation catch surrounds engine Present/Read.
+
+**(v1.4) P2-B Activation, owner and per-read delivery.** The Mute action object is the activation. Use its retained `OwnerType` for provenance, never the companion's current Type or PoseType. Correlation is per read, not per object: a looping Sequence can reinitialize the same child object.
+
+Each completed Mute read reaches the observer exactly once, correlated with its synchronous emission when there is one. The existing named and null-with-Sounds-on Muted callbacks carry the read record on event branches; ITickObserver.MuteReadNoEvent carries it on the Sounds-off null branch. Delivery validates identity/provenance and records per-read information without creating a public event on the no-event branch. The existing actual Muted call emits its public Mute line, if any, using that same read record. Process each read once, with no stale record carried into the next initialization, and add no settings read.
+
+Only the existing named branch and null-with-Sounds-on branch request a public Mute event. Their Muted observer callbacks remain before their respective TickSound call. No callback or information record turns a no-event branch into an event. TickHost's Muted and MuteReadNoEvent observer behavior remains a no-op.
+
+**(v1.4) P2-C Disposition of each Mute read.** First validate selection and its required binding for every completed read. Absent means Present was false; missing OwnerType or owner map alone is not a defect for this selection, which follows its existing null branch. For a non-absent selection, local, missing OwnerType/map, an unbound winning definition or an inconsistent retained row invokes FC-2: no public Mute line, only provenance disposition, while the engine still performs its unchanged read and branch.
+
+An inconsistent row has mode disagreeing with the winner's cache (literal with action/frame, evaluated with none), or a literal row lacking retained sourceValue/sourceKind. SourceKind versus compiled literal kind, or emittedValue versus display text, is never an inconsistency.
+
+A qualified read has valid selection, no fault reported during it, and either a literal winner with sourceKind string or an evaluated winner of kind String. Other valid-selection reads are non-qualified; absent/Null reads make no String claim. Payload handling follows the actual branch; information can apply even when no Mute event is emitted. Exactly one table row applies to each valid-selection read; the fault rule below is orthogonal to the rows.
+
+| Read | Payload and information |
+|---|---|
+| absent | Existing null branch: mute null only with current-type Sounds on; no Mute line with it off |
+| literal sourceKind string | Exact sourceValue, regardless of compiled host kind |
+| literal sourceKind number or boolean | Engine display text; MUTE_VALUE_NOT_STRING with suffix `literal number` or `literal boolean` |
+| evaluated kind String | Actual evaluated lowered-script text, including a value cached by an earlier read in the same activation |
+| evaluated kind Null | Existing null branch |
+| evaluated Number, Boolean or Point | Engine display text; MUTE_VALUE_NOT_STRING suffix `evaluated number`, `evaluated boolean` or `evaluated point` |
+
+For a valid-selection read with a reported fault, preserve its actual result and branch and log `MUTE_VALUE_FAULTED tick <t> <sid>` once. Also log NOT_STRING when the evaluated non-null result is Number, Boolean or Point. Literal NOT_STRING is instead determined by sourceKind: a lowered String for numeric Infinity logs it, while source String /1 compiled as Number does not. A fault flag never forces null.
+
+A read handled under FC-2, whether for a P2-C provenance defect or an observation exception, records only provenance, with no MUTE_VALUE_FAULTED or MUTE_VALUE_NOT_STRING information, because its classification inputs are not trusted. Engine fault events remain unchanged. Only provenance defects invoke FC-2/FC-3. Neither non-String nor faulted values set ProvenanceFault, status or exit code. No qualified source String is replaced by canonical text and no named value is replaced by null. These records preserve host behavior; they do not claim that product coercion was fixed.
+
+**(v1.4) P2-D Witness corrections and product leads.** The oracle's failed script or cast reaches no successful Mute intent hook. A host script fault can return Null and, with Sounds on, produce the actual error event then mute null and MuteAll. Preserve this divergence rather than turning it into a producer failure or erasing its event; when no earlier section-10.7 rule applies, ordinary comparison grades it fail at that tick, recorded as L3. Sounds-off null writes no Mute line. Two absent Mute lines do not establish successful Mute intent.
+
+Zero added evaluations is measured against b107727c on the same scenario and tape, for full lifecycle draw and state sequences and for event sequences apart from mute payloads that 9.2 changes, in both observation modes. The proposed null expression is predicted to draw twice during Init (Condition then Apply), not twice over the full activation: later HasNext polls can read Condition again. Measure and retain the complete baseline rather than hard-coding a full-activation count. C7 is host-only because script sites remain unmapped for paired grading. It does not mean every Apply advances an evaluation counter once: Condition may have read Sound first, action/frame caching may reuse it, and a null value is not cached.
+
+Retain the product leads separately: L1 is display-prefix drift after literal normalization; L2 is EvalString's non-String coercion; L3 is a faulted null read reaching MuteAll; L4 is the stale converter hex-literal comment; L5 is Unicode whitespace accepted by the host's general .NET trim path. This wire records those behaviors and closes none of them.
+
+**(v1.4) P2-E Product behavior.** Capture is passive. TickSound receives exactly the previous argument; evaluation count, exceptions, cache effects and state-write order are unchanged apart from the private observation-only fault counter in P2-A. Restoration changes parity observation only. TickHost.Muted and TickHost.MuteReadNoEvent remain no-ops. This is neither a product audio repair nor a sound-stop equivalence claim.
+
+**(v1.4) FC-1 Static refusals and precedence.** New P1-D/P1-E Sound row shape, unknown-top-level, coverage, binding and sourceKind faults are InvalidDataException map refusals inside LoadPets, after the existing pose and geometry checks. They log `refused <map path>: <reason>`, exit 2 and leave no trace file.
+
+Preserve the existing parser, JSON syntax, duplicate-root and retained-field checks and their current precedence. The schema check keeps its position and changes only as P1-F states. Preserve the legacy pose/geometry order. New validation (Sound rows and the unknown-top-level check) is deferred until those existing checks have succeeded; retaining the raw Sound JSON for that later validation is permitted. This ordering does not move an existing parser or schema refusal behind Sound validation. An admitted scenario/2 slot order is unchanged.
+
+**(v1.4) FC-2 Runtime provenance faults.** For a completed read with a P2-C provenance defect, including a no-event read:
+
+1. Write no Mute line for that read: no canonical value, source guess or null.
+2. Retain `MUTE_PROVENANCE_MISSING tick <t> <sid>: <reason>` as the writer's first Mute fault if none is retained yet.
+3. Set ParityTraceWriter.ProvenanceFault to it only if that property is null.
+
+The engine still performs the unchanged Present/Read and TickSound branch and continues. No exception raised by observation code, including either fault-count snapshot, passive selection, callback, identity lookup, source-value lookup or Mute writer, may leave observation code. Catch it where it arises and apply steps 1-3 with reason `observer exception <type>: <message>`. If it occurs before the engine read, retain the defect and still perform that read and branch unchanged. Never catch an exception from the engine's own Present or Read; it propagates as before and is not a completed observation.
+
+An observation exception reaching TickMascot.Tick or the startup wrapper would create an internal-fault product event and dispose the companion while status could stay complete; that is forbidden. In a parity run, a caught observation exception without a retained defect is also forbidden. Under TickHost's no-op observer, an exception caught in engine-side observation code (either snapshot or passive selection) is discarded and changes no product behavior. A read handled under FC-2 emits neither information token (P2-C).
+
+**(v1.4) FC-3 Finishing both trace modes.** ParityRun.Finish remains the only ending in both modes. Non-null ProvenanceFault sets footer status error and logs `parity trace: <ProvenanceFault>`. If the first Mute fault differs from ProvenanceFault because an earlier fault won, also log `parity trace: <first Mute fault>`. Then emit the information lines under FC-6, write the footer and return exit 1 for the provenance error. The first provenance fault and first Mute provenance fault are both visible, not every later fault of a kind already logged. Any provenance fault makes status error. On a mid-run scenario-invalid path the footer then says error and the run still exits 2.
+
+**(v1.4) FC-4 Existing wire only.** Add no exit code, footer member, trace field, event kind or section-10.3.2 error code. MUTE_PROVENANCE_MISSING is a host log token only, never a footer member or extension at any status. Unknown footer extensions are ignored by comparison and one beside complete would read as success. It is never an error event: producers do not manufacture product fault events.
+
+**(v1.4) FC-5 Ordering and monotonicity.** Map refusals precede the trace and retain exit 2. Scenario-invalid retains exit 2. A run in error remains in error; nothing changes it back to complete. The unchanged comparer grades status error as `unjudgeable` / `aborted` before event comparison. Required provenance faults are not hidden as unclassified typed errors.
+
+**(v1.4) FC-6 Information occurrences.** For valid-selection reads not handled under FC-2, retain MUTE_VALUE_NOT_STRING and MUTE_VALUE_FAULTED once per applicable occurrence with tick and sid, in occurrence order, including no-event reads. A read handled under FC-2 retains only provenance, and any information already formed for it is discarded. The exact NOT_STRING suffix set is `literal number`, `literal boolean`, `evaluated number`, `evaluated boolean`, `evaluated point`. Each line is exactly `MUTE_VALUE_NOT_STRING tick <t> <sid>: <suffix>` or `MUTE_VALUE_FAULTED tick <t> <sid>`.
+
+Finish logs each retained information record as `<line> (information)`, after all applicable `parity trace:` lines and the existing rng-tape-exhausted information line, and before the footer, on every ending and both trace modes. Information never changes status, exit code or ProvenanceFault. Trace-off forms the same passive checks and information records while withholding public event lines.
+
 Oracle (Codex): writes trace/2; classifies through hooks that carry stored action identity (an initialized action's
 own identity, and explicit builder/reference context for a constructor fault), and writes `unclassified` where that
 context is absent; labels the same seven wrapper sites where its runtime catches a fault; keeps its current startup
 outcome (10.3.4, 10.6); writes `tapeExhausted` in every footer and keeps `unobservedDraws` and `unobservedEvents` on
 trace-off footers.
 
+**(v1.4) P3-B No new diagnostic events.** The existing `sound` event row is unchanged. Neither producer writes sound events from Mute in this step. Optional O2-after through O5 diagnostics, O8 completion, observer-defect ledgers and MUTE_* information belong in producer logs or result records. They never become trace lines, footer members or event kinds. An observer defect ends its producer with status aborted or error under the existing rules, including for trace-off output.
+
+Required oracle hooks are O1, O2-before, O6, O7 and O8. O2-before observes named intent using the already evaluated local, including empty string. O7 observes null only after the Sounds guard admits the all-clips branch. O8 proves completion, including a Sounds-off null no-op. Attribute by exact activation VariableMap identity, never a second parameter evaluation, a current-member guess or a Clip-method call. New hooks must be non-throwing and record named defects that are checked before any successful footer, including exceptional source exits. The oracle logs each such defect with the token `MUTE_OBSERVER_DEFECT` and its reason, writes footer status aborted or error, and exits 1, its existing non-success exit. Lift only the supported Mute-entry refusal as these seams and controls land; retain the independent Sounds-on pose-audio refusal.
+
+Hook O1-O8 definitions are the Mute seam anchors: ANCHORS.json SHA-256 db96982b3684e8f751746988c29479ffcf96af18f0dc826c4bf43c8011ca5d5b (authoritative), with ANCHORS.md SHA-256 8dea913a3b0f8d15c88648ea00c64fa0eb5ab8d62b08b2effa2123566db3e8e6, Part B, or a later revision both owners explicitly name by hash. O1 captures the evaluated local; O2-before observes named intent; O2-after/O3/O4 diagnose tiers 1/2/3; O5 diagnoses the guarded stop; O6 marks null-branch entry before Sounds; O7 marks its admitted all-stop; O8 marks normal completion. Control ids W1-W8 below are not hook ids.
+
 Comparer (Codex): 10.2, the shape rules of 10.3.1 and 10.3.2 (duplicate properties included), 10.3.5, 10.4, 10.5,
 10.6 and 10.7, the trace-off refusal, and unchanged trace/1 and free-running dispatch, with self-test cases that each
 fail with exactly their own class.
+
+**(v1.4) P3-D No regrade or policy.** Keep compare.py's grading code unchanged; only self_test gains one pair that grades fail with class `event-mismatch` for `/TO` versus `to`. That changes compare.py's bytes/hash, bound as actually loaded in closure evidence.
 
 ### 10.9 Closure
 
@@ -796,6 +949,14 @@ fail with exactly their own class.
   `fail` with class `rng-tape-exhausted`, with both footers `complete` and `tapeExhausted` true.
 - Historical v1 and v1.1 verdicts keep their input snapshot and are not re-graded.
 - Do not add an unvalidated broad policy exemption while N-parity-1107-03 remains open.
+
+**(v1.4) P3-C Fresh evidence.** Mute-intent evidence is citable only from a fresh trace/2 pair whose comparison supplies and matches the host EXE, host engine and oracle JAR. `buildWitness.host.artifactBound` must be true under H's engine-inclusive meaning for a call supplying the engine, and `buildWitness.oracle.artifactBound` must be true; EXE-only host binding does not qualify. Producer evidence names the actually loaded DLL path and hash, equal to the graded engineSha256, for the build containing adopted map/3 and P2-A through P2-E. The oracle JAR contains required O1/O2-before/O6/O7/O8 hooks. This requirement is prospective on H's engine-binding adoption; it cannot be satisfied by the base comparer saying only EXE-bound.
+
+A pre-adoption host trace/2 keeps its archived meaning, is never regraded and is not Mute-intent evidence. The host writes trace/2 only; no host trace/1 meaning is defined and the oracle trace/1 Mute refusal stays.
+
+**(v1.4) P3-D No regrade or policy.** Require fresh trace/2 pairs meeting P3-C from new scenario/1 Mute fixtures with no policy member. No archive is regraded and no policy/exemption is created, consistent with 10.9's N-parity-1107-03 rule.
+
+**(v1.4) P3-E Registry identity.** Adding Mute sections to make_packs.py must leave the four registered scenario/pack byte sets and all five calibration-control digests byte-identical on regeneration. Demonstrate that by hash comparison. Change no registry bytes. The frozen generator reference and policy packets remain historical artifacts; a new generator build does not rewrite them.
 
 ## 11. Registered policy scenarios (v1.3)
 
@@ -1188,3 +1349,72 @@ N1 built engine and four tested input identities: engine 7b190b492e3f43a9ebbaeb7
 These record fields are completed only from actual approval and N1 evidence, and the completed bytes are signed only after renewed exact review. The N1 fields identify the pre-signature ordinary interpreting-reader proof on the four exact scenario/2 inputs under admission context, run on a coordinator-named prospective C8 source revision with, where needed, an uncommitted overlay limited to the admission-context schema acceptance that C8 commits, with no shipped-path admission override or table seam, under the host lane's owned TEMP and without a commit. It is a pre-signature reader check, not implementation, closure or qualification evidence. A refusal is investigated before signing, a changed input identity is re-reviewed, and N1 does not depend on the post-signature install commit.
 
 Approval scope: This is a contract approval, not an implementation verdict.
+
+## v1.4 signature record
+
+Base: adopted CONTRACT v1.3 bytes SHA-256 ce75fa26e63605b9196ee716b072f6987d51564cacc0f4b2bcb4b796f4f0af9e, Git blob 53432054e1ff532080539fbddbb96bbfada39b33.
+The unchanged kept proposal is CONTRACT-v1.4-mute-proposal.md, SHA-256 62b30e08de3be7946e631ecaaa69b779415a9577189a51172912972d5a1003ca. Its Required directed controls table and Ownership and review evidence section are bound by the v1.4 preamble reference.
+The separate S8 naming amendment is source/ADOPTION-NAMING.json, SHA-256 3a09800554c3f101c16d2dffd0e2cdc8fad7dcfcc416f0ff11233db2215aee3c. Proposal-review records are retained unchanged as source/PROPOSAL-CODEX-SIGNATURE.md, SHA-256 bb1cd065640195bcdb8ccd60c9c2abc893ca283f3221a17d98a75ca71bc957fa, source/PROPOSAL-HOST-SIGNATURE.md, SHA-256 0c256fcc73973cdbd65e9a66a8a1322881ea648666bac38b87d65186ba68dd1b, and source/PROPOSAL-CODEX-NOTES.json, SHA-256 c52f6fb3f3e27c62fb5b936fe35a651f2e48ff907354d0b40d08f3d653eb61c5. Paths beginning source/ in this record are relative to the root of the immutable v1.4 adoption evidence packet; they are not repository paths and impose no installation requirement. The external v1.4 approval record binds that packet's root and the SHA-256 of its inventory. CONTRACT-v1.4-mute-proposal.md is not such a path: the v1.4 preamble requires it to be kept unchanged beside this file.
+
+The following hashes bind exact UTF-8 final passage text, including placement wrappers where present and excluding a trailing newline. The v1.4 record itself and the whole current CONTRACT hash are excluded; the latter belongs only in the external approval record.
+
+| passage | SHA-256 |
+|---|---|
+| P1-B | 6af6ec65e06ae17d14d7fc4229f63ab21b84cf1dcd210cc2bce4e74268a2c71a |
+| P1-C | 5e71100331e3060fde5cbe1cad7cf41fdcd128a71c93eaaf3f382d38bd4c6e70 |
+| P1-D | 8d142042114b804ea4ee1a2bf91cce23c88d046971cb55b04d1bec21bc14c2cd |
+| P1-E | 14a4ddc7c5145bd8561969c1f3674b8e8aeb726f2d263d703b6b6ece181fefad |
+| P1-F | 0a980df2b4ba9cb862941e36ffca6fc9c306b627b9233f1b990b4b352007c202 |
+| P1-G | c97f53fc499e50106d18e28acf202eab181b1f8e9336f8b90d84ba6195dfae1a |
+| P3-A | 59caf80eae552bcdda733a41cec3926bdc707264a3785e2a96059718ad373ecb |
+| P2-A | 50ae3965ae541ea6f4f6ad5ec0696a9f63937613642266b089405cbcaca6ed88 |
+| P2-B | 1f0cfec72f76206926cf2a69978130219159bf7bac26e571f7efc5cc63f57131 |
+| P2-C | cf57604701d6bae868a7e6badf2381cfc8b467d1824b13460ded5a2646622244 |
+| P2-D | edc22b1b1bfc64fca158f2961ae69ef2e88f6ff6313d83571f531c7792ad6879 |
+| P2-E | 10555a514e2f5c8467e9b0dc2f447e95a1985e7bc55807d8c45724ffaa1baa78 |
+| FC-1 | b81cc0d904f35eb4fe390438698a5681da18e9a62690e7860ce7defd1f6bd9cb |
+| FC-2 | e3cd8fcd139847604430ed2833b2a7884b9405bcdce53608e81ff299db167a1a |
+| FC-3 | e3771498d29b827221ce91f0c6977deb91f36bd0c1092461852e1a224153c3b3 |
+| FC-4 | f3326d75f0abc7ef43c85f9cdbfbd22f51a4acf8cd395a618d186302850d8f88 |
+| FC-5 | ca4e294aaeba3604efc32d5461ac54a7417f664c0c4935091fd627b4c606ca07 |
+| FC-6 | 86dad6ae6d011ff532f54adbea1c0aab543ef773f3dc0859480843664259e7a4 |
+| P3-B | 5052bedb07d27d0fb1fa97439a538c8e4947f50b0fcacb7781acfc6fa1d3ce0f |
+| P3-D-COMPARER | f59acec7b8e2958b5576f7b1b9dae18fffd73ab774ae95f0204cb22704e68062 |
+| P3-C | f5193b06775382a30b9d4906d5b7c7d42905e0f37b0b6bfb243efd553b5e95ee |
+| P3-D-CLOSURE | 1ac011efa44ae09f9cd328b3aea2a55fda4fff5ab8d83961fe64f2bdd7936b7e |
+| P3-E | 5f7a81dc09b9136654a5dc640af26b3e39c9a3b35e61c4e1194d46b669181925 |
+| V14-TITLE | b5a9ffaaa2396bdbb53581f5db588a422cc3b10d56796696f7fc8b2006985223 |
+| V14-SUPERSEDE-PREAMBLE | c7e76ca1e9e5f35f82722434209b15b453e0fadbd4627d09f7ea3b0f400de406 |
+| V14-SUPERSEDE-SECTION9 | e39530505ddb329d58e52269c168619f6785f49504415249465decfa43e7d7a6 |
+| V14-SUPERSEDE-ITEM8 | adc123fc57a6477d596fd4a3551067a578cc8e3cc97b0b5aaacb15d2e6b72293 |
+| V14-QUALIFICATION | f653376c0867a586b88c7b8dd9ccdccf9aec6d98ae868a0ae0cbb74cfb22dfae |
+| V14-PREAMBLE-S8 | 5057106a72aa029c1a864153b933a1002d1b983f523f6cb64c13eb021fc0b0e7 |
+| V14-SCRIPT-SITE-SECTION2 | 2eec13fbb9b9ba8b4f10bed253294c3c73be075bdc22dc6ebb81a4f82901f42e |
+| V14-MUTE-ROW | 1c943910885417cd40b01ab5b2812ebf63acb3ed94cbc41e6cba307084256b81 |
+| V14-SECTION9-READER | 0e37e559ccc21a6355f9c8dd553039924bbd0bb6f77fe013d026440c3f827481 |
+| V14-SCRIPT-SITE-SECTION9 | cd51665b1b385e1c8d2764b2a39984b5790a7eb6658ba8e8651b862c863103e7 |
+| V14-PAYLOAD-LIST | dab6c1b40947241561d7f2b27eab218023aacddb5126560a475e330187c599aa |
+| V14-HEADING-9.1 | 48a2edb37d8d8381524e48029593e7710f475229571b6fbe7e85eff22da6847b |
+| V14-HEADING-9.2 | e404f712bc2c4d65a64467177be87eeb4537534ece662364beb46efdc32fcae8 |
+| V14-ITEM9-CONTINUATION | b71aca43aeeeed63944715c164a4aa76b9bb94d718649be790a5ab6b148c1590 |
+| V14-INSTRUMENTATION | 1e12d9939b9cc78c662bdce8679e46215d80feca772e96d10ee7ab355f0e4ebf |
+
+Permitted H-adoption conditional deletions, listed separately:
+- HC-1: S8-amended preamble, delete exactly ` where section 11 is adopted`.
+- HC-2: P1-F, delete exactly `, once H is adopted`.
+- HC-3: P3-A, delete exactly ` where H is adopted`.
+
+S8 is an explicit extra naming amendment, not one of those deletions: before-paragraph SHA-256 f46ae8c1d99b5ff3604c8a4a371ca0b1d02118f06510680de2b18f57c38d15f3, exact after-paragraph SHA-256 before HC-1 015d3059afa413c9ded43c42136bffd3161441ce29cde525a34cd1bd58a5989c, final preamble after HC-1 SHA-256 5057106a72aa029c1a864153b933a1002d1b983f523f6cb64c13eb021fc0b0e7.
+
+Mute v1.4 adoption readings: the kept proposal's status line and its statement that the file contains no signatures record its drafting state and do not make version 1.4 a draft; its signatures are the proposal-review records named above. A control id (C, W or Q) inside a pasted v1.4 passage, including 'Control ids W1-W8 below' in P3-B, refers to the kept proposal's Required directed controls table, and P2-D's 'proposed null expression' is control C7's action-cached Sound expression.
+
+External approval identifier: 2026-11-13-codex-mute-v14-final-approval/APPROVAL.json.
+Codex signer: Codex (codex:01a1d5a3-9ebb-79f3-8abb-31fd0efcc40a); signature date UTC: 2026-11-14.
+Claude signer: Claude (claude:16ff5de4-f918-433c-8a96-0468a1060198); signature date UTC: 2026-11-14.
+C16 recorded result identifier: desktop-ai-companion audit-evidence packet 2026-11-13-codex-C16-run-5dc469a0-dfa3-48a2-a077-130946c0d9ad (C16 probe run 5dc469a0-dfa3-48a2-a077-130946c0d9ad, preparation revision 2 MANIFEST.json SHA-256 dbaaf40df8da06089dd8df22262d2562266f5734490da76d6bde056a36f33108), core inventory CORE-RESULTS-MANIFEST.json, SHA-256 9042c2a1964b2cbd4a5bebb801fc8f4cab0eff1453b26db60f11b0aad35c4310.
+C16 recorded outcome: Probe only, not P3-C evidence: in fresh run 5dc469a0 the own-Sound literal-text null pair with Sounds on recorded a Mute clip equal to the four-character String "null" on both sides, the oracle taking the named branch at O2-before with no all-clips branch (no O6 or O7), O8 done, one mute event and no error event, and the host converting the literal to a map/3 row with sourceValue String "null" and sourceKind string and emitting one tick-0 m1 mute with clip String "null"; the launcher's post-driver descendant check failed after every observation had been written, and independent review found that this failure does not affect the observations, so P1-C stands.
+C16 fixture, converted map/3, host EXE and engine, and oracle JAR identities: pack manifest SHA-256 c831074889c92ed6068f05629d2fc747717d57289c0851d1073d702b011fec3d (fixture manifest SHA-256 e1a89558ac58977c1e3e957c34dde1057301a1ff51c99a55cb825668c04f706e); scenario S-C16-own-null-sounds-on-01 SHA-256 f0af9067919daae6c8ee0790cfa56fbce945165a3e3857bbd2f9bc73cac25a41; converter source b107727cb18914c9909417d4f6e3ae32c0f48dad with overlay manifest SHA-256 8536b508a3a17b39fccfdf5c4c74cf71291c24f03a01fcba04f60d3800af6f82 and converter DLL manifest SHA-256 1e8a1b2eaeea30018a7121075df8b0ad8b01b4f2614b9641326c3d90a7ed3b40; converted map/3 Alpha/parity-map.json SHA-256 b323d7618ea9f3f50e6a2f70645aa87013793cfb0385c1847f811a7c9fed5bb2; host source 516b222eecc280e04377a3b28645677822c7e944, host EXE DesktopAICompanion.exe SHA-256 5a786708cdd77e4ade3733a952074a1b01c501b2dfce2e92a4545dbd539f69a2 and engine DLL DesktopAICompanion.dll SHA-256 1250ca9d62b994876895115233a6c3cf7de28e8b79be153086c6a1891c6bc57f as hashed from typeof(TickWorld).Assembly.Location (accepted limitation, C16 only and not P3-C: the literal loaded path is not emitted and post-load image integrity is not proven); oracle source-action JAR Shimeji-draft.jar SHA-256 c17bebd69d7b1b380beb366bfd5d1bf6a45e61027e81a7ba936b8b2a9fa23a05 built from edit-spec SHA-256 0121538fe92170ad4aba5f92aed1f9f11e6932a82d242f2b156c2ee40d648599, runner JAR v1-runner.jar SHA-256 a493be14f7e5969dd011a574613677c9bf29ab42752a4f740f8b741b73b1ac14, bootstrap JAR c16-entry.jar SHA-256 1787e6e35817a0271e4e4d3b908d87406311145c05c4f2f41d8ddc1ff7d83a33; host trace SHA-256 d4a5afe27a6d4a78b262e616901d37e32a2624220a9d8b959db01f3334a72c25, oracle trace SHA-256 2f25e93c5db1accecb3622b7c42aee76d62447a2178e5e31ed8c1550cbb69639.
+
+These record fields are completed only from actual approval and C16 evidence, and the completed bytes are signed only after renewed exact review. The C16 fields identify the pre-placement probe that the kept proposal's C16 row requires: one fresh own-Sound literal-text `null` pair, Sounds on, observed at O2-before on both sides. It is a probe, not P3-C evidence, and establishes no implementation, closure or qualification. If the oracle instead takes all-clips, P1-C is recorded and reopened before placement, and this record is not signed until that is jointly dispositioned.
+
+Approval scope: specification text and its bound kept proposal, directed controls and ownership; no implementation, execution, qualification or closure is established by a signature.
