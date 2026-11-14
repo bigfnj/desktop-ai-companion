@@ -33,6 +33,9 @@ PROJECTS = {
              "AgentBroker.Core.Tests.dll"),
     "worker": ("tests/AgentBroker.Worker.Tests/AgentBroker.Worker.Tests.csproj",
                "tests/AgentBroker.Worker.Tests/bin/Release/net10.0-windows", "AgentBroker.Worker.Tests.dll"),
+    # 1.10.5 lane F: real paired nodes over mutual TLS on loopback (AttachmentFederationChecks).
+    "network": ("tests/AgentBroker.Network.Tests/AgentBroker.Network.Tests.csproj",
+                "tests/AgentBroker.Network.Tests/bin/Release/net10.0-windows", "AgentBroker.Network.Tests.dll"),
 }
 STORE = "src/AgentBroker.Core/BrokerStore.cs"
 TOOLS = "tools/AgentBroker.Worker/BrokerTools.cs"
@@ -1097,6 +1100,7 @@ def replace_exact(raw: bytes, before: str, after: str, count: int) -> bytes:
 PROOF_FIELDS = {
     "core": ("WITNESS: POSTPUSH_CORE_EXECUTED", {"CORE_PRODUCT_SHA256": "AgentBroker.Core.dll", "CORE_HARNESS_SHA256": "AgentBroker.Core.Tests.dll"}),
     "worker": ("WITNESS: POSTPUSH_WORKER_EXECUTED", {"WORKER_PRODUCT_SHA256": "AgentBroker.Worker.dll", "WORKER_CORE_SHA256": "AgentBroker.Core.dll", "WORKER_HARNESS_SHA256": "AgentBroker.Worker.Tests.dll"}),
+    "network": ("WITNESS: POSTPUSH_NETWORK_EXECUTED", {"NETWORK_WORKER_SHA256": "AgentBroker.Worker.dll", "NETWORK_HARNESS_SHA256": "AgentBroker.Network.Tests.dll"}),
 }
 # Measured by the composed focused smoke; every mutation run checks its own real baseline against these pins.
 # --receipt-wait-only 22 -> 24 (2026-11-09, test-only): the SetupFrozenClock repair adds the admission witnesses
