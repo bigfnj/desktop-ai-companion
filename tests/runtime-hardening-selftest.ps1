@@ -7355,10 +7355,14 @@ Assert-True ($bdcLowPins.Count -eq 0) (
 # fortunes.zip carried Ical.Net, NodaTime, NAudio and System.Numerics.Tensors with no licence text beside them, and Fortunes'
 # two ONNX Runtime licence items were conditioned on the package path existing, so a build without it shipped fortunes.zip
 # with no licence and said nothing. For each module THIRD_PARTY_NOTICES.md names a third-party package for, its project
-# (XML comments stripped) must ship each named file as exactly one None item whose Link is that name, copied to the output,
-# with NO Condition attribute, so a missing file fails the build; a source inside the repository must exist; and the
-# notices' "License files that ship" bullet for that ZIP must name the file. WITNESS: Fortunes' ONNX Runtime licence item
-# was read, its Include naming the restored package's LICENSE, and the notices section was found.
+# (parsed as XML, so a commented-out item does not count) must ship each named file as exactly one None item whose Link
+# element is that name, copied to the output, with NO Condition on the item or on any element that holds it (its ItemGroup,
+# or a Choose's When), so a missing file fails the build instead of being skipped; no None Remove in the project may take it
+# out again (one naming its Include, or one with a wildcard or an item or property reference, which this check cannot
+# resolve and so refuses); a source inside the repository must exist; and the notices' "License files that ship" bullet for
+# that ZIP must name the file. The ItemGroup Condition and the None Remove were found by the round 1 review of the
+# coordinator batch, each skipping a licence in silence while the check passed. WITNESS: Fortunes' ONNX Runtime licence
+# item was read, its Include naming the restored package's LICENSE, and the notices section was found.
 $bdcLicenceShips = [ordered]@{
     'Reminder'    = @('ICALNET_LICENSE.txt', 'NODATIME_LICENSE.txt', 'NODATIME_NOTICE.txt')
     'Remembrance' = @('NAUDIO_LICENSE.txt', 'TENSORS_LICENSE.txt', 'TENSORS_THIRD_PARTY_NOTICES.txt')
@@ -7370,18 +7374,31 @@ $bdcLicenceFaults = @()
 $bdcOnnxWitness = $false
 foreach ($bdcModule in $bdcLicenceShips.Keys) {
     $bdcProjectPath = Join-Path $repoRoot ('modules\' + $bdcModule + '\' + $bdcModule + '.csproj')
-    $bdcProjectXml = [regex]::Replace((Get-Content -LiteralPath $bdcProjectPath -Raw), '(?s)<!--.*?-->', '')
-    $bdcItems = @([regex]::Matches($bdcProjectXml, '(?s)<None\s(?<attrs>[^>]*?)(?<!/)>(?<body>.*?)</None>'))
+    $bdcProjectDoc = New-Object System.Xml.XmlDocument
+    $bdcProjectDoc.LoadXml((Get-Content -LiteralPath $bdcProjectPath -Raw))
+    $bdcNones = @($bdcProjectDoc.GetElementsByTagName('None'))
+    $bdcRemoves = @($bdcNones | Where-Object { $_.HasAttribute('Remove') } | ForEach-Object { $_.GetAttribute('Remove') -split ';' } |
+        ForEach-Object { $_.Trim() } | Where-Object { $_.Length -gt 0 })
     $bdcZip = '`' + $bdcModule.ToLowerInvariant() + '.zip`:'
     $bdcBullet = [regex]::Match($bdcShipsSection, '(?s)\n- ' + [regex]::Escape($bdcZip) + '(.*?)(?=\r?\n- |\r?\n\r?\n|\z)').Groups[1].Value
     foreach ($bdcName in $bdcLicenceShips[$bdcModule]) {
-        $bdcFound = @($bdcItems | Where-Object { $_.Groups['body'].Value -cmatch ('<Link>' + [regex]::Escape($bdcName) + '</Link>') })
+        $bdcFound = @($bdcNones | Where-Object {
+            $_.HasAttribute('Include') -and
+            @($_.ChildNodes | Where-Object { $_.LocalName -ceq 'Link' -and $_.InnerText.Trim() -ceq $bdcName }).Count -gt 0 })
         if ($bdcBullet.IndexOf('`' + $bdcName + '`', [StringComparison]::Ordinal) -lt 0) { $bdcLicenceFaults += ($bdcModule + ' ' + $bdcName + ': not named for ' + $bdcZip) }
         if ($bdcFound.Count -ne 1) { $bdcLicenceFaults += ($bdcModule + ' ' + $bdcName + ': ' + $bdcFound.Count + ' items'); continue }
-        $bdcAttrs = $bdcFound[0].Groups['attrs'].Value
-        $bdcInclude = [regex]::Match($bdcAttrs, 'Include="([^"]+)"').Groups[1].Value
-        if ($bdcAttrs -cmatch '\bCondition\s*=') { $bdcLicenceFaults += ($bdcModule + ' ' + $bdcName + ': skipped in silence under a Condition') }
-        if ($bdcFound[0].Groups['body'].Value -cnotmatch '<CopyToOutputDirectory>(PreserveNewest|Always)</CopyToOutputDirectory>') { $bdcLicenceFaults += ($bdcModule + ' ' + $bdcName + ': not copied to the output') }
+        $bdcItem = $bdcFound[0]
+        $bdcInclude = $bdcItem.GetAttribute('Include')
+        if ($bdcItem.HasAttribute('Condition')) { $bdcLicenceFaults += ($bdcModule + ' ' + $bdcName + ': skipped in silence under a Condition') }
+        $bdcHolders = @(for ($bdcUp = $bdcItem.ParentNode; $bdcUp -is [System.Xml.XmlElement]; $bdcUp = $bdcUp.ParentNode) {
+            if ($bdcUp.HasAttribute('Condition')) { $bdcUp.LocalName }
+        })
+        if ($bdcHolders.Count) { $bdcLicenceFaults += ($bdcModule + ' ' + $bdcName + ': skipped in silence under a Condition on its ' + ($bdcHolders -join ' and its ')) }
+        $bdcRemovedBy = @($bdcRemoves | Where-Object { ($_ -replace '/', '\') -ieq ($bdcInclude -replace '/', '\') -or $_ -match '[*?]|[$@%]\(' })
+        if ($bdcRemovedBy.Count) { $bdcLicenceFaults += ($bdcModule + ' ' + $bdcName + ': a None Remove can take it out again (' + ($bdcRemovedBy -join ';') + ')') }
+        if (@($bdcItem.ChildNodes | Where-Object { $_.LocalName -ceq 'CopyToOutputDirectory' -and $_.InnerText.Trim() -cmatch '^(PreserveNewest|Always)$' }).Count -eq 0) {
+            $bdcLicenceFaults += ($bdcModule + ' ' + $bdcName + ': not copied to the output')
+        }
         if ($bdcInclude -ceq '$(PkgMicrosoft_ML_OnnxRuntime)\LICENSE') { $bdcOnnxWitness = $true }
         if ($bdcInclude.Length -eq 0) { $bdcLicenceFaults += ($bdcModule + ' ' + $bdcName + ': no Include') }
         elseif (-not $bdcInclude.StartsWith('$(', [StringComparison]::Ordinal) -and

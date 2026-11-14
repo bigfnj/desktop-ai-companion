@@ -5725,6 +5725,53 @@ CASES = (
         b"          Condition=\"Exists('$(PkgMicrosoft_ML_OnnxRuntime)\\LICENSE')\">\n",
         "coordinator: every module that ships a third-party library ships its licence text, with no Condition",
     ),
+    # Round 2 (the round 1 review's finding): a licence item is still skipped in silence when the ItemGroup that holds
+    # it carries the Condition, or when a later None Remove takes it out again, by its own path or by a wildcard the
+    # check cannot resolve. Each expected text names the item and the reason, so the case proves its own branch.
+    (
+        "bd-coordinator: a module licence ItemGroup is skipped in silence under its own Condition (N-audit-1106-017)",
+        os.path.join(REPO, "modules", "Reminder", "Reminder.csproj"),
+        b"  <ItemGroup>\n"
+        b'    <None Include="..\\..\\packaging\\licenses\\ICALNET_LICENSE.txt">\n',
+        b"  <ItemGroup Condition=\"Exists('$(BdcNoSuchProperty)')\">\n"
+        b'    <None Include="..\\..\\packaging\\licenses\\ICALNET_LICENSE.txt">\n',
+        "coordinator: every module that ships a third-party library ships its licence text, with no Condition"
+        " -- Reminder ICALNET_LICENSE.txt: skipped in silence under a Condition on its ItemGroup",
+    ),
+    (
+        "bd-coordinator: a None Remove takes a module licence out again (N-audit-1106-017)",
+        os.path.join(REPO, "modules", "Remembrance", "Remembrance.csproj"),
+        b"      <Link>TENSORS_THIRD_PARTY_NOTICES.txt</Link>\n"
+        b"      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>\n"
+        b"    </None>\n"
+        b"  </ItemGroup>\n",
+        b"      <Link>TENSORS_THIRD_PARTY_NOTICES.txt</Link>\n"
+        b"      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>\n"
+        b"    </None>\n"
+        b"  </ItemGroup>\n"
+        b"  <ItemGroup>\n"
+        b'    <None Remove="..\\..\\packaging\\licenses\\TENSORS_LICENSE.txt" />\n'
+        b"  </ItemGroup>\n",
+        "coordinator: every module that ships a third-party library ships its licence text, with no Condition"
+        " -- Remembrance TENSORS_LICENSE.txt: a None Remove can take it out again (",
+    ),
+    (
+        "bd-coordinator: a wildcard None Remove can take every module licence out again (N-audit-1106-017)",
+        FORTUNES_CSPROJ,
+        b"      <Link>TENSORS_THIRD_PARTY_NOTICES.txt</Link>\n"
+        b"      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>\n"
+        b"    </None>\n"
+        b"  </ItemGroup>\n",
+        b"      <Link>TENSORS_THIRD_PARTY_NOTICES.txt</Link>\n"
+        b"      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>\n"
+        b"    </None>\n"
+        b"  </ItemGroup>\n"
+        b"  <ItemGroup>\n"
+        b'    <None Remove="..\\..\\packaging\\licenses\\*.txt" />\n'
+        b"  </ItemGroup>\n",
+        "coordinator: every module that ships a third-party library ships its licence text, with no Condition"
+        " -- Fortunes ONNXRUNTIME_LICENSE.txt: a None Remove can take it out again (",
+    ),
 )
 
 
