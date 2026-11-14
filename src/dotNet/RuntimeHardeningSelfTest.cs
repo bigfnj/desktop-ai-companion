@@ -1181,6 +1181,72 @@ namespace DesktopAICompanion
                           "(moved 40,80 sunk 0 expected; moved " + steady + ")", steady == "40,80 sunk 0");
                     // Not a check: what the follow does with a sub-pixel position, which the old read-back truncated away.
                     sb.AppendLine("NOTE: ride: from a sub-pixel start (400.5, 367.5) a held offset moved " + ride(2, 400.5, 367.5));
+
+                    // LANDING ON, AND HANGING FROM, A CLOAKED WINDOW (N-bd-int-w3-02). FallDetect and RiseDetect take their
+                    // candidates from EnumWindows through their own filters, which kept a cloaked window (IsWindowVisible is
+                    // true for it, though it is not on screen), so a falling pet could land on, and a rising pet hang from, a
+                    // surface nobody can see; CheckTopWindow no longer counts a cloaked window above a candidate, so those
+                    // filters are the only guard. One shown, titled probe is offered alone through the staged pet's candidate
+                    // list (EnumWindowsForSelfTest) and z-order walk, cloaked for the NEGATIVE checks and with the cloak lifted
+                    // for their POSITIVE CONTROLS, so the cloak is the only thing that differs. The probe sits on the staged
+                    // pet's work area (its constructor picks the primary screen) and the pet is placed from its own form size,
+                    // so the verdicts do not depend on the desktop. Neither detector reaches the respawn that needs the app.
+                    string fallCloaked, riseCloaked, fallShown, riseShown;
+                    using (var rider = new FormCompanion(rideAnimations, rideXml))
+                    {
+                        Rectangle area = Screen.PrimaryScreen.WorkingArea;
+                        int petWidth = rider.Width, petHeight = rider.Height;
+                        // Low enough for FallDetect's 20 px clearance above the falling pet, wide enough for its half-width
+                        // rule and for RiseDetect's whole-width rule, and its bottom well above the work area's.
+                        var probeBounds = new Rectangle(area.X + 100, area.Y + petHeight + 60, petWidth + 200, 100);
+                        using (var probe = new Form { StartPosition = FormStartPosition.Manual, FormBorderStyle = FormBorderStyle.FixedToolWindow,
+                                   ShowInTaskbar = false, Text = "surface probe", Opacity = 0, Bounds = probeBounds })
+                        {
+                            int cloak = 1;
+                            string hr = "cloak hr=" + RideDwmSetWindowAttribute(probe.Handle, 13, ref cloak, 4);
+                            NativeMethods.SetWindowPos(probe.Handle, IntPtr.Zero, 0, 0, 0, 0, probeShowFlags);
+                            NativeMethods.RECT edge;
+                            NativeMethods.GetWindowRect(new System.Runtime.InteropServices.HandleRef(probe, probe.Handle), out edge);
+                            rider.EnumWindowsForSelfTest = new[] { probe.Handle };
+                            rider.ZOrderWalkForSelfTest = new[] { probe.Handle };   // FallDetect's cover test walks it
+                            Func<string> land = delegate
+                            {
+                                // A step of 10 from 4 px above the probe's top, over its left part.
+                                IntPtr chosen;
+                                int top;
+                                bool found = rider.FallDetectForSelfTest(edge.Left + 20, edge.Top - petHeight - 4, 10, out chosen, out top);
+                                return (!found ? "none" : chosen == probe.Handle && top == edge.Top ? "the probe's top"
+                                    : "another window (top " + top + ")") + " [" + hr + " " + probeState(probe.Handle) + "]";
+                            };
+                            Func<string> hang = delegate
+                            {
+                                // A step of -10 from 4 px below the probe's bottom, under its left part.
+                                IntPtr chosen;
+                                int bottom;
+                                bool found = rider.RiseDetectForSelfTest(edge.Left + 20, edge.Bottom + 4, -10, out chosen, out bottom);
+                                return (!found ? "none" : chosen == probe.Handle && bottom == edge.Bottom ? "the probe's bottom"
+                                    : "another window (bottom " + bottom + ")") + " [" + hr + " " + probeState(probe.Handle) + "]";
+                            };
+                            fallCloaked = land();
+                            riseCloaked = hang();
+                            cloak = 0;
+                            hr = "uncloak hr=" + RideDwmSetWindowAttribute(probe.Handle, 13, ref cloak, 4);
+                            fallShown = land();
+                            riseShown = hang();
+                        }
+                    }
+                    Check("land: a falling pet does not land on a CLOAKED window across its path (none [cloak hr=0 visible=True " +
+                          "cloaked=True title='surface probe'] expected; got " + fallCloaked + ")",
+                          fallCloaked == "none [cloak hr=0 visible=True cloaked=True title='surface probe']");
+                    Check("land: POSITIVE CONTROL a falling pet lands on the same window once its cloak is lifted (the probe's top " +
+                          "[uncloak hr=0 visible=True cloaked=False title='surface probe'] expected; got " + fallShown + ")",
+                          fallShown == "the probe's top [uncloak hr=0 visible=True cloaked=False title='surface probe']");
+                    Check("hang: a rising pet does not hang from a CLOAKED window over its head (none [cloak hr=0 visible=True " +
+                          "cloaked=True title='surface probe'] expected; got " + riseCloaked + ")",
+                          riseCloaked == "none [cloak hr=0 visible=True cloaked=True title='surface probe']");
+                    Check("hang: POSITIVE CONTROL a rising pet hangs from the same window once its cloak is lifted (the probe's " +
+                          "bottom [uncloak hr=0 visible=True cloaked=False title='surface probe'] expected; got " + riseShown + ")",
+                          riseShown == "the probe's bottom [uncloak hr=0 visible=True cloaked=False title='surface probe']");
                 }
 
                 // ---- VELOCITY SCALING ----

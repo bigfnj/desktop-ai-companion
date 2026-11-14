@@ -27622,6 +27622,46 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--hardening-selftest", "dp-hardening-selftest.txt",
      "ride: POSITIVE CONTROL a visible, uncloaked, titled window over the ridden window's top edge covers it ("),
+    # N-bd-int-w3-02: FallDetect's and RiseDetect's candidate filters kept CLOAKED windows, so a falling pet could land on,
+    # and a rising pet hang from, a surface nobody can see. Graded by the land: and hang: checks of --hardening-selftest's
+    # ride group, which offer one shown, titled probe through the staged pet's candidate list (EnumWindowsForSelfTest),
+    # cloaked and then with its cloak lifted. The cloaked term goes from each filter: the cloaked probe is chosen and that
+    # detector's NEGATIVE check fails, alone.
+    ("bd-int-ride: FallDetect lands a pet on a cloaked window again (N-bd-int-w3-02)",
+     FORMCOMPANION_CS,
+     b'                if (NativeMethods.IsWindowVisible(hWnd) && !DesktopWindows.IsCloaked(hWnd))\n',
+     b'                if (NativeMethods.IsWindowVisible(hWnd))\n',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "land: a falling pet does not land on a CLOAKED window across its path ("),
+    ("bd-int-ride: RiseDetect hangs a pet from a cloaked window again (N-bd-int-w3-02)",
+     FORMCOMPANION_CS,
+     b'                if (!NativeMethods.IsWindowVisible(hWnd) || DesktopWindows.IsCloaked(hWnd)) return true;\n',
+     b'                if (!NativeMethods.IsWindowVisible(hWnd)) return true;\n',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "hang: a rising pet does not hang from a CLOAKED window over its head ("),
+    # Candidate selection off: each filter never accepts a window. Every negative check passes on it, so only that
+    # detector's POSITIVE CONTROL (the same probe, its cloak lifted, is chosen) can fail.
+    ("bd-int-ride: FallDetect never takes a candidate window (landing off)",
+     FORMCOMPANION_CS,
+     b'                    if (title.Length > 0)\n'
+     b'                    {\n'
+     b'                        windows.Add(hWnd);\n'
+     b'                    }\n',
+     b'                    if (title.Length > 0)\n'
+     b'                    {\n'
+     b'                    }\n',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "land: POSITIVE CONTROL a falling pet lands on the same window once its cloak is lifted ("),
+    ("bd-int-ride: RiseDetect never takes a candidate window (hanging off)",
+     FORMCOMPANION_CS,
+     b'                if (title.Length > 0) windows.Add(hWnd);\n',
+     b'',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "hang: POSITIVE CONTROL a rising pet hangs from the same window once its cloak is lifted ("),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

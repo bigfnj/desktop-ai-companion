@@ -528,6 +528,35 @@ namespace DesktopAICompanion
             return CheckTopWindow(true);
         }
 
+        /// <summary>Self-test (N-bd-int-w3-02): FallDetect as a falling step asks it, for a pet at (<paramref name="x"/>,
+        /// <paramref name="y"/>) holding no window that moves down by <paramref name="fallBy"/>. True when it lands;
+        /// <paramref name="chosen"/> is then the window it took and <paramref name="top"/> the top it reported.</summary>
+        internal bool FallDetectForSelfTest(double x, double y, double fallBy, out IntPtr chosen, out int top)
+        {
+            PositionX = x;
+            PositionY = y;
+            hwndWindow = IntPtr.Zero;
+            WindowTopHit hit = FallDetect(fallBy);
+            chosen = hwndWindow;
+            top = hit.Top;
+            return hit.Found;
+        }
+
+        /// <summary>Self-test (N-bd-int-w3-02): RiseDetect as an upward step asks it, for a pet at (<paramref name="x"/>,
+        /// <paramref name="y"/>) holding no window that moves up by <paramref name="riseBy"/> (negative), its sprite filling
+        /// the form (no insets). True when it catches an underside; <paramref name="chosen"/> is then the window and
+        /// <paramref name="bottom"/> the bottom it reported.</summary>
+        internal bool RiseDetectForSelfTest(double x, double y, double riseBy, out IntPtr chosen, out int bottom)
+        {
+            PositionX = x;
+            PositionY = y;
+            hwndWindow = IntPtr.Zero;
+            WindowTopHit hit = RiseDetect(riseBy, new SpriteInsets { Left = 0, Right = 0, Top = 0, Width = Width, Height = Height });
+            chosen = hwndWindow;
+            bottom = hit.Top;
+            return hit.Found;
+        }
+
         /// <summary>Self-test: where the classic engine holds this pet (its sprite origin before the offset) and the offset
         /// it applies now.</summary>
         internal double PositionXForSelfTest { get { return PositionX; } }
@@ -1975,13 +2004,18 @@ namespace DesktopAICompanion
             NativeMethods.TITLEBARINFO titleBarInfo = new NativeMethods.TITLEBARINFO();
             titleBarInfo.cbSize = Marshal.SizeOf(titleBarInfo);
 
-                // Enumerate all windows on the desktop.
-            NativeMethods.EnumWindows(delegate (IntPtr hWnd, int lParam)
+                // Enumerate all windows on the desktop (or the self-test's fixed list, EnumWindowsForSelfTest).
+            EnumCandidateWindows(delegate (IntPtr hWnd, int lParam)
             {
                 if (hWnd == Handle) return true;    // form itself, don't parse
 
-                    // Enumerate only visible windows
-                if (NativeMethods.IsWindowVisible(hWnd))
+                    // Enumerate only visible windows, and never a CLOAKED one (N-bd-int-w3-02): a pet must not land on a
+                    // surface nobody can see. IsWindowVisible is true for a suspended UWP app (the Xbox app), the Windows
+                    // Input Experience surface, which spans the whole desktop, and a window on another virtual desktop,
+                    // though none of them is on screen. CheckTopWindow skips cloaked windows, so a cloaked window above
+                    // such a candidate no longer hides it, and this filter is the only guard. CheckTopWindow, RiseDetect,
+                    // the fullscreen scan and DesktopWindows skip them with this same test.
+                if (NativeMethods.IsWindowVisible(hWnd) && !DesktopWindows.IsCloaked(hWnd))
                 {
                     StringBuilder sTitle = new StringBuilder(128);
                     NativeMethods.GetWindowText(hWnd, sTitle, 128);
@@ -2002,7 +2036,7 @@ namespace DesktopAICompanion
                     }
                 }
                 return true;
-            }, (IntPtr)0);
+            });
 
                 // For each valid window found:
             foreach (IntPtr window in windows)
@@ -2027,8 +2061,10 @@ namespace DesktopAICompanion
 						// If window is not covered by other windows, set this as current window for the pet.
 						if (!CheckTopWindow(false))
                         {
-								// Only if the option is set (this is an invasive functionality)
-							if (Program.MyData.GetWindowForeground())
+								// Only if the option is set (this is an invasive functionality). Never for the self-test's
+								// staged pet (EnumWindowsForSelfTest set): the option lives in the app's settings, which a
+								// self-test flag does not load, and raising a probe would take focus from the desktop.
+							if (EnumWindowsForSelfTest == null && Program.MyData.GetWindowForeground())
 							{
 								NativeMethods.ShowWindow(window, 5);        // show window again
 								NativeMethods.SetForegroundWindow(window);  // set focus to window
@@ -2068,10 +2104,11 @@ namespace DesktopAICompanion
             NativeMethods.TITLEBARINFO titleBarInfo = new NativeMethods.TITLEBARINFO();
             titleBarInfo.cbSize = Marshal.SizeOf(titleBarInfo);
 
-            NativeMethods.EnumWindows(delegate (IntPtr hWnd, int lParam)
+            EnumCandidateWindows(delegate (IntPtr hWnd, int lParam)
             {
                 if (hWnd == Handle) return true;    // form itself, don't parse
-                if (!NativeMethods.IsWindowVisible(hWnd)) return true;
+                // Nor a CLOAKED window: a pet must not hang from a surface nobody can see (N-bd-int-w3-02, see FallDetect).
+                if (!NativeMethods.IsWindowVisible(hWnd) || DesktopWindows.IsCloaked(hWnd)) return true;
 
                 StringBuilder sTitle = new StringBuilder(128);
                 NativeMethods.GetWindowText(hWnd, sTitle, 128);
@@ -2087,7 +2124,7 @@ namespace DesktopAICompanion
 
                 if (title.Length > 0) windows.Add(hWnd);
                 return true;
-            }, (IntPtr)0);
+            });
 
             double headY = PositionY + ins.Top;
             foreach (IntPtr window in windows)
@@ -2110,6 +2147,27 @@ namespace DesktopAICompanion
                 return WindowTopHit.At(rct.Bottom);
             }
             return WindowTopHit.None;
+        }
+
+        /// <summary>--hardening-selftest's seam (N-bd-int-w3-02): when set, FallDetect and RiseDetect offer these windows, in
+        /// this order, to their candidate filters instead of the live desktop's top-level windows, so a staged landing's
+        /// verdict does not depend on what else is open, and FallDetect does not raise the window it chose. Null in
+        /// production; only the self-test sets it, on its own staged pet.</summary>
+        internal IntPtr[] EnumWindowsForSelfTest;
+
+        /// <summary>The candidate enumeration FallDetect and RiseDetect share: EnumWindows over the live desktop, or the
+        /// self-test's <see cref="EnumWindowsForSelfTest"/> list, each window offered to <paramref name="consider"/> until it
+        /// returns false.</summary>
+        private void EnumCandidateWindows(NativeMethods.EnumWindowsProc consider)
+        {
+            IntPtr[] list = EnumWindowsForSelfTest;
+            if (list == null)
+            {
+                NativeMethods.EnumWindows(consider, (IntPtr)0);
+                return;
+            }
+            foreach (IntPtr hWnd in list)
+                if (!consider(hWnd, 0)) return;
         }
 
         // Sentinel stored in hwndFullscreenWindow while the pet's monitor is blocked. The value is
