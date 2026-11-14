@@ -1946,7 +1946,10 @@ namespace DesktopAICompanion.Wpf
                     // appended to the label, so a long list reads as names with their figures lined up beside
                     // them. The label trims rather than running under the column. An item with no Detail is
                     // built exactly as before, a box whose content is its label.
-                    bool hasDetail = !string.IsNullOrEmpty(it.Detail);
+                    // Trimmed once (lane H round 2, H-14): a whitespace-only Detail is no detail, so it adds neither a blank
+                    // column nor a trailing ", " to the box's accessible name, nor a blank help text.
+                    string detailText = (it.Detail ?? "").Trim();
+                    bool hasDetail = detailText.Length > 0;
                     // Set IsChecked in the initializer (before wiring events) so building the card doesn't
                     // fire SetChecked for the initial state — only genuine user clicks call back.
                     var cb = new CheckBox
@@ -1962,8 +1965,8 @@ namespace DesktopAICompanion.Wpf
                     // its checkbox, whose name carried the label alone and whose help text was empty, so a screen reader
                     // focusing an Awaiting row's box would not hear the comparison code that sits in its detail.
                     LabelForAutomation(cb, null,
-                        hasDetail ? text + ", " + it.Detail : text,
-                        hasDetail ? it.Detail : null);
+                        hasDetail ? text + ", " + detailText : text,
+                        hasDetail ? detailText : null);
                     FrameworkElement shown = cb;
                     if (hasDetail)
                     {
@@ -1975,7 +1978,7 @@ namespace DesktopAICompanion.Wpf
                         line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
                         var detail = new TextBlock
                         {
-                            Text = it.Detail,
+                            Text = detailText,
                             Foreground = MutedBrush,
                             Margin = new Thickness(8, 0, 4, 0),
                             VerticalAlignment = VerticalAlignment.Center,

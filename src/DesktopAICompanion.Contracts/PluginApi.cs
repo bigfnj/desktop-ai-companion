@@ -841,11 +841,15 @@ namespace DesktopAICompanion.Modules
     /// Secret". Corrected 2026-09-17 after an audit: BOTH halves were false, and a module author
     /// relying on either got the opposite of what they read.
     ///
-    /// `Save()` is a plain `File.WriteAllText` -- no temp-and-replace, no lock -- so an interrupted
-    /// write can truncate the file, and two `GetSettings` calls hand back two INDEPENDENT in-memory
-    /// dictionaries, so the last `Save` wins silently. If you need atomicity, `ModuleKit.AtomicFile`
-    /// is in the DLL that ships beside you; if you need cross-process safety, so is
-    /// `ModuleKit.CrossSessionLock`.
+    /// `Save()` writes through `ModuleKit.AtomicFile` (a temporary file, then a replace) in hosts
+    /// built after 2026-11-14 (N-audit-1106-234), so a save lands whole or not at all; older hosts
+    /// used a plain `File.WriteAllText` that an interrupted write could truncate. A settings.json that
+    /// exists but does not parse is kept beside it as `settings.json.corrupt-<utc>` before the next
+    /// save writes a new one, and a handle whose load failed merges only the keys it Set over a file
+    /// that reads healthy again by then. Otherwise two `GetSettings` calls still hand back two
+    /// INDEPENDENT in-memory dictionaries, so the last `Save` wins. The host serializes handles to one
+    /// path inside its own process only; for cross-process safety (two app instances on one data
+    /// root), `ModuleKit.CrossSessionLock` is in the DLL that ships beside you.
     ///
     /// Nothing here is ENCRYPTED. This type never sees the settings schema, so it cannot know which
     /// key was declared `SettingKind.Secret` -- the pane's Secret kind controls how a value is

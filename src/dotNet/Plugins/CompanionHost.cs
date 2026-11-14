@@ -1386,62 +1386,143 @@ namespace DesktopAICompanion.Plugins
         /// or interrupted save left it half-written; and Load swallowed a read failure and returned an empty dictionary, so the
         /// next Save overwrote the damaged file and every setting of the module was gone, with no line in any log. Now a file
         /// that exists but cannot be read or parsed is moved aside to settings.json.corrupt-&lt;utc&gt; (and logged) before the
-        /// first save writes a new one; a handle whose load failed refuses to save over a file that reads as healthy again;
-        /// and a save lands whole or not at all. Internal for --module-host-selftest.
+        /// first save writes a new one; a handle whose load failed merges only the keys it Set over a file that reads as
+        /// healthy again at save time (H-10), and logs that once; and a save lands whole or not at all. Two handles are still
+        /// two dictionaries: outside that repair, the last Save wins. Internal for --module-host-selftest.
+        ///
+        /// Round 2 (X1's audit H-r1 and the lead's review): every handle for one path takes the same in-process lock across
+        /// Load and the whole of Save, so two handles cannot interleave a check with another's move or write (H-2); a file
+        /// counts as absent only when the read says not found, so a file this account cannot open is a failed load, not an
+        /// empty one (H-3); a file that cannot be opened at save time is left alone instead of being moved aside as damaged
+        /// (H-6); and the failed-load guard is lifted only by a write that landed (H-1). Writers in OTHER processes (a second
+        /// companion, an installer) are not serialized by this lock: the atomic replacement still keeps each write whole.
         /// </summary>
         internal sealed class ModuleSettings : IModuleSettings
         {
+            /// <summary>One lock object per canonical full path (OrdinalIgnoreCase), shared by every handle for that path. One
+            /// entry per module settings file this process ever opened, so it stays as small as the module list.</summary>
+            private static readonly Dictionary<string, object> PathLocks = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+            /// <summary>Test seam for --module-host-selftest: called inside Save, under the path's lock, after the file's state
+            /// has been read and before anything is moved or written. Null outside the self-test.</summary>
+            internal static Action<string> BetweenCheckAndWriteForSelfTest;
+            /// <summary>Test seam for --module-host-selftest: stands in for the atomic write. Null outside the self-test.</summary>
+            internal static Func<string, string, bool> WriteForSelfTest;
+
             private readonly string _path;
+            private readonly object _lock;
             private readonly Dictionary<string, string> _d;
-            /// <summary>The file existed at Load and could not be read or parsed.</summary>
+            /// <summary>The file existed at Load and could not be read, opened or parsed.</summary>
             private bool _loadFailed;
-            public ModuleSettings(string path) { _path = path; _d = Load(path, out _loadFailed); }
+            /// <summary>Every key this handle has Set since it was made: what a merge over a file that reads healthy again
+            /// applies (H-10), and nothing else.</summary>
+            private readonly HashSet<string> _setKeys = new HashSet<string>(StringComparer.Ordinal);
+            /// <summary>Whether the failed-load guard is still on, for --module-host-selftest (H-9).</summary>
+            internal bool LoadFailedForSelfTest { get { lock (_lock) return _loadFailed; } }
+            public ModuleSettings(string path)
+            {
+                _path = path;
+                _lock = LockFor(path);
+                lock (_lock) _d = Load(path, out _loadFailed);
+            }
             public string Get(string key, string fallback) { string v; return _d.TryGetValue(key, out v) ? v : fallback; }
             public int GetInt(string key, int fallback) { string v; int n; return (_d.TryGetValue(key, out v) && int.TryParse(v, out n)) ? n : fallback; }
             public bool GetBool(string key, bool fallback) { string v; bool b; return (_d.TryGetValue(key, out v) && bool.TryParse(v, out b)) ? b : fallback; }
-            public void Set(string key, string value) { _d[key] = value ?? ""; }
+            public void Set(string key, string value) { _d[key] = value ?? ""; _setKeys.Add(key); }
             public bool Save()
             {
                 try
                 {
-                    if (_loadFailed)
+                    lock (_lock)
                     {
-                        // Decided by the file as it is NOW, not as Load found it (the lead's ruling Q4), in three branches:
-                        // no file -> write; unreadable now -> move it aside (a failed move writes nothing), then write; and
-                        // readable again -> refuse and write nothing. This handle's values never came from that file, so
-                        // writing them would replace a good file with a partial one. That third branch is a load that
-                        // failed transiently, and it is also the second handle: GetSettings hands out a new handle on every
-                        // call, so two handles can load the same damaged file, and the second must not move aside, or
-                        // overwrite, the good file the first one's save has just written.
-                        if (File.Exists(_path))
+                        if (_loadFailed)
                         {
-                            if (Readable(_path)) return false;
-                            if (!SetAside(_path)) return false;
+                            // Decided by the file as it is NOW, not as Load found it (the lead's ruling Q4, revised by H-10):
+                            // absent -> write; damaged now -> move it aside (a failed move writes nothing), then write; cannot be
+                            // opened -> refuse and write nothing (H-6); readable again -> merge this handle's own changes over
+                            // it (below). "Readable again" is a load that failed transiently, and it is the second of two
+                            // handles that loaded the same damaged file, after the first one's save.
+                            FileState now;
+                            Dictionary<string, string> onDisk = Read(_path, out now);
+                            if (now == FileState.CannotTell) return false;
+                            Action<string> seam = BetweenCheckAndWriteForSelfTest;
+                            if (seam != null) seam(_path);
+                            if (now == FileState.Healthy)
+                            {
+                                // Readable again (H-10, which supersedes Q4's refusal): what is on disk now is kept and only the
+                                // keys this handle Set are applied over it. Refusing forever lost the user's edits silently at
+                                // the next launch for every module that ignores Save's bool, and writing this handle's own
+                                // dictionary would drop every key it never loaded.
+                                foreach (string key in _setKeys) onDisk[key] = _d[key];
+                                if (!Write(_path, JsonSerializer.Serialize(onDisk))) return false;
+                                _d.Clear();
+                                foreach (KeyValuePair<string, string> kv in onDisk) _d[kv.Key] = kv.Value;
+                                _loadFailed = false;
+                                try
+                                {
+                                    DiagnosticLog.Write(LogCategory.Modules, "warning", null, "module settings could not be read when this handle " +
+                                        "opened them and read healthy again at save time; " + _setKeys.Count + " changed key(s) were merged into the file: " + _path);
+                                }
+                                catch { }
+                                return true;
+                            }
+                            if (now == FileState.Damaged && !SetAside(_path)) return false;
                         }
-                        _loadFailed = false;
+                        bool written = Write(_path, JsonSerializer.Serialize(_d));
+                        // Only a write that landed lifts the guard (H-1): after a set-aside whose write failed, a healthy file
+                        // restored in the meantime must still be refused, not overwritten by this handle's partial values.
+                        if (written) _loadFailed = false;
+                        return written;
                     }
-                    return DesktopAICompanion.ModuleKit.AtomicFile.TryWriteAllText(_path, JsonSerializer.Serialize(_d), null);
                 }
                 catch { return false; }
             }
+            private static object LockFor(string path)
+            {
+                string key;
+                try { key = Path.GetFullPath(path); } catch { key = path ?? ""; }
+                lock (PathLocks)
+                {
+                    object gate;
+                    if (!PathLocks.TryGetValue(key, out gate)) PathLocks[key] = gate = new object();
+                    return gate;
+                }
+            }
+            private static bool Write(string path, string json)
+            {
+                Func<string, string, bool> seam = WriteForSelfTest;
+                return seam != null ? seam(path, json) : DesktopAICompanion.ModuleKit.AtomicFile.TryWriteAllText(path, json, null);
+            }
             private static Dictionary<string, string> Load(string path, out bool failed)
             {
-                failed = false;
-                try { if (File.Exists(path)) return Parse(File.ReadAllText(path)); }
-                catch { failed = true; }
-                return new Dictionary<string, string>();
+                FileState state;
+                Dictionary<string, string> values = Read(path, out state);
+                failed = state != FileState.Absent && state != FileState.Healthy;
+                return values ?? new Dictionary<string, string>();
+            }
+            private enum FileState { Absent, Healthy, Damaged, CannotTell }
+            /// <summary>
+            /// The file as it is now. The read itself is the probe (H-3): File.Exists answers false for a file this account may
+            /// not read the attributes of, so only a not-found answer counts as absent. A read that fails any other way is
+            /// CannotTell, never Damaged (H-6): only content that does not parse is damaged, and only damage is moved aside.
+            /// </summary>
+            private static Dictionary<string, string> Read(string path, out FileState state)
+            {
+                string json;
+                try { json = File.ReadAllText(path); }
+                catch (FileNotFoundException) { state = FileState.Absent; return null; }
+                catch (DirectoryNotFoundException) { state = FileState.Absent; return null; }
+                catch (IOException) { state = FileState.CannotTell; return null; }
+                catch (UnauthorizedAccessException) { state = FileState.CannotTell; return null; }
+                catch { state = FileState.CannotTell; return null; }
+                try { var parsed = Parse(json); state = FileState.Healthy; return parsed; }
+                catch { state = FileState.Damaged; return null; }
             }
             private static Dictionary<string, string> Parse(string json)
             {
                 return JsonSerializer.Deserialize<Dictionary<string, string>>(json) ?? new Dictionary<string, string>();
             }
-            private static bool Readable(string path)
-            {
-                try { Parse(File.ReadAllText(path)); return true; }
-                catch { return false; }
-            }
-            /// <summary>Move an unreadable settings file to settings.json.corrupt-&lt;utc&gt;, with a -N suffix on a same-millisecond
-            /// collision. False when it could not be moved, so the caller leaves it in place.</summary>
+            /// <summary>Move a settings file whose content does not parse to settings.json.corrupt-&lt;utc&gt;, with a -N suffix on a
+            /// same-millisecond collision. False when it could not be moved, so the caller leaves it in place and writes nothing.</summary>
             private static bool SetAside(string path)
             {
                 string stamp = DateTime.UtcNow.ToString("yyyyMMdd'T'HHmmssfff'Z'", System.Globalization.CultureInfo.InvariantCulture);
@@ -1454,7 +1535,7 @@ namespace DesktopAICompanion.Plugins
                     try
                     {
                         DiagnosticLog.Write(LogCategory.Modules, "warning", null,
-                            "module settings could not be read and were kept as " + Path.GetFileName(target) + " before a new file was saved: " + path);
+                            "module settings could not be parsed and were kept as " + Path.GetFileName(target) + "; a replacement will be attempted: " + path);
                     }
                     catch { }
                     return true;
