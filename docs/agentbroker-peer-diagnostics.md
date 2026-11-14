@@ -31,4 +31,10 @@ zero offset.
 Observations are local and bounded to 32 paired brokers. They are tied to the
 current pairing authorization and contain no agent message text. They do not
 change the federation message format or the schema-1 durable store. No clock is
-set, and no expiry, lease or admission decision uses the observed offset.
+set. For `list_sessions`, the latest clock sample for that peer shifts the time
+used to compare paired-directory rows' `LeaseUntil` only when that sample is
+usable (`observed`) and within its five-minute freshness window. It can come
+from another authenticated response, rather than the directory response being
+listed. If the latest sample is unusable, this PC's clock is used. This changes
+which peer rows are presented as live; stored message expiry, session leases,
+admission and authorization are unchanged.

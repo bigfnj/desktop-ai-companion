@@ -39,7 +39,7 @@ public sealed partial class BrokerStore
         internal readonly WaitIdentity Source = WaitIdentity.From(receipt.Message);
         internal readonly Dictionary<(string Reason, string Source), WaitReasonObservation> Reasons = new();
         internal string LatestReason = "", LatestSource = "";
-        internal long LastTimestamp;
+        internal long LastTimestamp, LastCountedTimestamp;
         internal long? BusyTimestamp, AdapterBusyTimestamp;
         internal DateTimeOffset? BusyAt;
         internal bool NoticeAdmitted;
@@ -98,7 +98,7 @@ public sealed partial class BrokerStore
         if (!FreshWait(observation.LastTimestamp)) EndBusy(observation);
         var now = Now;
         bool throttledDirectory = source == "directory" && observation.LatestSource == source &&
-            observation.LatestReason == reason && clock.GetElapsedTime(observation.LastTimestamp, timestamp) is var elapsed &&
+            observation.LatestReason == reason && clock.GetElapsedTime(observation.LastCountedTimestamp, timestamp) is var elapsed &&
             elapsed >= TimeSpan.Zero && elapsed < WaitingMailPolicy.DirectoryObservationInterval;
         if (!throttledDirectory)
         {
@@ -107,8 +107,10 @@ public sealed partial class BrokerStore
                 observation.Reasons[key] = previous with { LastObservedAtUtc = now,
                     Count = previous.Count == long.MaxValue ? long.MaxValue : previous.Count + 1 };
             else if (observation.Reasons.Count < 20) observation.Reasons.Add(key, new(reason, source, now, now, 1));
-            observation.LatestReason = reason; observation.LatestSource = source; observation.LastTimestamp = timestamp;
+            observation.LatestReason = reason; observation.LatestSource = source; observation.LastCountedTimestamp = timestamp;
         }
+        // Every observation refreshes freshness; only counted observations advance the throttle anchor.
+        observation.LastTimestamp = timestamp;
         if (!busy || !WaitingPolicy(receipt.Message, target)) EndBusy(observation);
         else
         {

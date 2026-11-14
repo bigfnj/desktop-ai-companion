@@ -75,6 +75,13 @@ internal static class ListSessionsScopeChecks
             defaultScope.Rows.Count == expectedLocal.Length + 1 &&
             federation.Fetches - beforeDefault == defaultScope.PageSizes.Count,
             "LIST_SESSIONS_DEFAULT_FEDERATED: omitting scope fetches the paired directory and includes its row");
+        int beforeNull = federation.Fetches;
+        DirectoryScan? nullScope = null;
+        try { nullScope = await ScanAsync(fixture, null, expectedLocal.Length + 1, explicitNullScope: true); }
+        catch (ModelContextProtocol.McpException error) when (error.Message == "invalid_scope") { }
+        check(nullScope is { Completed: true } && nullScope.Rows.SequenceEqual(defaultScope.Rows) &&
+            federation.Fetches - beforeNull == nullScope.PageSizes.Count,
+            "LIST_SESSIONS_NULL_SCOPE_DEFAULTS_FEDERATED: explicit null scope preserves omitted-scope ordered results and peer fetches");
         int beforeExplicit = federation.Fetches;
         var explicitScope = await ScanAsync(fixture, "federated", expectedLocal.Length + 1);
         check(explicitScope.Completed && explicitScope.Rows.SequenceEqual(defaultScope.Rows) &&
@@ -179,7 +186,7 @@ internal static class ListSessionsScopeChecks
     // Three pages are the independent bound for the largest fixture (twenty rows, page size 16).
     // A duplicate or non-progressing cursor terminates locally and fails the single paging check.
     private static async Task<DirectoryScan> ScanAsync(ToolFixture fixture, string? scope, int expectedRows,
-        IReadOnlyList<ListedSession>? firstPage = null)
+        IReadOnlyList<ListedSession>? firstPage = null, bool explicitNullScope = false)
     {
         var rows = new List<ListedSession>();
         var sizes = new List<int>();
@@ -188,9 +195,9 @@ internal static class ListSessionsScopeChecks
         int maximumPages = (expectedRows + 15) / 16 + 1;
         for (int index = 0; index < maximumPages; index++)
         {
-            var page = index == 0 && firstPage is not null ? firstPage : scope is null
+            var page = index == 0 && firstPage is not null ? firstPage : scope is null && !explicitNullScope
                 ? await fixture.Tools.ListSessions(default, limit: 16, afterAddress: cursor)
-                : await fixture.Tools.ListSessions(default, limit: 16, afterAddress: cursor, scope: scope);
+                : await fixture.Tools.ListSessions(default, limit: 16, afterAddress: cursor, scope: scope!);
             sizes.Add(page.Count);
             rows.AddRange(page);
             if (page.Count > 16 || page.Any(row => !seen.Add(row.Address))) return new(rows, sizes, false);

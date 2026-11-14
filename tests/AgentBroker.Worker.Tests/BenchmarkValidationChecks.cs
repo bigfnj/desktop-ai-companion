@@ -76,8 +76,15 @@ internal static class BenchmarkValidationChecks
                 var healthy = await Run(["waiting-mail", pending.ToString(System.Globalization.CultureInfo.InvariantCulture),
                     cohort, Path.Combine(scratch.Root, "waiting-" + cohort + "-" + pending)]);
                 if (healthy.Code != 0) Console.Error.Write(healthy.Output);
-                check(healthy.Code == 0 && WaitingShape(healthy.Output, pending, cohort),
-                    "BENCHMARK_WAITING_" + pending + "_" + cohort.Replace('-', '_').ToUpperInvariant());
+                bool shapeMatches = WaitingShape(healthy.Output, pending, cohort, out string observedShape);
+                int expectedMaximum = pending == 4096 ? 64 : pending == 16 ? 1 : 0;
+                int expectedObserved = cohort == "fresh-busy" ? pending : 0;
+                check(healthy.Code == 0 && shapeMatches,
+                    "BENCHMARK_WAITING_" + pending + "_" + cohort.Replace('-', '_').ToUpperInvariant() +
+                    $": expected exit=0, scenario=waiting-mail, pending={pending}, cohort={cohort}, sessions=65, recipients=64, " +
+                    $"maximumPerRecipient={expectedMaximum}, observedMessages={expectedObserved}, samples=6, gapMilliseconds=500, " +
+                    "firstQuerySample=0, queryTimes=6 finiteNonnegative=True, hashes=6 allMatch=True, expectedHashMatches=True, summarySessions=65; " +
+                    $"observed exit={healthy.Code}, {observedShape}");
             }
         try
         {
@@ -91,17 +98,21 @@ internal static class BenchmarkValidationChecks
                 File.WriteAllText(path, node.ToJsonString(), new UTF8Encoding(false));
             };
             var lost = await Run(["waiting-mail", "16", "fresh-busy", Path.Combine(scratch.Root, "waiting-lost")]);
-            check(lost.Code == 1 && lost.Output.Contains("BENCHMARK-FAILED", StringComparison.Ordinal) &&
-                lost.Output.Contains("Waiting benchmark summary differs from the requested fixture.", StringComparison.Ordinal),
-                "BENCHMARK_WAITING_COUNTS_GUARD");
+            bool benchmarkFailed = lost.Output.Contains("BENCHMARK-FAILED", StringComparison.Ordinal);
+            bool summaryMismatch = lost.Output.Contains("Waiting benchmark summary differs from the requested fixture.", StringComparison.Ordinal);
+            check(lost.Code == 1 && benchmarkFailed && summaryMismatch,
+                "BENCHMARK_WAITING_COUNTS_GUARD: fresh-busy pending=16 with one missing seeded message expects exit=1, " +
+                "BENCHMARK-FAILED=True, summaryMismatch=True; " +
+                $"observed exit={lost.Code}, BENCHMARK-FAILED={benchmarkFailed}, summaryMismatch={summaryMismatch}");
         }
         finally { CoordinationBenchmark.AfterWaitingMailSeed = null; }
     }
 
-    private static bool WaitingShape(string output, int pending, string cohort)
+    private static bool WaitingShape(string output, int pending, string cohort, out string observed)
     {
         string[] lines = output.Split('\n').Select(line => line.TrimEnd('\r'))
             .Where(line => line.StartsWith("BENCHMARK ", StringComparison.Ordinal)).ToArray();
+        observed = $"BENCHMARK lines={lines.Length}";
         if (lines.Length != 1) return false;
         try
         {
@@ -112,6 +123,15 @@ internal static class BenchmarkValidationChecks
             byte[] bytes = Convert.FromBase64String(result.GetProperty("summaryUtf8Base64").GetString()!);
             string hash = Convert.ToHexString(SHA256.HashData(bytes));
             using var summary = JsonDocument.Parse(bytes);
+            observed = $"scenario={result.GetProperty("scenario").GetString()}, pending={result.GetProperty("pending").GetInt32()}, " +
+                $"cohort={result.GetProperty("cohort").GetString()}, sessions={result.GetProperty("sessions").GetInt32()}, " +
+                $"recipients={result.GetProperty("recipients").GetInt32()}, maximumPerRecipient={result.GetProperty("maximumPerRecipient").GetInt32()}, " +
+                $"observedMessages={result.GetProperty("expectedObservedMessages").GetInt32()}, samples={result.GetProperty("samples").GetInt32()}, " +
+                $"gapMilliseconds={result.GetProperty("gapMilliseconds").GetInt32()}, firstQuerySample={result.GetProperty("firstQuerySample").GetInt32()}, " +
+                $"queryTimes={times.Length} finiteNonnegative={times.All(value => double.IsFinite(value) && value >= 0)}, " +
+                $"hashes={hashes.Length} allMatch={hashes.All(value => value == hash)}, " +
+                $"expectedHashMatches={result.GetProperty("expectedSummarySha256").GetString() == hash}, " +
+                $"summarySessions={summary.RootElement.GetProperty("Sessions").GetArrayLength()}";
             return result.GetProperty("scenario").GetString() == "waiting-mail" &&
                 result.GetProperty("pending").GetInt32() == pending && result.GetProperty("cohort").GetString() == cohort &&
                 result.GetProperty("sessions").GetInt32() == 65 && result.GetProperty("recipients").GetInt32() == 64 &&
@@ -125,6 +145,7 @@ internal static class BenchmarkValidationChecks
         }
         catch (Exception error) when (error is JsonException or FormatException or InvalidOperationException or KeyNotFoundException)
         {
+            observed += $", invalid result ({error.GetType().Name})";
             return false;
         }
     }

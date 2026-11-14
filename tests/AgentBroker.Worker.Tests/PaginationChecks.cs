@@ -112,6 +112,20 @@ internal static class PaginationChecks
                 directoryPage = await bridge.ArrayAsync("list_sessions", new { afterAddress = current[^1] });
             }
             check(addresses.SequenceEqual(expected), "directory keyset traversal returns each live address once with ordinal session ordering");
+            var nullScopeCall = await bridge.RpcAsync("tools/call", new { name = "list_sessions", arguments = new { scope = (string?)null } });
+            bool nullScopeDefault = false;
+            if (nullScopeCall.TryGetProperty("result", out var nullResult) &&
+                (!nullResult.TryGetProperty("isError", out var nullError) || nullError.ValueKind == JsonValueKind.False) &&
+                nullResult.TryGetProperty("content", out var nullContent) && nullContent.ValueKind == JsonValueKind.Array &&
+                nullContent.GetArrayLength() > 0 && nullContent[0].GetProperty("type").GetString() == "text")
+            {
+                using var nullPage = JsonDocument.Parse(nullContent[0].GetProperty("text").GetString()!);
+                nullScopeDefault = nullPage.RootElement.ValueKind == JsonValueKind.Array &&
+                    nullPage.RootElement.EnumerateArray().Select(item => item.GetProperty("address").Deserialize<SessionAddress>(WebJson)!)
+                        .SequenceEqual(expected.Take(16));
+            }
+            check(nullScopeDefault,
+                "LIST_SESSIONS_NULL_SCOPE_WIRE: explicit JSON null scope preserves the omitted-scope first page through authenticated MCP");
             // Bind scope through the authenticated stdio/MCP stack, keeping the same full-address cursor semantics.
             var localAddresses = new List<SessionAddress>();
             var localSeen = new HashSet<SessionAddress>();

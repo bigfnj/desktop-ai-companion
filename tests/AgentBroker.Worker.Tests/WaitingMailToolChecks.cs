@@ -388,8 +388,7 @@ internal static class WaitingMailToolChecks
         }
         string fault = Path.Combine(fixture.Root, "store", "broker-state.json.next");
         long failedBefore = fixture.Store.CommitTimings().Failed;
-        bool ownsFault = false, firstDiscoveryCompleted = false, observedFailure = false;
-        Exception? setupFailure = null;
+        bool ownsFault = false;
         using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         try
         {
@@ -398,34 +397,39 @@ internal static class WaitingMailToolChecks
             var errors = typeof(BrokerRuntime).GetField("adapterErrors", System.Reflection.BindingFlags.Instance |
                 System.Reflection.BindingFlags.NonPublic)?.GetValue(fixture.Runtime) as
                 System.Collections.Concurrent.ConcurrentDictionary<string, string>;
-            if (errors is not null)
-            {
-                errors[adapter.Id] = "synthetic_waiting_startup_clear";
-                fixture.Runtime.Start(stop.Token);
-                firstDiscoveryCompleted = await UntilAsync(() => adapter.Discoveries == 1 &&
-                    !fixture.Runtime.AdapterErrors.ContainsKey(adapter.Id), stop.Token);
-                if (firstDiscoveryCompleted)
-                {
-                    // The stub never completes another preparation pass, so no later successful discovery
-                    // can erase an adapter error injected by the notice-write mutant.
-                    Directory.CreateDirectory(fault); ownsFault = true;
-                    clock.Advance(TimeSpan.FromSeconds(10));
-                    Renew(fixture, sender, target, clock);
-                    observedFailure = await UntilAsync(() => fixture.Store.CommitTimings().Failed > failedBefore &&
-                        fixture.Runtime.AdapterErrors.TryGetValue("waiting_mail", out string? code) &&
-                        code == "waiting_mail_notice_write_failed", stop.Token);
-                }
-            }
+            check(errors is not null,
+                "WAITING_RUNTIME_WRITE_FAILURE_LOOP_REFLECTION_PRECONDITION: BrokerRuntime.adapterErrors resolves to the expected dictionary before the runtime starts.");
+            errors![adapter.Id] = "synthetic_waiting_startup_clear";
+            fixture.Runtime.Start(stop.Token);
+            bool firstDiscoveryCompleted = await UntilAsync(() => adapter.Discoveries == 1 &&
+                !fixture.Runtime.AdapterErrors.ContainsKey(adapter.Id), stop.Token);
+            check(firstDiscoveryCompleted,
+                "WAITING_RUNTIME_WRITE_FAILURE_LOOP_FIRST_DISCOVERY_PRECONDITION: the first discovery clears the seeded adapter error before the notice fault is armed.");
+
+            // The stub never completes another preparation pass, so no later successful discovery
+            // can erase an adapter error injected by the notice-write mutant.
+            Directory.CreateDirectory(fault); ownsFault = true;
+            clock.Advance(TimeSpan.FromSeconds(10));
+            Renew(fixture, sender, target, clock);
+            bool observedFailure = await UntilAsync(() => fixture.Store.CommitTimings().Failed > failedBefore &&
+                fixture.Runtime.AdapterErrors.TryGetValue("waiting_mail", out string? code) &&
+                code == "waiting_mail_notice_write_failed", stop.Token);
+            check(observedFailure,
+                "WAITING_RUNTIME_WRITE_FAILURE_LOOP_NOTICE_PRECONDITION: the real delivery loop reaches the armed write fault and records its waiting-mail error within the fixture deadline.");
         }
-        catch (Exception error) { setupFailure = error; }
         finally
         {
             stop.Cancel();
             try { await fixture.Runtime.DisposeAsync(); }
             finally { if (ownsFault) Directory.Delete(fault, recursive: false); }
         }
-        check(setupFailure is null && firstDiscoveryCompleted && adapter.Discoveries == 1 && observedFailure &&
-            fixture.Store.CommitTimings().Failed > failedBefore && adapter.Submissions == 0 &&
+        check(adapter.Discoveries == 1,
+            "WAITING_RUNTIME_WRITE_FAILURE_LOOP_DISCOVERY_BARRIER_PRECONDITION: the adapter completes exactly one discovery so later discovery cannot clear the injected error.");
+        // The target stays Busy: zero submissions is a witness of that fixture, not a separate
+        // proof that a notice-write fault prevented an otherwise claimable submission.
+        // Reflection, discovery progress and barrier failures have their own setup labels above;
+        // unexpected setup exceptions retain their original exception and stack instead of becoming this product label.
+        check(adapter.Submissions == 0 &&
             !fixture.Runtime.AdapterErrors.ContainsKey(adapter.Id) && !fixture.Runtime.DurableStateUnavailable &&
             !fixture.Runtime.AdapterErrors.ContainsKey("broker") && !fixture.Runtime.AdapterErrors.ContainsKey("delivery") &&
             fixture.Runtime.AdapterErrors.TryGetValue("waiting_mail", out string? finalCode) &&

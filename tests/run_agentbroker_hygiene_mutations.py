@@ -422,7 +422,7 @@ BUSY_MAIL_1105_WITNESSES = (
             'WAITING_BUSY_NOT_BEFORE_DUE'),
     Witness('policy-episode-kept', 'src/AgentBroker.Core/BrokerStore.WaitingMail.cs', 'core', ('--waiting-mail-only',),
             (('if (!busy || !WaitingPolicy(receipt.Message, target)) EndBusy(observation);', 'if (!busy) EndBusy(observation);', 1), ('            if (!WaitingPolicy(receipt.Message, target) && waitingMail.TryGetValue(receipt.Message.Id, out var invalidPolicy))\n                EndBusy(invalidPolicy);\n', '', 1)),
-            'WAITING_RECEIVE_REGAIN_RESTARTS'),
+            'WAITING_DIRECTORY_POLICY_REVOKED_WITHIN_INTERVAL'),
     Witness('directory-unknown-kept', 'src/AgentBroker.Core/BrokerStore.WaitingMail.cs', 'core', ('--waiting-mail-only',),
             (('            if (target.Activity == SessionActivity.Unknown && waitingMail.TryGetValue(receipt.Message.Id, out var unknown) &&\n                (unknown.AdapterBusyTimestamp is not { } adapterAt || !FreshWait(adapterAt))) EndBusy(unknown);\n', '', 1),),
             'WAITING_DIRECTORY_TO_UNKNOWN_RESTARTS'),
@@ -480,6 +480,31 @@ WAITING_MAIL_R4_CORE_WITNESSES = (
     Witness('waiting-tombstone-dedup-omitted', 'src/AgentBroker.Core/BrokerStore.WaitingMail.cs', 'core', ('--waiting-mail-only',), ((' || tombstones.ContainsKey(id)', '', 1),), 'WAITING_RESTART_DURABLE_DEDUP'),
 )
 
+# D2 round 2: independent Ready, reason-transition, policy and freshness conditions.
+D2_R2_CORE_WITNESSES = (
+    Witness("a7-summary-ready-constant-false", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (('                    count.Ready ??= Ready(targets[index].Address);\n',
+              '                    count.Ready ??= false;\n', 1),), "WAITING_SUMMARY_READY_IS_PER_TARGET"),
+    Witness("a7-summary-ready-shared-across-targets", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (('            var counts = new WaitingMailCounts[targets.Length];\n',
+              '            var counts = new WaitingMailCounts[targets.Length];\n            bool? sharedReady = null;\n', 1),
+             ('                    count.Ready ??= Ready(targets[index].Address);\n',
+              '                    count.Ready ??= sharedReady ??= Ready(targets[index].Address);\n', 1)),
+            "WAITING_SUMMARY_READY_IS_PER_TARGET"),
+    Witness("a8-directory-historical-reason-key-throttled", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (('        bool throttledDirectory = source == "directory" && observation.LatestSource == source &&\n            observation.LatestReason == reason && clock.GetElapsedTime(observation.LastCountedTimestamp, timestamp) is var elapsed &&\n',
+              '        bool throttledDirectory = source == "directory" && observation.Reasons.ContainsKey((reason, source)) &&\n            clock.GetElapsedTime(observation.LastCountedTimestamp, timestamp) is var elapsed &&\n', 1),),
+            "WAITING_DIRECTORY_REASON_CHANGE_RESTARTS_BUSY"),
+    Witness("a8-directory-policy-revocation-rearms-count", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (('                EndBusy(invalidPolicy);\n',
+              '                { EndBusy(invalidPolicy); invalidPolicy.LatestReason = ""; }\n', 1),),
+            "WAITING_DIRECTORY_POLICY_REGAIN_RESTARTS"),
+    Witness("a8-directory-throttled-freshness-not-refreshed", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (('        observation.LastTimestamp = timestamp;\n',
+              '        if (!throttledDirectory) observation.LastTimestamp = timestamp;\n', 1),),
+            "WAITING_DIRECTORY_THROTTLED_REFRESHES_FRESHNESS"),
+)
+
 # AgentBroker 1.10.5 D2 A8: metadata throttling must preserve source and busy-policy semantics.
 A8_WAITING_DIRECTORY_WITNESSES = (
     Witness("a8-directory-interval-1900ms", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
@@ -489,22 +514,22 @@ A8_WAITING_DIRECTORY_WITNESSES = (
             (("    public static readonly TimeSpan DirectoryObservationInterval = TimeSpan.FromSeconds(2);\n", "    public static readonly TimeSpan DirectoryObservationInterval = TimeSpan.Zero;\n", 1),),
             "WAITING_DIRECTORY_RATE_BOUND"),
     Witness("a8-directory-reason-change-guard-omitted", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
-            (("            observation.LatestReason == reason && clock.GetElapsedTime(observation.LastTimestamp, timestamp) is var elapsed &&\n", "            clock.GetElapsedTime(observation.LastTimestamp, timestamp) is var elapsed &&\n", 1),),
+            (("            observation.LatestReason == reason && clock.GetElapsedTime(observation.LastCountedTimestamp, timestamp) is var elapsed &&\n", "            clock.GetElapsedTime(observation.LastCountedTimestamp, timestamp) is var elapsed &&\n", 1),),
             "WAITING_DIRECTORY_REASON_CHANGE_ENDS_BUSY"),
     Witness("a8-directory-negative-elapsed-guard-omitted", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
             (("            elapsed >= TimeSpan.Zero && elapsed < WaitingMailPolicy.DirectoryObservationInterval;\n", "            elapsed < WaitingMailPolicy.DirectoryObservationInterval;\n", 1),),
             "WAITING_DIRECTORY_NEGATIVE_ELAPSED_REOBSERVED"),
     Witness("a8-directory-throttled-timestamp-advanced", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
-            (("        if (!throttledDirectory)\n", "        if (throttledDirectory) observation.LastTimestamp = timestamp;\n        if (!throttledDirectory)\n", 1),),
+            (("        if (!throttledDirectory)\n", "        if (throttledDirectory) observation.LastCountedTimestamp = timestamp;\n        if (!throttledDirectory)\n", 1),),
             "WAITING_DIRECTORY_AT_INTERVAL"),
     Witness("a8-directory-throttled-returns-before-policy", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
             (("        if (!throttledDirectory)\n", "        if (throttledDirectory) return;\n        if (!throttledDirectory)\n", 1),),
-            "WAITING_RECEIVE_REGAIN_RESTARTS"),
+            "WAITING_DIRECTORY_POLICY_REGAIN_RESTARTS"),
     Witness("a8-adapter-native-busy-throttled", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
             (("        bool throttledDirectory = source == \"directory\" && observation.LatestSource == source &&\n", "        bool throttledDirectory = (source == \"directory\" || source == \"adapter\" && reason == \"native_context_busy\") && observation.LatestSource == source &&\n", 1),),
             "WAITING_NON_DIRECTORY_NOT_THROTTLED"),
     Witness("a8-directory-intervening-adapter-not-rearmed", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
-            (("        bool throttledDirectory = source == \"directory\" && observation.LatestSource == source &&\n            observation.LatestReason == reason && clock.GetElapsedTime(observation.LastTimestamp, timestamp) is var elapsed &&\n            elapsed >= TimeSpan.Zero && elapsed < WaitingMailPolicy.DirectoryObservationInterval;\n", "        bool throttledDirectory = source == \"directory\" &&\n            (observation.LatestSource == source && observation.LatestReason == reason ||\n                observation.LatestSource == \"adapter\" && observation.Reasons.ContainsKey((reason, source))) &&\n            clock.GetElapsedTime(observation.LastTimestamp, timestamp) is var elapsed &&\n            elapsed >= TimeSpan.Zero && elapsed < WaitingMailPolicy.DirectoryObservationInterval;\n", 1),),
+            (("        bool throttledDirectory = source == \"directory\" && observation.LatestSource == source &&\n            observation.LatestReason == reason && clock.GetElapsedTime(observation.LastCountedTimestamp, timestamp) is var elapsed &&\n            elapsed >= TimeSpan.Zero && elapsed < WaitingMailPolicy.DirectoryObservationInterval;\n", "        bool throttledDirectory = source == \"directory\" &&\n            (observation.LatestSource == source && observation.LatestReason == reason ||\n                observation.LatestSource == \"adapter\" && observation.Reasons.ContainsKey((reason, source))) &&\n            clock.GetElapsedTime(observation.LastCountedTimestamp, timestamp) is var elapsed &&\n            elapsed >= TimeSpan.Zero && elapsed < WaitingMailPolicy.DirectoryObservationInterval;\n", 1),),
             "WAITING_DIRECTORY_ADAPTER_INTERLEAVING_REARMS_COUNT"),
     Witness("a8-runtime-notice-io-mislabels-native-adapter", "tools/AgentBroker.Worker/BrokerRuntime.cs", "worker", ("--waiting-mail-only",),
             (('                adapterErrors["waiting_mail"] = "waiting_mail_notice_write_failed";\n',
@@ -512,8 +537,16 @@ A8_WAITING_DIRECTORY_WITNESSES = (
             "WAITING_RUNTIME_NOTICE_WRITE_FAILURE_ISOLATED_NO_SUBMISSION"),
 )
 
-# D2 A10 author self-review: STATIC recipes. Qualify against final L2+A10 source before trusting any expected label.
+# D2 A10 author self-review recipes: prior L2/A10 qualification records 36 executions / 34 source variants.
+# See E/lanes/D2/L2-A10-QUALIFICATION.md; catalogue registration alone never qualifies a witness.
 A10_DIRECTORY_SCOPE_WITNESSES = (
+    Witness("a10-null-scope-default-omitted", "tools/AgentBroker.Worker/BrokerTools.cs", "worker", ("--list-sessions-scope-only",),
+            (('        scope ??= "federated";\n', '', 1),),
+            "LIST_SESSIONS_NULL_SCOPE_DEFAULTS_FEDERATED: explicit null scope preserves omitted-scope ordered results and peer fetches"),
+    # The same source variant is also qualified through the authenticated wire group; two executions, one source variant.
+    Witness("a10-null-scope-wire-default-omitted", "tools/AgentBroker.Worker/BrokerTools.cs", "worker", ("--pagination-only",),
+            (('        scope ??= "federated";\n', '', 1),),
+            "LIST_SESSIONS_NULL_SCOPE_WIRE: explicit JSON null scope preserves the omitted-scope first page through authenticated MCP"),
     Witness("a10-local-return-ignored", "tools/AgentBroker.Worker/BrokerRuntime.cs", "worker", ("--list-sessions-scope-only",),
             (("            if (!includePeers) return result;\n", "", 1),),
             "LIST_SESSIONS_LOCAL_SCOPE_EXCLUDES_PEERS: local scope returns within 500 ms without starting the two-second peer fetch"),
@@ -648,29 +681,64 @@ A7_WAITING_READ_WITNESSES = (
 )
 
 # D2 A7: real benchmark fixtures and the complete-summary guard.
+def waiting_benchmark_fields(pending: int, cohort: str, samples: int) -> str:
+    maximum = 64 if pending == 4096 else 1 if pending == 16 else 0
+    observed_messages = pending if cohort == "fresh-busy" else 0
+    return (f"scenario=waiting-mail, pending={pending}, cohort={cohort}, sessions=65, recipients=64, "
+            f"maximumPerRecipient={maximum}, observedMessages={observed_messages}, samples={samples}, gapMilliseconds=500, "
+            "firstQuerySample=0, queryTimes=6 finiteNonnegative=True, hashes=6 allMatch=True, expectedHashMatches=True, summarySessions=65")
+
+
+def waiting_benchmark_shape_label(pending: int, cohort: str) -> str:
+    return (f"BENCHMARK_WAITING_{pending}_{cohort.replace('-', '_').upper()}: expected exit=0, " +
+            waiting_benchmark_fields(pending, cohort, 6) + "; observed exit=0, " +
+            waiting_benchmark_fields(pending, cohort, 5))
+
+
 A7_BENCHMARK_WAITING_WITNESSES = (
     Witness("a7-benchmark-waiting-shape-0-pending-only", "tests/AgentBroker.Worker.Tests/CoordinationBenchmark.WaitingMail.cs", "worker", ("--benchmark-validation-only",),
             (("                samples, gapMilliseconds, firstQuerySample = 0,\n", "                samples = samples - (pending == 0 && cohort == \"pending-only\" ? 1 : 0), gapMilliseconds, firstQuerySample = 0,\n", 1),),
-            "BENCHMARK_WAITING_0_PENDING_ONLY"),
+            waiting_benchmark_shape_label(0, "pending-only")),
     Witness("a7-benchmark-waiting-shape-16-pending-only", "tests/AgentBroker.Worker.Tests/CoordinationBenchmark.WaitingMail.cs", "worker", ("--benchmark-validation-only",),
             (("                samples, gapMilliseconds, firstQuerySample = 0,\n", "                samples = samples - (pending == 16 && cohort == \"pending-only\" ? 1 : 0), gapMilliseconds, firstQuerySample = 0,\n", 1),),
-            "BENCHMARK_WAITING_16_PENDING_ONLY"),
+            waiting_benchmark_shape_label(16, "pending-only")),
     Witness("a7-benchmark-waiting-shape-4096-pending-only", "tests/AgentBroker.Worker.Tests/CoordinationBenchmark.WaitingMail.cs", "worker", ("--benchmark-validation-only",),
             (("                samples, gapMilliseconds, firstQuerySample = 0,\n", "                samples = samples - (pending == 4096 && cohort == \"pending-only\" ? 1 : 0), gapMilliseconds, firstQuerySample = 0,\n", 1),),
-            "BENCHMARK_WAITING_4096_PENDING_ONLY"),
+            waiting_benchmark_shape_label(4096, "pending-only")),
     Witness("a7-benchmark-waiting-shape-0-fresh-busy", "tests/AgentBroker.Worker.Tests/CoordinationBenchmark.WaitingMail.cs", "worker", ("--benchmark-validation-only",),
             (("                samples, gapMilliseconds, firstQuerySample = 0,\n", "                samples = samples - (pending == 0 && cohort == \"fresh-busy\" ? 1 : 0), gapMilliseconds, firstQuerySample = 0,\n", 1),),
-            "BENCHMARK_WAITING_0_FRESH_BUSY"),
+            waiting_benchmark_shape_label(0, "fresh-busy")),
     Witness("a7-benchmark-waiting-shape-16-fresh-busy", "tests/AgentBroker.Worker.Tests/CoordinationBenchmark.WaitingMail.cs", "worker", ("--benchmark-validation-only",),
             (("                samples, gapMilliseconds, firstQuerySample = 0,\n", "                samples = samples - (pending == 16 && cohort == \"fresh-busy\" ? 1 : 0), gapMilliseconds, firstQuerySample = 0,\n", 1),),
-            "BENCHMARK_WAITING_16_FRESH_BUSY"),
+            waiting_benchmark_shape_label(16, "fresh-busy")),
     Witness("a7-benchmark-waiting-shape-4096-fresh-busy", "tests/AgentBroker.Worker.Tests/CoordinationBenchmark.WaitingMail.cs", "worker", ("--benchmark-validation-only",),
             (("                samples, gapMilliseconds, firstQuerySample = 0,\n", "                samples = samples - (pending == 4096 && cohort == \"fresh-busy\" ? 1 : 0), gapMilliseconds, firstQuerySample = 0,\n", 1),),
-            "BENCHMARK_WAITING_4096_FRESH_BUSY"),
+            waiting_benchmark_shape_label(4096, "fresh-busy")),
     Witness("a7-benchmark-waiting-summary-guard-omitted", "tests/AgentBroker.Worker.Tests/CoordinationBenchmark.WaitingMail.cs", "worker", ("--benchmark-validation-only",),
             (("                if (!actualBytes.AsSpan().SequenceEqual(expectedBytes))\n", "                if (!actualBytes.AsSpan().SequenceEqual(expectedBytes) && pending < 0)\n", 1),),
-            "BENCHMARK_WAITING_COUNTS_GUARD"),
+            "BENCHMARK_WAITING_COUNTS_GUARD: fresh-busy pending=16 with one missing seeded message expects exit=1, "
+            "BENCHMARK-FAILED=True, summaryMismatch=True; observed exit=0, BENCHMARK-FAILED=False, summaryMismatch=False"),
 )
+
+D2_R2_WORKER_DIAGNOSTIC_WITNESSES = (
+    Witness("a8-runtime-write-loop-reflection-precondition", "tests/AgentBroker.Worker.Tests/WaitingMailToolChecks.cs", "worker", ("--waiting-mail-only",),
+            (('GetField("adapterErrors", System.Reflection.BindingFlags.Instance |\n',
+              'GetField("adapterErrors_missing_for_test", System.Reflection.BindingFlags.Instance |\n', 1),),
+            "WAITING_RUNTIME_WRITE_FAILURE_LOOP_REFLECTION_PRECONDITION: BrokerRuntime.adapterErrors resolves to the expected dictionary before the runtime starts."),
+    Witness("a8-runtime-write-loop-first-discovery-precondition", "tests/AgentBroker.Worker.Tests/WaitingMailToolChecks.cs", "worker", ("--waiting-mail-only",),
+            (('bool firstDiscoveryCompleted = await UntilAsync(() => adapter.Discoveries == 1 &&\n',
+              'bool firstDiscoveryCompleted = await UntilAsync(() => adapter.Discoveries == -1 &&\n', 1),),
+            "WAITING_RUNTIME_WRITE_FAILURE_LOOP_FIRST_DISCOVERY_PRECONDITION: the first discovery clears the seeded adapter error before the notice fault is armed."),
+    Witness("a8-runtime-write-loop-notice-precondition", "tests/AgentBroker.Worker.Tests/WaitingMailToolChecks.cs", "worker", ("--waiting-mail-only",),
+            (('        string fault = Path.Combine(fixture.Root, "store", "broker-state.json.next");\n        long failedBefore = fixture.Store.CommitTimings().Failed;\n        bool ownsFault = false;\n',
+              '        string fault = Path.Combine(fixture.Root, "store", "broker-state.json.unused-for-test");\n        long failedBefore = fixture.Store.CommitTimings().Failed;\n        bool ownsFault = false;\n', 1),),
+            "WAITING_RUNTIME_WRITE_FAILURE_LOOP_NOTICE_PRECONDITION: the real delivery loop reaches the armed write fault and records its waiting-mail error within the fixture deadline."),
+    Witness("a8-runtime-write-loop-discovery-barrier-precondition", "tests/AgentBroker.Worker.Tests/WaitingMailToolChecks.cs", "worker", ("--waiting-mail-only",),
+            (('            check(observedFailure,\n                "WAITING_RUNTIME_WRITE_FAILURE_LOOP_NOTICE_PRECONDITION: the real delivery loop reaches the armed write fault and records its waiting-mail error within the fixture deadline.");\n',
+              '            check(observedFailure,\n                "WAITING_RUNTIME_WRITE_FAILURE_LOOP_NOTICE_PRECONDITION: the real delivery loop reaches the armed write fault and records its waiting-mail error within the fixture deadline.");\n            await adapter.DiscoverAsync(fixture.Store.BrokerId, stop.Token);\n', 1),),
+            "WAITING_RUNTIME_WRITE_FAILURE_LOOP_DISCOVERY_BARRIER_PRECONDITION: the adapter completes exactly one discovery so later discovery cannot clear the injected error."),
+)
+
 
 WAITING_MAIL_R4_WORKER_WITNESSES = (
     Witness('waiting-runtime-admission-omitted', 'tools/AgentBroker.Worker/BrokerRuntime.cs', 'worker', ('--waiting-mail-only',), (('AdmitWaitingMailPass();', '', 1),), 'WAITING_RUNTIME_LOOP_ADMITS_AT_DUE'),
@@ -723,7 +791,7 @@ F18_V3_PROSPECTIVE_WITNESSES = (
 # UNUSABLE_IGNORED_missing_date, UNUSABLE_IGNORED_invalid_date, UNUSABLE_IGNORED_local_clock_changed,
 # UNUSABLE_IGNORED_transport_unavailable (all with DIRECTORY_PEER_CLOCK_ prefix).
 # Private/transitive aspects remain WITNESS of the earlier DIRECTORY_SHAPE_RUNTIME_FILTERING guard.
-# No guessed EXPECTED_COUNTS pin: measure --directory-shape-only after original+supplemental tests first.
+# The composed --directory-shape-only group measured 45; see E/lanes/D2/checks/l2-a10-r2/workerdirectoryshape.stdout.log.
 L2_PEER_DIRECTORY_WITNESSES = (
     Witness("l2-directory-real-clock", "tools/AgentBroker.Worker/BrokerRuntime.cs", "worker", ("--directory-shape-only",),
             (("                        var peerNow = Now;\n", "                        var peerNow = DateTimeOffset.UtcNow;\n", 1),),
@@ -903,7 +971,7 @@ WITNESSES = (
     Witness("store-late-accepted-allowed", STORE, "core", ("--hygiene-only",),
             (('            if (previous.Status == MessageStatus.Accepted && previous.Message.ExpiresAt <= Now) Fail("message_expired");', "            _ = previous;", 1),),
             "LATE_ACCEPTED_EXPIRED: a never-submitted message past its deadline refuses Delivered as message_expired and reads Expired"),
-) + LOCAL_OUTPUT_WITNESSES + REPLY_RECEIPT_WITNESSES + CARD_1105_WITNESSES + BUSY_MAIL_1105_WITNESSES + RUNTIME_REPLY_1105_WITNESSES + WAITING_MAIL_R4_CORE_WITNESSES + A8_WAITING_DIRECTORY_WITNESSES + A10_DIRECTORY_SCOPE_WITNESSES + A7_WAITING_READ_WITNESSES + A7_BENCHMARK_WAITING_WITNESSES + WAITING_MAIL_R4_WORKER_WITNESSES + NONIO_CR4_4_WITNESSES + F18_V3_PROSPECTIVE_WITNESSES + L2_PEER_DIRECTORY_WITNESSES + (
+) + LOCAL_OUTPUT_WITNESSES + REPLY_RECEIPT_WITNESSES + CARD_1105_WITNESSES + BUSY_MAIL_1105_WITNESSES + RUNTIME_REPLY_1105_WITNESSES + WAITING_MAIL_R4_CORE_WITNESSES + D2_R2_CORE_WITNESSES + A8_WAITING_DIRECTORY_WITNESSES + A10_DIRECTORY_SCOPE_WITNESSES + A7_WAITING_READ_WITNESSES + A7_BENCHMARK_WAITING_WITNESSES + D2_R2_WORKER_DIAGNOSTIC_WITNESSES + WAITING_MAIL_R4_WORKER_WITNESSES + NONIO_CR4_4_WITNESSES + F18_V3_PROSPECTIVE_WITNESSES + L2_PEER_DIRECTORY_WITNESSES + (
     # Compiled inbox watcher: actual48 FIRED at 88887E0E; focused healthy97 at A8ADD4AF.
     Witness('watch-budget-required', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('Required("--max-seconds")', 'values.GetValueOrDefault("--max-seconds", "7200")', 1),), 'WATCH_BUDGET_REQUIRED: no implicit short deadline or unbounded watch is selected'),
     Witness('watch-budget-positive', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('parsed > 0 && parsed <= maximum', 'parsed >= 0 && parsed <= maximum', 1),), 'WATCH_BUDGET_INPUT: only a positive caller-selected duration up to one year is accepted'),
@@ -1008,14 +1076,16 @@ PROOF_FIELDS = {
 # D2 A7 measured Core 113: E/lanes/D2/checks/a7-r1/corewaiting.stdout.log; Worker stays at measured A8 26.
 # D2 A7 real benchmark validation measured 12: E/lanes/D2/checks/a7-r1/workerbenchvalidation.stdout.log.
 # D2 A8 follow-up measured 114/27: E/lanes/D2/checks/a8-followup-r1/{corewaiting,workerwaiting}.stdout.log.
-EXPECTED_COUNTS = {("core", ("--waiting-mail-only",)): 114, ("worker", ("--waiting-mail-only",)): 27,
+# D2 round 2 measured focused receipts under E/lanes/D2/r2/checks (2026-11-14):
+# Core waiting 116, Worker waiting 31, scope 11 and authenticated pagination 37.
+EXPECTED_COUNTS = {("core", ("--waiting-mail-only",)): 116, ("worker", ("--waiting-mail-only",)): 31,
                    # L2 measured45: E/lanes/D2/checks/l2-a10-r2/workerdirectoryshape.stdout.log.
                    ("worker", ("--directory-shape-only",)): 45,
                    ("worker", ("--benchmark-validation-only",)): 12,
                    ("worker", ("--compact-receipts-only",)): 24, ("core", ("--reply-receipt-only",)): 43, ("core", ("--hygiene-only",)): 13, ("core", ("--peer-receipt-only",)): 22,
                    ("core", ("--commit-timing-only",)): 9, ("worker", ("--receipt-wait-only",)): 24,
                    # A10 measured 10/23/36: E/lanes/D2/checks/l2-a10-r2/{workerscope,workerinstructions,workerpagination}.stdout.log.
-                   ("worker", ("--list-sessions-scope-only",)): 10, ("worker", ("--pagination-only",)): 36,
+                   ("worker", ("--list-sessions-scope-only",)): 11, ("worker", ("--pagination-only",)): 37,
                    ("worker", ("--instructions-only",)): 23, ("worker", ("--recovery-guidance-only",)): 38,
                    ("worker", ("--first-contact-only",)): 43,
                    ("worker", ("--directory-stop-core-only",)): 3, ("worker", ("--directory-host-stop-only",)): 3,
