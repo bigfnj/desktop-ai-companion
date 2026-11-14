@@ -53,7 +53,9 @@ $checks = @(
     @{ Name = 'Test-OfflineScriptCheckDispatch.ps1'; Relative = 'tests/Test-OfflineScriptCheckDispatch.ps1'; Summary = 'OfflineDispatchChecks=1'; New = $true },
     @{ Name = 'run_installer_shutdown_mutations.py --self-test'; Relative = 'tests/run_installer_shutdown_mutations.py'; Summary = 'PASS 1 restoration cases (synthetic)'; SelfTest = $true; New = $true },
     @{ Name = 'Test-MutationHarnessRestoration.py'; Relative = 'tests/Test-MutationHarnessRestoration.py'; Summary = 'MutationRestorationChecks=1'; New = $true },
-    @{ Name = 'run_mutation_capture_checks.py'; Relative = 'tests/run_mutation_capture_checks.py'; Summary = 'MutationCaptureChecks=1; Failures=0; Errors=0; Skipped=0'; New = $true }
+    @{ Name = 'run_mutation_capture_checks.py'; Relative = 'tests/run_mutation_capture_checks.py'; Summary = 'MutationCaptureChecks=1; Failures=0; Errors=0; Skipped=0'; New = $true },
+    @{ Name = 'mutate-selftest-guards.py --check-patterns'; Relative = 'tests/mutate-selftest-guards.py'; Summary = '1 cases, 0 not matching exactly once.'; Args = @('--check-patterns'); New = $true },
+    @{ Name = 'run_agentbroker_hygiene_mutations.py --check'; Relative = 'tests/run_agentbroker_hygiene_mutations.py'; Summary = '1 witnesses, 0 stale'; Args = @('--check'); New = $true }
 )
 $scratchBase = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
 $scratch = Join-Path $scratchBase ('offline-dispatch-' + [guid]::NewGuid().ToString('N'))
@@ -80,7 +82,10 @@ if os.environ.get("OFFLINE_DISPATCH_FAILURE") == name:
 if os.environ.get("OFFLINE_DISPATCH_SILENT") != name:
     print(SUMMARY)
 '@
-            $stub = $stub.Replace('NAME', ($check.Name | ConvertTo-Json -Compress)).Replace('ARGS', $(if ($requiresSelfTest) { '["--self-test"]' } else { '[]' })).Replace('SUMMARY', ($check.Summary | ConvertTo-Json -Compress))
+            # A check's own Args (lane T's --check-patterns and --check), else --self-test or none.
+            $expectedArgs = if ($check.ContainsKey('Args')) { ConvertTo-Json -InputObject @($check.Args) -Compress }
+                elseif ($requiresSelfTest) { '["--self-test"]' } else { '[]' }
+            $stub = $stub.Replace('NAME', ($check.Name | ConvertTo-Json -Compress)).Replace('ARGS', $expectedArgs).Replace('SUMMARY', ($check.Summary | ConvertTo-Json -Compress))
         }
         elseif ($path.EndsWith('.mjs', [StringComparison]::Ordinal)) {
             $stub = @'

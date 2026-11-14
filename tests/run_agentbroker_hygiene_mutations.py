@@ -1031,15 +1031,46 @@ def cleanup_owned(runner: Runner, baseline: dict | None, report: dict) -> bool:
     return sources_ready and (not runner.mutation_attempted or report["artifactsRestored"] is True)
 
 
+def check_anchors(selected: list[Witness]) -> int:
+    """Every selected witness's replacements applied in memory, IN ORDER, through the replace_exact that Runner.witness
+    uses (AgentBroker 1.10.5 marathon, lane T). Each anchor's count is therefore asserted against the very bytes it will
+    meet under --apply: a second replacement is counted after the first has been made, not against the file as it is.
+    Nothing is built, written or started. 1 on any witness whose source is missing or whose anchor count is wrong."""
+    bad = 0
+    for w in selected:
+        path = ROOT / w.source
+        if not path.is_file():
+            print(f"NO_SOURCE {w.name}: {w.source}")
+            bad += 1
+            continue
+        original = path.read_bytes()
+        changed = original
+        for before, after, count in w.replacements:
+            try:
+                changed = replace_exact(changed, before, after, count)
+            except RuntimeError as error:
+                print(f"STALE {w.name}: {error}")
+                bad += 1
+                break
+    print(f"{len(selected)} witnesses, {bad} stale")
+    return 1 if bad else 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--check", action="store_true",
+                        help="assert every selected witness's anchor counts in order, in memory; builds and writes nothing")
     parser.add_argument("--case", action="append", choices=[w.name for w in WITNESSES])
     parser.add_argument("--output", type=Path)
     parser.add_argument("--healthy-group", action="append", default=[], metavar="PROJECT:--MODE",
                         help="Explicitly add a healthy group; never adds existing Worker regression implicitly.")
     options = parser.parse_args()
     selected = [w for w in WITNESSES if not options.case or w.name in options.case]
+    if options.check:
+        if options.apply:
+            raise SystemExit("--check reads only; it cannot be combined with --apply")
+        return check_anchors(selected)
     extras = []
     for text in options.healthy_group:
         project, separator, mode = text.partition(":")

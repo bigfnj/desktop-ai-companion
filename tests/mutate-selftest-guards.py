@@ -22500,13 +22500,43 @@ def score(plan):
     return 0 if fired == len(cases) - not_run and rebuilt and leaked is None else 1
 
 
+def check_patterns(cases):
+    """Every case's pattern counted against its file; nothing is built or mutated (AgentBroker 1.10.5 marathon, lane T;
+    the port of tests/mutate-agentflow.py's check_patterns). A NO-OP prints among two thousand other lines in a full run,
+    and an --only or --shard run never reaches a case outside its selection, so a case can guard nothing for a release
+    without anyone reading it (N-audit-1106-344). Counted exactly as score() counts: read() bytes, line_ending_variant,
+    exactly once. NEEDS_REAL_INPUT cases are counted too; only their run is withheld. 1 on any case not matching once."""
+    bad = 0
+    for case in cases:
+        name, path, old, new = case[0], case[1], case[2], case[3]
+        if not os.path.isfile(path):
+            print("  NO FILE  %s (%s)" % (name, path))
+            bad += 1
+            continue
+        base = read(path)
+        old_v, _ = line_ending_variant(base, old, new)
+        count = base.count(old_v)
+        if count != 1:
+            print("  NO-OP (pattern matched %d times)  %s" % (count, name))
+            bad += 1
+    print("%d cases, %d not matching exactly once." % (len(cases), bad))
+    return 1 if bad else 0
+
+
 def main():
     global RUN_TEMP, CHILD_ENV, DOCUMENTS_REMEMBRANCE
     documents = documents_folder()
     DOCUMENTS_REMEMBRANCE = os.path.join(documents, "Remembrance") if documents else None
     parser = argparse.ArgumentParser()
     add_selection_arguments(parser)
+    parser.add_argument("--check-patterns", action="store_true",
+                        help="count every case's pattern in its file and exit 1 on any not matching once; builds nothing")
     args = parser.parse_args()
+    if args.check_patterns:
+        # Every case or none: a selection would leave the rest unread, which is the gap this flag exists to close.
+        if args.only is not None or args.shard is not None or args.list_cases_json:
+            parser.error("--check-patterns reads every case; it cannot be combined with --only, --shard or --list-cases-json")
+        return check_patterns(CASES)
     plan = plan_arguments(parser, CASES, REPO, args)
     if args.list_cases_json:
         print(plan.json())

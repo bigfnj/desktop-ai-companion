@@ -27,6 +27,7 @@ if __name__ == "__main__":
             "test_mutation_caseplan",
             "test_pin_diagnostic_harness",
             "test_installer_witness_grading",
+            "test_mutation_pattern_checks",
         ))
         result = unittest.TextTestRunner(verbosity=2).run(suite)
     finally:

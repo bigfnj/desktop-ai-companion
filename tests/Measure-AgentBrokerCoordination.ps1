@@ -17,6 +17,8 @@
       tombstone  lane broker-e (N-broker-a-02): six rounds of store.Send then the recipient's acknowledgement, with
                  acknowledged history in the snapshot, tombstones in the journal, or both, plus the journal compaction
                  and a full store.Messages history read. The old bound (4,096 retained) runs on both builds.
+      busy-idle  lane T (A9): a real runtime with one Busy native row and N waiting messages, idle for 20 s: the
+                 process CPU share and the recipient_busy directory observations per second. Only when named.
 
     -ControlExecutable names a second build of the same test executable, compiled from the store being replaced with
     this driver copied in: the purpose-built control. Configurations marked for it then run on both builds, and the two
@@ -36,7 +38,7 @@ param(
     [Parameter(Mandatory = $true)][string]$WorkRoot,
     [Parameter(Mandatory = $true)][string]$OutputDirectory,
     [ValidateRange(1, 20)][int]$Repetitions = 5,
-    [ValidateSet('all', 'commit', 'wake', 'directory', 'tombstone')][string]$Scenario = 'all',
+    [ValidateSet('all', 'commit', 'wake', 'directory', 'tombstone', 'busy-idle')][string]$Scenario = 'all',
     [string]$ControlExecutable,
     [switch]$NoBuild
 )
@@ -98,6 +100,12 @@ if ($Scenario -in @('all', 'tombstone')) {
     Add-Configuration @('tombstone', '0', '65512', '69700', '512', '0') $false
     Add-Configuration @('tombstone', '0', '262132', '266300', '512', '262144') $false
 }
+# busy-idle <pending> <seconds>: AgentBroker 1.10.5 marathon, lane T (A9). A report, not a gate: the CPU share and the
+# recipient_busy directory observation rate while N messages wait on one Busy native row for 20 s. Both builds (the control
+# is the build from before A8's observation interval). Not part of 'all': it holds each process for its full 20 s.
+if ($Scenario -eq 'busy-idle') {
+    foreach ($pending in @(0, 16, 64)) { Add-Configuration @('busy-idle', "$pending", '20') $true }
+}
 $runs = New-Object 'Collections.Generic.List[object]'
 foreach ($configuration in $configurations) {
     $runs.Add([pscustomobject]@{ Arguments = $configuration.Arguments; Build = 'candidate' })
@@ -115,6 +123,7 @@ function Invoke-Sample([object]$Sample, [int]$Repetition, [int]$Order) {
         'wake' { $arguments += @($runDirectory, $Configuration[1]) }
         'directory' { $arguments += @($Configuration[1], $Configuration[2], $runDirectory, $Configuration[3]) }
         'tombstone' { $arguments += @($Configuration[1], $Configuration[2], $Configuration[3], $Configuration[4], $Configuration[5], $runDirectory) }
+        'busy-idle' { $arguments += @($Configuration[1], $Configuration[2], $runDirectory) }
     }
     $watch = [Diagnostics.Stopwatch]::StartNew()
     # Windows PowerShell 5.1 turns a native command's stderr line into a terminating error under Stop.
@@ -201,6 +210,13 @@ foreach ($run in $runs) {
                 $row['warmAckMedianMs'] = Get-Median (Get-Warm $samples 'ackMs')
                 $row['warmAckMaxMs'] = [math]::Round(((Get-Warm $samples 'ackMs') | Measure-Object -Maximum).Maximum, 2)
                 $row['messagesMedianMs'] = Get-Median @($samples | ForEach-Object { [double]$_.messagesMs })
+            }
+            'busy-idle' {
+                $row['pending'] = $samples[0].pending
+                $row['cpuShareMedian'] = Get-Median @($samples | ForEach-Object { [double]$_.cpuShare * 100 })
+                $row['cpuMsMedian'] = Get-Median @($samples | ForEach-Object { [double]$_.cpuMs })
+                $row['directoryObservationsPerSecondMedian'] = Get-Median @($samples | ForEach-Object { [double]$_.observationsPerSecond })
+                $row['adapterSubmitsMax'] = ($samples | ForEach-Object { $_.adapterSubmits } | Measure-Object -Maximum).Maximum
             }
         }
     }

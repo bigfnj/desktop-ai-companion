@@ -8,6 +8,36 @@ internal static class PollingLeaseChecks
 {
     internal static async Task RunAsync(Action<bool, string> check)
     {
+        // N-broker-mailbox-presence-cadence-01 (AgentBroker 1.10.5 marathon, lane T, A4): what a peer sees of a mailbox
+        // whose owner calls every 180 seconds, measured rather than inferred from the lease arithmetic. FIRST on purpose:
+        // Check throws at the first failure, and this block's killing mutation (the renewed presence lease made longer
+        // than a minute, BrokerStore.RenewPollingSession) would otherwise be reported by the lease checks below it.
+        await using (var fixture = new Fixture())
+        {
+            var session = fixture.Register("Synthetic 180-second poller");
+            var peer = Guid.NewGuid();
+            fixture.Store.AuthorizePeer(new PeerTrust(peer, "Synthetic paired peer", "https://192.0.2.41/", new string('E', 64), fixture.Clock.GetUtcNow()));
+            int visible = 0, samples = 0;
+            MessageReceipt? whileUnlisted = null;
+            for (int cycle = 0; cycle < 3; cycle++)
+            {
+                fixture.Tools.ReadInbox(session.Address);   // the owner's one call per 180 s, which renews presence
+                for (int second = 0; second < 180; second += 10)
+                {
+                    samples++;
+                    if (fixture.Store.PresentedDirectory(forPeer: true).Any(row => row.Address == session.Address)) visible++;
+                    if (cycle == 0 && second == 170)
+                    {
+                        var sender = new SessionAddress(peer, "claude:" + Guid.NewGuid(), Guid.NewGuid());
+                        whileUnlisted = fixture.Store.Accept(fixture.Message(sender, session.Address), peer);
+                    }
+                    fixture.Clock.Advance(TimeSpan.FromSeconds(10));
+                }
+            }
+            check(visible == 18 && samples == 54 && whileUnlisted is { Status: MessageStatus.Accepted },
+                "PRESENCE_CADENCE_180: a mailbox renewed every 180 s is peer-visible for exactly 60 of each 180 s and accepts a paired peer's send while it is not listed");
+        }
+
         await using (var fixture = new Fixture())
         {
             var session = fixture.Register("Synthetic active poller");

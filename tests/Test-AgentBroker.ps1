@@ -105,6 +105,25 @@ if ($repin7Exit -ne 0 -or $repin7Summary.Count -ne 1 -or @($repin7Output | Where
     throw "AgentBroker re-pin helper self-test under PowerShell 7 failed: tools/agentbroker/Test-AgentBrokerRepin.ps1 -SelfTest (exit $repin7Exit)."
 }
 $repin7Checks = [int]([regex]::Match([string]$repin7Summary[0], '^PASS: ([0-9]+)').Groups[1].Value)
+# The installed-tree compare (AgentBroker 1.10.5 marathon, lane T, C4). It supports Windows PowerShell 5.1 and 7, so its
+# fixture checks run in a child of each; it reads and writes only its own temporary fixture folder. The 1.10.5 entries map
+# has no Directory field, and a filter on Directory -eq $false compared zero rows and passed: TREE_COMPARE_MISSING_DIRECTORY_IS_FILE
+# and TREE_COMPARE_VACUOUS_REFUSED are the two lines that guard that, so both must be present in both children.
+$treeCompare = Join-Path $repoRoot 'tools\agentbroker\Compare-AgentBrokerTree.ps1'
+$treeChecks = @{}
+foreach ($edition in @(@{ Name = 'Windows PowerShell'; Exe = 'powershell.exe'; Args = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $treeCompare, '-SelfTest') },
+                       @{ Name = 'PowerShell 7'; Exe = 'pwsh'; Args = @('-NoProfile', '-File', $treeCompare, '-SelfTest') })) {
+    Write-Host "=== AgentBroker tree compare self-test ($($edition.Name))"
+    $treeOutput = @(& $edition.Exe @($edition.Args))
+    $treeExit = $LASTEXITCODE
+    foreach ($line in $treeOutput) { Write-Host $line }
+    $treeSummary = @($treeOutput | Where-Object { "$_" -match '^PASS: ([1-9][0-9]*) tree compare fixture checks$' })
+    $treeGuards = @($treeOutput | Where-Object { "$_" -ceq 'PASS: TREE_COMPARE_MISSING_DIRECTORY_IS_FILE' -or "$_" -ceq 'PASS: TREE_COMPARE_VACUOUS_REFUSED' })
+    if ($treeExit -ne 0 -or $treeSummary.Count -ne 1 -or $treeGuards.Count -ne 2 -or @($treeOutput | Where-Object { "$_" -match '^(FAIL:|RESULT=FAIL)' }).Count -gt 0) {
+        throw "AgentBroker tree compare self-test under $($edition.Name) failed: tools/agentbroker/Compare-AgentBrokerTree.ps1 -SelfTest (exit $treeExit)."
+    }
+    $treeChecks[$edition.Name] = [int]([regex]::Match([string]$treeSummary[0], '^PASS: ([0-9]+)').Groups[1].Value)
+}
 # The scheduled re-pin check's local runner (lane broker-pins): its selection, binding and de-duplication rules, and the
 # workflow file's contract (two permissions, SHA-pinned actions, never a merge). PowerShell 7 only; offline.
 Write-Host '=== AgentBroker scheduled re-pin check self-test'
@@ -176,4 +195,4 @@ foreach ($harness in $harnesses) {
     catch { $failures.Add($harness.Name + ': ' + $_.Exception.Message) }
 }
 if ($failures.Count -gt 0) { throw ('AgentBroker checks failed: ' + ($failures -join '; ')) }
-Write-Host ("AgentBroker deterministic harnesses PASS: $($harnesses.Count) harnesses, $assertions assertions; Claude connection helper $connectChecks checks; collaboration helper $collaborationChecks checks (process: $collaborationProcessChecks); re-pin helper $repinChecks checks (PowerShell 7: $repin7Checks); scheduled re-pin check $repinCheckChecks checks.")
+Write-Host ("AgentBroker deterministic harnesses PASS: $($harnesses.Count) harnesses, $assertions assertions; Claude connection helper $connectChecks checks; collaboration helper $collaborationChecks checks (process: $collaborationProcessChecks); re-pin helper $repinChecks checks (PowerShell 7: $repin7Checks); tree compare $($treeChecks['Windows PowerShell']) checks (PowerShell 7: $($treeChecks['PowerShell 7'])); scheduled re-pin check $repinCheckChecks checks.")
