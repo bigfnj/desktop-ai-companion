@@ -27582,6 +27582,46 @@ CASES = (
      HOST_CSPROJ, EXE,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
      'parity policy: a surrogate id or pack value is refused as scenario-invalid naming that value, exit 2, no trace ('),
+    # ---- burndown/integration-ride ----
+    # N-bd-w9-host-1-01 at the step 8 gate: CheckTopWindow counted CLOAKED windows (a suspended Xbox app, the Windows Input
+    # Experience surface) as occluders, so --hardening-selftest's riding pet dropped and both ride checks faulted. Graded
+    # through the ride group of --hardening-selftest, whose staged pets walk a fixed window list (ZOrderWalkForSelfTest).
+    # The first two mutants each fail exactly one ride check (measured 2026-11-14); the third is desktop-dependent, see
+    # there. "bd-int-ride:" for one --only.
+    # The cloaked term goes: the cloaked probe in the walk knocks the pet off, and the negative check fails (faulted, naming
+    # the NullReferenceException the respawn throws under the self-test).
+    ("bd-int-ride: CheckTopWindow counts a cloaked window as an occluder again (N-bd-w9-host-1-01)",
+     FORMCOMPANION_CS,
+     b'                    if (NativeMethods.IsWindowVisible(hwnd2) && !DesktopWindows.IsCloaked(hwnd2))\n',
+     b'                    if (NativeMethods.IsWindowVisible(hwnd2))\n',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "ride: a CLOAKED window over the ridden window's top edge does not knock the pet off it ("),
+    # Occlusion off: the walk never reports a covering window. Every ride passes on it, so only the POSITIVE CONTROL (a
+    # visible, uncloaked, titled window over the edge covers it) can fail.
+    ("bd-int-ride: CheckTopWindow never reports a covering window (occlusion off)",
+     FORMCOMPANION_CS,
+     b'                                        //Debug.WriteLine("   --> Window found!");\n'
+     b'                                        return true;\n',
+     b'                                        //Debug.WriteLine("   --> Window found!");\n'
+     b'                                        return false;\n',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "ride: POSITIVE CONTROL a visible, uncloaked, titled window over the ridden window's top edge covers it ("),
+    # The seam is dead: CheckTopWindow walks the live desktop whatever the self-test set. The positive control's "without
+    # it" leg leaves its shown cover probe out of the list, and the live walk finds it anyway: the probe is a tool window
+    # raised to HWND_TOP while the never-shown ridden window sits near the bottom of the z-order (measured 2026-11-14, cloak
+    # probe z 7 to 9 against ridden z 669 to 671). That ordering is the desktop's, so on a desktop where it did not hold
+    # the positive control would pass and this case could not read FIRED. Measured 2026-11-14: FIRED with all four ride
+    # checks failing, because the live desktop also held an uncloaked app window over that edge above the ridden window,
+    # so the rides fell back onto it and faulted too. That is the walk working and the reason the rides need the seam.
+    ("bd-int-ride: CheckTopWindow ignores the self-test's fixed window list (the seam is dead)",
+     FORMCOMPANION_CS,
+     b'                IntPtr[] walk = ZOrderWalkForSelfTest;\n',
+     b'                IntPtr[] walk = null;\n',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "ride: POSITIVE CONTROL a visible, uncloaked, titled window over the ridden window's top edge covers it ("),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

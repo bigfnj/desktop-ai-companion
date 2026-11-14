@@ -367,6 +367,10 @@ namespace DesktopAICompanion
     /// </summary>
     internal static class RuntimeHardeningSelfTest
     {
+        // The ride group's cloaked probe (DWMWA_CLOAK, 13). DesktopWindows reads the cloak and nothing in the app sets one.
+        [System.Runtime.InteropServices.DllImport("dwmapi.dll", EntryPoint = "DwmSetWindowAttribute")]
+        private static extern int RideDwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
+
         public static bool Run()
         {
             var sb = new StringBuilder();
@@ -1076,12 +1080,48 @@ namespace DesktopAICompanion
                     };
                     rideAnimations.SheepAnimations[1] = sitting("sit-and-stretch", 1, 0, -20);
                     rideAnimations.SheepAnimations[2] = sitting("sit", 2, -6, -6);
-                    Func<int, double, double, string> ride = delegate (int animationId, double atX, double atY)
+                    // HERMETIC Z-ORDER. The ride's last step is a still one, and a standing pet's still step asks
+                    // CheckTopWindow whether anything covers its window's top edge. That walk runs from the top of the live
+                    // desktop down to the ridden window, and this never-shown form sits near the bottom of it (measured z 668
+                    // of 686), where any window on the desktop can count as covering it; a z-order raise does not move it
+                    // (measured, hidden and shown). So each staged pet walks a fixed list (ZOrderWalkForSelfTest): the
+                    // ridden window alone, or a probe above it. A cloaked window counted there is what made both rides
+                    // fault on a desktop with the Xbox app suspended (N-bd-w9-host-1-01).
+                    const uint probeShowFlags = 0x0001 | 0x0002 | 0x0010 | 0x0040;  // NOSIZE | NOMOVE | NOACTIVATE | SHOWWINDOW, at HWND_TOP
+                    Func<string, Form> probeForm = delegate (string title)
+                    {
+                        // Over the ridden window's top edge where the ride leaves it (340,480) and over the pet (x 440 to
+                        // 480); a captioned tool window, so it has a title bar, no taskbar button, and Opacity 0 draws nothing.
+                        return new Form { StartPosition = FormStartPosition.Manual, FormBorderStyle = FormBorderStyle.FixedToolWindow,
+                            ShowInTaskbar = false, Text = title, Opacity = 0, Bounds = new Rectangle(380, 440, 200, 100) };
+                    };
+                    Func<IntPtr, string> probeState = delegate (IntPtr probe)
+                    {
+                        var title = new StringBuilder(64);
+                        NativeMethods.GetWindowText(probe, title, title.Capacity);
+                        return "visible=" + NativeMethods.IsWindowVisible(probe) + " cloaked=" + DesktopWindows.IsCloaked(probe) +
+                            " title='" + title + "'";
+                    };
+                    Func<int, double, double, bool, string> rideWith = delegate (int animationId, double atX, double atY, bool cloakedAbove)
                     {
                         using (var ridden = new Form { StartPosition = FormStartPosition.Manual, FormBorderStyle = FormBorderStyle.None,
                                    ShowInTaskbar = false, Bounds = new Rectangle(300, 400, 600, 300) })
+                        using (var cloaker = probeForm("ride cloak probe"))
                         using (var rider = new FormCompanion(rideAnimations, rideXml))
                         {
+                            string witness = "";
+                            if (cloakedAbove)
+                            {
+                                int cloak = 1;
+                                int hr = RideDwmSetWindowAttribute(cloaker.Handle, 13, ref cloak, 4);
+                                NativeMethods.SetWindowPos(cloaker.Handle, IntPtr.Zero, 0, 0, 0, 0, probeShowFlags);
+                                witness = " [cloak hr=" + hr + " " + probeState(cloaker.Handle) + "]";
+                                rider.ZOrderWalkForSelfTest = new[] { cloaker.Handle, ridden.Handle };
+                            }
+                            else
+                            {
+                                rider.ZOrderWalkForSelfTest = new[] { ridden.Handle };
+                            }
                             rider.StandOnWindowForSelfTest(ridden.Handle, animationId, atX, atY);
                             bool stepped = rider.StepForSelfTest();     // step 0 stands still: a follow needs a step behind it
                             double startX = rider.PositionXForSelfTest, startY = rider.PositionYForSelfTest;
@@ -1094,12 +1134,46 @@ namespace DesktopAICompanion
                             // offset it has now (0 = standing on it; above 0 = sunk into it).
                             stepped &= rider.StepForSelfTest();
                             int sunk = rider.Top - (ridden.Top - 32 + (int)rider.OffsetYForSelfTest);
-                            return (stepped ? "" : "faulted ") +
+                            // A faulted step names what the tick's catch took: under this flag nothing else records it.
+                            return (stepped ? "" : "faulted (" + rider.LastTickFaultForSelfTest + ") ") +
                                 (rider.PositionXForSelfTest - startX).ToString(System.Globalization.CultureInfo.InvariantCulture) + "," +
                                 (rider.PositionYForSelfTest - startY).ToString(System.Globalization.CultureInfo.InvariantCulture) + " sunk " +
-                                sunk.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                                sunk.ToString(System.Globalization.CultureInfo.InvariantCulture) + witness;
                         }
                     };
+                    Func<int, double, double, string> ride = delegate (int animationId, double atX, double atY)
+                    {
+                        return rideWith(animationId, atX, atY, false);
+                    };
+                    // NEGATIVE: a cloaked window over the edge is not on screen, so the pet rides on as if it were not there.
+                    string cloakedRide = rideWith(2, 400, 400 - 32, true);
+                    Check("ride: a CLOAKED window over the ridden window's top edge does not knock the pet off it (moved 40,80 sunk 0 " +
+                          "[cloak hr=0 visible=True cloaked=True title='ride cloak probe'] expected; moved " + cloakedRide + ")",
+                          cloakedRide == "40,80 sunk 0 [cloak hr=0 visible=True cloaked=True title='ride cloak probe']");
+                    // POSITIVE CONTROL for the check above: a window the user CAN see over the same edge still covers it, or
+                    // a walk that counted nothing at all would pass every ride check. Asked of CheckTopWindow directly, as the
+                    // still step asks it: a covered pet drops through SetNewAnimation(-1) here (the staged document has no
+                    // next animation), whose respawn needs the running app. "without it" is the same walk with the probe left
+                    // out of the list while it is still shown above the ridden window on the live desktop, so it also proves
+                    // the walk read the list.
+                    string coverControl;
+                    using (var ridden = new Form { StartPosition = FormStartPosition.Manual, FormBorderStyle = FormBorderStyle.None,
+                               ShowInTaskbar = false, Bounds = new Rectangle(340, 480, 600, 300) })
+                    using (var cover = probeForm("ride cover probe"))
+                    using (var rider = new FormCompanion(rideAnimations, rideXml))
+                    {
+                        NativeMethods.SetWindowPos(cover.Handle, IntPtr.Zero, 0, 0, 0, 0, probeShowFlags);
+                        rider.StandOnWindowForSelfTest(ridden.Handle, 2, 440, 480 - 32);
+                        rider.ZOrderWalkForSelfTest = new[] { cover.Handle, ridden.Handle };
+                        bool covered = rider.CheckTopWindowForSelfTest();
+                        rider.ZOrderWalkForSelfTest = new[] { ridden.Handle };
+                        bool alone = rider.CheckTopWindowForSelfTest();
+                        coverControl = "covered " + covered + ", without it " + alone + " [" + probeState(cover.Handle) + "]";
+                    }
+                    Check("ride: POSITIVE CONTROL a visible, uncloaked, titled window over the ridden window's top edge covers it " +
+                          "(covered True, without it False [visible=True cloaked=False title='ride cover probe'] expected; got " +
+                          coverControl + ")",
+                          coverControl == "covered True, without it False [visible=True cloaked=False title='ride cover probe']");
                     string ramped = ride(1, 400, 400 - 32), steady = ride(2, 400, 400 - 32);
                     Check("ride: a pet whose offset ramps moves with a dragged window by the window's delta alone and still stands " +
                           "on it (moved 40,80 sunk 0 expected; moved " + ramped + ")", ramped == "40,80 sunk 0");

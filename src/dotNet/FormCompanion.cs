@@ -505,13 +505,27 @@ namespace DesktopAICompanion
         }
 
         /// <summary>Self-test: one classic step as the timer takes it, the timer left off afterwards. False when the step
-        /// faulted (the tick's catch respawns the pet, which would hide what the step did).</summary>
+        /// faulted (the tick's catch respawns the pet, which would hide what the step did); <see cref="LastTickFaultForSelfTest"/>
+        /// then says what was thrown.</summary>
         internal bool StepForSelfTest()
         {
             int faults = _tickFaults;
             Timer1_Tick(timer1, EventArgs.Empty);
             timer1.Enabled = false;
             return _tickFaults == faults;
+        }
+
+        /// <summary>Self-test: the type and message of the last exception Timer1_Tick's catch took, or null. The catch logs
+        /// the same words through StartUp.AddDebugInfo, which writes nothing under a self-test flag (the diagnostic log is
+        /// started only on the app's path), so without this a faulted step could say only that it faulted.</summary>
+        internal string LastTickFaultForSelfTest { get; private set; }
+
+        /// <summary>Self-test: the occlusion walk a standing pet's still step makes (CheckTopWindow(true) in NextStep),
+        /// answered without the drop that follows it. True when a window covers the stood-on window's top edge over the
+        /// pet (or that window moved).</summary>
+        internal bool CheckTopWindowForSelfTest()
+        {
+            return CheckTopWindow(true);
         }
 
         /// <summary>Self-test: where the classic engine holds this pet (its sprite origin before the offset) and the offset
@@ -1084,6 +1098,7 @@ namespace DesktopAICompanion
                 // the old comment asked) is answered by the IsDisposed test: nothing to record or revive.
                 if (IsDisposed) return;
                 _tickFaults++;
+                LastTickFaultForSelfTest = ex.GetType().Name + ": " + ex.Message;   // read by --hardening-selftest only
                 StartUp.AddDebugInfo(StartUp.DEBUG_TYPE.error,
                     "tick failed: " + ex.GetType().Name + ": " + ex.Message +
                     " (animation " + CurrentAnimation.ID + " '" + CurrentAnimation.Name + "', step " + AnimationStep +
@@ -2538,6 +2553,12 @@ namespace DesktopAICompanion
             return false;
         }
 
+        /// <summary>--hardening-selftest's seam: when set, CheckTopWindow walks these windows, top first, instead of the live
+        /// desktop z-order, so a staged ride's verdict does not depend on what else is open (N-bd-w9-host-1-01: its hidden
+        /// ridden window sits near the bottom of the live walk, measured z 668 of 686, and a z-order raise does not move
+        /// it). Null in production; only the self-test sets it, on its own staged pet.</summary>
+        internal IntPtr[] ZOrderWalkForSelfTest;
+
             /// <summary>
             /// Check if current window handler is still valid (if another window cover the visual of this window, it must not be used as window)
             /// </summary>
@@ -2568,8 +2589,11 @@ namespace DesktopAICompanion
 
                 //Debug.WriteLine("Window TREE");
                 
-                // Get the handle to the first window (from user visual, in Z-order)
-                IntPtr hwnd2 = NativeMethods.GetTopWindow((IntPtr)0);
+                // Get the handle to the first window (from user visual, in Z-order), or the self-test's fixed list
+                IntPtr[] walk = ZOrderWalkForSelfTest;
+                int walked = 0;
+                IntPtr hwnd2 = walk == null ? NativeMethods.GetTopWindow((IntPtr)0)
+                    : walked < walk.Length ? walk[walked++] : IntPtr.Zero;
                     // Loop until there are windows over the current window (in Z-Order)
                 while (hwnd2 != (IntPtr)0)
                 {
@@ -2580,7 +2604,12 @@ namespace DesktopAICompanion
 						return false;
 					}
 
-                    if (NativeMethods.IsWindowVisible(hwnd2))
+                    // A CLOAKED window is not on screen, though IsWindowVisible is true for it: a suspended UWP app (the
+                    // Xbox app), the Windows Input Experience surface, a window on another virtual desktop. Counted, it
+                    // knocked a pet standing on a window off it under a window nobody could see (measured: the Xbox app's
+                    // CoreWindow, DWMWA_CLOAKED 2, dropped --hardening-selftest's riding pet, N-bd-w9-host-1-01). The
+                    // fullscreen scan and DesktopWindows skip them with this same test.
+                    if (NativeMethods.IsWindowVisible(hwnd2) && !DesktopWindows.IsCloaked(hwnd2))
                     {
                         StringBuilder sTitle = new StringBuilder(128);
                         NativeMethods.GetWindowText(hwnd2, sTitle, 128);
@@ -2622,7 +2651,8 @@ namespace DesktopAICompanion
                         }
                     }
                         // Get the handle to the next window (to user visual, in Z-order)
-                    hwnd2 = NativeMethods.GetWindow(hwnd2, 2);
+                    hwnd2 = walk == null ? NativeMethods.GetWindow(hwnd2, 2)
+                        : walked < walk.Length ? walk[walked++] : IntPtr.Zero;
                 }
             }
             return false;
