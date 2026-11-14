@@ -188,6 +188,15 @@ DesktopAICompanion sends data only when a network feature is used:
   Treat the destination as third-party content and review it before selecting it.
 - The Help window itself is fully local. Selecting one of its online-documentation links asks the
   default browser to open that project-owned HTTPS repository page.
+- **Since AgentBroker 1.10.5 an agent can send files to a paired broker, and only if you turned that on.**
+  **Allow file attachments with paired brokers** in the AgentBroker pane is off by default. With it on, a coding
+  agent on this computer can call `send_with_attachments` to send up to 4 files (8 MiB each, 16 MiB per message)
+  that it names, to a session on a broker you paired; the files go only to that broker, over the same encrypted,
+  certificate-pinned LAN connection as broker messages. Copies wait in `attachments\outbox` in the module's data
+  folder until the other broker has fetched them. Files arrive here only from a paired broker you allowed on the
+  Brokers card; each is checked against the size and SHA-256 its sender declared, kept in `attachments\inbox`,
+  and marked as downloaded from the internet. AgentBroker never opens, runs or scans these files, and deletes
+  them when their message's record ends, at most 48 hours later. Nothing goes to any other computer or service.
 
 Remote AI endpoints must use HTTPS. Plain HTTP is accepted only for the local loopback computer.
 Redirects are not followed. Sending screen context to a non-loopback provider requires the explicit

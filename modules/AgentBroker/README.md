@@ -20,6 +20,12 @@ on the other. The first press previews the name, short ID and HTTPS authority; t
 requests pairing. Clipboard text is never echoed, and this broker's own or an already-paired identity is refused.
 Both workstations must still compare and approve the complete code.
 
+File attachments (1.10.5) are another opt-in, off by default: "Allow file attachments with paired brokers" under
+Connections, then "Allow or stop attachments" on one ticked Paired row of the Brokers card for each broker that may send
+files here. The worker gets `--attachments true` only when the switch is on. Received files are verified, quarantined
+under the DataDirectory's `attachments\inbox` and marked as downloaded from the internet; "Show attachments folder"
+reveals its README. Details: `docs/agentbroker.md`, File attachments.
+
 The worker executable lives at worker/AgentBroker.Worker.exe beneath the module. All persisted identity,
 pairing and delivery state uses the host-provisioned module DataDirectory. The supervisor passes parent
 PID and creation FILETIME, performs control work off the host UI thread and never stops an existing
