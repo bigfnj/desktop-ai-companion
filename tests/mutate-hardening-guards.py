@@ -5685,6 +5685,27 @@ CASES = (
         b"    <TargetFramework>net10.0-windows</TargetFramework>\n    <WarningLevel>9</WarningLevel>\n",
         "coordinator: no module project pins a WarningLevel below its target framework's default",
     ),
+    # N-audit-1106-017: a module ZIP ships a third-party library without its licence text again: the NodaTime licence item
+    # leaves Reminder's project, or Fortunes' ONNX Runtime licence item goes back under the Exists condition it had, which
+    # skipped it in silence when the package path was missing (runtime-hardening-selftest.ps1, coordinator block).
+    (
+        "bd-coordinator: reminder.zip ships NodaTime without its licence again (N-audit-1106-017)",
+        os.path.join(REPO, "modules", "Reminder", "Reminder.csproj"),
+        b'    <None Include="..\\..\\packaging\\licenses\\NODATIME_LICENSE.txt">\n'
+        b"      <Link>NODATIME_LICENSE.txt</Link>\n"
+        b"      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>\n"
+        b"    </None>\n",
+        b"",
+        "coordinator: every module that ships a third-party library ships its licence text, with no Condition",
+    ),
+    (
+        "bd-coordinator: a module licence item is skipped in silence when its file is missing (N-audit-1106-017)",
+        FORTUNES_CSPROJ,
+        b'    <None Include="$(PkgMicrosoft_ML_OnnxRuntime)\\LICENSE">\n',
+        b'    <None Include="$(PkgMicrosoft_ML_OnnxRuntime)\\LICENSE"\n'
+        b"          Condition=\"Exists('$(PkgMicrosoft_ML_OnnxRuntime)\\LICENSE')\">\n",
+        "coordinator: every module that ships a third-party library ships its licence text, with no Condition",
+    ),
 )
 
 

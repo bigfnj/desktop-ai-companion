@@ -7326,6 +7326,50 @@ Assert-True ($bdcProjects.Count -ge 9 -and $bdcPropsText -cmatch '<TreatWarnings
 Assert-True ($bdcLowPins.Count -eq 0) (
     "coordinator: no module project pins a WarningLevel below its target framework's default" +
     $(if ($bdcLowPins.Count) { ' -- ' + ($bdcLowPins -join ', ') } else { '' }))
+# EVERY MODULE ZIP THAT SHIPS A THIRD-PARTY LIBRARY SHIPS ITS LICENCE TEXT (N-audit-1106-017). reminder.zip, remembrance.zip and
+# fortunes.zip carried Ical.Net, NodaTime, NAudio and System.Numerics.Tensors with no licence text beside them, and Fortunes'
+# two ONNX Runtime licence items were conditioned on the package path existing, so a build without it shipped fortunes.zip
+# with no licence and said nothing. For each module THIRD_PARTY_NOTICES.md names a third-party package for, its project
+# (XML comments stripped) must ship each named file as exactly one None item whose Link is that name, copied to the output,
+# with NO Condition attribute, so a missing file fails the build; a source inside the repository must exist; and the
+# notices' "License files that ship" bullet for that ZIP must name the file. WITNESS: Fortunes' ONNX Runtime licence item
+# was read, its Include naming the restored package's LICENSE, and the notices section was found.
+$bdcLicenceShips = [ordered]@{
+    'Reminder'    = @('ICALNET_LICENSE.txt', 'NODATIME_LICENSE.txt', 'NODATIME_NOTICE.txt')
+    'Remembrance' = @('NAUDIO_LICENSE.txt', 'TENSORS_LICENSE.txt', 'TENSORS_THIRD_PARTY_NOTICES.txt')
+    'Fortunes'    = @('ONNXRUNTIME_LICENSE.txt', 'ONNXRUNTIME_THIRD_PARTY_NOTICES.txt', 'TENSORS_LICENSE.txt', 'TENSORS_THIRD_PARTY_NOTICES.txt')
+}
+$bdcNotices = Get-Content -LiteralPath (Join-Path $repoRoot 'THIRD_PARTY_NOTICES.md') -Raw
+$bdcShipsSection = [regex]::Match($bdcNotices, '(?s)\n### License files that ship\r?\n(.*?)\r?\n## ').Groups[1].Value
+$bdcLicenceFaults = @()
+$bdcOnnxWitness = $false
+foreach ($bdcModule in $bdcLicenceShips.Keys) {
+    $bdcProjectPath = Join-Path $repoRoot ('modules\' + $bdcModule + '\' + $bdcModule + '.csproj')
+    $bdcProjectXml = [regex]::Replace((Get-Content -LiteralPath $bdcProjectPath -Raw), '(?s)<!--.*?-->', '')
+    $bdcItems = @([regex]::Matches($bdcProjectXml, '(?s)<None\s(?<attrs>[^>]*?)(?<!/)>(?<body>.*?)</None>'))
+    $bdcZip = '`' + $bdcModule.ToLowerInvariant() + '.zip`:'
+    $bdcBullet = [regex]::Match($bdcShipsSection, '(?s)\n- ' + [regex]::Escape($bdcZip) + '(.*?)(?=\r?\n- |\r?\n\r?\n|\z)').Groups[1].Value
+    foreach ($bdcName in $bdcLicenceShips[$bdcModule]) {
+        $bdcFound = @($bdcItems | Where-Object { $_.Groups['body'].Value -cmatch ('<Link>' + [regex]::Escape($bdcName) + '</Link>') })
+        if ($bdcBullet.IndexOf('`' + $bdcName + '`', [StringComparison]::Ordinal) -lt 0) { $bdcLicenceFaults += ($bdcModule + ' ' + $bdcName + ': not named for ' + $bdcZip) }
+        if ($bdcFound.Count -ne 1) { $bdcLicenceFaults += ($bdcModule + ' ' + $bdcName + ': ' + $bdcFound.Count + ' items'); continue }
+        $bdcAttrs = $bdcFound[0].Groups['attrs'].Value
+        $bdcInclude = [regex]::Match($bdcAttrs, 'Include="([^"]+)"').Groups[1].Value
+        if ($bdcAttrs -cmatch '\bCondition\s*=') { $bdcLicenceFaults += ($bdcModule + ' ' + $bdcName + ': skipped in silence under a Condition') }
+        if ($bdcFound[0].Groups['body'].Value -cnotmatch '<CopyToOutputDirectory>(PreserveNewest|Always)</CopyToOutputDirectory>') { $bdcLicenceFaults += ($bdcModule + ' ' + $bdcName + ': not copied to the output') }
+        if ($bdcInclude -ceq '$(PkgMicrosoft_ML_OnnxRuntime)\LICENSE') { $bdcOnnxWitness = $true }
+        if ($bdcInclude.Length -eq 0) { $bdcLicenceFaults += ($bdcModule + ' ' + $bdcName + ': no Include') }
+        elseif (-not $bdcInclude.StartsWith('$(', [StringComparison]::Ordinal) -and
+                -not (Test-Path -LiteralPath (Join-Path (Split-Path -Parent $bdcProjectPath) $bdcInclude) -PathType Leaf)) {
+            $bdcLicenceFaults += ($bdcModule + ' ' + $bdcName + ': ' + $bdcInclude + ' does not exist')
+        }
+    }
+}
+Assert-True ($bdcOnnxWitness -and $bdcShipsSection.Length -gt 0) (
+    'coordinator: WITNESS the licence scan read Fortunes'' ONNX Runtime licence item and the notices'' License files that ship section')
+Assert-True ($bdcLicenceFaults.Count -eq 0) (
+    "coordinator: every module that ships a third-party library ships its licence text, with no Condition" +
+    $(if ($bdcLicenceFaults.Count) { ' -- ' + ($bdcLicenceFaults -join '; ') } else { '' }))
 
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that

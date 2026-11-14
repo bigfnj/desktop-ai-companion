@@ -64,15 +64,27 @@
     </None>
     <!-- ONNX Runtime license + third-party notices, shipped in the module folder next to the native
          onnxruntime.dll / managed Microsoft.ML.OnnxRuntime.dll they cover. Pulled from the restored NuGet
-         package (same pattern the base uses for Newtonsoft) so they never drift from the pinned version. -->
-    <None Include="$(PkgMicrosoft_ML_OnnxRuntime)\LICENSE"
-          Condition="'$(PkgMicrosoft_ML_OnnxRuntime)' != '' and Exists('$(PkgMicrosoft_ML_OnnxRuntime)\LICENSE')">
+         package (same pattern the base uses for Newtonsoft) so they never drift from the pinned version.
+         No condition on either, on purpose (N-audit-1106-017): both items were conditioned on the package path
+         existing, so a build without it shipped fortunes.zip with no license and said nothing. A missing file now
+         fails the build, and tests/runtime-hardening-selftest.ps1 refuses a condition here. -->
+    <None Include="$(PkgMicrosoft_ML_OnnxRuntime)\LICENSE">
       <Link>ONNXRUNTIME_LICENSE.txt</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
-    <None Include="$(PkgMicrosoft_ML_OnnxRuntime)\ThirdPartyNotices.txt"
-          Condition="'$(PkgMicrosoft_ML_OnnxRuntime)' != '' and Exists('$(PkgMicrosoft_ML_OnnxRuntime)\ThirdPartyNotices.txt')">
+    <None Include="$(PkgMicrosoft_ML_OnnxRuntime)\ThirdPartyNotices.txt">
       <Link>ONNXRUNTIME_THIRD_PARTY_NOTICES.txt</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <!-- System.Numerics.Tensors 9.0.0, which Microsoft.ML.OnnxRuntime.Managed pulls in, ships its MIT license and
+         third-party notices beside it too (N-audit-1106-017): the texts are the package's own, committed under
+         packaging/licenses, and THIRD_PARTY_NOTICES.md names their source. No condition, for the same reason. -->
+    <None Include="..\..\packaging\licenses\TENSORS_LICENSE.txt">
+      <Link>TENSORS_LICENSE.txt</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\..\packaging\licenses\TENSORS_THIRD_PARTY_NOTICES.txt">
+      <Link>TENSORS_THIRD_PARTY_NOTICES.txt</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>

@@ -149,7 +149,9 @@ namespace DesktopAICompanion.RemembranceModule
                                  //        folder on a slow or offline share stalled the window (N-audit-1106-286).
                                  //        Self-test: "Summarize a transcript..." and "Transcribe a WAV file..." check the
                                  //        file kind and extension they ask the host's picker for, now that the test host
-                                 //        records the request (N-bd-w3-remembrance-1-02).
+                                 //        records the request (N-bd-w3-remembrance-1-02). The module folder ships the
+                                 //        licence texts of NAudio and System.Numerics.Tensors, with Tensors'
+                                 //        third-party notices, beside their DLLs (N-audit-1106-017).
                                  // 2.10.0: one Claude Code sign-in, shared with AI Brain (host 1.8.0's
                                  //        IHostCredentials, BACKLOG N-cli-token-02, the owner's decision of
                                  //        2026-10-29), behind the ClaudeCodeSignIn grant, so MinHostVersion rises to

@@ -85,7 +85,9 @@ namespace DesktopAICompanion.ReminderModule
                                 //        declined" says "(Outlook and local file)": a local file's "status" was
                                 //        always read and skipped too (N-bd-w2-reminder-1-01). Burn-down wave 8 (lane
                                 //        w8-reminder-1), comments only: the Permissions note no longer lists the flags
-                                //        the host enforces, a list that had gone stale (N-bd-w4-docs-1-01).
+                                //        the host enforces, a list that had gone stale (N-bd-w4-docs-1-01). The
+                                //        module folder ships the licence texts of Ical.Net and NodaTime, with
+                                //        NodaTime's NOTICE file, beside their DLLs (N-audit-1106-017).
                                 // 1.3.0: Calendar 5 becomes the Zoom slot (the owner, 2026-11-03): the meetings the user
                                 //        HOSTS in Zoom, read from Zoom's REST API after a browser sign-in to a Zoom
                                 //        app the user creates (OAuth with PKCE, a loopback redirect, no secret; the
