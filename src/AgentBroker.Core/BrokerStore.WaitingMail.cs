@@ -8,6 +8,7 @@ public static class WaitingMailPolicy
 {
     public static readonly TimeSpan NoticeAfter = TimeSpan.FromMinutes(5);
     public static readonly TimeSpan ObservationFreshFor = TimeSpan.FromSeconds(30);
+    public static readonly TimeSpan DirectoryObservationInterval = TimeSpan.FromSeconds(2);
     public const int MaximumNoticesPerPass = 16;
 }
 
@@ -22,11 +23,20 @@ public sealed record WaitingNoticePass(int Admitted, int AlreadyAdmitted, int Bl
 
 public sealed partial class BrokerStore
 {
+    private readonly record struct WaitIdentity(Guid Id, Guid ConversationId, Guid? ReplyTo,
+        SessionAddress Sender, SessionAddress Recipient, DateTimeOffset CreatedAt,
+        DateTimeOffset ExpiresAt, int RemainingReplies)
+    {
+        internal static WaitIdentity From(BrokerMessage message) => new(message.Id,
+            message.ConversationId, message.ReplyTo, message.Sender, message.Recipient,
+            message.CreatedAt, message.ExpiresAt, message.RemainingReplies);
+    }
+
     // Process-local, bounded by current full pending records, never persisted in schema-1 receipts or tombstones.
     private sealed class WaitingObservation(MessageReceipt receipt)
     {
         internal readonly Guid Admission = receipt.AdmissionEpoch;
-        internal readonly BrokerMessage Source = receipt.Message with { Text = "" };
+        internal readonly WaitIdentity Source = WaitIdentity.From(receipt.Message);
         internal readonly Dictionary<(string Reason, string Source), WaitReasonObservation> Reasons = new();
         internal string LatestReason = "", LatestSource = "";
         internal long LastTimestamp;
@@ -54,7 +64,7 @@ public sealed partial class BrokerStore
     private static void EndBusy(WaitingObservation observation)
     { observation.BusyTimestamp = null; observation.BusyAt = null; observation.AdapterBusyTimestamp = null; }
     private bool CurrentWait(MessageReceipt receipt, WaitingObservation observation) =>
-        receipt.AdmissionEpoch == observation.Admission && receipt.Message with { Text = "" } == observation.Source;
+        receipt.AdmissionEpoch == observation.Admission && WaitIdentity.From(receipt.Message) == observation.Source;
     private bool PendingNative(MessageReceipt receipt) => receipt.Message.Recipient.BrokerId == state.BrokerId &&
         NeedsRecipientReceipt(receipt, Now) && receipt.Message.Sender.SessionId != NoticeSessionId &&
         (!sessions.TryGetValue(receipt.Message.Recipient, out var target) || Native(target)) &&
@@ -63,6 +73,7 @@ public sealed partial class BrokerStore
     // Caller holds gate. No observations are created by a read, and resolved history cannot fill this map.
     private void PruneWaitingMail()
     {
+        if (waitingMail.Count == 0) return;
         var current = state.Messages.Where(PendingNative).ToDictionary(receipt => receipt.Message.Id);
         foreach (var (id, observation) in waitingMail.ToArray())
         {
@@ -86,12 +97,18 @@ public sealed partial class BrokerStore
         var timestamp = clock.GetTimestamp();
         if (!FreshWait(observation.LastTimestamp)) EndBusy(observation);
         var now = Now;
-        var key = (reason, source);
-        if (observation.Reasons.TryGetValue(key, out var previous))
-            observation.Reasons[key] = previous with { LastObservedAtUtc = now,
-                Count = previous.Count == long.MaxValue ? long.MaxValue : previous.Count + 1 };
-        else if (observation.Reasons.Count < 20) observation.Reasons.Add(key, new(reason, source, now, now, 1));
-        observation.LatestReason = reason; observation.LatestSource = source; observation.LastTimestamp = timestamp;
+        bool throttledDirectory = source == "directory" && observation.LatestSource == source &&
+            observation.LatestReason == reason && clock.GetElapsedTime(observation.LastTimestamp, timestamp) is var elapsed &&
+            elapsed >= TimeSpan.Zero && elapsed < WaitingMailPolicy.DirectoryObservationInterval;
+        if (!throttledDirectory)
+        {
+            var key = (reason, source);
+            if (observation.Reasons.TryGetValue(key, out var previous))
+                observation.Reasons[key] = previous with { LastObservedAtUtc = now,
+                    Count = previous.Count == long.MaxValue ? long.MaxValue : previous.Count + 1 };
+            else if (observation.Reasons.Count < 20) observation.Reasons.Add(key, new(reason, source, now, now, 1));
+            observation.LatestReason = reason; observation.LatestSource = source; observation.LastTimestamp = timestamp;
+        }
         if (!busy || !WaitingPolicy(receipt.Message, target)) EndBusy(observation);
         else
         {
@@ -159,32 +176,56 @@ public sealed partial class BrokerStore
         }
     }
 
+    private struct WaitingMailCounts
+    {
+        internal int Pending, Queued, Blocked, Busy, Unobserved;
+        internal bool IsNative;
+        internal bool? Ready;
+        internal DateTimeOffset? Oldest;
+        internal long? Age;
+    }
+
     public WaitingMailSnapshot ReadWaitingMail()
     {
         lock (gate)
         {
             EnsureOpen(); PruneWaitingMail();
             var now = Now;
-            var pending = state.Messages.Where(receipt => NeedsRecipientReceipt(receipt, now) && receipt.Message.Recipient.BrokerId == state.BrokerId)
-                .GroupBy(receipt => receipt.Message.Recipient).ToDictionary(group => group.Key, group => group.ToArray());
-            var rows = sessions.Values.Select(target =>
+            var targets = sessions.Values.ToArray();
+            var indices = new Dictionary<SessionAddress, int>(targets.Length);
+            var counts = new WaitingMailCounts[targets.Length];
+            for (int i = 0; i < targets.Length; i++)
             {
-                var messages = pending.GetValueOrDefault(target.Address) ?? [];
-                int queued = 0, blocked = 0, busy = 0, unobserved = 0;
-                DateTimeOffset? oldest = null; long? age = null;
-                foreach (var receipt in messages.Where(receipt => receipt.Status == MessageStatus.Accepted))
+                indices.Add(targets[i].Address, i);
+                counts[i].IsNative = Native(targets[i]);
+            }
+            foreach (var receipt in state.Messages)
+            {
+                if (!NeedsRecipientReceipt(receipt, now) || receipt.Message.Recipient.BrokerId != state.BrokerId ||
+                    !indices.TryGetValue(receipt.Message.Recipient, out int index)) continue;
+                ref var count = ref counts[index];
+                count.Pending++;
+                if (receipt.Status != MessageStatus.Accepted) continue;
+                count.Queued++;
+                bool observed = waitingMail.TryGetValue(receipt.Message.Id, out var observation) && CurrentWait(receipt, observation) && FreshWait(observation.LastTimestamp);
+                bool isBusy = observed && CurrentlyBusy(receipt, observation!);
+                if (count.IsNative)
                 {
-                    queued++;
-                    bool observed = waitingMail.TryGetValue(receipt.Message.Id, out var observation) && CurrentWait(receipt, observation) && FreshWait(observation.LastTimestamp);
-                    bool isBusy = observed && CurrentlyBusy(receipt, observation!);
-                    if (Native(target) && (!Ready(target.Address) || isBusy)) { blocked++; if (!observed) unobserved++; }
-                    if (!isBusy) continue;
-                    busy++;
-                    long elapsed = Math.Max(0, (long)clock.GetElapsedTime(observation!.BusyTimestamp!.Value).TotalMilliseconds);
-                    if (age is null || elapsed > age) { age = elapsed; oldest = observation.BusyAt; }
+                    count.Ready ??= Ready(targets[index].Address);
+                    if (!count.Ready.Value || isBusy) { count.Blocked++; if (!observed) count.Unobserved++; }
                 }
-                return new SessionWaitingMail(target.Address, messages.Length, queued, blocked, busy, unobserved, oldest, age);
-            }).ToArray();
+                if (!isBusy) continue;
+                count.Busy++;
+                long elapsed = Math.Max(0, (long)clock.GetElapsedTime(observation!.BusyTimestamp!.Value).TotalMilliseconds);
+                if (count.Age is null || elapsed > count.Age) { count.Age = elapsed; count.Oldest = observation.BusyAt; }
+            }
+            var rows = new SessionWaitingMail[targets.Length];
+            for (int i = 0; i < targets.Length; i++)
+            {
+                ref var count = ref counts[i];
+                rows[i] = new(targets[i].Address, count.Pending, count.Queued, count.Blocked, count.Busy,
+                    count.Unobserved, count.Oldest, count.Age);
+            }
             return new(state.BrokerId, now, (int)WaitingMailPolicy.NoticeAfter.TotalSeconds, rows);
         }
     }

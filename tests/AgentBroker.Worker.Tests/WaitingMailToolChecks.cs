@@ -62,6 +62,7 @@ internal static class WaitingMailToolChecks
         await RuntimeSharedGateAsync(check);
         await RuntimeWriteFailureAsync(check);
         await RuntimeNonIoFailureAsync(check);
+        await RuntimeWriteFailureLoopAsync(check);
     }
 
     // Unequal values exercise the actual control-row mapping, rather than only its member names.
@@ -240,15 +241,14 @@ internal static class WaitingMailToolChecks
         check(failedBefore == 0 && failedAfter == 1 && noNotice && accepted, "WAITING_RUNTIME_NOTICE_BACKOFF_SHARED_GATE");
     }
 
-    // Seed only this error-path fixture; the real loop owns the failed write, monotonic backoff and retry.
+    // RuntimeLoopAsync above proves real-loop wiring. This fixture calls the same private pass directly:
+    // rate-limited directory observation counts no longer prove passes at a fixed monotonic time.
     private static async Task RuntimeWriteFailureAsync(Action<bool, string> check)
     {
         var clock = new WaitingClock();
-        var adapter = new WaitingAdapter(clock);
-        await using var fixture = new ToolFixture("waiting-mail-runtime-write", clock: clock, adapters: [adapter]);
+        await using var fixture = new ToolFixture("waiting-mail-runtime-write", clock: clock);
         var sender = fixture.Register("Synthetic retry waiting sender");
         var target = NativeTarget(fixture.Store.BrokerId, clock);
-        adapter.Target = target;
         Renew(fixture, sender, target, clock);
         var now = clock.GetUtcNow();
         var receipt = fixture.Store.Accept(new(Guid.NewGuid(), Guid.NewGuid(), null, sender.Address, target.Address,
@@ -260,58 +260,58 @@ internal static class WaitingMailToolChecks
             Renew(fixture, sender, target, clock);
             fixture.Store.AdmitDueWaitingMailNotices();
         }
+        var pass = typeof(BrokerRuntime).GetMethod("AdmitWaitingMailPass", System.Reflection.BindingFlags.Instance |
+            System.Reflection.BindingFlags.NonPublic)!.CreateDelegate<Action>(fixture.Runtime);
         string fault = Path.Combine(fixture.Root, "store", "broker-state.json.next");
+        long failedBefore = fixture.Store.CommitTimings().Failed;
         check(fixture.Store.ReadMessageWait(receipt)?.BusyObservedAgeMilliseconds == 290_000 &&
-            Notices(fixture.Store, sender.Address) == 0 && !File.Exists(fault) && !Directory.Exists(fault),
-            "WAITING_RUNTIME_WRITE_FAILURE_PRECONDITION");
+            Notices(fixture.Store, sender.Address) == 0 && !File.Exists(fault) && !Directory.Exists(fault) &&
+            failedBefore == 0, "WAITING_RUNTIME_WRITE_FAILURE_PRECONDITION");
         bool ownsFault = false;
-        using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(20));
         try
         {
             Directory.CreateDirectory(fault); ownsFault = true;
             clock.Advance(TimeSpan.FromSeconds(10));
             Renew(fixture, sender, target, clock);
-            fixture.Runtime.Start(stop.Token);
-            bool failed = await UntilAsync(() => fixture.Runtime.AdapterErrors.TryGetValue("waiting_mail", out string? error) &&
-                error == "waiting_mail_notice_write_failed", stop.Token);
-            check(failed && Notices(fixture.Store, sender.Address) == 0 && !fixture.Runtime.DurableStateUnavailable &&
-                !fixture.Runtime.AdapterErrors.ContainsKey(adapter.Id) && !fixture.Runtime.AdapterErrors.ContainsKey("broker") &&
-                !fixture.Runtime.AdapterErrors.ContainsKey("delivery") && adapter.Submissions == 0 &&
+            pass();
+            bool failed = fixture.Runtime.AdapterErrors.TryGetValue("waiting_mail", out string? error) &&
+                error == "waiting_mail_notice_write_failed";
+            check(failed && fixture.Store.CommitTimings().Failed == failedBefore + 1 &&
+                Notices(fixture.Store, sender.Address) == 0 && !fixture.Runtime.DurableStateUnavailable &&
+                !fixture.Runtime.AdapterErrors.ContainsKey("broker") && !fixture.Runtime.AdapterErrors.ContainsKey("delivery") &&
                 fixture.Store.FindReceipt(receipt.Message.Id)?.Status == MessageStatus.Accepted,
                 "WAITING_RUNTIME_NOTICE_WRITE_FAILURE");
             long firstFailed = fixture.Store.CommitTimings().Failed;
-            bool passedInitially = await DeliveryPassesAsync(fixture.Store, receipt, stop.Token);
-            bool heldInitially = passedInitially && firstFailed == 1 && fixture.Store.CommitTimings().Failed == firstFailed;
+            pass(); // A completed invocation, with no elapsed monotonic time, must not attempt another write.
+            bool heldInitially = fixture.Store.CommitTimings().Failed == firstFailed;
             clock.JumpUtc(TimeSpan.FromSeconds(10));
             Renew(fixture, sender, target, clock);
-            bool passedAfterUtcJump = await DeliveryPassesAsync(fixture.Store, receipt, stop.Token);
-            bool heldAfterUtcJump = passedAfterUtcJump && fixture.Store.CommitTimings().Failed == firstFailed;
+            pass();
+            bool heldAfterUtcJump = fixture.Store.CommitTimings().Failed == firstFailed;
             clock.Advance(TimeSpan.FromSeconds(4));
             Renew(fixture, sender, target, clock);
-            bool passedBeforeBoundary = await DeliveryPassesAsync(fixture.Store, receipt, stop.Token);
-            check(heldInitially && heldAfterUtcJump && passedBeforeBoundary && fixture.Store.CommitTimings().Failed == firstFailed,
+            pass();
+            check(heldInitially && heldAfterUtcJump && fixture.Store.CommitTimings().Failed == firstFailed,
                 "WAITING_RUNTIME_NOTICE_BACKOFF_SUPPRESSES_WRITES");
             clock.Advance(TimeSpan.FromSeconds(1));
             Renew(fixture, sender, target, clock);
-            bool atBoundary = await UntilAsync(() => fixture.Store.CommitTimings().Failed > firstFailed, stop.Token);
-            bool boundaryPassSettled = atBoundary && await DeliveryPassesAsync(fixture.Store, receipt, stop.Token);
-            check(boundaryPassSettled && fixture.Store.CommitTimings().Failed == firstFailed + 1 &&
+            pass();
+            pass(); // All later callers at the retry instant share the newly started backoff.
+            check(fixture.Store.CommitTimings().Failed == firstFailed + 1 &&
                 fixture.Runtime.AdapterErrors.TryGetValue("waiting_mail", out string? pendingError) && pendingError == "waiting_mail_notice_write_failed" &&
                 Notices(fixture.Store, sender.Address) == 0, "WAITING_RUNTIME_NOTICE_BACKOFF_RETRIES_AT_BOUNDARY");
             Directory.Delete(fault, recursive: false); ownsFault = false;
             clock.Advance(TimeSpan.FromSeconds(5));
             Renew(fixture, sender, target, clock);
-            bool retried = await UntilAsync(() => Notices(fixture.Store, sender.Address) == 1 &&
-                !fixture.Runtime.AdapterErrors.ContainsKey("waiting_mail"), stop.Token);
-            check(retried && !fixture.Runtime.DurableStateUnavailable && adapter.Submissions == 0 &&
+            pass();
+            check(Notices(fixture.Store, sender.Address) == 1 && !fixture.Runtime.AdapterErrors.ContainsKey("waiting_mail") &&
+                !fixture.Runtime.DurableStateUnavailable &&
                 fixture.Store.FindReceipt(receipt.Message.Id)?.Status == MessageStatus.Accepted,
                 "WAITING_RUNTIME_NOTICE_RETRY_CLEARS_ERROR");
         }
         finally
         {
-            stop.Cancel();
-            try { await fixture.Runtime.DisposeAsync(); }
-            finally { if (ownsFault) Directory.Delete(fault, recursive: false); }
+            if (ownsFault) Directory.Delete(fault, recursive: false);
         }
     }
 
@@ -364,6 +364,76 @@ internal static class WaitingMailToolChecks
             !fixture.Runtime.AdapterErrors.ContainsKey("waiting_mail"), "WAITING_RUNTIME_NONIO_PROPAGATES_WITHOUT_BACKOFF");
     }
 
+    // Keep one real delivery-loop leg for notice IO failure. Commit failure/discovery are the witnesses;
+    // throttled directory observation counts are deliberately not used to infer completed runtime passes.
+    // This follows the deterministic backoff checks so their established first-failure labels remain unchanged.
+    private static async Task RuntimeWriteFailureLoopAsync(Action<bool, string> check)
+    {
+        var clock = new WaitingClock();
+        var adapter = new WaitingAdapter(clock) { BlockAfterFirstDiscovery = true };
+        await using var fixture = new ToolFixture("waiting-mail-runtime-write-loop", clock: clock, adapters: [adapter]);
+        var sender = fixture.Register("Synthetic loop-write waiting sender");
+        var target = NativeTarget(fixture.Store.BrokerId, clock);
+        adapter.Target = target;
+        Renew(fixture, sender, target, clock);
+        var now = clock.GetUtcNow();
+        var receipt = fixture.Store.Accept(new(Guid.NewGuid(), Guid.NewGuid(), null, sender.Address, target.Address,
+            "Synthetic loop-write waiting text.", now, now.AddMinutes(30)), fixture.Store.BrokerId);
+        fixture.Store.AdmitDueWaitingMailNotices();
+        for (int tick = 1; tick < 30; tick++)
+        {
+            clock.Advance(TimeSpan.FromSeconds(10));
+            Renew(fixture, sender, target, clock);
+            fixture.Store.AdmitDueWaitingMailNotices();
+        }
+        string fault = Path.Combine(fixture.Root, "store", "broker-state.json.next");
+        long failedBefore = fixture.Store.CommitTimings().Failed;
+        bool ownsFault = false, firstDiscoveryCompleted = false, observedFailure = false;
+        Exception? setupFailure = null;
+        using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        try
+        {
+            // Discoveries increments inside the stub, before Runtime's successful clear. Observe the actual
+            // clear of a seeded value instead, while the notice remains below due and no fault is armed.
+            var errors = typeof(BrokerRuntime).GetField("adapterErrors", System.Reflection.BindingFlags.Instance |
+                System.Reflection.BindingFlags.NonPublic)?.GetValue(fixture.Runtime) as
+                System.Collections.Concurrent.ConcurrentDictionary<string, string>;
+            if (errors is not null)
+            {
+                errors[adapter.Id] = "synthetic_waiting_startup_clear";
+                fixture.Runtime.Start(stop.Token);
+                firstDiscoveryCompleted = await UntilAsync(() => adapter.Discoveries == 1 &&
+                    !fixture.Runtime.AdapterErrors.ContainsKey(adapter.Id), stop.Token);
+                if (firstDiscoveryCompleted)
+                {
+                    // The stub never completes another preparation pass, so no later successful discovery
+                    // can erase an adapter error injected by the notice-write mutant.
+                    Directory.CreateDirectory(fault); ownsFault = true;
+                    clock.Advance(TimeSpan.FromSeconds(10));
+                    Renew(fixture, sender, target, clock);
+                    observedFailure = await UntilAsync(() => fixture.Store.CommitTimings().Failed > failedBefore &&
+                        fixture.Runtime.AdapterErrors.TryGetValue("waiting_mail", out string? code) &&
+                        code == "waiting_mail_notice_write_failed", stop.Token);
+                }
+            }
+        }
+        catch (Exception error) { setupFailure = error; }
+        finally
+        {
+            stop.Cancel();
+            try { await fixture.Runtime.DisposeAsync(); }
+            finally { if (ownsFault) Directory.Delete(fault, recursive: false); }
+        }
+        check(setupFailure is null && firstDiscoveryCompleted && adapter.Discoveries == 1 && observedFailure &&
+            fixture.Store.CommitTimings().Failed > failedBefore && adapter.Submissions == 0 &&
+            !fixture.Runtime.AdapterErrors.ContainsKey(adapter.Id) && !fixture.Runtime.DurableStateUnavailable &&
+            !fixture.Runtime.AdapterErrors.ContainsKey("broker") && !fixture.Runtime.AdapterErrors.ContainsKey("delivery") &&
+            fixture.Runtime.AdapterErrors.TryGetValue("waiting_mail", out string? finalCode) &&
+            finalCode == "waiting_mail_notice_write_failed" && Notices(fixture.Store, sender.Address) == 0 &&
+            fixture.Store.FindReceipt(receipt.Message.Id)?.Status == MessageStatus.Accepted,
+            "WAITING_RUNTIME_NOTICE_WRITE_FAILURE_ISOLATED_NO_SUBMISSION");
+    }
+
     private static void Renew(ToolFixture fixture, BrokerSession sender, BrokerSession target, WaitingClock clock)
     {
         fixture.Store.Register(sender with { LeaseUntil = clock.GetUtcNow().AddMinutes(1) });
@@ -378,14 +448,6 @@ internal static class WaitingMailToolChecks
     private static bool ObservedAt(BrokerStore store, MessageReceipt receipt, DateTimeOffset at) =>
         store.ReadMessageWait(receipt) is { FirstBusyObservedAtUtc: not null } wait &&
         wait.Waits.Any(item => item.Reason == "recipient_busy" && item.Source == "directory" && item.LastObservedAtUtc == at);
-    // Four later directory observations force at least one new loop turn beyond any already outside the retry gate.
-    private static async Task<bool> DeliveryPassesAsync(BrokerStore store, MessageReceipt receipt, CancellationToken stop)
-    {
-        long before = DirectoryPasses(store, receipt);
-        return await UntilAsync(() => DirectoryPasses(store, receipt) >= before + 4, stop);
-    }
-    private static long DirectoryPasses(BrokerStore store, MessageReceipt receipt) =>
-        store.ReadMessageWait(receipt)?.Waits.SingleOrDefault(item => item.Reason == "recipient_busy" && item.Source == "directory")?.Count ?? 0;
     private static int Notices(BrokerStore store, SessionAddress sender) =>
         store.Messages(sender).Count(item => item.Message.Sender.SessionId == BrokerStore.NoticeSessionId);
     private static async Task<bool> UntilAsync(Func<bool> predicate, CancellationToken stop)
@@ -412,10 +474,15 @@ internal static class WaitingMailToolChecks
     private sealed class WaitingAdapter(WaitingClock clock) : ILocalAgentAdapter
     {
         internal BrokerSession? Target;
+        internal bool BlockAfterFirstDiscovery { get; init; }
         private int discoveries, submissions;
         internal int Discoveries => Volatile.Read(ref discoveries);
         internal int Submissions => Volatile.Read(ref submissions);
         public string Id => "claude-native";
+        // Block before Runtime creates its per-pass discovery deadline. Only the test stop token ends this wait,
+        // so a slow scheduler cannot turn the fixture barrier into a synthetic adapter-timeout error.
+        public Task PrepareDiscoveryAsync(TimeSpan maximumWait, CancellationToken stop) =>
+            BlockAfterFirstDiscovery && Discoveries > 0 ? Task.Delay(Timeout.InfiniteTimeSpan, stop) : Task.CompletedTask;
         public Task<IReadOnlyList<BrokerSession>> DiscoverAsync(Guid brokerId, CancellationToken token)
         {
             Interlocked.Increment(ref discoveries);

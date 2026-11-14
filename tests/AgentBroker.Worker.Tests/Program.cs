@@ -33,6 +33,11 @@ if (args.SequenceEqual(["--inbox-watch-only"]))
     try { await InboxWatchChecks.RunAsync(Check); Console.WriteLine($"RESULT=PASS assertions={assertions}"); return 0; }
     catch (Exception error) { Console.Error.WriteLine(error); Console.WriteLine("RESULT=FAIL"); return 1; }
 }
+if (args.SequenceEqual(["--list-sessions-scope-only"]))
+{
+    try { await ListSessionsScopeChecks.RunAsync(Check); Console.WriteLine($"RESULT=PASS assertions={assertions}"); return 0; }
+    catch (Exception error) { Console.Error.WriteLine(error); Console.WriteLine("RESULT=FAIL"); return 1; }
+}
 if (args.SequenceEqual(["--waiting-mail-only"]))
 {
     try { await WaitingMailToolChecks.RunAsync(Check); Console.WriteLine($"RESULT=PASS assertions={assertions}"); return 0; }
@@ -506,6 +511,7 @@ try
         await CertificateRenewalLifecycleChecks.RunAsync(Check);
         await DeliveryClaimContractChecks.RunAsync(Check);
         await PeerDirectoryShapeChecks.RunAsync(Check);
+        await ListSessionsScopeChecks.RunAsync(Check);
         FirewallSetupChecks.Run(Check);
         MessageLifetimeOptionChecks.Run(Check);
         await PollingLeaseChecks.RunAsync(Check);

@@ -1,4 +1,6 @@
 using System.Text;
+using System.Text.Json;
+using System.Security.Cryptography;
 using AgentBroker.TestSupport;
 
 internal static class BenchmarkValidationChecks
@@ -67,5 +69,63 @@ internal static class BenchmarkValidationChecks
                 "BENCHMARK_PAGE_GUARD: the actual benchmark refuses a truncated measured keyset traversal");
         }
         finally { CoordinationBenchmark.AfterDirectoryMeasurement = null; }
+
+        foreach (string cohort in new[] { "pending-only", "fresh-busy" })
+            foreach (int pending in new[] { 0, 16, 4096 })
+            {
+                var healthy = await Run(["waiting-mail", pending.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    cohort, Path.Combine(scratch.Root, "waiting-" + cohort + "-" + pending)]);
+                if (healthy.Code != 0) Console.Error.Write(healthy.Output);
+                check(healthy.Code == 0 && WaitingShape(healthy.Output, pending, cohort),
+                    "BENCHMARK_WAITING_" + pending + "_" + cohort.Replace('-', '_').ToUpperInvariant());
+            }
+        try
+        {
+            CoordinationBenchmark.AfterWaitingMailSeed = directory =>
+            {
+                string path = Path.Combine(directory, "broker-state.json");
+                var node = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(path))!;
+                var messages = node["Messages"]!.AsArray();
+                if (messages.Count != 16) throw new InvalidDataException("Waiting validation seed is not the intended 16-message fixture.");
+                messages.RemoveAt(0);
+                File.WriteAllText(path, node.ToJsonString(), new UTF8Encoding(false));
+            };
+            var lost = await Run(["waiting-mail", "16", "fresh-busy", Path.Combine(scratch.Root, "waiting-lost")]);
+            check(lost.Code == 1 && lost.Output.Contains("BENCHMARK-FAILED", StringComparison.Ordinal) &&
+                lost.Output.Contains("Waiting benchmark summary differs from the requested fixture.", StringComparison.Ordinal),
+                "BENCHMARK_WAITING_COUNTS_GUARD");
+        }
+        finally { CoordinationBenchmark.AfterWaitingMailSeed = null; }
+    }
+
+    private static bool WaitingShape(string output, int pending, string cohort)
+    {
+        string[] lines = output.Split('\n').Select(line => line.TrimEnd('\r'))
+            .Where(line => line.StartsWith("BENCHMARK ", StringComparison.Ordinal)).ToArray();
+        if (lines.Length != 1) return false;
+        try
+        {
+            using var document = JsonDocument.Parse(lines[0][10..]);
+            var result = document.RootElement;
+            double[] times = result.GetProperty("queryMs").EnumerateArray().Select(item => item.GetDouble()).ToArray();
+            string[] hashes = result.GetProperty("summarySha256ByCall").EnumerateArray().Select(item => item.GetString()!).ToArray();
+            byte[] bytes = Convert.FromBase64String(result.GetProperty("summaryUtf8Base64").GetString()!);
+            string hash = Convert.ToHexString(SHA256.HashData(bytes));
+            using var summary = JsonDocument.Parse(bytes);
+            return result.GetProperty("scenario").GetString() == "waiting-mail" &&
+                result.GetProperty("pending").GetInt32() == pending && result.GetProperty("cohort").GetString() == cohort &&
+                result.GetProperty("sessions").GetInt32() == 65 && result.GetProperty("recipients").GetInt32() == 64 &&
+                result.GetProperty("maximumPerRecipient").GetInt32() == (pending == 4096 ? 64 : pending == 16 ? 1 : 0) &&
+                result.GetProperty("expectedObservedMessages").GetInt32() == (cohort == "fresh-busy" ? pending : 0) &&
+                result.GetProperty("samples").GetInt32() == 6 && result.GetProperty("gapMilliseconds").GetInt32() == 500 &&
+                result.GetProperty("firstQuerySample").GetInt32() == 0 && times.Length == 6 &&
+                times.All(value => double.IsFinite(value) && value >= 0) && hashes.Length == 6 &&
+                hashes.All(value => value == hash) && result.GetProperty("expectedSummarySha256").GetString() == hash &&
+                summary.RootElement.GetProperty("Sessions").GetArrayLength() == 65;
+        }
+        catch (Exception error) when (error is JsonException or FormatException or InvalidOperationException or KeyNotFoundException)
+        {
+            return false;
+        }
     }
 }

@@ -191,7 +191,7 @@ public sealed partial class BrokerRuntime(BrokerStore store, IPeerFederation fed
         Register(session); return sessionPreferences?.Apply(session) ?? session;
     }
 
-    public async Task<IReadOnlyList<BrokerSession>> DirectoryAsync(bool forPeer, CancellationToken token)
+    public async Task<IReadOnlyList<BrokerSession>> DirectoryAsync(bool forPeer, CancellationToken token, bool includePeers = true)
     {
         // The presented view: a mailbox nobody is waiting on reads Unknown, here and in /federation/directory alike.
         var result = store.PresentedDirectory(forPeer).ToList();
@@ -204,6 +204,7 @@ public sealed partial class BrokerRuntime(BrokerStore store, IPeerFederation fed
             for (int index = 0; index < result.Count; index++)
                 if (result[index] is { Activity: SessionActivity.Unknown } row && observations.SeenBusy(row.Address))
                     result[index] = row with { Activity = SessionActivity.Busy };
+            if (!includePeers) return result;
             var peers = store.Peers();
             var authorizations = peers.ToDictionary(p => p.BrokerId, store.CapturePeerAuthorization);
             var directories = new ConcurrentDictionary<Guid, BrokerSession[]>();
@@ -223,8 +224,18 @@ public sealed partial class BrokerRuntime(BrokerStore store, IPeerFederation fed
                         // takes longer to observe cancellation. Late results cannot publish sessions.
                         var remote = await federation.GetDirectoryAsync(peer, peerToken).WaitAsync(peerToken);
                         if (!PeerDirectoryPolicy.HasValidShape(remote, peer.BrokerId, PeerDirectoryPolicy.ListingMaximumSessions)) return;
+                        // Read after the response: its authenticated Date sample may be the newest observation.
+                        // "observed" already means <=2s RTT, <=5min monotonic age and no detected local clock change.
+                        var peerNow = Now;
+                        if (federation.ClockObservations.FirstOrDefault(view => view.BrokerId == peer.BrokerId) is
+                            { State: "observed", OffsetSeconds: { } offset })
+                        {
+                            try { peerNow += TimeSpan.FromSeconds(offset); }
+                            catch (ArgumentException) { } // An unusable/out-of-range offset contributes no adjustment.
+                            catch (OverflowException) { }
+                        }
                         directories[peer.BrokerId] = remote.Sessions.Where(s => s.Address.BrokerId == peer.BrokerId &&
-                            !s.IsPrivate && s.LeaseUntil > DateTimeOffset.UtcNow).Take(256).ToArray();
+                            !s.IsPrivate && s.LeaseUntil > peerNow).Take(256).ToArray();
                     }
                     // A paired broker's body the strict federation options refuse (an unknown member from a newer release, a
                     // truncated answer) is that peer's failure for this listing, as PeerDiagnostics already reads it

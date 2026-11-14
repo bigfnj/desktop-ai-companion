@@ -15,6 +15,21 @@ internal static class WaitingMailChecks
     {
         int passed = 0;
         void Check(bool condition, string label) { if (!condition) throw new InvalidOperationException(label); passed++; }
+        using (var f = new Fixture(Path.Combine(root, "waiting-directory-rate")))
+        {
+            var receipt = f.Accept(); var observedAt = f.Clock.Utc;
+            f.Tick(TimeSpan.Zero);
+            for (int i = 0; i < 39; i++) f.Tick(TimeSpan.FromMilliseconds(20));
+            Check(f.Store.ReadMessageWait(receipt) is { Waits: [{ Reason: "recipient_busy", Source: "directory", Count: 1 }] } rate &&
+                rate.Waits[0].FirstObservedAtUtc == observedAt && rate.Waits[0].LastObservedAtUtc == observedAt,
+                "WAITING_DIRECTORY_RATE_BOUND");
+            f.Tick(TimeSpan.FromSeconds(2) - TimeSpan.FromMilliseconds(780) - TimeSpan.FromTicks(1));
+            Check(f.Store.ReadMessageWait(receipt)?.Waits.Single().Count == 1, "WAITING_DIRECTORY_BEFORE_INTERVAL");
+            f.Tick(TimeSpan.FromTicks(1));
+            Check(f.Store.ReadMessageWait(receipt) is { BusyObservedAgeMilliseconds: 2000 } atInterval &&
+                atInterval.Waits.Single().Count == 2 && atInterval.Waits[0].LastObservedAtUtc == f.Clock.Utc &&
+                atInterval.FirstBusyObservedAtUtc == observedAt, "WAITING_DIRECTORY_AT_INTERVAL");
+        }
         using var fixture = new Fixture(Path.Combine(root, "waiting-main"));
         var store = fixture.Store; var clock = fixture.Clock;
         var first = fixture.Accept();
@@ -42,8 +57,10 @@ internal static class WaitingMailChecks
         store.RecordRecipientReceipt(notice.Message.Id, fixture.Sender.Address, store.BrokerId, MessageStatus.Delivered);
         fixture.Tick(TimeSpan.FromSeconds(10));
         Check(fixture.Notices() == 1, "WAITING_ACK_DEDUP");
+        // The 300-second pass follows the 299.9999999-second observation by one tick and is the one throttled pass.
+        // All other directory passes below are at least ten seconds apart: 34 passes therefore retain 33 observations.
         Check(store.ReadMessageWait(first) is { } mainWait &&
-            mainWait.Waits.Single() is { Reason: "recipient_busy", Source: "directory" } reason && reason.Count == fixture.DirectoryPasses &&
+            mainWait.Waits.Single() is { Reason: "recipient_busy", Source: "directory" } reason && reason.Count == 33 && fixture.DirectoryPasses == 34 &&
             reason.FirstObservedAtUtc == firstObserved && reason.LastObservedAtUtc == clock.Utc && mainWait.FirstBusyObservedAtUtc == firstObserved &&
             store.ReadWaitingMail().Sessions.Single(row => row.Session == fixture.Target.Address).OldestBusyObservedAtUtc == firstObserved,
             "WAITING_REASON_FIRST_LAST");
@@ -306,8 +323,263 @@ internal static class WaitingMailChecks
             }
             Check(reopened.Messages(sender.Address).Count(item => item.Message.Sender.SessionId == BrokerStore.NoticeSessionId) == 1, "WAITING_RESTART_DURABLE_DEDUP");
         }
+        // These restart/policy positives are WITNESS assertions. The earlier reason-change and policy-revocation
+        // killers dominate them; do not claim a separate first-failing product mutation for each positive continuation.
+        using (var f = new Fixture(Path.Combine(root, "waiting-directory-transition")))
+        {
+            var receipt = f.Accept(); f.Tick(TimeSpan.Zero);
+            f.Target = f.Target with { Activity = SessionActivity.ApprovalRequired };
+            f.Tick(TimeSpan.FromMilliseconds(500));
+            Check(f.Store.ReadMessageWait(receipt) is { LatestReason: "recipient_awaiting_approval", BusyObservedAgeMilliseconds: null } changed &&
+                changed.Waits.Any(wait => wait.Reason == "recipient_awaiting_approval" && wait.Count == 1),
+                "WAITING_DIRECTORY_REASON_CHANGE_ENDS_BUSY");
+            f.Target = f.Target with { Activity = SessionActivity.Busy };
+            f.Tick(TimeSpan.FromMilliseconds(500));
+            Check(f.Store.ReadMessageWait(receipt) is { LatestReason: "recipient_busy", BusyObservedAgeMilliseconds: 0 } resumed &&
+                resumed.Waits.Single(wait => wait.Reason == "recipient_busy").Count == 2,
+                "WITNESS: WAITING_DIRECTORY_REASON_CHANGE_RESTARTS_BUSY");
+        }
+        using (var f = new Fixture(Path.Combine(root, "waiting-directory-policy")))
+        {
+            var receipt = f.Accept(); f.Tick(TimeSpan.Zero);
+            f.Target = f.Target with { Capabilities = SessionCapabilities.Receive };
+            f.Tick(TimeSpan.FromMilliseconds(200));
+            Check(f.Store.ReadMessageWait(receipt)?.BusyObservedAgeMilliseconds is null,
+                "WITNESS: WAITING_DIRECTORY_POLICY_REVOKED_WITHIN_INTERVAL");
+            f.Target = f.Target with { Capabilities = SessionCapabilities.Receive | SessionCapabilities.WakeIdle };
+            f.Tick(TimeSpan.FromMilliseconds(200));
+            Check(f.Store.ReadMessageWait(receipt) is { BusyObservedAgeMilliseconds: 0 } regained &&
+                regained.FirstBusyObservedAtUtc == f.Clock.Utc && regained.Waits.Single().Count == 1,
+                "WITNESS: WAITING_DIRECTORY_POLICY_REGAIN_RESTARTS");
+        }
+        using (var f = new Fixture(Path.Combine(root, "waiting-adapter-rate"), adapter: "codex-native"))
+        {
+            f.Target = f.Target with { Activity = SessionActivity.Unknown,
+                Capabilities = f.Target.Capabilities | SessionCapabilities.NativeIdleGuard }; f.Renew();
+            var receipt = f.Accept();
+            for (int i = 0; i < 40; i++)
+            {
+                var claim = f.Store.BeginDeliveryClaim() ?? throw new InvalidOperationException("WAITING_ADAPTER_RATE_CLAIM_SETUP");
+                if (!f.Store.TryReleaseUnsubmittedClaim(claim, "native_context_busy", out _))
+                    throw new InvalidOperationException("WAITING_ADAPTER_RATE_RELEASE_SETUP");
+            }
+            Check(f.Store.ReadMessageWait(receipt) is { Waits: [{ Source: "adapter", Count: 40 }] },
+                "WAITING_NON_DIRECTORY_NOT_THROTTLED");
+        }
+        using (var f = new Fixture(Path.Combine(root, "waiting-directory-regression")))
+        {
+            var receipt = f.Accept(); f.Tick(TimeSpan.Zero); f.Tick(TimeSpan.FromSeconds(2));
+            f.Clock.Timestamp = TimeSpan.FromSeconds(1).Ticks;
+            f.Tick(TimeSpan.Zero);
+            Check(f.Store.ReadMessageWait(receipt) is { BusyObservedAgeMilliseconds: 0 } reset && reset.Waits.Single().Count == 3 &&
+                reset.FirstBusyObservedAtUtc == f.Clock.Utc, "WAITING_DIRECTORY_NEGATIVE_ELAPSED_REOBSERVED");
+        }
+        A7BehaviorChecks(root, Check);
+        // The directory throttle compares with the LATEST reason/source, rather than a per-key timestamp.
+        // Unknown without NativeIdleGuard is not Ready. A later discovery enabling the guard makes
+        // this same row claimable; the matched adapter release then interrupts consecutive directory observations.
+        using (var f = new Fixture(Path.Combine(root, "waiting-directory-adapter-interleaving"), adapter: "codex-native"))
+        {
+            var receipt = f.Accept();
+            var firstAt = f.Clock.Utc;
+            for (int i = 0; i < 40; i++)
+            {
+                f.Target = f.Target with { Activity = SessionActivity.Unknown,
+                    Capabilities = f.Target.Capabilities & ~SessionCapabilities.NativeIdleGuard };
+                f.Tick(i == 0 ? TimeSpan.Zero : TimeSpan.FromMilliseconds(20));
+                f.Target = f.Target with { Capabilities = f.Target.Capabilities | SessionCapabilities.NativeIdleGuard };
+                f.Renew();
+                var claim = f.Store.BeginDeliveryClaim() ?? throw new InvalidOperationException("WAITING_ALTERNATING_CLAIM_SETUP");
+                if (!f.Store.TryReleaseUnsubmittedClaim(claim, "native_context_busy", out _))
+                    throw new InvalidOperationException("WAITING_ALTERNATING_RELEASE_SETUP");
+            }
+            var history = f.Store.ReadMessageWait(receipt);
+            Check(history is { LatestReason: "native_context_busy", LatestSource: "adapter", BusyObservedAgeMilliseconds: 0 } &&
+                history.Waits.Length == 2 &&
+                history.Waits.Single(wait => wait.Source == "directory") is
+                    { Reason: "recipient_activity_unknown", Count: 40 } directory &&
+                directory.FirstObservedAtUtc == firstAt && directory.LastObservedAtUtc == f.Clock.Utc &&
+                history.Waits.Single(wait => wait.Source == "adapter") is
+                    { Reason: "native_context_busy", Count: 40 } adapter &&
+                adapter.FirstObservedAtUtc == firstAt && adapter.LastObservedAtUtc == f.Clock.Utc &&
+                f.DirectoryPasses == 40 && f.Notices() == 0,
+                "WAITING_DIRECTORY_ADAPTER_INTERLEAVING_REARMS_COUNT");
+        }
         return passed;
     }
+    private static void A7BehaviorChecks(string root, Action<bool, string> check)
+    {
+        using (var f = new Fixture(Path.Combine(root, "waiting-a7-equal-value")))
+        {
+            var receipt = f.Accept(); f.Tick(TimeSpan.Zero);
+            var before = f.Store.ReadMessageWait(receipt)!;
+            var replacement = ReplaceActual(f.Store, receipt, actual => actual with
+            {
+                Message = actual.Message with
+                {
+                    Sender = actual.Message.Sender with { },
+                    Recipient = actual.Message.Recipient with { },
+                    CreatedAt = actual.Message.CreatedAt.ToOffset(TimeSpan.FromHours(2)),
+                    ExpiresAt = actual.Message.ExpiresAt.ToOffset(TimeSpan.FromHours(-3))
+                }
+            });
+            check(replacement.AdmissionEpoch == receipt.AdmissionEpoch &&
+                SameWait(before, f.Store.ReadMessageWait(replacement)), "WAITING_IDENTITY_EQUAL_VALUES_KEEP_HISTORY");
+        }
+        using (var f = new Fixture(Path.Combine(root, "waiting-a7-text")))
+        {
+            var receipt = f.Accept(); f.Tick(TimeSpan.Zero);
+            var before = f.Store.ReadMessageWait(receipt)!;
+            var replacement = ReplaceActual(f.Store, receipt, actual => actual with
+                { Message = actual.Message with { Text = actual.Message.Text + " A different body." } });
+            check(SameWait(before, f.Store.ReadMessageWait(replacement)), "WAITING_IDENTITY_TEXT_CHANGE_KEEPS_HISTORY");
+            check(f.Store.ReadMessageWait(receipt) is null, "WAITING_EXPECTED_OLD_TEXT_REFUSED");
+        }
+        using (var f = new Fixture(Path.Combine(root, "waiting-a7-actual-admission")))
+        {
+            var receipt = f.Accept(); f.Tick(TimeSpan.Zero);
+            var replacement = ReplaceActual(f.Store, receipt, actual => actual with { AdmissionEpoch = Guid.NewGuid() });
+            check(f.Store.ReadMessageWait(replacement) is null, "WAITING_ACTUAL_ADMISSION_CHANGE_INVALIDATES_HISTORY");
+        }
+
+        var axes = new (string Name, Func<BrokerMessage, BrokerMessage> Edit)[]
+        {
+            ("CONVERSATION", message => message with { ConversationId = Guid.NewGuid() }),
+            ("REPLY_TO_FROM_NULL", message => message with { ReplyTo = Guid.NewGuid() }),
+            ("REPLY_TO_CHANGED", message => message with { ReplyTo = Guid.NewGuid() }),
+            ("SENDER_BROKER", message => message with { Sender = message.Sender with { BrokerId = Guid.NewGuid() } }),
+            ("SENDER_SESSION", message => message with { Sender = message.Sender with { SessionId = message.Sender.SessionId + "-other" } }),
+            ("SENDER_INCARNATION", message => message with { Sender = message.Sender with { Incarnation = Guid.NewGuid() } }),
+            ("RECIPIENT_SESSION", message => message with { Recipient = message.Recipient with { SessionId = message.Recipient.SessionId + "-other" } }),
+            ("RECIPIENT_INCARNATION", message => message with { Recipient = message.Recipient with { Incarnation = Guid.NewGuid() } }),
+            ("CREATED_AT", message => message with { CreatedAt = message.CreatedAt.AddSeconds(-1) }),
+            ("EXPIRES_AT", message => message with { ExpiresAt = message.ExpiresAt.AddMinutes(1) }),
+            ("REMAINING_REPLIES", message => message with { RemainingReplies = message.RemainingReplies - 1 })
+        };
+        foreach (var axis in axes)
+        {
+            using var f = new Fixture(Path.Combine(root, "waiting-a7-identity-" + axis.Name));
+            var receipt = f.Accept();
+            if (axis.Name == "REPLY_TO_CHANGED")
+                receipt = ReplaceActual(f.Store, receipt, actual => actual with { Message = actual.Message with { ReplyTo = Guid.NewGuid() } });
+            f.Tick(TimeSpan.Zero);
+            var edited = axis.Edit(receipt.Message);
+            if (edited.Recipient != receipt.Message.Recipient)
+                f.Store.Register(f.Target with { Address = edited.Recipient, LeaseUntil = f.Clock.Utc.AddMinutes(1) });
+            var replacement = ReplaceActual(f.Store, receipt, actual => actual with { Message = edited });
+            check(f.Store.ReadMessageWait(replacement) is null, "WAITING_IDENTITY_" + axis.Name + "_INVALIDATES_HISTORY");
+        }
+
+        using (var f = new Fixture(Path.Combine(root, "waiting-a7-recipient-incarnation")))
+        {
+            f.Accept();
+            f.Target = f.Target with { Address = f.Target.Address with { Incarnation = Guid.NewGuid() } };
+            f.Renew();
+            f.Accept(); f.Accept();
+            // Registration alone neither resolves the old pending message nor supplies a discovery replacement proof.
+            var snapshot = f.Store.ReadWaitingMail();
+            SessionWaitingMail[] expected =
+            [
+                new(f.Sender.Address, 0, 0, 0, 0, 0, null, null),
+                new(f.Target.Address, 2, 2, 2, 0, 2, null, null)
+            ];
+            check(snapshot.Sessions.SequenceEqual(expected), "WAITING_SUMMARY_RECIPIENT_INCARNATION_IS_EXACT");
+        }
+        using (var f = new Fixture(Path.Combine(root, "waiting-a7-message-direction")))
+        {
+            f.Target = f.Target with { Capabilities = f.Target.Capabilities | SessionCapabilities.Reply }; f.Renew();
+            f.Accept(); f.Accept();
+            f.Store.Accept(new(Guid.NewGuid(), Guid.NewGuid(), null, f.Target.Address, f.Sender.Address,
+                "A synthetic reverse-direction request.", f.Clock.Utc, f.Clock.Utc.AddHours(4)), f.Store.BrokerId);
+            var snapshot = f.Store.ReadWaitingMail();
+            SessionWaitingMail[] expected =
+            [
+                new(f.Sender.Address, 1, 1, 0, 0, 0, null, null),
+                new(f.Target.Address, 2, 2, 2, 0, 2, null, null)
+            ];
+            check(snapshot.BrokerId == f.Store.BrokerId && snapshot.ObservedAtUtc == f.Clock.Utc &&
+                snapshot.NoticeAfterSeconds == 300 && snapshot.Sessions.SequenceEqual(expected),
+                "WAITING_SUMMARY_RECIPIENT_NOT_SENDER");
+        }
+        using (var f = new Fixture(Path.Combine(root, "waiting-a7-statuses")))
+        {
+            // Distinct weights prevent a swapped included/excluded state from cancelling in the total.
+            var statusCounts = new (MessageStatus Status, int Count)[]
+            {
+                (MessageStatus.Accepted, 2), (MessageStatus.Submitting, 3),
+                (MessageStatus.Submitted, 5), (MessageStatus.Uncertain, 7),
+                (MessageStatus.Held, 11), (MessageStatus.Delivered, 1),
+                (MessageStatus.Refused, 1), (MessageStatus.Expired, 1)
+            };
+            var receipts = new List<(MessageReceipt Receipt, MessageStatus Status)>();
+            foreach (var entry in statusCounts)
+                for (int i = 0; i < entry.Count; i++) receipts.Add((f.Accept(), entry.Status));
+            f.Accept(expiresAt: f.Clock.Utc.AddTicks(1));
+            f.Accept(expiresAt: f.Clock.Utc.AddTicks(2));
+            // Seed every receipt before editing statuses: no later admission should compact the synthetic terminal rows.
+            foreach (var entry in receipts)
+                ReplaceActual(f.Store, entry.Receipt, actual => actual with { Status = entry.Status });
+            f.Clock.Advance(TimeSpan.FromTicks(2)); // one past deadline and one exactly at it, both excluded
+            var snapshot = f.Store.ReadWaitingMail();
+            SessionWaitingMail[] expected =
+            [
+                new(f.Sender.Address, 0, 0, 0, 0, 0, null, null),
+                new(f.Target.Address, 17, 2, 2, 0, 2, null, null)
+            ];
+            check(snapshot.Sessions.SequenceEqual(expected), "WAITING_SUMMARY_MIXED_STATES_AND_EXPIRY");
+        }
+        using (var f = new Fixture(Path.Combine(root, "waiting-a7-observed-nonbusy")))
+        {
+            f.Target = f.Target with { Activity = SessionActivity.ApprovalRequired }; f.Renew();
+            f.Accept(); f.Tick(TimeSpan.Zero);
+            f.Accept(); // no observation for this message
+            var row = f.Store.ReadWaitingMail().Sessions.Single(item => item.Session == f.Target.Address);
+            check(row is { PendingCount: 2, QueuedCount: 2, BlockedCount: 2, BusyCount: 0,
+                UnobservedBlockedCount: 1, OldestBusyObservedAtUtc: null, OldestBusyObservedAgeMilliseconds: null },
+                "WAITING_SUMMARY_FRESH_NONBUSY_IS_OBSERVED");
+        }
+        using (var f = new Fixture(Path.Combine(root, "waiting-a7-oldest-tie")))
+        {
+            f.Accept(); f.Tick(TimeSpan.Zero); var firstAt = f.Clock.Utc;
+            f.Clock.Utc += TimeSpan.FromSeconds(7); f.Renew();
+            f.Accept(); f.Tick(TimeSpan.Zero); // same monotonic time, distinct UTC observation
+            var row = f.Store.ReadWaitingMail().Sessions.Single(item => item.Session == f.Target.Address);
+            check(row.BusyCount == 2 && row.OldestBusyObservedAgeMilliseconds == 0 && row.OldestBusyObservedAtUtc == firstAt,
+                "WAITING_SUMMARY_OLDEST_AGE_TIE_KEEPS_FIRST");
+        }
+        using (var f = new Fixture(Path.Combine(root, "waiting-a7-oldest-monotonic")))
+        {
+            f.Accept(); f.Tick(TimeSpan.Zero); var firstAt = f.Clock.Utc;
+            f.Clock.Timestamp += TimeSpan.FromSeconds(10).Ticks;
+            f.Clock.Utc -= TimeSpan.FromSeconds(5); f.Renew();
+            f.Accept(); f.Tick(TimeSpan.Zero);
+            var row = f.Store.ReadWaitingMail().Sessions.Single(item => item.Session == f.Target.Address);
+            check(row.BusyCount == 2 && row.OldestBusyObservedAgeMilliseconds == 10000 && row.OldestBusyObservedAtUtc == firstAt,
+                "WAITING_SUMMARY_OLDEST_USES_MONOTONIC_AGE");
+        }
+    }
+
+    private static bool SameWait(MessageWaitView expected, MessageWaitView? actual) => actual is not null &&
+        expected.MessageId == actual.MessageId && expected.LatestReason == actual.LatestReason &&
+        expected.LatestSource == actual.LatestSource && expected.FirstBusyObservedAtUtc == actual.FirstBusyObservedAtUtc &&
+        expected.BusyObservedAgeMilliseconds == actual.BusyObservedAgeMilliseconds && expected.Waits.SequenceEqual(actual.Waits);
+
+    // All callers are isolated synchronous fixtures with no runtime loops; never mutate a live store this way.
+    private static MessageReceipt ReplaceActual(BrokerStore store, MessageReceipt expected, Func<MessageReceipt, MessageReceipt> edit)
+    {
+        var state = typeof(BrokerStore).GetField("state",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(store)!;
+        var messages = (List<MessageReceipt>)state.GetType().GetProperty("Messages")!.GetValue(state)!;
+        int index = messages.FindIndex(item => item.Message.Id == expected.Message.Id);
+        if (index < 0 || messages[index].AdmissionEpoch != expected.AdmissionEpoch)
+            throw new InvalidOperationException("WAITING_IDENTITY_REPLACEMENT_SETUP");
+        var replacement = edit(messages[index]); // receipt with-copies preserve the actual admission unless explicitly changed
+        if (replacement.Message.Id != expected.Message.Id)
+            throw new InvalidOperationException("WAITING_IDENTITY_REPLACEMENT_ID_SETUP");
+        messages[index] = replacement;
+        return replacement;
+    }
+
     private sealed class Fixture : IDisposable
     {
         internal readonly string Path;
