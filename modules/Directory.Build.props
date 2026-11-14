@@ -33,17 +33,30 @@
     <Deterministic>true</Deterministic>
     <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
     <!--
-      Same two as src/Directory.Build.props, and the same reasoning as everything above: the gap
-      existed because modules/ never reached src/, not because anyone decided modules should build
-      to a laxer standard. Added 2026-09-17 after a forced full recompile of all eight module
-      projects came back 0 warnings, so this is free today and only bites on a NEW warning.
+      Warnings are errors here, as in src/Directory.Build.props, and for the same reason as everything
+      above: the gap existed because modules/ never reached src/, not because anyone decided modules
+      should build to a laxer standard. Added 2026-09-17 after a forced full recompile of the then
+      eight module projects came back 0 warnings, so it only bites on a NEW warning.
+
+      No WarningLevel here, on purpose (N-bd-w4-contracts-1-01), which is src's rule too. For a
+      .NETCoreApp target the SDK sets it to the target framework's major version
+      (Microsoft.NET.Sdk.Analyzers.targets), so every module project, on net10.0-windows or
+      net10.0-windows10.0.19041.0, builds at 10 and the compiler's warning waves 5 to 10 are on. This
+      file used to pin 4, the .NET Framework value, beside the line below, and a comment here called the
+      two "the same two as src". They were not: src had already dropped its pin (N-audit-1106-136), and
+      the pin here switched every wave off for all nine module projects, so the line below could never
+      turn one of those warnings into an error. Measured 2026-11-14 before removing it: a forced full
+      rebuild (no-incremental, Release then Debug) of all nine module projects at the SDK default came
+      back 0 warnings each, and a type with an all-lowercase name added to BlinkingLed as a control
+      failed its build with CS8981 (wave 7) at the default and built clean under the pin.
+      tests/runtime-hardening-selftest.ps1 refuses a pin below the target framework's major version in
+      this file or in any project one folder below modules/.
 
       What it does NOT buy, measured rather than assumed: a write-only private field assigned from
       a non-constant does not raise CS0414 anywhere in this repo, src/ included, where warnings
       are already errors. An earlier note in BACKLOG.md credited that silence to this file's
       missing TreatWarningsAsErrors. That was wrong; the compiler simply does not report it.
     -->
-    <WarningLevel>4</WarningLevel>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
 

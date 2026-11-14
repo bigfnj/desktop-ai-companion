@@ -7276,6 +7276,191 @@ Assert-True ($hpRegistrySha -ceq '954776734f2ab70a4a96645e15e188d2d936e935b89e70
              $hpDigest.Success -and $hpDigest.Groups[1].Value -ceq $hpRegistrySha -and $hpResource.Success -and $hpEmbedded.Count -eq 1 -and
              $hpEmbedded[0].Groups[1].Value -ceq '..\tools\ShimejiParity\policy\REGISTRY.json' -and $hpEmbedded[0].Groups[2].Value -ceq $hpResource.Groups[1].Value) (
     "host-policy-1: the installed REGISTRY.json and schema equal their signed SHA-256, the compiled digest is that value and the project embeds that file under ResourceName (registry $hpRegistrySha, schema $hpSchemaSha)")
+# ---- burndown/coordinator ----
+# NO MODULE PROJECT PINS A WARNING LEVEL BELOW ITS TARGET FRAMEWORK'S DEFAULT (N-bd-w4-contracts-1-01). modules\Directory.Build.props
+# pinned WarningLevel 4, the .NET Framework value, for every module project, so the compiler's warning waves 5 to 10 were off
+# for all nine and TreatWarningsAsErrors could not fire on them (measured 2026-11-14: without the pin all nine rebuilt with 0
+# warnings, Release and Debug, and a type with an all-lowercase name, CS8981, failed BlinkingLed's build without the pin and
+# built clean under it). w4-contracts-1 above covers src\ only. Every project one folder below modules\ is scanned, so the
+# next module is covered without an edit here. The files are the project with XML comments stripped plus any
+# Directory.Build.props or .targets MSBuild would import from its folder, modules\ or the repo root. Per project, the floor
+# is its target framework's major version, judged only when those files hold exactly one TargetFramework element, singular,
+# whose value is a literal netN.M of at least net5.0. Anything else (TargetFrameworks, a TFM set through a property, two
+# elements, none, an older framework) leaves the project unjudged, and the WITNESS names it and fails: a project this
+# check cannot judge is never exempt in silence (the round 1 review of the coordinator batch found it read floor 0 then).
+# WITNESS: at least nine module projects were read, EVERY one was judged with a floor of at least 5, and
+# modules\Directory.Build.props was read and still sets TreatWarningsAsErrors, so a scan that read nothing, read the wrong
+# folder or could not judge a project fails instead of passing.
+$bdcModulesRoot = Join-Path $repoRoot 'modules'
+$bdcProjects = @(Get-ChildItem -LiteralPath $bdcModulesRoot -Directory | ForEach-Object {
+    Get-ChildItem -LiteralPath $_.FullName -Filter '*.csproj' -File })
+$bdcShared = @(foreach ($bdcAt in @($bdcModulesRoot, $repoRoot)) {
+    foreach ($bdcName in @('Directory.Build.props', 'Directory.Build.targets')) {
+        $bdcPath = Join-Path $bdcAt $bdcName
+        if (Test-Path -LiteralPath $bdcPath -PathType Leaf) { Get-Item -LiteralPath $bdcPath }
+    }
+})
+$bdcPropsPath = Join-Path $bdcModulesRoot 'Directory.Build.props'
+$bdcPropsText = ''
+if (Test-Path -LiteralPath $bdcPropsPath -PathType Leaf) {
+    $bdcPropsText = [regex]::Replace((Get-Content -LiteralPath $bdcPropsPath -Raw), '(?s)<!--.*?-->', '')
+}
+$bdcLowPins = @()
+$bdcUnjudged = @()
+$bdcFloors = @()
+foreach ($bdcProject in $bdcProjects) {
+    $bdcLocal = @(foreach ($bdcName in @('Directory.Build.props', 'Directory.Build.targets')) {
+        $bdcPath = Join-Path $bdcProject.DirectoryName $bdcName
+        if (Test-Path -LiteralPath $bdcPath -PathType Leaf) { Get-Item -LiteralPath $bdcPath }
+    })
+    $bdcFiles = @(@($bdcProject) + $bdcLocal + $bdcShared)
+    $bdcTexts = @(foreach ($bdcFile in $bdcFiles) {
+        [regex]::Replace((Get-Content -LiteralPath $bdcFile.FullName -Raw), '(?s)<!--.*?-->', '')
+    })
+    $bdcFrameworks = @(foreach ($bdcText in $bdcTexts) {
+        [regex]::Matches($bdcText, '<(TargetFrameworks?)\b[^>]*>\s*([^<]*?)\s*</\1>')
+    })
+    $bdcMajor = 0
+    if ($bdcFrameworks.Count -eq 1 -and $bdcFrameworks[0].Groups[1].Value -ceq 'TargetFramework') {
+        $bdcLiteral = [regex]::Match($bdcFrameworks[0].Groups[2].Value, '^net(\d{1,3})\.\d+(-[A-Za-z0-9.]+)?$')
+        if ($bdcLiteral.Success) { $bdcMajor = [int] $bdcLiteral.Groups[1].Value }
+    }
+    $bdcFloor = 0
+    if ($bdcMajor -ge 5) {
+        $bdcFloor = $bdcMajor
+        $bdcFloors += $bdcFloor
+    } else {
+        $bdcSeen = @($bdcFrameworks | ForEach-Object { $_.Groups[1].Value + '=' + $_.Groups[2].Value })
+        $bdcUnjudged += ($bdcProject.Name + ': ' + $(if ($bdcSeen.Count) { $bdcSeen -join ' and ' } else { 'no TargetFramework' }))
+    }
+    for ($bdcAt = 0; $bdcAt -lt $bdcFiles.Count; $bdcAt++) {
+        foreach ($bdcPin in [regex]::Matches($bdcTexts[$bdcAt], '<WarningLevel\b[^>]*>\s*([^<]*?)\s*</WarningLevel>')) {
+            $bdcValue = $bdcPin.Groups[1].Value
+            if ($bdcValue -cnotmatch '^\d{1,5}$' -or [int] $bdcValue -lt $bdcFloor) {
+                $bdcLowPins += ($bdcProject.Name + ' via ' + $bdcFiles[$bdcAt].Directory.Name + '\' + $bdcFiles[$bdcAt].Name + '=' + $bdcValue)
+            }
+        }
+    }
+}
+$bdcLowestFloor = $(if ($bdcFloors.Count) { ($bdcFloors | Measure-Object -Minimum).Minimum } else { 'none' })
+Assert-True ($bdcProjects.Count -ge 9 -and $bdcFloors.Count -eq $bdcProjects.Count -and
+             $bdcPropsText -cmatch '<TreatWarningsAsErrors>true</TreatWarningsAsErrors>') (
+    "coordinator: the module warning-level scan judged every module project it read against a framework floor of at least 5" +
+    $(if ($bdcUnjudged.Count) { ' -- could not judge ' + ($bdcUnjudged -join ', ') } else { '' }) +
+    " (WITNESS: $($bdcFloors.Count) of $($bdcProjects.Count) projects judged, lowest floor $bdcLowestFloor; TreatWarningsAsErrors is still set)")
+Assert-True ($bdcLowPins.Count -eq 0) (
+    "coordinator: no module project pins a WarningLevel below its target framework's default" +
+    $(if ($bdcLowPins.Count) { ' -- ' + ($bdcLowPins -join ', ') } else { '' }))
+# THE MODULE ZIPS ON A FIXED LIST SHIP THE LICENCE TEXTS OF THE LIBRARIES THEY CARRY (N-audit-1106-017). reminder.zip,
+# remembrance.zip and fortunes.zip carried Ical.Net, NodaTime, NAudio and System.Numerics.Tensors with no licence text beside
+# them, and Fortunes' two ONNX Runtime licence items were conditioned on the package path existing, so a build without it
+# shipped fortunes.zip with no licence and said nothing. The modules and their files are the FIXED list below, Reminder,
+# Remembrance and Fortunes, the three ZIPs that finding was about. THIRD_PARTY_NOTICES.md's tables are NOT read for
+# module names, so this check does not cover every module they name: a module added to them is not judged until it is
+# added to the list by hand. AI Brain ships no licence file (its one component, the Windows SDK projection, is an
+# unresolved item there), and AgentBroker's notices ship by the route that file describes. PetStudio is outside the list
+# by choice, not because it ships nothing: its project ships base-conf\NOTICE.txt and native\NOTICE-libwebp.txt, the BSD
+# notices of the base behaviour XML and the dwebp decoder it takes from the converter engine (N-bd-w2-docs-1-01). Those
+# are not the NuGet library licences this finding was about, both name Link as an attribute, a form this check does not
+# read, and base-conf\NOTICE.txt is held by the bd-w5-converter-1 assertion above; no assertion in this file holds
+# native\NOTICE-libwebp.txt. For each module on the list, its project (parsed as XML, so a commented-out item does not
+# count) must ship each named file as exactly one None item whose Link element is that name, copied to the output,
+# with NO Condition on the item,
+# on any element that holds it (its ItemGroup, or a Choose's When) or on any element inside it (its CopyToOutputDirectory
+# or Link metadata among them: MSBuild drops metadata whose Condition is false, so the item falls back to not copied, or
+# to no Link, while the element still reads as present), so a missing file fails the build instead of being skipped.
+# The item may not sit inside a Choose at all, since this check cannot evaluate which branch is taken (an item in the
+# Otherwise of a Choose whose When is true is dropped), and it may carry no Exclude. No None Remove and no None Update in
+# the project may name it: one with a wildcard or an item, property or metadata reference, or one whose path cannot be
+# resolved, is refused because this check cannot resolve it, and any other is compared with the item's Include as MSBuild
+# matches them (%XX escapes decoded, "." and ".." resolved against the project folder, slashes one way, case ignored, and
+# the item type None matched in any case), so an equivalent spelling cannot slip past. A source inside the repository
+# must exist, and the notices' "License files that ship" bullet for that ZIP must name the file. The ItemGroup Condition
+# and the None Remove were found by the round 1 review of the coordinator batch, each skipping a licence in silence while
+# the check passed. The round 2 review found the Condition on a metadata element (the round 1 block's exact-text match
+# refused it, and the round 2 XML rewrite let it through), the Choose, the None Update, the Exclude and the equivalent
+# path spelling; MSBuild, run on a scratch project, drops the item, drops the metadata or sets it to Never in each of
+# those shapes.
+# WITNESS: Fortunes' ONNX Runtime licence item was read, its Include naming the restored package's LICENSE, and the
+# notices section was found.
+$bdcLicenceShips = [ordered]@{
+    'Reminder'    = @('ICALNET_LICENSE.txt', 'NODATIME_LICENSE.txt', 'NODATIME_NOTICE.txt')
+    'Remembrance' = @('NAUDIO_LICENSE.txt', 'TENSORS_LICENSE.txt', 'TENSORS_THIRD_PARTY_NOTICES.txt')
+    'Fortunes'    = @('ONNXRUNTIME_LICENSE.txt', 'ONNXRUNTIME_THIRD_PARTY_NOTICES.txt', 'TENSORS_LICENSE.txt', 'TENSORS_THIRD_PARTY_NOTICES.txt')
+}
+$bdcNotices = Get-Content -LiteralPath (Join-Path $repoRoot 'THIRD_PARTY_NOTICES.md') -Raw
+$bdcShipsSection = [regex]::Match($bdcNotices, '(?s)\n### License files that ship\r?\n(.*?)\r?\n## ').Groups[1].Value
+$bdcLicenceFaults = @()
+$bdcOnnxWitness = $false
+# A path as MSBuild matches it: %XX escapes decoded, joined to the project folder, "." and ".." resolved, slashes one way.
+# $null when GetFullPath refuses it, and the caller then treats it as naming the item.
+$bdcMsbuildPath = {
+    param([string] $bdcDir, [string] $bdcSpec)
+    $bdcPlain = [regex]::Replace($bdcSpec, '%([0-9A-Fa-f]{2})', { param($bdcEscape) [string] [char] [Convert]::ToInt32($bdcEscape.Groups[1].Value, 16) })
+    try { return [System.IO.Path]::GetFullPath([System.IO.Path]::Combine($bdcDir, $bdcPlain.Replace('/', '\'))) } catch { return $null }
+}
+# Whether a None Remove or Update spec can name the item: a wildcard or an item, property or metadata reference, which this
+# check cannot resolve; a path it cannot resolve; or the item's own Include as MSBuild matches it, case ignored.
+$bdcNamesItem = {
+    param([string] $bdcDir, [string] $bdcSpec, [string] $bdcInclude)
+    if ($bdcSpec -match '[*?]|[$@%]\(') { return $true }
+    $bdcSpecPath = & $bdcMsbuildPath $bdcDir $bdcSpec
+    $bdcIncludePath = & $bdcMsbuildPath $bdcDir $bdcInclude
+    return ($null -eq $bdcSpecPath -or $null -eq $bdcIncludePath -or $bdcSpecPath -ieq $bdcIncludePath)
+}
+foreach ($bdcModule in $bdcLicenceShips.Keys) {
+    $bdcProjectPath = Join-Path $repoRoot ('modules\' + $bdcModule + '\' + $bdcModule + '.csproj')
+    $bdcProjectDir = Split-Path -Parent $bdcProjectPath
+    $bdcProjectDoc = New-Object System.Xml.XmlDocument
+    $bdcProjectDoc.LoadXml((Get-Content -LiteralPath $bdcProjectPath -Raw))
+    # MSBuild matches an item type in any case, so a <none Remove> takes a None item out too (measured).
+    $bdcNones = @($bdcProjectDoc.SelectNodes('//*') | Where-Object { $_.LocalName -ieq 'None' })
+    $bdcRemoves = @($bdcNones | Where-Object { $_.HasAttribute('Remove') } | ForEach-Object { $_.GetAttribute('Remove') -split ';' } |
+        ForEach-Object { $_.Trim() } | Where-Object { $_.Length -gt 0 })
+    $bdcUpdates = @($bdcNones | Where-Object { $_.HasAttribute('Update') } | ForEach-Object { $_.GetAttribute('Update') -split ';' } |
+        ForEach-Object { $_.Trim() } | Where-Object { $_.Length -gt 0 })
+    $bdcZip = '`' + $bdcModule.ToLowerInvariant() + '.zip`:'
+    $bdcBullet = [regex]::Match($bdcShipsSection, '(?s)\n- ' + [regex]::Escape($bdcZip) + '(.*?)(?=\r?\n- |\r?\n\r?\n|\z)').Groups[1].Value
+    foreach ($bdcName in $bdcLicenceShips[$bdcModule]) {
+        $bdcFound = @($bdcNones | Where-Object {
+            $_.HasAttribute('Include') -and
+            @($_.ChildNodes | Where-Object { $_.LocalName -ceq 'Link' -and $_.InnerText.Trim() -ceq $bdcName }).Count -gt 0 })
+        if ($bdcBullet.IndexOf('`' + $bdcName + '`', [StringComparison]::Ordinal) -lt 0) { $bdcLicenceFaults += ($bdcModule + ' ' + $bdcName + ': not named for ' + $bdcZip) }
+        if ($bdcFound.Count -ne 1) { $bdcLicenceFaults += ($bdcModule + ' ' + $bdcName + ': ' + $bdcFound.Count + ' items'); continue }
+        $bdcItem = $bdcFound[0]
+        $bdcInclude = $bdcItem.GetAttribute('Include')
+        if ($bdcItem.HasAttribute('Condition')) { $bdcLicenceFaults += ($bdcModule + ' ' + $bdcName + ': skipped in silence under a Condition') }
+        $bdcHolders = @(for ($bdcUp = $bdcItem.ParentNode; $bdcUp -is [System.Xml.XmlElement]; $bdcUp = $bdcUp.ParentNode) {
+            if ($bdcUp.HasAttribute('Condition')) { $bdcUp.LocalName }
+        })
+        if ($bdcHolders.Count) { $bdcLicenceFaults += ($bdcModule + ' ' + $bdcName + ': skipped in silence under a Condition on its ' + ($bdcHolders -join ' and its ')) }
+        $bdcInner = @($bdcItem.SelectNodes('.//*') | Where-Object { $_.HasAttribute('Condition') } | ForEach-Object { $_.LocalName })
+        if ($bdcInner.Count) { $bdcLicenceFaults += ($bdcModule + ' ' + $bdcName + ': a Condition on its ' + ($bdcInner -join ' and its ') + ' metadata can stop it shipping in silence') }
+        $bdcChooses = @(for ($bdcUp = $bdcItem.ParentNode; $bdcUp -is [System.Xml.XmlElement]; $bdcUp = $bdcUp.ParentNode) {
+            if ($bdcUp.LocalName -ieq 'Choose') { $bdcUp.LocalName }
+        })
+        if ($bdcChooses.Count) { $bdcLicenceFaults += ($bdcModule + ' ' + $bdcName + ': inside a Choose, whose branch this check cannot evaluate') }
+        if ($bdcItem.HasAttribute('Exclude')) { $bdcLicenceFaults += ($bdcModule + ' ' + $bdcName + ': an Exclude on it can drop it (' + $bdcItem.GetAttribute('Exclude') + ')') }
+        $bdcRemovedBy = @($bdcRemoves | Where-Object { & $bdcNamesItem $bdcProjectDir $_ $bdcInclude })
+        if ($bdcRemovedBy.Count) { $bdcLicenceFaults += ($bdcModule + ' ' + $bdcName + ': a None Remove can take it out again (' + ($bdcRemovedBy -join ';') + ')') }
+        $bdcUpdatedBy = @($bdcUpdates | Where-Object { & $bdcNamesItem $bdcProjectDir $_ $bdcInclude })
+        if ($bdcUpdatedBy.Count) { $bdcLicenceFaults += ($bdcModule + ' ' + $bdcName + ': a None Update can change it (' + ($bdcUpdatedBy -join ';') + ')') }
+        if (@($bdcItem.ChildNodes | Where-Object { $_.LocalName -ceq 'CopyToOutputDirectory' -and $_.InnerText.Trim() -cmatch '^(PreserveNewest|Always)$' }).Count -eq 0) {
+            $bdcLicenceFaults += ($bdcModule + ' ' + $bdcName + ': not copied to the output')
+        }
+        if ($bdcInclude -ceq '$(PkgMicrosoft_ML_OnnxRuntime)\LICENSE') { $bdcOnnxWitness = $true }
+        if ($bdcInclude.Length -eq 0) { $bdcLicenceFaults += ($bdcModule + ' ' + $bdcName + ': no Include') }
+        elseif (-not $bdcInclude.StartsWith('$(', [StringComparison]::Ordinal) -and
+                -not (Test-Path -LiteralPath (Join-Path (Split-Path -Parent $bdcProjectPath) $bdcInclude) -PathType Leaf)) {
+            $bdcLicenceFaults += ($bdcModule + ' ' + $bdcName + ': ' + $bdcInclude + ' does not exist')
+        }
+    }
+}
+Assert-True ($bdcOnnxWitness -and $bdcShipsSection.Length -gt 0) (
+    'coordinator: WITNESS the licence scan read Fortunes'' ONNX Runtime licence item and the notices'' License files that ship section')
+Assert-True ($bdcLicenceFaults.Count -eq 0) (
+    "coordinator: each module on the fixed licence list ships the licence texts of the libraries it carries, with no Condition" +
+    $(if ($bdcLicenceFaults.Count) { ' -- ' + ($bdcLicenceFaults -join '; ') } else { '' }))
 
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that

@@ -44,8 +44,10 @@ namespace DesktopAICompanion.Shimeji
         /// one: "parity INPUT-ADMITTED registrySha256 D id I case C scenarioSha256 S packSha256 P runId R", in the field
         /// order the lane brief fixed (registry digest, id, case, scenarioSha256, packSha256, runId). D is the digest this
         /// process's drift self-test computed; S and P are the digests this run computed on the bytes it read and the pack it
-        /// hashed, equal to the row's by admission. Logged after the pack comparison and before the pets are loaded; a
-        /// diagnostic line only, outside the trace JSONL. The spelling awaits Codex's review.</summary>
+        /// hashed, equal to the row's by admission. Logged after the pack comparison and before the pets are loaded. Codex
+        /// agreed the spelling and its order unchanged (review of 2026-11-14, 774b308c) as an admission proof only: not
+        /// whole-run closure, outside the trace JSONL and the comparer's JSON, and its adoption by the oracle and the
+        /// comparer is prospective.</summary>
         public static string InputAdmittedLine(string registrySha256, ParityPolicyRow row, string scenarioSha256, string packSha256, string runId)
         {
             return InputAdmitted + " registrySha256 " + registrySha256 + " id " + row.Id + " case " + row.Case + " scenarioSha256 " + scenarioSha256

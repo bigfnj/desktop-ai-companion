@@ -5,7 +5,14 @@ using DesktopAICompanion.Modules;
 
 namespace DesktopAICompanion.ModuleKit.Testing
 {
-    /// <summary>An <see cref="IModuleSettings"/> backed by a dictionary — no disk, no host.</summary>
+    /// <summary>
+    /// An <see cref="IModuleSettings"/> backed by a dictionary — no disk, no host.
+    ///
+    /// Under <see cref="RecordingHost"/> it is the module's ONE instance: every GetSettings returns it, where the app
+    /// hands out a fresh instance read from settings.json on every call, so a Set() before Save() shows through every
+    /// handle here and through none but its own there. RecordingHost.GetSettings records why that stays
+    /// (N-audit-1106-379, residue N-bd-coordinator-01).
+    /// </summary>
     public sealed class FakeModuleSettings : IModuleSettings
     {
         private readonly Dictionary<string, string> _values = new Dictionary<string, string>(StringComparer.Ordinal);

@@ -156,7 +156,10 @@ namespace DesktopAICompanion.FortunesModule
                                  //        A tagged row's source and a plain pack's file-name stem are held to
                                  //        their 1 to 128 characters the same way, so a source of 65 emoji loads
                                  //        instead of being refused under a message that says 128 characters
-                                 //        (N-bd-w7-fortunes-1-02).
+                                 //        (N-bd-w7-fortunes-1-02). The module folder ships the licence text and
+                                 //        third-party notices of System.Numerics.Tensors beside its DLL, and a build
+                                 //        that cannot find ONNX Runtime's licence files fails instead of shipping
+                                 //        without them (N-audit-1106-017).
                                  // 1.2.1: a pack import whose replace fails and whose backup cannot be put back is
                                  //        counted as a rollback failure, and the batch says its rollback could not be
                                  //        fully verified instead of "all earlier changes were rolled back"

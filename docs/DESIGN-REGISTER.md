@@ -8054,8 +8054,10 @@ comparison (`scenario-invalid: pack-not-registered`, exit 2, no trace), INPUT-AD
 CreateNew open; the legacy route keeps pets before the pack, byte for byte. Admitted bytes that do not interpret are an
 internal table defect, named with the adopted registry-integrity internal-defect form, never scenario-invalid (H step 5);
 no defensive grammar refusal sits behind the full-SHA gate. INPUT-ADMITTED is "parity INPUT-ADMITTED registrySha256 <hex>
-id <id> case <case> scenarioSha256 <hex> packSha256 <hex> runId <id>", the digests being this run's own; the spelling
-awaits Codex's review. Evidence without a seam: the window self-test copies the four installed inputs (found by walking up
+id <id> case <case> scenarioSha256 <hex> packSha256 <hex> runId <id>", the digests being this run's own. Codex agreed the
+spelling and its order unchanged (review of 2026-11-14, 774b308c) as an admission proof only: not whole-run closure,
+outside the trace JSONL and the comparer's JSON, and its adoption by the oracle and the comparer is prospective. Evidence
+without a seam: the window self-test copies the four installed inputs (found by walking up
 from the build; a build with no checkout says DEGRADED) and runs them as they are, and a script under tests/ launches the
 built exe on them with converted pets in fresh processes. Refused: a table or admission parameter for self-tests (H :64),
 embedding a copy of the registry, and checking the declaration grammar at run time behind the gate (H step 5).

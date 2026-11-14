@@ -147,6 +147,11 @@ namespace DesktopAICompanion.RemembranceModule
                                  //        recordings line reads the storage folder in the background and says so until it
                                  //        has; every open and refresh of the Options pane walked it on the UI thread, so a
                                  //        folder on a slow or offline share stalled the window (N-audit-1106-286).
+                                 //        Self-test: "Summarize a transcript..." and "Transcribe a WAV file..." check the
+                                 //        file kind and extension they ask the host's picker for, now that the test host
+                                 //        records the request (N-bd-w3-remembrance-1-02). The module folder ships the
+                                 //        licence texts of NAudio and System.Numerics.Tensors, with Tensors'
+                                 //        third-party notices, beside their DLLs (N-audit-1106-017).
                                  // 2.10.0: one Claude Code sign-in, shared with AI Brain (host 1.8.0's
                                  //        IHostCredentials, BACKLOG N-cli-token-02, the owner's decision of
                                  //        2026-10-29), behind the ClaudeCodeSignIn grant, so MinHostVersion rises to
@@ -10173,6 +10178,7 @@ namespace DesktopAICompanion.RemembranceModule
                     string transcriptFile = System.IO.Path.Combine(scratch, "old.transcript.txt");
                     System.IO.File.WriteAllText(transcriptFile, "Alice: we ship on Friday.");
                     host.PickedFiles = new List<string> { transcriptFile };
+                    host.ClearPickFileRequests();
                     summarizing.Reset();
                     summaryGate.Reset();
                     Press(PaneActionFor(pane, "Try it on a file", "Summarize a transcript…"), CopyOf(pane.Load()), null,
@@ -10183,11 +10189,20 @@ namespace DesktopAICompanion.RemembranceModule
                     summarizing.Wait(TimeSpan.FromSeconds(10));
                     summaryGate.Set();
                     check("...and clears it when the summary is written", pumpUntil(delegate { return BusyNow(host) == ""; }));
+                    // What the press asked the host's picker for (N-bd-w3-remembrance-1-02): the test host dropped the
+                    // request, so a press that asked the user's dialog for the wrong kind of file passed here.
+                    var summarizeAsked = host.PickFileRequests;
+                    check("Summarize a transcript asks the host's picker for one Transcript file, extension txt (N-bd-w3-remembrance-1-02): " +
+                          string.Join("; ", summarizeAsked),
+                        summarizeAsked.Count == 1 && summarizeAsked[0].FileKindLabel == "Transcript" &&
+                        summarizeAsked[0].Extensions != null && summarizeAsked[0].Extensions.Count == 1 &&
+                        summarizeAsked[0].Extensions[0] == "txt");
 
                     // ---- "Transcribe a WAV file..." through the host's picker raises it as transcribing (N-audit-1106-282) ----
                     string pickedWav = System.IO.Path.Combine(scratch, "Standup notes.wav");
                     System.IO.File.WriteAllBytes(pickedWav, new byte[44]);
                     host.PickedFiles = new List<string> { pickedWav };
+                    host.ClearPickFileRequests();
                     transcribing.Reset();
                     transcribeGate.Reset();
                     lastTranscriptPath = null;
@@ -10202,6 +10217,12 @@ namespace DesktopAICompanion.RemembranceModule
                     check("...and writes the transcript beside the WAV as \"<name>.transcript.txt\", clearing the flag after (N-audit-1106-282)",
                         pumpUntil(delegate { return BusyNow(host) == ""; })
                         && lastTranscriptPath == System.IO.Path.Combine(scratch, "Standup notes.transcript.txt"));
+                    var wavAsked = host.PickFileRequests;
+                    check("Transcribe a WAV file asks the host's picker for one WAV audio file, extension wav (N-bd-w3-remembrance-1-02): " +
+                          string.Join("; ", wavAsked),
+                        wavAsked.Count == 1 && wavAsked[0].FileKindLabel == "WAV audio" &&
+                        wavAsked[0].Extensions != null && wavAsked[0].Extensions.Count == 1 &&
+                        wavAsked[0].Extensions[0] == "wav");
 
                     // ---- the host's shutdown with two spans open ----
                     transcribing.Reset();

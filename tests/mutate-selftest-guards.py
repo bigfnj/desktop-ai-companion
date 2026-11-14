@@ -26709,6 +26709,44 @@ CASES = (
      HOST_CSPROJ, EXE,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
      'parity policy: a surrogate id or pack value is refused as scenario-invalid naming that value, exit 2, no trace ('),
+    # ---- burndown/coordinator ----
+    # N-bd-w3-remembrance-1-02: RecordingHost drops the PickFilesToOpen request again (CoreTests), and "Transcribe a WAV
+    # file..." asks the host's picker for transcripts (the Remembrance self-test reads the recorded request). "bd-coordinator:"
+    # for one --only.
+    ("bd-coordinator: RecordingHost drops the PickFilesToOpen request again (N-bd-w3-remembrance-1-02)",
+     MODULEKIT_RECORDING_HOST,
+     b"            lock (_recordSync) _pickFileRequests.Add(request);\n",
+     b"",
+     CORETESTS_CSPROJ, CORETESTS_MODULEKIT_DLL,
+     CORETESTS, None, "A PickFilesToOpen request was not recorded."),
+    ("bd-coordinator: Transcribe a WAV file asks the host for transcripts (N-bd-w3-remembrance-1-02)",
+     REMEMBRANCE_MODULE,
+     b'_host.PickFilesToOpen("Choose a WAV recording to transcribe", "WAV audio", new[] { "wav" });',
+     b'_host.PickFilesToOpen("Choose a WAV recording to transcribe", "WAV audio", new[] { "txt" });',
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "Transcribe a WAV file asks the host's picker for one WAV audio file, extension wav"),
+    # N-audit-1106-379 (b) and (c): RecordingHost publishes an empty context key again, and a throwing ContextChanged
+    # subscriber escapes the fake's publish again (CoreTests, TestModuleKitRecordingHost).
+    ("bd-coordinator: RecordingHost publishes an empty context key again (N-audit-1106-379)",
+     MODULEKIT_RECORDING_HOST,
+     b"            if (string.IsNullOrEmpty(key)) return;\n            PublishedContext[key] = valueJson ?? \"\";\n",
+     b"            PublishedContext[key] = valueJson ?? \"\";\n",
+     CORETESTS_CSPROJ, CORETESTS_MODULEKIT_DLL,
+     CORETESTS, None, "An empty context key was stored or raised; the host drops it."),
+    ("bd-coordinator: a throwing ContextChanged subscriber escapes the fake's publish again (N-audit-1106-379)",
+     MODULEKIT_RECORDING_HOST,
+     b"            if (handler == null) return;\n"
+     b"            foreach (Delegate subscriber in handler.GetInvocationList())\n"
+     b"            {\n"
+     b"                try { ((Action<string>)subscriber)(key); }\n",
+     b"            if (handler == null) return;\n"
+     b"            handler(key ?? \"\");\n"
+     b"            foreach (Delegate subscriber in new Delegate[0])\n"
+     b"            {\n"
+     b"                try { ((Action<string>)subscriber)(key); }\n",
+     CORETESTS_CSPROJ, CORETESTS_MODULEKIT_DLL,
+     CORETESTS, None, "A throwing ContextChanged subscriber escaped into the publisher."),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

@@ -30,12 +30,9 @@ The repository-root MIT license applies only to original contributions whose cop
 - Record the exact source revision, conversion procedure, and retained license file for
   `bge-small-en-v1.5` before distribution. Its upstream model card identifies the model as MIT, but
   the repository currently lacks a pinned provenance record for the two shipped model files.
-- Some module ZIPs carry third-party libraries with no license text beside them. `reminder.zip`
-  ships Ical.Net (MIT) and NodaTime (Apache-2.0); `remembrance.zip` ships NAudio and
-  System.Numerics.Tensors (both MIT), and `fortunes.zip` ships System.Numerics.Tensors without its
-  license either. `aibrain.zip` and `remembrance.zip` also ship the Windows SDK projection, whose terms
-  have not been reviewed. Package each license, and NodaTime's upstream `NOTICE` file if its source
-  carries one, into the module ZIP that ships the library.
+- `aibrain.zip` and `remembrance.zip` ship the Windows SDK projection, whose terms have not been
+  reviewed (N-bd-w2-docs-1-02). Every other third-party library a module ZIP carries ships its license
+  text beside it; see "License files that ship" below.
 
 ## Bundled with a verified redistribution grant
 
@@ -145,18 +142,51 @@ the versions recorded there disagree with that lock file or with the runtime it 
 
 ### License files that ship
 
-- The application payload: `LICENSE.txt`, this file, and `NAUDIO_LICENSE.txt` (kept in
-  `packaging/licenses/`), which is retained from NAudio commit
-  `c89fee940ee6f8d7374d18714a6b85d8b7a18ab0`.
+The Ical.Net, NodaTime and NAudio packages carry a license expression and no license file, so their
+texts are committed under `packaging/licenses/`, each taken from the upstream commit the package's
+nuspec names. The repository stores text with LF line endings (`* text=auto eol=lf` in
+`.gitattributes`), so a text whose upstream copy has CRLF is committed with LF and its git blob differs
+from the upstream one; nothing else about the bytes changes.
+
+- The application payload: `LICENSE.txt`, this file, and `NAUDIO_LICENSE.txt`.
+- `NAUDIO_LICENSE.txt` (the application payload and `remembrance.zip`): NAudio's `LICENSE` at commit
+  `38257478ad2444c80f2a0b7f079d3ae7a820dfec`, the commit the shipped 3.0.0-preview.6 packages name
+  (upstream git blob `034ae805fbf6887e4b415771dd8548e4ac4f179a`, CRLF upstream, committed with LF; the
+  committed 1,056 bytes have SHA-256 `4b3ae8070462a97121738eed135fc8e6502187bffcbcd4ed8b0ee12e042158d1`).
+  Until 2026-11-14 this file held the text retained from NAudio commit
+  `c89fee940ee6f8d7374d18714a6b85d8b7a18ab0`, whose copyright line reads 2020 where 38257478's reads
+  2008-2026.
+- `reminder.zip`: `ICALNET_LICENSE.txt`, Ical.Net's `license.md` at commit
+  `1344396c18dfe7349584709990f431931bc0b6be` (git blob `c0eb585d55d2ad1db3058cf42690abb1101b2e11`,
+  byte for byte under a `.txt` name); `NODATIME_LICENSE.txt` and `NODATIME_NOTICE.txt`, NodaTime's
+  `LICENSE.txt` and `NOTICE.txt` at commit `e56daa2599a4d1917065c015bda923e7a352a236` (git blobs
+  `d645695673349e3947e8e5ae42332d0ac3164cd7` and `81ef2010ac99630b6312584992de9fe08a1e6666`, byte for
+  byte).
+- `remembrance.zip`: `NAUDIO_LICENSE.txt` (above), and `TENSORS_LICENSE.txt` and
+  `TENSORS_THIRD_PARTY_NOTICES.txt`, the `LICENSE.TXT` and `THIRD-PARTY-NOTICES.TXT` of the
+  System.Numerics.Tensors 9.0.0 package (dotnet/runtime commit
+  `9d5a6a9aa463d6d10b0b0ba6d5982cc82f363dc3`, as its nuspec names; package SHA-512
+  `razlju7UgILQ/Vb7BoW1RR/xIEBDc8Ynq0sRk74KpLBHay3QMZJfgK8ly4IEzlJlbFYlCOxpdPa7DNBUYaYtIw==`, base64, as
+  NuGet records it). The package carries both files with CRLF, as git blobs
+  `fa3121dfaf73735faa1de75487de977993c40d0b` (`LICENSE.TXT`, 1,139 bytes) and
+  `6c9991ecf9cddf9a19180e91bc618c4869627f91` (`THIRD-PARTY-NOTICES.TXT`, 75,640 bytes). Those are the
+  blobs of the bytes in the package, not compared with dotnet/runtime's own tree at that commit. They
+  are committed with LF and nothing else changed: `TENSORS_LICENSE.txt` is 1,116 bytes with SHA-256
+  `cfc21f5e8bd655ae997eec916138b707b1d290b83272c02a95c9f821b8c87310`, and
+  `TENSORS_THIRD_PARTY_NOTICES.txt` is 74,244 bytes with SHA-256
+  `fa3e9d0a2c52476f04fe798d7dc4f6e7edb7b68a3d2f4d5f59a39bce957eedc8`.
 - `fortunes.zip`: `ONNXRUNTIME_LICENSE.txt` and `ONNXRUNTIME_THIRD_PARTY_NOTICES.txt`, copied at build
   time from the restored Microsoft.ML.OnnxRuntime package, so they cannot drift from its pinned
-  version.
+  version, and `TENSORS_LICENSE.txt` and `TENSORS_THIRD_PARTY_NOTICES.txt` as in `remembrance.zip`.
 - `petstudio.zip`: `native/NOTICE-libwebp.txt`, and `base-conf/NOTICE.txt` for the Shimeji base behaviour
   config it embeds.
 - `agentbroker.zip`: `worker/licenses/`, described above.
 
-`reminder.zip`, `remembrance.zip` and `aibrain.zip` ship no license file. That gap is recorded under
-"Unresolved redistribution items" above.
+The Reminder, Remembrance and Fortunes license files ship from their module projects with no `Exists`
+condition, so a missing file fails the build instead of shipping the ZIP without it;
+`tests/runtime-hardening-selftest.ps1` holds the three projects to that. `aibrain.zip` ships no license file: its
+one third-party component is the Windows SDK projection, recorded under "Unresolved redistribution
+items" above.
 
 These tables, with the lock and project files they name, are the runtime inventory.
 

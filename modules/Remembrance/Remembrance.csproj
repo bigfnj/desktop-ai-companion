@@ -43,6 +43,27 @@
     <PackageReference Include="NAudio.Wasapi" Version="3.0.0-preview.6" />
   </ItemGroup>
 
+  <!-- The licence texts of the libraries this module ships (N-audit-1106-017): NAudio's MIT licence (the text at the
+       commit the 3.0.0-preview.6 packages name, the same file the app payload ships), and System.Numerics.Tensors 9.0.0's
+       MIT licence and third-party notices, which NAudio.Core pulls in, copied beside the DLLs they cover.
+       THIRD_PARTY_NOTICES.md names the source of each. No Exists condition, on purpose: a missing file fails the build
+       instead of shipping remembrance.zip without it. tests/runtime-hardening-selftest.ps1 refuses a condition here or a
+       missing item. -->
+  <ItemGroup>
+    <None Include="..\..\packaging\licenses\NAUDIO_LICENSE.txt">
+      <Link>NAUDIO_LICENSE.txt</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\..\packaging\licenses\TENSORS_LICENSE.txt">
+      <Link>TENSORS_LICENSE.txt</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\..\packaging\licenses\TENSORS_THIRD_PARTY_NOTICES.txt">
+      <Link>TENSORS_THIRD_PARTY_NOTICES.txt</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
   <!-- The coding-agent CLI runner (lane feature/cli-backend), shared with AI Brain: one source file both modules
        compile by link, with its self-check, plus AI Brain's executable trust rules (engine\AiExecutablePolicy.cs),
        which the runner applies to every candidate binary. Linked rather than copied, for the reason the summarizer

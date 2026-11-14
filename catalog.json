@@ -2346,7 +2346,7 @@
     {
       "id": "blinkingled",
       "name": "Blinking LED",
-      "desc": "Blinks your keyboard's Scroll Lock light so the machine reads as active. Six speeds from Glacial to Hyper, switchable from the tray, and your companion has an opinion about each one. It works by pressing Scroll Lock, a key no application acts on, so nothing is ever typed anywhere; Windows still counts it as activity, which is the whole point. Caps Lock stops it.",
+      "desc": "Blinks your keyboard's Scroll Lock light so the machine reads as active. Six speeds from Glacial to Hyper, switchable from the tray, and your companion has an opinion about each one. It works by pressing Scroll Lock, which types nothing anywhere; Windows still counts it as activity, which is the whole point. Most programs ignore the key, but Excel, for one, scrolls the sheet with the arrow keys while the light is lit. Caps Lock stops it.",
       "version": "1.0.8",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/blinkingled.zip",
       "sha256": "92d2b5adf35a080500b2f5397699005bacd1a20d5a9e1c380e53a8262e56b3c1",

@@ -32,6 +32,26 @@
     <PackageReference Include="Ical.Net" Version="5.2.3" />
   </ItemGroup>
 
+  <!-- The licence texts of the libraries this module ships (N-audit-1106-017): Ical.Net's MIT licence, and NodaTime's
+       Apache-2.0 licence with its NOTICE file, copied beside the DLLs they cover. The packages carry a licence expression
+       and no file, so the texts are committed under packaging/licenses, and THIRD_PARTY_NOTICES.md names the upstream
+       commit of each. No Exists condition, on purpose: a missing file fails the build instead of shipping reminder.zip
+       without it. tests/runtime-hardening-selftest.ps1 refuses a condition here or a missing item. -->
+  <ItemGroup>
+    <None Include="..\..\packaging\licenses\ICALNET_LICENSE.txt">
+      <Link>ICALNET_LICENSE.txt</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\..\packaging\licenses\NODATIME_LICENSE.txt">
+      <Link>NODATIME_LICENSE.txt</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\..\packaging\licenses\NODATIME_NOTICE.txt">
+      <Link>NODATIME_NOTICE.txt</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
   <!-- Whether Teams or Zoom is using the microphone (lane feature/meeting-end), shared with Remembrance and linked with
        its self-check so both payloads compile one copy: a "join the meeting" question withdraws itself once the user has
        joined. Read from the record Windows keeps for its microphone indicator, never from audio. -->

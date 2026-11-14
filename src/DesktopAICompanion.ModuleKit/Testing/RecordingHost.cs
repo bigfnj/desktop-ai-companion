@@ -50,6 +50,8 @@ namespace DesktopAICompanion.ModuleKit.Testing
         // yet, but the fake now has one rule for everything a module can append, and the last live list was
         // the one a module's reaction appends to beside the sound it plays. AgentFlow's three resets between
         // phases moved from PlayedAnimations.Clear(), which would have cleared a copy, to ClearPlayedAnimations().
+        // PickFilesToOpen's requests joined the set on 2026-11-14 (N-bd-w3-remembrance-1-02): the host's picker runs
+        // on the UI thread, but the fake keeps the one rule for everything it records.
         private readonly object _recordSync = new object();
         private readonly List<string> _saidLines = new List<string>();
         private readonly List<string> _loggedLines = new List<string>();
@@ -60,6 +62,7 @@ namespace DesktopAICompanion.ModuleKit.Testing
         private readonly List<byte[]> _playedSounds = new List<byte[]>();
         private readonly List<string> _stoppedSoundOwners = new List<string>();
         private readonly List<string> _playedAnimations = new List<string>();
+        private readonly List<PickFileRequest> _pickFileRequests = new List<PickFileRequest>();
 
         /// <summary>Every line, targeted or broadcast, in order (a snapshot; see above).</summary>
         public List<string> SaidLines { get { lock (_recordSync) return new List<string>(_saidLines); } }
@@ -130,6 +133,12 @@ namespace DesktopAICompanion.ModuleKit.Testing
         public ScreenContext ScreenContextValue { get; set; }
         public ICompanionManager CompanionManager { get; set; }
         public IReadOnlyList<string> PickedFiles { get; set; }
+        /// <summary>Every PickFilesToOpen call, in order, with the title, file kind and extensions the module asked
+        /// for (a snapshot, N-bd-w3-remembrance-1-02; see the recorded lists above). Reset between presses with
+        /// <see cref="ClearPickFileRequests"/>.</summary>
+        public List<PickFileRequest> PickFileRequests { get { lock (_recordSync) return new List<PickFileRequest>(_pickFileRequests); } }
+        /// <summary>Forget the recorded picker requests, so a second press can be asserted on its own.</summary>
+        public void ClearPickFileRequests() { lock (_recordSync) _pickFileRequests.Clear(); }
         public Dictionary<string, List<CatalogItem>> CatalogItems { get; private set; }
         public Dictionary<string, byte[]> CatalogPayloads { get; private set; }
         /// <summary>Context values a module published via PublishContext, keyed by key, for assertions.</summary>
@@ -178,7 +187,8 @@ namespace DesktopAICompanion.ModuleKit.Testing
             _storage[moduleId] = storage;
         }
 
-        /// <summary>The settings this module has been reading and writing, for assertions.</summary>
+        /// <summary>The settings this module has been reading and writing, for assertions: one shared instance per
+        /// module, which every <see cref="GetSettings"/> returns (see there for the known limit, N-audit-1106-379).</summary>
         public FakeModuleSettings SettingsFor(string moduleId)
         {
             FakeModuleSettings settings;
@@ -337,6 +347,19 @@ namespace DesktopAICompanion.ModuleKit.Testing
             return _storage.TryGetValue(moduleId ?? "", out storage) ? storage : null;
         }
 
+        /// <summary>
+        /// The module's ONE shared <see cref="FakeModuleSettings"/> (<see cref="SettingsFor"/>), on every call.
+        ///
+        /// KNOWN LIMIT (N-audit-1106-379, residue N-bd-coordinator-01). CompanionHost builds a fresh ModuleSettings from
+        /// settings.json on every GetSettings, so in the app a Set() on one handle is not seen through a later
+        /// GetSettings until it is saved; here it is, and a module that takes a second handle and counts on an unsaved
+        /// Set() from the first passes its self-test. A per-call handle (starting from the store, its Save() writing the
+        /// store whole, as the host replaces the file whole) was built and measured with tests/Test-ModuleSelfTests.ps1
+        /// on 2026-11-14 and reverted: it failed 52 assertions in the AgentFlow, Reminder and Remembrance self-tests, and
+        /// the failures examined (in each of the three) come from tests that seed settings through SettingsFor after
+        /// Init while the module reads the handle it took at Init. That test style is right about the app, where a
+        /// module's settings change only through its own handle, so the fake keeps the shared instance and says so here.
+        /// </summary>
         public IModuleSettings GetSettings(string moduleId) { return SettingsFor(moduleId); }
 
         // The legacy pair is wrapped as `pet => f()` into the same chain as the pet-aware pair, exactly as
@@ -548,23 +571,56 @@ namespace DesktopAICompanion.ModuleKit.Testing
             lock (_recordSync) _loggedLines.Add((moduleId ?? "") + ": " + (message ?? ""));
         }
 
+        // A FIELD-LIKE event on purpose, never a custom add/remove: AI Brain's self-test reads this class's
+        // compiler-generated "ContextChanged" field by reflection to count subscribers (AiEngineProbe.Module.cs), and a
+        // module check may do the same, so a custom accessor pair would leave them reading nothing. PublishContext walks
+        // the field's GetInvocationList, which keeps both working.
         public event Action<string> ContextChanged;
 
+        /// <summary>
+        /// Stores the value and raises <see cref="ContextChanged"/> the way CompanionHost.PublishContext does
+        /// (N-audit-1106-379): a null or empty key is dropped, neither stored nor raised, and each subscriber runs on
+        /// its own, so one that throws is logged ("host: ContextChanged subscriber threw and was skipped: ...") and
+        /// skipped while the rest still hear the key, as the host's RaiseEach treats it. Until 2026-11-14 the fake
+        /// stored and raised an empty key as "", which <see cref="ReadContext"/> then answered, and invoked the
+        /// multicast with no catch, so the first subscriber that threw escaped into the publisher and starved every
+        /// later one; a module self-test passed through both while the app behaved differently. The raise stays
+        /// inline on the caller's thread, where the host posts it to the UI thread when the caller is on another.
+        /// </summary>
         public void PublishContext(string moduleId, string key, string valueJson)
         {
-            PublishedContext[key ?? ""] = valueJson ?? "";
+            if (string.IsNullOrEmpty(key)) return;
+            PublishedContext[key] = valueJson ?? "";
             Action<string> handler = ContextChanged;
-            if (handler != null) handler(key ?? "");
+            if (handler == null) return;
+            foreach (Delegate subscriber in handler.GetInvocationList())
+            {
+                try { ((Action<string>)subscriber)(key); }
+                catch (Exception ex)
+                {
+                    lock (_recordSync)
+                        _loggedLines.Add("host: ContextChanged subscriber threw and was skipped: " + ex.GetType().Name + ": " + ex.Message);
+                }
+            }
         }
 
+        /// <summary>The published value, or "" for a key never published; a null or empty key answers "", as the
+        /// host's does (N-audit-1106-379).</summary>
         public string ReadContext(string key)
         {
+            if (string.IsNullOrEmpty(key)) return "";
             string v;
-            return PublishedContext.TryGetValue(key ?? "", out v) ? v : "";
+            return PublishedContext.TryGetValue(key, out v) ? v : "";
         }
 
+        /// <summary>Answers <see cref="PickedFiles"/> and records the request in <see cref="PickFileRequests"/>. Until
+        /// 2026-11-14 it dropped the title, the file kind and the extensions, so a module that asked the host's dialog
+        /// for the wrong kind of file passed its self-test while the user's dialog filtered for it
+        /// (N-bd-w3-remembrance-1-02).</summary>
         public IReadOnlyList<string> PickFilesToOpen(string title, string fileKindLabel, IReadOnlyList<string> extensions)
         {
+            var request = new PickFileRequest(title, fileKindLabel, extensions);
+            lock (_recordSync) _pickFileRequests.Add(request);
             return PickedFiles ?? new List<string>();
         }
 
@@ -593,5 +649,32 @@ namespace DesktopAICompanion.ModuleKit.Testing
         // with the method deleted ModuleKit compiled clean, and as the control, emptying RaiseHostShutdown's
         // body made CS0067 fire on HostShutdown (F235). A fake host that declares an event and never raises
         // it does need a raiser, and the raiser is the fix, not a method nothing calls.
+    }
+
+    /// <summary>
+    /// One <see cref="IHost.PickFilesToOpen"/> call as a module made it, recorded by
+    /// <see cref="RecordingHost.PickFileRequests"/> (N-bd-w3-remembrance-1-02). The title and file kind are kept as
+    /// passed, null included; the extensions are a copy taken at the call (null stays null), so a module that reuses
+    /// its array cannot rewrite the record afterwards.
+    /// </summary>
+    public sealed class PickFileRequest
+    {
+        internal PickFileRequest(string title, string fileKindLabel, IReadOnlyList<string> extensions)
+        {
+            Title = title;
+            FileKindLabel = fileKindLabel;
+            Extensions = extensions == null ? null : new List<string>(extensions).AsReadOnly();
+        }
+
+        public string Title { get; private set; }
+        public string FileKindLabel { get; private set; }
+        public IReadOnlyList<string> Extensions { get; private set; }
+
+        /// <summary>"title | kind | ext,ext", for a check's failure text.</summary>
+        public override string ToString()
+        {
+            return (Title ?? "(null)") + " | " + (FileKindLabel ?? "(null)") + " | " +
+                   (Extensions == null ? "(null)" : string.Join(",", Extensions));
+        }
     }
 }

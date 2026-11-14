@@ -5668,6 +5668,215 @@ CASES = (
         b'LogicalName="DesktopAICompanion.ShimejiParity.PolicyRegistry2.json" />',
         'host-policy-1: the installed REGISTRY.json and schema equal their signed SHA-256',
     ),
+    # ---- burndown/coordinator ----
+    # N-bd-w4-contracts-1-01: the WarningLevel 4 pin comes back in modules\Directory.Build.props, or one module project pins
+    # a level one below its framework's (runtime-hardening-selftest.ps1, coordinator block). "bd-coordinator:" for one --only.
+    (
+        "bd-coordinator: modules Directory.Build.props pins WarningLevel 4 again (N-bd-w4-contracts-1-01)",
+        os.path.join(REPO, "modules", "Directory.Build.props"),
+        b"    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>\n  </PropertyGroup>\n",
+        b"    <WarningLevel>4</WarningLevel>\n    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>\n  </PropertyGroup>\n",
+        "coordinator: no module project pins a WarningLevel below its target framework's default",
+    ),
+    (
+        "bd-coordinator: a module project pins WarningLevel 9 under net10 (N-bd-w4-contracts-1-01)",
+        os.path.join(REPO, "modules", "BlinkingLed", "BlinkingLed.csproj"),
+        b"    <TargetFramework>net10.0-windows</TargetFramework>\n",
+        b"    <TargetFramework>net10.0-windows</TargetFramework>\n    <WarningLevel>9</WarningLevel>\n",
+        "coordinator: no module project pins a WarningLevel below its target framework's default",
+    ),
+    # Round 2: a project whose framework floor cannot be read is named, never exempt in silence. One module project
+    # moves to TargetFrameworks (plural), or takes its TFM from a property; the WITNESS must fail naming that project.
+    (
+        "bd-coordinator: a module project names TargetFrameworks (plural) and is not judged (N-bd-w4-contracts-1-01)",
+        os.path.join(REPO, "modules", "TestModule", "TestModule.csproj"),
+        b"    <TargetFramework>net10.0-windows</TargetFramework>\n",
+        b"    <TargetFrameworks>net10.0-windows</TargetFrameworks>\n",
+        "coordinator: the module warning-level scan judged every module project it read against a framework floor of"
+        " at least 5 -- could not judge TestModule.csproj: TargetFrameworks=net10.0-windows",
+    ),
+    (
+        "bd-coordinator: a module project sets its TFM through a property and is not judged (N-bd-w4-contracts-1-01)",
+        os.path.join(REPO, "modules", "PetStudio", "PetStudio.csproj"),
+        b"    <TargetFramework>net10.0-windows</TargetFramework>\n",
+        b"    <BdcModuleFramework>net10.0-windows</BdcModuleFramework>\n"
+        b"    <TargetFramework>$(BdcModuleFramework)</TargetFramework>\n",
+        "coordinator: the module warning-level scan judged every module project it read against a framework floor of"
+        " at least 5 -- could not judge PetStudio.csproj: TargetFramework=$(BdcModuleFramework)",
+    ),
+    # N-audit-1106-017: a module ZIP ships a third-party library without its licence text again: the NodaTime licence item
+    # leaves Reminder's project, or Fortunes' ONNX Runtime licence item goes back under the Exists condition it had, which
+    # skipped it in silence when the package path was missing (runtime-hardening-selftest.ps1, coordinator block).
+    (
+        "bd-coordinator: reminder.zip ships NodaTime without its licence again (N-audit-1106-017)",
+        os.path.join(REPO, "modules", "Reminder", "Reminder.csproj"),
+        b'    <None Include="..\\..\\packaging\\licenses\\NODATIME_LICENSE.txt">\n'
+        b"      <Link>NODATIME_LICENSE.txt</Link>\n"
+        b"      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>\n"
+        b"    </None>\n",
+        b"",
+        "coordinator: each module on the fixed licence list ships the licence texts of the libraries it carries, with no Condition",
+    ),
+    (
+        "bd-coordinator: a module licence item is skipped in silence when its file is missing (N-audit-1106-017)",
+        FORTUNES_CSPROJ,
+        b'    <None Include="$(PkgMicrosoft_ML_OnnxRuntime)\\LICENSE">\n',
+        b'    <None Include="$(PkgMicrosoft_ML_OnnxRuntime)\\LICENSE"\n'
+        b"          Condition=\"Exists('$(PkgMicrosoft_ML_OnnxRuntime)\\LICENSE')\">\n",
+        "coordinator: each module on the fixed licence list ships the licence texts of the libraries it carries, with no Condition",
+    ),
+    # Round 2 (the round 1 review's finding): a licence item is still skipped in silence when the ItemGroup that holds
+    # it carries the Condition, or when a later None Remove takes it out again, by its own path or by a wildcard the
+    # check cannot resolve. Each expected text names the item and the reason, so the case proves its own branch.
+    (
+        "bd-coordinator: a module licence ItemGroup is skipped in silence under its own Condition (N-audit-1106-017)",
+        os.path.join(REPO, "modules", "Reminder", "Reminder.csproj"),
+        b"  <ItemGroup>\n"
+        b'    <None Include="..\\..\\packaging\\licenses\\ICALNET_LICENSE.txt">\n',
+        b"  <ItemGroup Condition=\"Exists('$(BdcNoSuchProperty)')\">\n"
+        b'    <None Include="..\\..\\packaging\\licenses\\ICALNET_LICENSE.txt">\n',
+        "coordinator: each module on the fixed licence list ships the licence texts of the libraries it carries, with no Condition"
+        " -- Reminder ICALNET_LICENSE.txt: skipped in silence under a Condition on its ItemGroup",
+    ),
+    (
+        "bd-coordinator: a None Remove takes a module licence out again (N-audit-1106-017)",
+        os.path.join(REPO, "modules", "Remembrance", "Remembrance.csproj"),
+        b"      <Link>TENSORS_THIRD_PARTY_NOTICES.txt</Link>\n"
+        b"      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>\n"
+        b"    </None>\n"
+        b"  </ItemGroup>\n",
+        b"      <Link>TENSORS_THIRD_PARTY_NOTICES.txt</Link>\n"
+        b"      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>\n"
+        b"    </None>\n"
+        b"  </ItemGroup>\n"
+        b"  <ItemGroup>\n"
+        b'    <None Remove="..\\..\\packaging\\licenses\\TENSORS_LICENSE.txt" />\n'
+        b"  </ItemGroup>\n",
+        "coordinator: each module on the fixed licence list ships the licence texts of the libraries it carries, with no Condition"
+        " -- Remembrance TENSORS_LICENSE.txt: a None Remove can take it out again (",
+    ),
+    (
+        "bd-coordinator: a wildcard None Remove can take every module licence out again (N-audit-1106-017)",
+        FORTUNES_CSPROJ,
+        b"      <Link>TENSORS_THIRD_PARTY_NOTICES.txt</Link>\n"
+        b"      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>\n"
+        b"    </None>\n"
+        b"  </ItemGroup>\n",
+        b"      <Link>TENSORS_THIRD_PARTY_NOTICES.txt</Link>\n"
+        b"      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>\n"
+        b"    </None>\n"
+        b"  </ItemGroup>\n"
+        b"  <ItemGroup>\n"
+        b'    <None Remove="..\\..\\packaging\\licenses\\*.txt" />\n'
+        b"  </ItemGroup>\n",
+        "coordinator: each module on the fixed licence list ships the licence texts of the libraries it carries, with no Condition"
+        " -- Fortunes ONNXRUNTIME_LICENSE.txt: a None Remove can take it out again (",
+    ),
+    # Round 3 (the round 2 review's finding): a Condition on a metadata element inside a licence item. MSBuild drops the
+    # CopyToOutputDirectory whose Condition is false, so the item is not copied, while the element still reads as present.
+    (
+        "bd-coordinator: a Condition on a module licence item's CopyToOutputDirectory stops it being copied (N-audit-1106-017)",
+        os.path.join(REPO, "modules", "Reminder", "Reminder.csproj"),
+        b'    <None Include="..\\..\\packaging\\licenses\\ICALNET_LICENSE.txt">\n'
+        b"      <Link>ICALNET_LICENSE.txt</Link>\n"
+        b"      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>\n",
+        b'    <None Include="..\\..\\packaging\\licenses\\ICALNET_LICENSE.txt">\n'
+        b"      <Link>ICALNET_LICENSE.txt</Link>\n"
+        b"      <CopyToOutputDirectory Condition=\"'1'=='2'\">PreserveNewest</CopyToOutputDirectory>\n",
+        "coordinator: each module on the fixed licence list ships the licence texts of the libraries it carries, with no Condition"
+        " -- Reminder ICALNET_LICENSE.txt: a Condition on its CopyToOutputDirectory metadata can stop it shipping in silence",
+    ),
+    # Round 3, the round 2 review's other probed shapes. MSBuild, run on a scratch project, drops the item or sets it to
+    # Never in each, while the round 2 check passed. One case per code path: the Choose, the Update, the reference
+    # disjunct (which the wildcard Remove above no longer proves alone, since GetFullPath refuses a "*" under Windows
+    # PowerShell and the fallback refuses it too), the Exclude, and one Remove spelling that needs every normalisation
+    # step at once (item type case, %XX decoding, "." and ".." resolution, path case) to be recognised.
+    (
+        "bd-coordinator: a module licence item in a Choose's Otherwise is dropped when the When is true (N-audit-1106-017)",
+        os.path.join(REPO, "modules", "Reminder", "Reminder.csproj"),
+        b'    <None Include="..\\..\\packaging\\licenses\\NODATIME_NOTICE.txt">\n'
+        b"      <Link>NODATIME_NOTICE.txt</Link>\n"
+        b"      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>\n"
+        b"    </None>\n"
+        b"  </ItemGroup>\n",
+        b"  </ItemGroup>\n"
+        b"  <Choose>\n"
+        b"    <When Condition=\"'$(BdcNoSuchProperty)'==''\">\n"
+        b"      <PropertyGroup>\n"
+        b"        <BdcLicenceBranch>when</BdcLicenceBranch>\n"
+        b"      </PropertyGroup>\n"
+        b"    </When>\n"
+        b"    <Otherwise>\n"
+        b"      <ItemGroup>\n"
+        b'        <None Include="..\\..\\packaging\\licenses\\NODATIME_NOTICE.txt">\n'
+        b"          <Link>NODATIME_NOTICE.txt</Link>\n"
+        b"          <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>\n"
+        b"        </None>\n"
+        b"      </ItemGroup>\n"
+        b"    </Otherwise>\n"
+        b"  </Choose>\n",
+        "coordinator: each module on the fixed licence list ships the licence texts of the libraries it carries, with no Condition"
+        " -- Reminder NODATIME_NOTICE.txt: inside a Choose, whose branch this check cannot evaluate",
+    ),
+    (
+        "bd-coordinator: a None Update sets a module licence item to Never (N-audit-1106-017)",
+        os.path.join(REPO, "modules", "Remembrance", "Remembrance.csproj"),
+        b"      <Link>TENSORS_THIRD_PARTY_NOTICES.txt</Link>\n"
+        b"      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>\n"
+        b"    </None>\n"
+        b"  </ItemGroup>\n",
+        b"      <Link>TENSORS_THIRD_PARTY_NOTICES.txt</Link>\n"
+        b"      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>\n"
+        b"    </None>\n"
+        b"  </ItemGroup>\n"
+        b"  <ItemGroup>\n"
+        b'    <None Update="..\\..\\packaging\\licenses\\NAUDIO_LICENSE.txt" CopyToOutputDirectory="Never" />\n'
+        b"  </ItemGroup>\n",
+        "coordinator: each module on the fixed licence list ships the licence texts of the libraries it carries, with no Condition"
+        " -- Remembrance NAUDIO_LICENSE.txt: a None Update can change it (..\\..\\packaging\\licenses\\NAUDIO_LICENSE.txt)",
+    ),
+    (
+        "bd-coordinator: a None Update through a property reference sets a module licence item to Never (N-audit-1106-017)",
+        os.path.join(REPO, "modules", "Remembrance", "Remembrance.csproj"),
+        b"      <Link>TENSORS_THIRD_PARTY_NOTICES.txt</Link>\n"
+        b"      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>\n"
+        b"    </None>\n"
+        b"  </ItemGroup>\n",
+        b"      <Link>TENSORS_THIRD_PARTY_NOTICES.txt</Link>\n"
+        b"      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>\n"
+        b"    </None>\n"
+        b"  </ItemGroup>\n"
+        b"  <ItemGroup>\n"
+        b'    <None Update="$(MSBuildProjectDirectory)\\..\\..\\packaging\\licenses\\NAUDIO_LICENSE.txt" CopyToOutputDirectory="Never" />\n'
+        b"  </ItemGroup>\n",
+        "coordinator: each module on the fixed licence list ships the licence texts of the libraries it carries, with no Condition"
+        " -- Remembrance NAUDIO_LICENSE.txt: a None Update can change it ($(MSBuildProjectDirectory)\\..\\..\\packaging\\licenses\\",
+    ),
+    (
+        "bd-coordinator: an Exclude naming a module licence item drops it (N-audit-1106-017)",
+        os.path.join(REPO, "modules", "Reminder", "Reminder.csproj"),
+        b'    <None Include="..\\..\\packaging\\licenses\\NODATIME_LICENSE.txt">\n',
+        b'    <None Include="..\\..\\packaging\\licenses\\NODATIME_LICENSE.txt" Exclude="..\\..\\packaging\\licenses\\NODATIME_LICENSE.txt">\n',
+        "coordinator: each module on the fixed licence list ships the licence texts of the libraries it carries, with no Condition"
+        " -- Reminder NODATIME_LICENSE.txt: an Exclude on it can drop it (..\\..\\packaging\\licenses\\NODATIME_LICENSE.txt)",
+    ),
+    (
+        "bd-coordinator: a None Remove spelled another way takes a module licence out again (N-audit-1106-017)",
+        os.path.join(REPO, "modules", "Remembrance", "Remembrance.csproj"),
+        b"      <Link>TENSORS_THIRD_PARTY_NOTICES.txt</Link>\n"
+        b"      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>\n"
+        b"    </None>\n"
+        b"  </ItemGroup>\n",
+        b"      <Link>TENSORS_THIRD_PARTY_NOTICES.txt</Link>\n"
+        b"      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>\n"
+        b"    </None>\n"
+        b"  </ItemGroup>\n"
+        b"  <ItemGroup>\n"
+        b'    <none Remove=".\\..\\..\\Packaging\\licenses\\x\\..\\NAUDIO_LICENSE%2Etxt" />\n'
+        b"  </ItemGroup>\n",
+        "coordinator: each module on the fixed licence list ships the licence texts of the libraries it carries, with no Condition"
+        " -- Remembrance NAUDIO_LICENSE.txt: a None Remove can take it out again (.\\..\\..\\Packaging\\licenses\\x\\..\\NAUDIO_LICENSE%2Etxt)",
+    ),
 )
 
 
