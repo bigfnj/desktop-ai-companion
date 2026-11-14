@@ -184,5 +184,7 @@ internal sealed class WorkerSupervisor(IBrokerControlClient control, IWorkerChil
         Add("--message-lifetime-minutes", launch.Settings.MessageLifetimeHours * 60);
         if (launch.Settings.AdditionalCodexHome.Length > 0)
             Add("--codex-additional-homes", System.Text.Json.JsonSerializer.Serialize(new[] { launch.Settings.AdditionalCodexHome }));
+        // Lane F: sent only when the owner turned attachments on; off launches the worker in its default (no attachments).
+        if (launch.Settings.AttachmentsEnabled) Add("--attachments", Bool(true));
     }
 }

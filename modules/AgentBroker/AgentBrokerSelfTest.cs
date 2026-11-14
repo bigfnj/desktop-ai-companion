@@ -36,6 +36,7 @@ public sealed partial class AgentBrokerModule
             RunPeerClockChecks(Check);
             RunPaneTextChecks(Check, dispatcher);
             RunWaitingMailChecks(Check, dispatcher);
+            RunAttachmentChecks(Check, dispatcher);
             var host = new TestHost();
             string directory = Path.Combine(Path.GetTempPath(), "agentbroker-synthetic-" + Guid.NewGuid().ToString("N"));
             host.UseStorage(Id, new TestStorage(directory));
