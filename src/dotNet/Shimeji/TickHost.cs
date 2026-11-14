@@ -489,7 +489,10 @@ namespace DesktopAICompanion.Shimeji
 
         private readonly TickFaultThrottle _faults = new TickFaultThrottle();
 
-        public void Muted(TickMascot mascot, string clip) { }
+        // The engine stops the clips itself (TickSound through HostTickClips); the read record is parity observation only
+        // (CONTRACT v1.4 P2-E), so the product does nothing with either call.
+        public void Muted(TickMascot mascot, string clip, TickAction activation, TickParamRead read) { }
+        public void MuteReadNoEvent(TickMascot mascot, TickAction activation, TickParamRead read) { }
         // The engine has already played or stopped the clip through the world's clips (HostTickClips).
         public void Sound(TickMascot mascot, string clip, string op) { }
         public void ScanTargeted(TickMascot mascot, string affordance, TickMascot target) { }

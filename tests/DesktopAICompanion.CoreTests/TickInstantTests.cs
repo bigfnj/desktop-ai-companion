@@ -93,6 +93,256 @@ namespace DesktopAICompanion
             AssertTrue(f.BringToFrontRequested, "BringToFront did not ask for the window to be raised.");
         }
 
+        // ---- the Mute Sound read record (N-bd-codex-converter-1-02, host half; CONTRACT v1.4 P2-A and P2-B). Each check is
+        // its own Run group: a group stops at its first failure, and each mutation case names its own group.
+
+        /// <summary>Go runs the sequence [Hush, Stand]; Hush is a Mute with <paramref name="own"/> parameters, and when
+        /// <paramref name="incomingSound"/> is given the sequence's child reference binds Sound to it (the incoming
+        /// definition, which wins over the own one).</summary>
+        private static TickType TMuteType(string incomingSound, params XmlData.ParamNode[] own)
+        {
+            XmlData.AnimationNode seq = TSequence(20, "Go", "Hush", "Stand");
+            if (incomingSound != null)
+                seq.Act.Children.Child[0].Bind = new[] { new XmlData.BindNode { Name = "Sound", Value = incomingSound, Cache = "none" } };
+            return TickType.Compile("Alpha", TickDoc(
+                TRoute(TEdge(10, 1)),
+                TBeh(10, "Go", "Go", 1, null),
+                seq,
+                TInstant(30, "Hush", "Mute", own),
+                TAct(31, "Stand", "Stay", null, new[] { TParam("Duration", "50") }, TPose(0, 1))));
+        }
+
+        /// <summary>Starts m1 in Go, which initialises the Mute and so reads Sound once, with this companion's sounds on or off.</summary>
+        private static TickLog TMuteRun(TickType t, bool soundsOn, ITickRandom random = null)
+        {
+            var log = new TickLog();
+            var switches = new TickSwitches();
+            if (!soundsOn) switches.Off["Alpha:Sounds"] = false;
+            var w = new TickWorld(new TickDesk(), random ?? new TickTape(), switches, log);
+            w.AddType(t);
+            w.Start();
+            w.CreateAtStart("m1", t, new TickPoint(640, 680), false, "Go");
+            return log;
+        }
+
+        private static string TMuteReads(TickLog log)
+        {
+            var parts = new List<string>();
+            for (int i = 0; i < log.Reads.Count; i++)
+            {
+                TickParamRead r = log.Reads[i];
+                parts.Add(log.ReadSites[i] + ":" + r.Selection + (r.Winner == null ? "" : "(" + r.Winner.Name + ")") + "," + r.Kind
+                          + (r.Faulted ? ",faulted" : "") + (r.ObservationFault == null ? "" : "," + r.ObservationFault));
+            }
+            return "reads [" + string.Join("; ", parts) + "], events [" + string.Join("; ", log.Events) + "], faults [" + string.Join("; ", log.Faults) + "]";
+        }
+
+        /// <summary>An ITickRandom that counts every draw.</summary>
+        private sealed class TCountingRandom : ITickRandom
+        {
+            public int Draws;
+            public double Next() { Draws++; return 0.5; }
+        }
+
+        /// <summary>An ITickRandom whose every draw throws, so a script read of Math.random() throws out of the engine's Read.</summary>
+        private sealed class TThrowingRandom : ITickRandom
+        {
+            public double Next() { throw new InvalidOperationException("engine read throws"); }
+        }
+
+        private static void TestTickMuteReadIncoming()
+        {
+            // The child reference's bind overwrites Hush's own Sound in the action's variables (TickVars' constructor); the
+            // record must name that incoming OBJECT, because the parity map binds provenance by reference.
+            TickType t = TMuteType("incoming.wav", TParam("Sound", "own.wav"));
+            TickLog log = TMuteRun(t, true);
+            TickParamDef incoming = t.ActionsById[20].Children[0].Binds["Sound"], own = t.ActionsById[30].Params["Sound"];
+            AssertTrue(log.Events.Contains("m1 mute incoming.wav") && log.Reads.Count == 1 && log.ReadSites[0] == "named" && !ReferenceEquals(incoming, own),
+                "WITNESS: the Mute did not read the incoming Sound exactly once and report it as a named mute: " + TMuteReads(log));
+            AssertTrue(log.Reads[0].Selection == TickParamSelection.Definition && ReferenceEquals(log.Reads[0].Winner, incoming),
+                "The read record does not select the incoming definition object (incoming over own): " + TMuteReads(log));
+        }
+
+        private static void TestTickMuteReadActivation()
+        {
+            // The observer is handed the Mute action itself, whose OwnerType is the type its definition was built from. In
+            // the retained state of a failed Transform that is the HOLDING type (Alpha) while the companion is a Beta, which
+            // is why provenance is looked up through the activation's OwnerType, never the companion's current type
+            // (CONTRACT v1.4 P2-C, the retained-owner control). Morph's Transform fails (blank behaviour), then Morph's next
+            // list chooses Go through Alpha, whose sequence initialises the Mute.
+            TickType alpha = TickType.Compile("Alpha", TickDoc(
+                TRoute(TEdge(10, 0), TEdge(11, 0)),
+                TBeh(10, "Morph", "Morph", 0, false, TEdge(11, 1)),
+                TBeh(11, "Go", "Go", 0, null),
+                TAct(30, "Morph", "Embedded", "Transform", new[] { TParam("TransformMascot", "Beta"), TParam("TransformBehavior", "") },
+                    TPose(0, 1), TPose(1, 1)),
+                TSequence(20, "Go", "Hush", "Stand"),
+                TInstant(31, "Hush", "Mute", TParam("Sound", "own.wav")),
+                TAct(32, "Stand", "Stay", null, new[] { TParam("Duration", "500") }, TPose(0, 1))));
+            TickType beta = RetainedBeta();
+            var log = new TickLog();
+            var w = new TickWorld(new TickDesk(), new TickTape(), new TickSwitches(), log);
+            w.AddType(alpha);
+            w.AddType(beta);
+            w.Start();
+            TickMascot m = w.CreateAtStart("m1", alpha, new TickPoint(640, 680), false, "Morph");
+            for (int i = 0; i < 4; i++) w.StepOnce();
+            AssertTrue(ReferenceEquals(m.Type, beta) && m.Behaviour != null && m.Behaviour.Name == "Go" && ReferenceEquals(m.Behaviour.Type, alpha)
+                       && log.Events.Contains("m1 mute own.wav") && log.Reads.Count == 1,
+                "WITNESS: the retained Beta did not run Alpha's Go and read the Mute's Sound once: " + m.Type.Name + " | " + TMuteReads(log));
+            AssertTrue(ReferenceEquals(log.ReadActivations[0].Def, alpha.ActionsById[31]) && ReferenceEquals(log.ReadActivations[0].OwnerType, alpha),
+                "The Mute read's activation is not the Mute action owned by the holding type: "
+                + log.ReadActivations[0].Def.Name + " owned by " + (log.ReadActivations[0].OwnerType == null ? "none" : log.ReadActivations[0].OwnerType.Name));
+        }
+
+        private static void TestTickMuteReadLocal()
+        {
+            // A local published into the action's variables (putVariable) replaces any definition until the instance ends;
+            // Init clears only the cache, so a local put before a re-initialisation is what that read sees.
+            TickType t = TMuteType(null, TParam("Sound", "own.wav"));
+            var log = new TickLog();
+            var w = new TickWorld(new TickDesk(), new TickTape(), new TickSwitches(), log);
+            w.AddType(t);
+            w.Start();
+            TickMascot m = w.CreateAtStart("m1", t, new TickPoint(640, 680), false, "Go");
+            TickAction mute = TickInstantFamily.TryCreate(w, t, t.ActionsById[30], null);
+            mute.Vars.Put("Sound", ScriptValue.FromString("local.wav"));
+            mute.Init(m);
+            AssertTrue(log.Events.Contains("m1 mute own.wav") && log.Events.Contains("m1 mute local.wav") && log.Reads.Count == 2
+                       && log.Reads[0].Selection == TickParamSelection.Definition,
+                "WITNESS: the definition read and then the local read were not both reported as named mutes: " + TMuteReads(log));
+            AssertTrue(log.Reads[1].Selection == TickParamSelection.Local && log.Reads[1].Winner == null && log.Reads[1].Kind == ScriptValueKind.String,
+                "A local Sound was not reported Local with no definition: " + TMuteReads(log));
+        }
+
+        private static void TestTickMuteReadLocalNullSoundsOff()
+        {
+            // The v1.4 Sounds-off local-null control, engine half (Q1a): a local null with this companion's sounds off asks
+            // for no event, and the observer is still given that one read, selection Local, through the no-event site. The
+            // trace writer's half (provenance missing, status error) arrives with P2-C.
+            TickType t = TMuteType(null);
+            var log = new TickLog();
+            var switches = new TickSwitches();
+            switches.Off["Alpha:Sounds"] = false;
+            var w = new TickWorld(new TickDesk(), new TickTape(), switches, log);
+            w.AddType(t);
+            w.Start();
+            TickMascot m = w.CreateAtStart("m1", t, new TickPoint(640, 680), false, "Go");
+            TickAction mute = TickInstantFamily.TryCreate(w, t, t.ActionsById[30], null);
+            mute.Vars.Put("Sound", ScriptValue.Null);
+            mute.Init(m);
+            AssertTrue(!log.Events.Exists(e => e.Contains(" mute ")) && log.Reads.Count == 2
+                       && log.ReadSites[0] == "no-event" && log.Reads[0].Selection == TickParamSelection.Absent
+                       && log.ReadSites[1] == "no-event" && log.Reads[1].Selection == TickParamSelection.Local && log.Reads[1].Kind == ScriptValueKind.Null,
+                "A Sounds-off Mute read (absent, then a local null) was not observed once each through the no-event site, or reported a mute: " + TMuteReads(log));
+        }
+
+        private static void TestTickMuteReadEveryBranch()
+        {
+            // Every completed read reaches the observer exactly once (CONTRACT v1.4 P2-B, Q1): named, null with sounds on
+            // (the two mute events), and null with sounds off, absent or evaluated, which report no event.
+            TickLog named = TMuteRun(TMuteType(null, TParam("Sound", "bell.wav")), false);
+            TickLog absentOn = TMuteRun(TMuteType(null), true);
+            TickLog absentOff = TMuteRun(TMuteType(null), false);
+            TickLog nullOff = TMuteRun(TMuteType(null, TParam("Sound", "null", "action")), false);
+            AssertTrue(named.Events.Contains("m1 mute bell.wav") && named.ReadSites.Count == 1 && named.ReadSites[0] == "named"
+                       && absentOn.Events.Contains("m1 mute -") && absentOn.ReadSites.Count == 1 && absentOn.ReadSites[0] == "null"
+                       && absentOn.Reads[0].Selection == TickParamSelection.Absent,
+                "WITNESS: a named Mute and an absent Sound with sounds on were not each one read reported with its mute event: "
+                + TMuteReads(named) + " | " + TMuteReads(absentOn));
+            AssertTrue(!absentOff.Events.Exists(e => e.Contains(" mute ")) && absentOff.ReadSites.Count == 1 && absentOff.ReadSites[0] == "no-event"
+                       && absentOff.Reads[0].Selection == TickParamSelection.Absent
+                       && !nullOff.Events.Exists(e => e.Contains(" mute ")) && nullOff.ReadSites.Count == 1 && nullOff.ReadSites[0] == "no-event"
+                       && nullOff.Reads[0].Selection == TickParamSelection.Definition && nullOff.Reads[0].Kind == ScriptValueKind.Null && !nullOff.Reads[0].Faulted,
+                "A Sounds-off null read was not observed exactly once through the no-event site: " + TMuteReads(absentOff) + " | " + TMuteReads(nullOff));
+        }
+
+        private static void TestTickMuteReadKind()
+        {
+            // ${1} and ${'1'} both display as 1 and both stop clips named 1; only the kind taken before display coercion
+            // tells the Number from the String (control 10, host half).
+            TickLog num = TMuteRun(TMuteType(null, TParam("Sound", "1", "action")), true);
+            TickLog str = TMuteRun(TMuteType(null, TParam("Sound", "'1'", "action")), true);
+            AssertTrue(num.Events.Contains("m1 mute 1") && str.Events.Contains("m1 mute 1") && num.Reads.Count == 1 && str.Reads.Count == 1,
+                "WITNESS: an evaluated Number 1 and an evaluated String '1' did not both mute the clip named 1: " + TMuteReads(num) + " | " + TMuteReads(str));
+            AssertTrue(num.Reads[0].Kind == ScriptValueKind.Number && str.Reads[0].Kind == ScriptValueKind.String,
+                "The read record's kind was taken after display coercion: " + TMuteReads(num) + " | " + TMuteReads(str));
+        }
+
+        private static void TestTickMuteReadFaulted()
+        {
+            // A self-reference is reported by TickVars.Get and reads null (TickRuntime TickVars.Get). Plain ${Sound}: the
+            // result is null, sounds on, so the engine's null branch runs. The conditional ${Sound == null ? 'x' : 'y'}: the
+            // inner self-reference faults, and the outer read still yields "x", the argument TickSound receives. Faulted is
+            // orthogonal to the result in both (CONTRACT v1.4 Q2); an unfaulted read is not Faulted (WITNESS).
+            TickLog plain = TMuteRun(TMuteType(null, TParam("Sound", "Sound", "action")), true);
+            TickLog conditional = TMuteRun(TMuteType(null, TParam("Sound", "Sound == null ? 'x' : 'y'", "action")), true);
+            TickLog clean = TMuteRun(TMuteType(null, TParam("Sound", "'x'", "action")), true);
+            AssertTrue(clean.Events.Contains("m1 mute x") && clean.Reads.Count == 1 && !clean.Reads[0].Faulted && clean.Faults.Count == 0,
+                "WITNESS: an unfaulted evaluated read was reported Faulted, or did not mute x: " + TMuteReads(clean));
+            AssertTrue(plain.Events.Contains("m1 mute -") && plain.Faults.Exists(f => f.Contains("refers to itself"))
+                       && conditional.Events.Contains("m1 mute x") && conditional.Faults.Exists(f => f.Contains("refers to itself")),
+                "WITNESS: the self-referencing reads did not keep the engine's own results (null, then x) with their faults: "
+                + TMuteReads(plain) + " | " + TMuteReads(conditional));
+            AssertTrue(plain.Reads.Count == 1 && plain.Reads[0].Faulted && plain.Reads[0].Kind == ScriptValueKind.Null
+                       && conditional.Reads.Count == 1 && conditional.Reads[0].Faulted && conditional.Reads[0].Kind == ScriptValueKind.String,
+                "A self-referencing Sound read was not recorded Faulted (whatever its result): " + TMuteReads(plain) + " | " + TMuteReads(conditional));
+        }
+
+        private static void TestTickMuteReadDraws()
+        {
+            // CONTRACT v1.4 control 7: Condition reads Sound once (Math.random draws, null is not cached), then Apply reads it
+            // once more: exactly 2 draws during the Mute's initialisation, an absolute count, because a comparison with another
+            // observed read could not see an evaluation both add. Condition's own true IS cached, so the
+            // sequence's HasNext poll after it draws nothing.
+            var rng = new TCountingRandom();
+            TickLog log = TMuteRun(TMuteType(null, TParam("Condition", "Sound == null", "action"), TParam("Sound", "Math.random() < 2 ? null : 'x'", "action")), true, rng);
+            AssertTrue(log.Events.Contains("m1 mute -") && log.Reads.Count == 1 && log.Reads[0].Kind == ScriptValueKind.Null
+                       && log.Draws.TrueForAll(d => d.Contains("#param:Sound#")),
+                "WITNESS: the null-drawing Sound did not reach the null branch once, or something other than Sound drew: "
+                + TMuteReads(log) + " | " + string.Join("|", log.Draws));
+            AssertEqual(2, rng.Draws, "Observing the Mute read added an evaluation (exact draw count): " + string.Join("|", log.Draws));
+        }
+
+        private static void TestTickMuteReadObservationFault()
+        {
+            // An exception thrown by OBSERVATION code is kept in the record as a provenance defect and never reaches the
+            // engine (CONTRACT v1.4 FC-2, control C18, engine half): the read, its result and the branch are the base's, no
+            // fault is reported and the companion lives. One region at a time.
+            foreach (string region in new[] { "selection", "snapshot", "result" })
+            {
+                TickLog log;
+                TickParamRead.ObservationProbe = (at, parameter) => { if (at == region && parameter == "Sound") throw new InvalidOperationException("probe " + at); };
+                try { log = TMuteRun(TMuteType(null, TParam("Sound", "own.wav")), true); }
+                finally { TickParamRead.ObservationProbe = null; }
+                AssertTrue(log.Events.Contains("m1 mute own.wav") && log.Faults.Count == 0 && !log.Events.Exists(e => e.Contains("dispose"))
+                           && log.Reads.Count == 1 && log.Reads[0].ObservationFault == "observer exception InvalidOperationException: probe " + region,
+                    "An observation exception was not kept as a provenance defect with the engine's read unchanged (" + region + "): " + TMuteReads(log));
+            }
+            TickLog none = TMuteRun(TMuteType(null, TParam("Sound", "own.wav")), true);
+            AssertTrue(none.Reads.Count == 1 && none.Reads[0].ObservationFault == null,
+                "WITNESS: a read with no observation exception carries a provenance defect: " + TMuteReads(none));
+        }
+
+        private static void TestTickMuteReadEngineThrow()
+        {
+            // An exception from the engine's OWN read is not a completed observation: it propagates exactly as before (here
+            // into the start wrapper), and no read record is delivered. Wrapping Read in an observation catch would swallow it
+            // into a record.
+            TickLog log = new TickLog();
+            var w = new TickWorld(new TickDesk(), new TThrowingRandom(), new TickSwitches(), log);
+            TickType t = TMuteType(null, TParam("Sound", "Math.random() < 2 ? 'a' : 'b'", "action"));
+            w.AddType(t);
+            w.Start();
+            string thrown = null;
+            try { w.CreateAtStart("m1", t, new TickPoint(640, 680), false, "Go"); }
+            catch (InvalidOperationException e) { thrown = e.Message; }
+            AssertTrue(log.Reads.Count == 0 && !log.Events.Exists(e => e.Contains(" mute ")),
+                "An exception from the engine's own Sound read was caught as an observation (thrown: " + (thrown ?? "nothing") + "): " + TMuteReads(log));
+            AssertTrue(thrown == "engine read throws" || log.Faults.Exists(f => f.Contains("engine read throws")),
+                "WITNESS: the engine's read exception neither propagated nor was reported: " + TMuteReads(log));
+        }
+
         /// <summary>The Scaling setting, applied once at load: anchors and hotspots round(v * s) with Java's rounding,
         /// pose moves the same except that a non-zero move under one pixel stays one pixel.</summary>
         private static void TestTickScale()

@@ -8062,6 +8062,92 @@ from the build; a build with no checkout says DEGRADED) and runs them as they ar
 built exe on them with converted pets in fresh processes. Refused: a table or admission parameter for self-tests (H :64),
 embedding a copy of the registry, and checking the declaration grammar at run time behind the gate (H step 5).
 
+#### burndown/host-mute-1
+
+**The parity map reader reads shimeji-parity-map/3 only, and its new checks run last (N-bd-codex-converter-1-02, host
+half, 2026-11-13).** `ParityMap` in `src/dotNet/Shimeji/ParityRun.cs` follows the CONTRACT v1.4 Mute proposal (revision
+2, not yet adopted). Decisions a later reader could take for defects:
+
+- The unknown-top-level check and the Sound row checks are made at the END of `ParityMap.Apply`, after the pose binding
+  and the geometry check, not in `Parse`, although they read nothing from the compiled type. The proposal's FC-1 orders
+  it: an existing refusal keeps its reason, and the new checks wait until every existing one has passed. `Parse` keeps
+  the raw `soundParameters` (a cloned element) and the top-level names for them.
+- Map/1 and map/2 are refused with one message naming the file's own version, and a map/2 file is never upgraded in
+  place: no map reader accepts two versions (P1-F), and changing a schema string by hand is not migration.
+- `ParityMap.SourceKind` strips Java's trim set (U+0000 to U+0020) itself and asks `TickType.TryParseJavaDouble` only
+  about text with no `char.IsWhiteSpace` at either end. Calling `TryParseJavaDouble` or `TickType.ParseLiteral` on the
+  raw text was refused: their .NET `string.Trim` strips U+00A0, U+0085 and the Unicode spaces, which Java's trim keeps,
+  so U+00A0 then 1 would read as a number where the source keeps a String (control 1).
+- Every reader rule's window self-test label holds both legs of one map: the reader's exact refusal, and a parity run of
+  the same map giving exit 2, no trace and that exact reason after `refused <map path>: ` (C13). Split into a reader
+  label and a run label, removing one reader check would fail both, and exit 2 with no trace alone cannot tell a removed
+  check from another refusal.
+- The noncanonical row-token legs have no leading-zero case such as `01`, although `CanonicalFault` refuses one. JSON
+  forbids a leading zero, so `System.Text.Json` refuses the whole map at `Parse` before any row is read, and the row
+  check's leading-zero branch cannot be reached from a map. A plain negative such as `-1` takes the same non-digit path
+  as the `-0` leg, so it needs no leg of its own.
+- `ParityMap.BindSounds` (P1-D, P1-E) keeps `Apply`'s tolerance of an absent `children` entry for a child reference that
+  binds no Sound, and refuses the absence only for a child that binds Sound (control 9). Closing it for every child could
+  refuse real maps outside the Mute wire.
+- Rows are held by the compiled `TickParamDef` object, never by value: `TickParamDef` overrides no `Equals`, so a
+  default-comparer dictionary would be the same thing (critique C1), and a lookup by emitted text or compiled value
+  would give `/`, a backslash and the empty string one row, since all three emit "" (control 5).
+- Two rows may share a `sourceRefKey` (P1-D); the self-test WITNESS has such a pair, so a uniqueness check fails it.
+- The self-test document's frame-cached Sound is `'b'`, not an empty body, although P1-B allows an evaluated row with an
+  empty emitted value: the validator refuses an empty expression, so a validated document a parity run loads cannot hold
+  one, and the binding never reads the compiled program either way.
+- The cache-present and mode checks of `BindSounds` can be killed only by their messages. The reader's closed
+  `emittedCache` set, its literal-means-none pairing and the compiled cache mapping make the `emittedCache` equality imply
+  both, so their maps always break `emittedCache` too, and removing either check changes the refusal's message, never
+  accept or refuse. Their labels compare the exact message (C13); a label reduced to "refused" could not fail.
+- Each shape rule's self-test map is the complete rows with one row broken, so it breaks exactly that rule since the
+  binding came in. The two maps with no array (absent, not an array) cannot hold rows, and a removed shape check may
+  leave its broken row failing a binding rule instead, which still fails that label alone.
+- The shadowed-definition leg (P1-E) and control 17's action-param and behaviour-bind legs each run on their own copy of
+  the document. Placed in the shared document, an off-route behaviour would make the by-name mutant throw a duplicate-key
+  exception in every map holding the complete rows, and a lowercase entry would fail every acceptance there, so neither
+  mutant could fail one label. The off-route behaviour is reachable for the validator, which requires every off-route
+  behaviour to carry a root behaviour's name, while `RootByName` holds only the route's targets.
+- `ParityTraceWriter.MuteDisposition` (commit 5a, P2-C) reads only stored state: the engine's read record, the action's
+  `OwnerType` and that member's map. It never asks the action for Sound again, since a second read would evaluate the
+  script again (a draw for a random one, and a cache write), which control 7 measures. The map comes from `OwnerType`,
+  never from the companion's current member, because a retained action belongs to the member that built it (W5).
+- The writer has no check of its own for a guard selection. No Mute reads Sound through a guard, and a guard read has
+  no winning definition, so it would land on the unbound-definition defect anyway; a separate guard check could never
+  be reached by any input.
+- The literal branch writes `sourceValue` with no fault check and no null-clip check. A literal read evaluates nothing,
+  so it never faults, and a literal always displays non-null, so neither condition could be reached.
+- The FC-2 catches in `Muted` and `MuteReadNoEvent`, and the disposition of `TickParamRead.ObservationFault`, came in
+  commit 5b with C18's probes rather than in 5a, because only a probe can make their removal fail a check. The catches
+  wrap thin `MutedCore` and `NoEventCore` methods, so the disposition code keeps its bytes and its 5a mutation cases.
+- C18's probe (`TickParamRead.ObservationProbe`) is handed the site and the read's parameter name, and the self-test
+  arms it for Sound alone (review note S5). Since round 5 only the Mute action's Sound read is observed at all (the
+  coordinator's ruling after round 4): the plain `EvalString` every other caller uses runs no observation code, so none
+  can throw there and no observation exception is ever discarded, which FC-2 forbids in a parity run. Commit 3 had
+  routed every read through the observed overload so the two could not drift; they now share Present, Read and
+  `Displayed` instead. The writer's five sites name Sound themselves, since the writer handles only that read. A
+  test-only seam per site was refused: one seam keyed by site name injects at every FC-2 site with no more product
+  surface.
+- C18's engine-Read leg wraps the parity environment in a decorator whose `Cursor` throws while armed, as the contract
+  names it, and compares the outcome with the same run in a NullObserver world. Its recording-`ITickClips` comparison
+  is the trace comparison instead, which the coordinator accepted: the parity world has no clips. Both runs declare one
+  cursor read (revision 3's call count), and the armed run declares the error event's whole message. The start wrapper
+  (`TickWorld.CreateAtStart`) forms it as "internal fault: InvalidOperationException: the first behaviour could not be
+  built: c18 cursor", so the shorter "internal fault: InvalidOperationException: c18 cursor" is not a substring of it
+  and the leg matches the whole text instead.
+- W3's behaviour-bind leg runs the instant Mute as Go's own action. It ends at once and Go is entered again within the
+  same start, so the leg writes many mute lines and is judged by the set of clips written, which must be the bind's.
+- W3's next-reference half is reachable at the writer, so it has a leg (round 6). The host's `NextNode` carries no
+  binds, so a source next-list entry that binds Sound arrives as an off-route behaviour node with its own binds, named
+  like the root behaviour whose list it continues into, and `BuildNextBehaviour` builds a chosen edge from the edge's
+  own target, never by name. The leg's next list (add false) holds one such entry running the Mute with Sound bound;
+  the root behaviour of its name runs Stand and continues into itself, so the run settles after two reads instead of
+  handing off until the bound. The same document also runs through `ParityRun.Run`, so the validator and LoadPets
+  accept it. The 96cabeef by-name inventory mutant therefore fails this label as well as its own map/3 label: a writer
+  leg cannot enter an off-route behaviour's bind unless the reader binds it by node id.
+- Control 12's self-test leg is judged by the exit code and the log alone. The withheld mute line of the defect read
+  belongs to the provenance label, so a mutant that writes that line fails one label, not two.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. None of

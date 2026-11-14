@@ -18139,14 +18139,14 @@ CASES = (
      CORETESTS, None, "Tick sound Mute: a named Sound stops the initiator's running clips by prefix, at any volume, wherever they play"),
     ('shimeji-sound: a named Mute is not carried out',
      os.path.join(REPO, "src", "dotNet", "Shimeji", "TickInstantFamily.cs"),
-     b'World.Observer.Muted(Mascot, sound);\n                TickSound.MuteNamed(World, Mascot, sound);',
-     b'World.Observer.Muted(Mascot, sound);',
+     b'World.Observer.Muted(Mascot, sound, this, read);\n                TickSound.MuteNamed(World, Mascot, sound);',
+     b'World.Observer.Muted(Mascot, sound, this, read);',
      CORETESTS_CSPROJ, CORETESTS_DLL,
      CORETESTS, None, "Tick sound Mute: a named Sound stops the initiator's running clips by prefix, at any volume, wherever they play"),
     ('shimeji-sound: a Mute with no Sound is not carried out',
      os.path.join(REPO, "src", "dotNet", "Shimeji", "TickInstantFamily.cs"),
-     b'World.Observer.Muted(Mascot, null);\n                TickSound.MuteAll(World, Mascot);',
-     b'World.Observer.Muted(Mascot, null);',
+     b'World.Observer.Muted(Mascot, null, this, read);\n                TickSound.MuteAll(World, Mascot);',
+     b'World.Observer.Muted(Mascot, null, this, read);',
      CORETESTS_CSPROJ, CORETESTS_DLL,
      CORETESTS, None, "Tick sound Mute: no Sound stops every clip of every type, only while the initiator's sounds are on"),
     ("shimeji-sound: a Mute with no Sound ignores the initiator's setting",
@@ -21363,12 +21363,16 @@ CASES = (
      HOST_CSPROJ, EXE,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
      'parity map/2: an unmapped false-condition last variant of a MoveWithTurn is refused'),
+    # Re-pointed by burndown/host-mute-1 (map/3, CONTRACT v1.4 draft P1-F retires map/1 and map/2 together): the same
+    # intent, a map/1 file read as current, with map/2 still retired, so the map/1 legs are the ones that fail.
     ("bd-parity-host-1: a map/1 file is read",
      os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
-     b'                if (schema == RetiredSchema)\n'
-     b'                    throw new InvalidDataException("the map is " + RetiredSchema + "; regenerate it with the current converter (map/2 required)");\n'
+     b'                if (RetiredSchemas.Contains(schema))\n'
+     b'                    throw new InvalidDataException("the map is " + schema + "; regenerate it with the current converter (map/3 required)");\n'
      b'                if (schema != Schema) throw new InvalidDataException("parity map schema is not " + Schema);\n',
-     b'                if (schema != Schema && schema != RetiredSchema) throw new InvalidDataException("parity map schema is not " + Schema);\n',
+     b'                if (RetiredSchemas.Contains(schema) && schema != "shimeji-parity-map/1")\n'
+     b'                    throw new InvalidDataException("the map is " + schema + "; regenerate it with the current converter (map/3 required)");\n'
+     b'                if (schema != Schema && schema != "shimeji-parity-map/1") throw new InvalidDataException("parity map schema is not " + Schema);\n',
      HOST_CSPROJ, EXE,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
      'parity map/2: a map/1 file is refused with a regenerate message'),
@@ -21400,6 +21404,774 @@ CASES = (
      b'',
      CORETESTS_CSPROJ, CORETESTS_DLL,
      CORETESTS, None, 'The parity hook was not told of exactly the button edges'),
+    # ---- burndown/host-mute-1 ----
+    # N-bd-parity-host-1-04: the hotspot press receivers (anchor packet A1-A4, legs L0-L6). M1 reads eligibility from the
+    # holding type; it is registered twice because L3 (Beta has no H) and L4 (Beta's H switched off) each kill it on their
+    # own, and each group stops at its first failure. M2 builds through the current type (L2). M3 keys the construction
+    # settings by the holding type, which only L6 (TestTickSettingsFallbackCause's hotspot-press leg) can see.
+    ("bd-host-mute-1: the hotspot press judges eligibility in the holding type (M1, L3)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'_world.IsBehaviourEnabledByName(_mascot.Type, h.Behaviour, _mascot)',
+     b'_world.IsBehaviourEnabledByName(Type, h.Behaviour, _mascot)',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "Tick hotspot receiver: L3 retained, Beta.H absent, drags through the holding type"),
+    ("bd-host-mute-1: the hotspot press judges eligibility in the holding type (M1, L4)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'_world.IsBehaviourEnabledByName(_mascot.Type, h.Behaviour, _mascot)',
+     b'_world.IsBehaviourEnabledByName(Type, h.Behaviour, _mascot)',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "Tick hotspot receiver: L4 retained, Beta.H switched off, drags through the holding type"),
+    ("bd-host-mute-1: the hotspot press builds through the current type (M2, L2)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'\n                _world.EnterBehaviourByName(_mascot, Type, h.Behaviour, "forced");\n',
+     b'\n                _world.EnterBehaviourByName(_mascot, _mascot.Type, h.Behaviour, "forced");\n',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "Tick hotspot receiver: L2 retained, Beta.H enabled, builds through the holding type"),
+    ("bd-host-mute-1: a by-name build reads the holding type's switches (M3, L6)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'if (Settings.IsBehaviourEnabled(def, mascot.Type.Name)) return Build(type, def);',
+     b'if (Settings.IsBehaviourEnabled(def, type.Name)) return Build(type, def);',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "did not fall in labelled fallback (hotspot press)"),
+    # N-bd-codex-converter-1-02, host half: the passive Mute Sound read record (CONTRACT v1.4 P2-A, P2-B, FC-2). Each case
+    # breaks one rule of TickAction.EvalString's observed read or TickMute.Apply's observation sites, and each names the
+    # CoreTests group that pins that rule (one group per rule, so no mutant hides another's label).
+    ("bd-host-mute-1: the Mute read selects the own definition over the incoming one",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'winner = Vars.Selection(name, out local);',
+     b'winner = Vars.Selection(name, out local); if (Def.Params.ContainsKey(name)) winner = Def.Params[name];',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "Tick Mute read: selection is the incoming definition object, never the own one"),
+    ("bd-host-mute-1: the Mute read's selection evaluates the parameter (a second Get)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'winner = Vars.Selection(name, out local);',
+     b'Vars.Get(name, Context); winner = Vars.Selection(name, out local);',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "Tick Mute read: observing adds no evaluation, exact draw count"),
+    ("bd-host-mute-1: the Mute read's kind is taken after display coercion",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'read.Kind = v.Kind;',
+     b'read.Kind = v.Kind == ScriptValueKind.Null ? v.Kind : ScriptValueKind.String;',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "Tick Mute read: the kind is taken before display coercion"),
+    ("bd-host-mute-1: the Mute read's fault snapshot is taken after the read",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'                faultsBefore = Context.FaultsReported;\n'
+     b'            }\n'
+     b'            catch (Exception e) { read.ObservationFault = TickParamRead.Defect(e); }\n'
+     b'            ScriptValue v = Read(name, guard);\n',
+     b'            }\n'
+     b'            catch (Exception e) { read.ObservationFault = TickParamRead.Defect(e); }\n'
+     b'            ScriptValue v = Read(name, guard);\n'
+     b'            faultsBefore = Context.FaultsReported;\n',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "Tick Mute read: a self-referencing Sound read is Faulted"),
+    ("bd-host-mute-1: the Mute observer is handed the behaviour's action instead of the Mute",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickInstantFamily.cs"),
+     b'World.Observer.Muted(Mascot, sound, this, read);',
+     b'World.Observer.Muted(Mascot, sound, Mascot.Behaviour.Action, read);',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "Tick Mute read: the activation is the Mute action, owned by the holding type in the retained state"),
+    ("bd-host-mute-1: a local Mute read is reported Absent",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'if (local) return TickParamSelection.Local;',
+     b'if (local) return TickParamSelection.Absent;',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "Tick Mute read: a local is reported Local, not absent"),
+    ("bd-host-mute-1: the Sounds-off null Mute read is not observed",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickInstantFamily.cs"),
+     b'            else World.Observer.MuteReadNoEvent(Mascot, this, read);\n',
+     b'',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "Tick Mute read: every read reaches the observer once, a Sounds-off null through the no-event site"),
+    ("bd-host-mute-1: the Sounds-off null Mute read is not observed (the local-null control)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickInstantFamily.cs"),
+     b'            else World.Observer.MuteReadNoEvent(Mascot, this, read);\n',
+     b'',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "Tick Mute read: a Sounds-off local null is observed once with no event"),
+    ("bd-host-mute-1: a post-read observation exception is swallowed without a provenance defect",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'catch (Exception e) { if (read.ObservationFault == null) read.ObservationFault = TickParamRead.Defect(e); }',
+     b'catch (Exception) { }',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "Tick Mute read: an observation exception is a provenance defect and never reaches the engine"),
+    ("bd-host-mute-1: a pre-read observation exception is swallowed without a provenance defect",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'catch (Exception e) { read.ObservationFault = TickParamRead.Defect(e); }',
+     b'catch (Exception) { }',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "Tick Mute read: an observation exception is a provenance defect and never reaches the engine"),
+    ("bd-host-mute-1: the engine's own Sound read is wrapped in the observation catch",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'            int faultsBefore = 0;\n'
+     b'            try\n'
+     b'            {\n'
+     b'                Action<string, string> probe = TickParamRead.ObservationProbe;\n'
+     b'                if (probe != null) probe("selection", name);\n'
+     b'                read.Selection = Selection(name, guard, out read.Winner);\n'
+     b'                if (probe != null) probe("snapshot", name);\n'
+     b'                faultsBefore = Context.FaultsReported;\n'
+     b'            }\n'
+     b'            catch (Exception e) { read.ObservationFault = TickParamRead.Defect(e); }\n'
+     b'            ScriptValue v = Read(name, guard);\n',
+     b'            int faultsBefore = 0;\n'
+     b'            ScriptValue v = ScriptValue.Null;\n'
+     b'            try\n'
+     b'            {\n'
+     b'                Action<string, string> probe = TickParamRead.ObservationProbe;\n'
+     b'                if (probe != null) probe("selection", name);\n'
+     b'                read.Selection = Selection(name, guard, out read.Winner);\n'
+     b'                if (probe != null) probe("snapshot", name);\n'
+     b'                faultsBefore = Context.FaultsReported;\n'
+     b'                v = Read(name, guard);\n'
+     b'            }\n'
+     b'            catch (Exception e) { read.ObservationFault = TickParamRead.Defect(e); }\n',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "Tick Mute read: an exception from the engine's own read is not caught by observation"),
+    # N-bd-codex-converter-1-02, host half, commit 4a: the strict shimeji-parity-map/3 row reader (CONTRACT v1.4 draft
+    # P1-B, P1-C, P1-E, P1-F, FC-1, C13, C14). Each case removes ONE reader check (or, for the last two, loosens the
+    # retirement or the classification) and must fail the one window self-test label that pins it: each label compares
+    # the reader's whole InvalidDataException message with a declared one, because exit 2 and no trace alone cannot see a
+    # removed check (another refusal or another exception type still exits 2).
+    ("bd-host-mute-1: map/3 an absent soundParameters is accepted",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'            if (_soundParameters == null)\n'
+     b'                throw new InvalidDataException("parity map has no soundParameters (map/3 requires the array)");\n',
+     b'',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity map/3: soundParameters absent is refused'),
+    ("bd-host-mute-1: map/3 a soundParameters that is not an array is read",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'            if (rows.ValueKind != JsonValueKind.Array)\n'
+     b'                throw new InvalidDataException("parity map soundParameters is not an array");\n',
+     b'',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity map/3: soundParameters that is not an array is refused'),
+    ("bd-host-mute-1: map/3 a Sound row that is not an object is read",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                if (row.ValueKind != JsonValueKind.Object)\n'
+     b'                    throw new InvalidDataException(at + "is not an object");\n',
+     b'',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity map/3: a Sound row that is not an object is refused'),
+    ("bd-host-mute-1: map/3 a repeated Sound row property is kept",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'if (!names.Add(f.Name)) throw new InvalidDataException(at + "repeats its property',
+     b'if (!names.Add(f.Name) && f.Name == null) throw new InvalidDataException(at + "repeats its property',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity map/3: a Sound row repeating a property is refused'),
+    ("bd-host-mute-1: map/3 an unknown Sound row property is accepted",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                    if (!SoundRowProperties.Contains(f.Name))\n'
+     b'                        throw new InvalidDataException(at + "has the property \'" + f.Name + "\'; a Sound row holds only kind, nodeId, childIndex, sourceRefKey, emittedValue, emittedCache, mode, sourceValue and sourceKind");\n',
+     b'',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity map/3: a Sound row with an unknown property is refused'),
+    ("bd-host-mute-1: map/3 a Sound row missing a property is accepted",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                foreach (string required in SoundRowRequired)\n'
+     b'                    if (!names.Contains(required)) throw new InvalidDataException(at + "lacks " + required);\n',
+     b'',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity map/3: a Sound row missing a property is refused'),
+    ("bd-host-mute-1: map/3 a Sound row field that is not a string is read as absent",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                foreach (string name in SoundRowStrings)\n'
+     b'                    if (row.TryGetProperty(name, out field) && field.ValueKind != JsonValueKind.String)\n'
+     b'                        throw new InvalidDataException(at + "has " + name + " that is not a string");\n',
+     b'',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity map/3: a Sound row field that is not a string is refused'),
+    ("bd-host-mute-1: map/3 a kind outside its set is accepted",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                if (read.Kind != "action" && read.Kind != "behaviour" && read.Kind != "child")\n'
+     b'                    throw new InvalidDataException(at + "has kind \'" + read.Kind + "\', not action, behaviour or child");\n',
+     b'',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity map/3: a kind outside action, behaviour and child is refused'),
+    ("bd-host-mute-1: map/3 a mode outside its set is accepted",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                if (read.Mode != "literal" && read.Mode != "evaluated")\n'
+     b'                    throw new InvalidDataException(at + "has mode \'" + read.Mode + "\', not literal or evaluated");\n',
+     b'',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity map/3: a mode outside literal and evaluated is refused'),
+    ("bd-host-mute-1: map/3 an emittedCache outside its set is accepted",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                if (read.EmittedCache != "none" && read.EmittedCache != "action" && read.EmittedCache != "frame")\n'
+     b'                    throw new InvalidDataException(at + "has emittedCache \'" + read.EmittedCache + "\', not none, action or frame");\n',
+     b'',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity map/3: an emittedCache outside none, action and frame is refused'),
+    ("bd-host-mute-1: map/3 a noncanonical nodeId is accepted",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                if (RowIntFault(node) != null)\n'
+     b'                    throw new InvalidDataException(at + "has nodeId " + RawOf(node) + ", not a canonical nonnegative Int32");\n',
+     b'',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity map/3: a nodeId that is not a canonical nonnegative Int32 is refused'),
+    ("bd-host-mute-1: map/3 a child row with no childIndex is accepted",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                if (read.Kind == "child" && !hasChild)\n'
+     b'                    throw new InvalidDataException(at + "is kind child and has no childIndex");\n',
+     b'',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity map/3: a child row with no childIndex is refused'),
+    ("bd-host-mute-1: map/3 a childIndex on a row that is not a child is accepted",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                if (read.Kind != "child" && hasChild)\n'
+     b'                    throw new InvalidDataException(at + "is kind " + read.Kind + " and has a childIndex (only a child row has one)");\n',
+     b'',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity map/3: a childIndex on a row that is not a child is refused'),
+    ("bd-host-mute-1: map/3 a noncanonical childIndex is accepted",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                if (hasChild && RowIntFault(child) != null)\n'
+     b'                    throw new InvalidDataException(at + "has childIndex " + RawOf(child) + ", not a canonical nonnegative Int32");\n',
+     b'',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity map/3: a childIndex that is not a canonical nonnegative Int32 is refused'),
+    ("bd-host-mute-1: map/3 a literal row lacking sourceValue or sourceKind is accepted",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                    if (!hasValue || !hasKind)\n'
+     b'                        throw new InvalidDataException(at + "is literal and lacks " + (hasValue ? "sourceKind" : "sourceValue"));\n',
+     b'',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity map/3: a literal row lacking sourceValue or sourceKind is refused'),
+    ("bd-host-mute-1: map/3 a literal row with a cache is accepted",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                    if (read.EmittedCache != "none")\n'
+     b'                        throw new InvalidDataException(at + "is literal with emittedCache \'" + read.EmittedCache + "\' (a literal row has none)");\n',
+     b'',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity map/3: a literal Sound row with emittedCache action is refused, by the reader and by a run'),
+    ("bd-host-mute-1: map/3 a sourceKind outside its set is accepted",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                    if (read.SourceKind != "string" && read.SourceKind != "number" && read.SourceKind != "boolean")\n'
+     b'                        throw new InvalidDataException(at + "has sourceKind \'" + read.SourceKind + "\', not string, number or boolean");\n',
+     b'',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity map/3: a sourceKind outside string, number and boolean is refused'),
+    ("bd-host-mute-1: map/3 a literal sourceValue that is a source script is accepted",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                    if (IsSourceScript(read.SourceValue))\n'
+     b'                        throw new InvalidDataException(at + "has a literal sourceValue that is a source script, a source-kind disagreement");\n',
+     b'',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity map/3: a literal sourceValue that is a source script is refused'),
+    ("bd-host-mute-1: map/3 a sourceKind disagreement is accepted",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                    if (SourceKind(read.SourceValue) != read.SourceKind)\n'
+     b'                        throw new InvalidDataException(at + "has sourceKind \'" + read.SourceKind + "\', but its sourceValue classifies as " + SourceKind(read.SourceValue) + " (source-kind disagreement)");\n',
+     b'',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity map/3: a sourceKind disagreement is refused'),
+    ("bd-host-mute-1: map/3 an evaluated row with sourceValue or sourceKind is accepted",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                    if (hasValue || hasKind)\n'
+     b'                        throw new InvalidDataException(at + "is evaluated and has " + (hasValue ? "sourceValue" : "sourceKind") + " (only a literal row has one)");\n',
+     b'',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity map/3: sourceValue or sourceKind on an evaluated row is refused'),
+    ("bd-host-mute-1: map/3 an evaluated row with cache none is accepted",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                    if (read.EmittedCache == "none")\n'
+     b'                        throw new InvalidDataException(at + "is evaluated with emittedCache \'none\' (an evaluated row has action or frame)");\n',
+     b'',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity map/3: an evaluated row with emittedCache none is refused'),
+    ("bd-host-mute-1: map/3 an unknown top-level property is accepted",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'            foreach (string name in _topLevel)\n'
+     b'                if (!TopLevelProperties.Contains(name))\n'
+     b'                    throw new InvalidDataException("parity map has the top-level property \'" + name + "\'; map/3 allows only schema, imageSet, frames, actions, children, behaviours, sourceNames, poses and soundParameters");\n',
+     b'',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity map/3: an unknown top-level property is refused'),
+    # Control 14 (host half): the retired set back to map/1 only. A map/2 file is then refused as "not map/3", still exit
+    # 2 with no trace, so only the exact regenerate message can see it.
+    ("bd-host-mute-1: map/3 the retired set is map/1 only",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'new HashSet<string>(StringComparer.Ordinal) { "shimeji-parity-map/1", "shimeji-parity-map/2" };',
+     b'new HashSet<string>(StringComparer.Ordinal) { "shimeji-parity-map/1" };',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity map/3: a map/2 file is refused with a regenerate message, by the reader and by a run'),
+    # Control 1: SourceKind classifying the way TickType.ParseLiteral does (exact Boolean text, then TryParseJavaDouble on
+    # the raw text, whose .NET Trim strips U+00A0), so U+00A0 then 1 becomes a number. Since commit 5a it also fails ONE
+    # "parity mute:" label, inherently: the qualified-literal label's U+00A0 then 1 leg (control 1's first half, at the
+    # writer) needs the reader to call that row a String, so the mutant refuses that leg's map too. Since round 5 that
+    # refusal fails only that label, inside its own try, and every later mute label still runs (measured at 432ceb24:
+    # 2 failure lines, the map/3 label and the qualified-literal label).
+    ("bd-host-mute-1: map/3 SourceKind classifies like TickType.ParseLiteral (.NET trim on the raw text)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'            if (trimmed.Length > 0 && !char.IsWhiteSpace(trimmed[0]) && !char.IsWhiteSpace(trimmed[trimmed.Length - 1]) && TickType.TryParseJavaDouble(trimmed, out ignored))\n',
+     b'            if (TickType.TryParseJavaDouble(value, out ignored) && trimmed != null)\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity map/3: a sourceKind disagreement is refused'),
+    # N-bd-codex-converter-1-02, host half, commit 4b: ParityMap.BindSounds (CONTRACT v1.4 draft P1-D binding, P1-E
+    # coverage). Cases 1-11 each remove one binding rule (a condition made unsatisfiable where deleting the statement
+    # would orphan a symbol); each fails only that rule's label, whose map breaks only that rule, by the reader and by a
+    # run (C13). Case 12 is critique C1's value-key mutant: a lookup by compiled value and cache, which control 5's three
+    # definitions emitting "" defeat. Cases 13 and 14 make the reader stricter than P1-D (critique B5's sourceRefKey
+    # uniqueness; control 17's name matched ignoring case, which takes 33:5's "sound" bind for a Sound), so every
+    # acceptance over the complete rows fails with them, the WITNESS first (since the round 4 review fix that includes
+    # the shadowed-behaviour and lowercase-name acceptances, which also hold the complete rows).
+    ("bd-host-mute-1: map/3 a repeated Sound row location is bound",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                if (!located.Add(location))\n',
+     b'                if (!located.Add(location) && location == null)\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity map/3: a repeated Sound row location is refused'),
+    ("bd-host-mute-1: map/3 a Sound row naming no compiled container is bound",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                if (!HasSoundContainer(type, row))\n',
+     b'                if (!HasSoundContainer(type, row) && row == null)\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity map/3: a surplus Sound row naming no compiled container is refused'),
+    ("bd-host-mute-1: map/3 a Sound row whose container defines no Sound is bound",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                if (site == null)\n'
+     b'                    throw new InvalidDataException(at + "names " + location + ", which defines no Sound (surplus)");\n',
+     b'',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity map/3: a surplus Sound row whose container defines no Sound is refused'),
+    ("bd-host-mute-1: map/3 a compiled Sound definition with no row is accepted",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                if (!s.Value.Bound)\n',
+     b'                if (!s.Value.Bound && s.Key == null)\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity map/3: a compiled Sound definition no row binds is refused (missing)'),
+    ("bd-host-mute-1: map/3 an emittedValue unlike the XML value is accepted",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                if (row.EmittedValue != site.Value)\n'
+     b'                    throw new InvalidDataException(at + "has emittedValue \'" + row.EmittedValue + "\', not the XML value \'" + site.Value + "\' of the Sound definition at " + location);\n',
+     b'',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity map/3: an emittedValue that is not the XML value is refused'),
+    ("bd-host-mute-1: map/3 an emittedCache unlike the XML cache is accepted",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                if (row.EmittedCache != site.Cache)\n'
+     b'                    throw new InvalidDataException(at + "has emittedCache \'" + row.EmittedCache + "\', not the XML cache \'" + site.Cache + "\' of the Sound definition at " + location);\n',
+     b'',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity map/3: an emittedCache that is not the XML cache is refused'),
+    ("bd-host-mute-1: map/3 a Sound definition with no cache attribute is bound",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                if (site.Cache == null)\n'
+     b'                    throw new InvalidDataException(at + "binds " + location + ", whose Sound definition has no cache attribute (map/3 requires one)");\n',
+     b'',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity map/3: a Sound definition with no cache attribute is refused'),
+    ("bd-host-mute-1: map/3 a mode the compiled cache contradicts is bound",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                if ((row.Mode == "literal") != (site.Def.Cache == TickCache.None))\n'
+     b'                    throw new InvalidDataException(at + "is " + row.Mode + ", but the Sound definition at " + location + " compiles with cache " + site.Def.Cache.ToString().ToLowerInvariant());\n',
+     b'',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity map/3: a mode the compiled definition\'s cache contradicts is refused'),
+    ("bd-host-mute-1: map/3 a sourceRefKey other than the map entry is accepted",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                if (row.SourceRefKey != entry)\n'
+     b'                    throw new InvalidDataException(at + "has sourceRefKey \'" + row.SourceRefKey + "\', not the map\'s " + section + " entry \'" + entry + "\'");\n',
+     b'',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity map/3: a sourceRefKey that is not its location\'s map entry is refused'),
+    ("bd-host-mute-1: map/3 a sourceRefKey in another image set is accepted",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                if (set != ImageSet)\n',
+     b'                if (set != ImageSet && row == null)\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity map/3: a sourceRefKey outside the map\'s image set is refused'),
+    # Control 9: the absent-entry check skipped, so a Sound-binding child with no children entry reaches the refKey
+    # comparison instead, whose message is not the declared one.
+    ("bd-host-mute-1: map/3 a Sound-binding child with no children entry is bound (control 9)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                if (entry == null)\n'
+     b'                    throw new InvalidDataException(at + "binds " + location + ", which has no " + section + " entry in the map (a Sound definition\'s location needs one)");\n',
+     b'',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity map/3: a Sound-binding child with no children entry is refused (control 9)'),
+    ("bd-host-mute-1: map/3 a Sound row is found by compiled value and cache, not by definition object (critique C1)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'            return _soundRows.TryGetValue(def, out row);\n',
+     b'            foreach (KeyValuePair<TickParamDef, SoundRow> p in _soundRows)\n'
+     b'                if (p.Key.Cache == def.Cache && p.Key.Literal.ToDisplayString() == def.Literal.ToDisplayString()) { row = p.Value; return true; }\n'
+     b'            return false;\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity map/3: each Sound definition finds its own row, three defs emitting the empty string'),
+    ("bd-host-mute-1: map/3 rows must have distinct sourceRefKeys (critique B5, stricter than P1-D)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                site.Bound = true;\n',
+     b'                foreach (SoundRow other in _soundRows.Values)\n'
+     b'                    if (other.SourceRefKey == row.SourceRefKey) throw new InvalidDataException(at + "repeats a sourceRefKey");\n'
+     b'                site.Bound = true;\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity map/3: WITNESS a complete map/3 with rows of every kind is accepted'),
+    ("bd-host-mute-1: map/3 the Sound walk matches a child bind's name ignoring case (control 17, host half)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                                if (b != null && b.Name == SoundName)\n'
+     b'                                    AddSite(sites, "child "',
+     b'                                if (b != null && string.Equals(b.Name, SoundName, StringComparison.OrdinalIgnoreCase))\n'
+     b'                                    AddSite(sites, "child "',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity map/3: WITNESS a complete map/3 with rows of every kind is accepted'),
+    # Round 4 review fix. P1-E's inventory by node id: behaviours found through RootByName by name, so the off-route
+    # behaviour 11 (named Walk, shadowed by the root Walk) gives the root's definition, whose row is then added twice.
+    # Since round 6 it fails 2 labels, INHERENT: this label, and the mute W3 label, whose next-list leg enters an
+    # off-route behaviour (11, named Rest like the root Rest) through ParityMap.Apply, where the by-name walk finds the
+    # root Rest, which defines no Sound, and refuses row 1 as surplus inside W3's own try. A writer leg cannot enter an
+    # off-route behaviour's bind unless the reader binds it by node id. Control 17 at the action-param and
+    # behaviour-bind filters: each matched ignoring case takes the "sound" entry after its container's Sound in Sound's
+    # place, so the lowercase leg's own document fails its emittedValue comparison.
+    ("bd-host-mute-1: map/3 the Sound walk inventories behaviours by name (P1-E shadowed definition)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                    if (!type.BehavioursById.TryGetValue(a.Id, out behaviour) || a.Behaviour.Bind == null) continue;\n',
+     b'                    if (!type.RootByName.TryGetValue(a.Behaviour.Name, out behaviour) || a.Behaviour.Bind == null) continue;\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity map/3: an off-route behaviour named like a root behaviour binds its own Sound row (shadowed by name lookup)'),
+    ("bd-host-mute-1: map/3 the Sound walk matches an action param's name ignoring case (control 17, host half)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                            if (p != null && p.Name == SoundName) AddSite(sites, "action "',
+     b'                            if (p != null && string.Equals(p.Name, SoundName, StringComparison.OrdinalIgnoreCase)) AddSite(sites, "action "',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity map/3: an action param and a behaviour bind named \'sound\' are no Sound definitions (control 17, host half)'),
+    ("bd-host-mute-1: map/3 the Sound walk matches a behaviour bind's name ignoring case (control 17, host half)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                        if (b != null && b.Name == SoundName) AddSite(sites, "behaviour "',
+     b'                        if (b != null && string.Equals(b.Name, SoundName, StringComparison.OrdinalIgnoreCase)) AddSite(sites, "behaviour "',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity map/3: an action param and a behaviour bind named \'sound\' are no Sound definitions (control 17, host half)'),
+    # N-bd-codex-converter-1-02, host half, commit 5a: ParityTraceWriter's Mute dispositions (CONTRACT v1.4 revision 3
+    # P2-C, FC-2 steps 1-3, FC-3, FC-6) and ParityRun.Finish. Each case breaks one disposition rule and fails the one
+    # "parity mute:" label whose legs depend on it; each label's legs drive real Mute reads through the engine. Since
+    # commit 5b the provenance-defect line case also fails the C18 label, by design: C18's defect reads must write no
+    # line. Since round 5 the second-read case fails control 7 alone (measured at bc201c1f): the writer's extra read goes
+    # through the plain EvalString, which runs no observation site, so the arming witness no longer sees it.
+    # "bd-host-mute-1: mute" for one --only.
+    ("bd-host-mute-1: mute a qualified literal writes its emitted value, not its source spelling (W1, controls 5, 16)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                if (row.SourceKind == "string") payload = row.SourceValue;\n',
+     b'                if (row.SourceKind == "string") payload = row.EmittedValue;\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity mute: a qualified String literal writes its source spelling, not the engine\'s text'),
+    ("bd-host-mute-1: mute a literal is also qualified by its compiled kind (controls 2, W8)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                if (row.SourceKind == "string") payload = row.SourceValue;\n'
+     b'                else information.Add(',
+     b'                if (row.SourceKind == "string" && read.Kind == ScriptValueKind.String) payload = row.SourceValue;\n'
+     b'                else information.Add(',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity mute: a qualified String literal writes its source spelling, not the engine\'s text'),
+    ("bd-host-mute-1: mute a number or boolean literal logs no MUTE_VALUE_NOT_STRING (controls 1, 3, 4)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                else information.Add("MUTE_VALUE_NOT_STRING" + at + ": literal " + row.SourceKind);\n',
+     b'',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity mute: a number or boolean literal writes the engine\'s text and logs MUTE_VALUE_NOT_STRING as information'),
+    ("bd-host-mute-1: mute an evaluated Boolean is called a number (control 10)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                case ScriptValueKind.Boolean: return "boolean";\n',
+     b'                case ScriptValueKind.Boolean: return "number";\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity mute: an evaluated String is forwarded and an evaluated Number or Boolean is not a String'),
+    ("bd-host-mute-1: mute a faulted read logs no MUTE_VALUE_FAULTED (control 6)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'            if (read.Faulted) information.Add("MUTE_VALUE_FAULTED" + at);\n',
+     b'',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity mute: a faulted read writes the engine\'s value as passed, logs MUTE_VALUE_FAULTED and keeps status complete'),
+    ("bd-host-mute-1: mute a faulted read ends the run in error (control 6, Q2)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'            if (read.Faulted) information.Add("MUTE_VALUE_FAULTED" + at);\n'
+     b'            if (literal)\n',
+     b'            if (read.Faulted) { information.Add("MUTE_VALUE_FAULTED" + at); if (ProvenanceFault == null) ProvenanceFault = "faulted"; }\n'
+     b'            if (literal)\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity mute: a faulted read writes the engine\'s value as passed, logs MUTE_VALUE_FAULTED and keeps status complete'),
+    ("bd-host-mute-1: mute the writer reads Sound a second time (control 7)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'            string at = " tick " + _tick + " " + mascot.Sid;\n',
+     b'            string at = " tick " + _tick + " " + mascot.Sid;\n'
+     b'            activation.EvalString("Sound", null, null);\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity mute: observation adds no draw, the writer\'s world against a NullObserver world (control 7)'),
+    ("bd-host-mute-1: mute a local Sound is taken for an absent one (control 11, Q1a)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'            if (read.Selection == TickParamSelection.Absent) return null;\n',
+     b'            if (read.Selection == TickParamSelection.Absent || read.Selection == TickParamSelection.Local) return null;\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity mute: a provenance defect writes no line and no information and ends the run in error'),
+    ("bd-host-mute-1: mute a provenance defect still writes its line (FC-2 step 1)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                MuteFault(mascot, defect);\n'
+     b'                return;\n',
+     b'                MuteFault(mascot, defect);\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity mute: a provenance defect writes no line and no information and ends the run in error'),
+    ("bd-host-mute-1: mute an inconsistent retained row is classified from its sourceKind (Q3)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'            if (literal != (read.Winner.Cache == TickCache.None))\n',
+     b'            if (literal != (read.Winner.Cache == TickCache.None) && row == null)\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity mute: a provenance defect writes no line and no information and ends the run in error'),
+    ("bd-host-mute-1: mute a literal row lacking its sourceValue is written anyway (P2-C incomplete row)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'            if (literal && (row.SourceValue == null || row.SourceKind == null))\n',
+     b'            if (literal && (row.SourceValue == null || row.SourceKind == null) && row == null)\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity mute: a provenance defect writes no line and no information and ends the run in error'),
+    ("bd-host-mute-1: mute the first Mute fault is not logged beside an earlier fault (control 12, FC-3)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'            if (writer.FirstMuteFault != null && writer.FirstMuteFault != writer.ProvenanceFault)\n'
+     b'                log.WriteLine("parity trace: " + writer.FirstMuteFault);\n',
+     b'',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity mute: a pose fault then a Mute fault logs both parity trace lines (control 12, FC-3)'),
+    ("bd-host-mute-1: mute the map is chosen by the companion's current member (W5)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'            TickType owner = activation.OwnerType;\n',
+     b'            TickType owner = activation.OwnerType == null ? null : mascot.Type;\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity mute: a retained owner\'s read uses its OwnerType\'s map, not the current member\'s (W5)'),
+    ("bd-host-mute-1: mute an absent Sound needs an owner map (B4, Q3)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'            if (read.Selection == TickParamSelection.Absent) return null;\n'
+     b'            if (read.Selection == TickParamSelection.Local)',
+     b'            if (read.Selection == TickParamSelection.Local)',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity mute: an absent Sound writes null with Sounds on and no line with Sounds off, with or without an owner map'),
+    # B4's Faulted-as-null mutant flips both directions, so it also fails the faulted label (Q2's x is then not
+    # Faulted) and control 7's (its drawing Sound is a null result); the evaluated-null label is its own.
+    ("bd-host-mute-1: mute Faulted is computed as a null result (B4)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'                read.Faulted = Context.FaultsReported != faultsBefore;\n',
+     b'                read.Faulted = v.Kind == ScriptValueKind.Null && faultsBefore >= 0;\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity mute: an evaluated null without a fault writes null with Sounds on, nothing with Sounds off, and no MUTE_VALUE_FAULTED'),
+    ("bd-host-mute-1: mute information is logged before the rng-tape-exhausted line (FC-6)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'            if (tapeExhausted)\n'
+     b'                log.WriteLine("rng-tape-exhausted (information): the run drew past the end of its " + random.TapeLength\n'
+     b'                    + "-value tape; each draw past the end yielded 0.5 and the run went on");\n'
+     b'            // CONTRACT v1.4 FC-6 (revision 3): each Mute information line, after every parity trace line and the\n'
+     b'            // rng-tape-exhausted line and before the footer, on every ending and in both trace modes; never a status.\n'
+     b'            foreach (string line in writer.Information)\n'
+     b'                log.WriteLine(line + " (information)");\n',
+     b'            foreach (string line in writer.Information)\n'
+     b'                log.WriteLine(line + " (information)");\n'
+     b'            if (tapeExhausted)\n'
+     b'                log.WriteLine("rng-tape-exhausted (information): the run drew past the end of its " + random.TapeLength\n'
+     b'                    + "-value tape; each draw past the end yielded 0.5 and the run went on");\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity mute: information follows the parity trace and rng-tape-exhausted lines, before the footer, in both trace modes (FC-6)'),
+    ("bd-host-mute-1: mute a Sounds-off read's information is dropped (Q1b)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'            else _information.AddRange(information);\n',
+     b'',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity mute: a faulted read writes the engine\'s value as passed, logs MUTE_VALUE_FAULTED and keeps status complete'),
+    # Commit 5b, C18 (FC-2): each catch an injected observation exception must stop, narrowed or emptied, lets it escape
+    # or swallows it without provenance at the sites it guards; the R9 disposition removed lets an engine-site defect read
+    # be written; a probe given a constant name instead of the read's own fails the arming witness alone.
+    # "bd-host-mute-1: mute C18" for one --only.
+    ("bd-host-mute-1: mute C18 the engine's pre-read observation catch lets the exception through",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'            catch (Exception e) { read.ObservationFault = TickParamRead.Defect(e); }\n'
+     b'            ScriptValue v = Read(name, guard);\n',
+     b'            catch (InvalidCastException e) { read.ObservationFault = TickParamRead.Defect(e); }\n'
+     b'            ScriptValue v = Read(name, guard);\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity mute: an observation exception at every FC-2 site is retained as MUTE_PROVENANCE_MISSING'),
+    ("bd-host-mute-1: mute C18 the engine's after-read observation catch lets the exception through",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'            catch (Exception e) { if (read.ObservationFault == null) read.ObservationFault = TickParamRead.Defect(e); }\n',
+     b'            catch (InvalidCastException e) { if (read.ObservationFault == null) read.ObservationFault = TickParamRead.Defect(e); }\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity mute: an observation exception at every FC-2 site is retained as MUTE_PROVENANCE_MISSING'),
+    ("bd-host-mute-1: mute C18 the Muted callback's catch lets the exception through",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'            try { MutedCore(mascot, clip, activation, read); }\n'
+     b'            catch (Exception e) { MuteFault(mascot, TickParamRead.Defect(e)); }\n',
+     b'            try { MutedCore(mascot, clip, activation, read); }\n'
+     b'            catch (InvalidCastException e) { MuteFault(mascot, TickParamRead.Defect(e)); }\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity mute: an observation exception at every FC-2 site is retained as MUTE_PROVENANCE_MISSING'),
+    ("bd-host-mute-1: mute C18 the Muted callback's catch swallows the exception without provenance",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'            try { MutedCore(mascot, clip, activation, read); }\n'
+     b'            catch (Exception e) { MuteFault(mascot, TickParamRead.Defect(e)); }\n',
+     b'            try { MutedCore(mascot, clip, activation, read); }\n'
+     b'            catch (Exception) { }\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity mute: an observation exception at every FC-2 site is retained as MUTE_PROVENANCE_MISSING'),
+    ("bd-host-mute-1: mute C18 the no-event callback's catch lets the exception through",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'            try { NoEventCore(mascot, activation, read); }\n'
+     b'            catch (Exception e) { MuteFault(mascot, TickParamRead.Defect(e)); }\n',
+     b'            try { NoEventCore(mascot, activation, read); }\n'
+     b'            catch (InvalidCastException e) { MuteFault(mascot, TickParamRead.Defect(e)); }\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity mute: an observation exception at every FC-2 site is retained as MUTE_PROVENANCE_MISSING'),
+    ("bd-host-mute-1: mute C18 an engine-side observation fault is not a provenance defect (R9)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'            if (read.ObservationFault != null) return read.ObservationFault;\n',
+     b'',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity mute: an observation exception at every FC-2 site is retained as MUTE_PROVENANCE_MISSING'),
+    # Re-pointed in round 5 (the coordinator's ruling after round 4: observation runs on the Mute Sound read alone). The
+    # constant-name mutant it replaces is equivalent once only Sound reaches the probe; the intent, an armed probe that
+    # fires for the Mute Sound read alone (S5), is now kept by the plain EvalString running no observation, so this case
+    # routes every read through the observed overload again and the arming witness sees BorderType's sites.
+    ("bd-host-mute-1: mute C18 every EvalString read runs the observation, not the Mute Sound read alone (S5, round 5 ruling)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'            if (!Present(name, guard)) return fallback;\n'
+     b'            return Displayed(Read(name, guard));\n',
+     b'            TickParamRead unused;\n'
+     b'            return EvalString(name, guard, fallback, out unused);\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity mute: the observation probe is null in the product and sees the Mute Sound read alone, never another EvalString read (C18 arming, S5, round 5)'),
+    # Round 5. C18 on an information-forming read: a writer that keeps the read's information before its writer site
+    # leaks MUTE_VALUE_NOT_STRING from a defect read (FC-6). The engine-Read leg: the engine's own Read moved inside the
+    # after-read observation catch turns the environment's exception into a provenance defect, in the writer's world and
+    # the NullObserver world alike. W3: the writer binds the Mute's own Sound definition, not the read's winner. W4: a
+    # child that binds nothing is built with its parent reference's binds. Control 10: an evaluated Point is called a
+    # number.
+    ("bd-host-mute-1: mute C18 a writer-site defect read keeps the information it formed (FC-6)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'            Probe("writer");\n'
+     b'            _out.WriteLine(Event(mascot, "mute").Str("clip", payload).End());\n'
+     b'            _information.AddRange(information);\n',
+     b'            _information.AddRange(information);\n'
+     b'            Probe("writer");\n'
+     b'            _out.WriteLine(Event(mascot, "mute").Str("clip", payload).End());\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity mute: an observation exception at every FC-2 site is retained as MUTE_PROVENANCE_MISSING'),
+    ("bd-host-mute-1: mute C18 the engine's own Sound read is caught by the after-read observation region (engine-Read)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'            ScriptValue v = Read(name, guard);\n'
+     b'            try\n'
+     b'            {\n'
+     b'                Action<string, string> probe = TickParamRead.ObservationProbe;\n'
+     b'                if (probe != null) probe("result", name);\n',
+     b'            ScriptValue v = ScriptValue.Null;\n'
+     b'            try\n'
+     b'            {\n'
+     b'                v = Read(name, guard);\n'
+     b'                Action<string, string> probe = TickParamRead.ObservationProbe;\n'
+     b'                if (probe != null) probe("result", name);\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity mute: an exception from the engine\'s own Sound read takes the engine\'s path, never a provenance defect (C18 engine-Read)'),
+    # Round 6. Revision 3 C18's call count: the observed read retries the engine's throwing Read once, so the same
+    # exception still escapes, but the cursor is read twice in the writer's world and the NullObserver world alike.
+    ("bd-host-mute-1: mute C18 the observed Sound read retries the engine's throwing Read once (engine-Read call count)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'            ScriptValue v = Read(name, guard);\n'
+     b'            try\n',
+     b'            ScriptValue v;\n'
+     b'            try { v = Read(name, guard); }\n'
+     b'            catch (Exception) { v = Read(name, guard); }\n'
+     b'            try\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity mute: an exception from the engine\'s own Sound read takes the engine\'s path, never a provenance defect (C18 engine-Read)'),
+    # Round 6. W3's next-reference half: a chosen next-list entry entered as the root behaviour of its name (the off-route
+    # node's own binds dropped), so the next-list leg's second read never happens (clips own alone, not own then nxt).
+    ("bd-host-mute-1: mute W3 a chosen next-list entry is built as its root namesake, dropping its own binds (next-reference)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'                    return Build(type, candidates[i].Target);\n',
+     b'                    return Build(type, fromNext[i] ? type.RootByName[candidates[i].Target.Name] : candidates[i].Target);\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity mute: incoming-over-own writes the winning definition\'s row'),
+    ("bd-host-mute-1: mute W3 the writer binds the Mute's own Sound definition over the read's winner",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'            if (!map.TryGetSoundRow(read.Winner, out row)) return "the Sound definition read is bound to no soundParameters row of member " + owner.Name;\n',
+     b'            TickParamDef own; if (!map.TryGetSoundRow(activation.Def.Params.TryGetValue("Sound", out own) ? own : read.Winner, out row)) return "the Sound definition read is bound to no soundParameters row of member " + owner.Name;\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity mute: incoming-over-own writes the winning definition\'s row'),
+    ("bd-host-mute-1: mute W4 a child reference that binds nothing is built with its parent's binds",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'                        children[i] = BuildAction(type, c.Target, c.Binds);\n',
+     b'                        children[i] = BuildAction(type, c.Target, c.Binds.Count == 0 && incoming != null && incoming.Count > 0 ? incoming : c.Binds);\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity mute: a nested reference uses the winning definition'),
+    ("bd-host-mute-1: mute an evaluated Point is called a number (control 10)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                case ScriptValueKind.Point: return "point";\n',
+     b'                case ScriptValueKind.Point: return "number";\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity mute: an evaluated String is forwarded and an evaluated Number or Boolean is not a String'),
     # ---- burndown/codex-converter-1 ----
     ("bd-codex-converter-1: invalid metadata omits the offending key",
      os.path.join(REPO, "tools", "ShimejiConvert.Engine", "PackConversion.cs"),

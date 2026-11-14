@@ -11,18 +11,20 @@ namespace DesktopAICompanion.Shimeji
     /// <summary>
     /// The converter's map from a converted pet back to the source pack (tools/ShimejiParity/CONTRACT.md v1.1 section 9):
     /// frame indexes to source image keys, nodes and child references to refKeys, and every emitted pose to the source
-    /// Pose it came from. A test artefact: the product never reads one. Schema <c>shimeji-parity-map/2</c>:
+    /// Pose it came from. A test artefact: the product never reads one. Schema <c>shimeji-parity-map/3</c>:
     /// <code>{ "schema", "imageSet", "frames": [{ "frame", "image", "anchor", "size" }], "actions": { "&lt;node id&gt;": refKey },
     /// "children": { "&lt;node id&gt;:&lt;index&gt;": refKey }, "behaviours": { "&lt;node id&gt;": refKey },
-    /// "sourceNames": { "&lt;node id&gt;": name or null }, "poses": { "&lt;node&gt;:&lt;variant&gt;:&lt;pose&gt;": { "refKey", "index" } } }</code>
+    /// "sourceNames": { "&lt;node id&gt;": name or null }, "poses": { "&lt;node&gt;:&lt;variant&gt;:&lt;pose&gt;": { "refKey", "index" } },
+    /// "soundParameters": [ Sound row, ... ] }</code>
     /// Map/1 had no poses, so the trace's pose.index was the position in the EMITTED variant, which a Duration-0 source
-    /// pose the converter leaves out shifts for every later pose (N-shimeji-1106-13). A map/1 file is refused with a
-    /// regenerate message, never read: there is no source index in it to fall back to.
+    /// pose the converter leaves out shifts for every later pose (N-shimeji-1106-13). Map/2 has no Sound provenance, so a
+    /// Mute's source spelling cannot be restored from it (CONTRACT v1.4 draft P1-B). Both are refused with a regenerate
+    /// message, never read (P1-F): no reader accepts two map versions, and a hand-edited schema string is not migration.
     /// </summary>
     internal sealed class ParityMap
     {
-        public const string Schema = "shimeji-parity-map/2";
-        private const string RetiredSchema = "shimeji-parity-map/1";
+        public const string Schema = "shimeji-parity-map/3";
+        private static readonly HashSet<string> RetiredSchemas = new HashSet<string>(StringComparer.Ordinal) { "shimeji-parity-map/1", "shimeji-parity-map/2" };
         public string ImageSet;
         public readonly Dictionary<int, string> FrameImages = new Dictionary<int, string>();
         public readonly Dictionary<int, string> Actions = new Dictionary<int, string>();
@@ -42,20 +44,22 @@ namespace DesktopAICompanion.Shimeji
         /// poses with equal fields in different variants are still two source poses.</summary>
         private readonly Dictionary<TickPoseDef, int> _poseIndex = new Dictionary<TickPoseDef, int>(ReferenceEqualityComparer.Instance);
 
-        /// <summary>Parse and check a map/2 document. Every refusal is an <see cref="InvalidDataException"/> naming what is
+        /// <summary>Parse and check a map/3 document. Every refusal is an <see cref="InvalidDataException"/> naming what is
         /// wrong; the caller adds the file. A key is canonical decimal (no sign, space or leading zero, within Int32), as the
         /// converter writes it, because int.Parse accepts "+2", " 2" and "02", which would each alias a real key; and a
-        /// repeated key is refused, because JsonDocument keeps every repeat and a dictionary filled from it keeps the last.</summary>
+        /// repeated key is refused, because JsonDocument keeps every repeat and a dictionary filled from it keeps the last.
+        /// The map/3 checks (an unknown top-level property, the Sound rows) are not made here: see <see cref="Apply"/>.</summary>
         public static ParityMap Parse(string json)
         {
             using (JsonDocument doc = JsonDocument.Parse(json))
             {
                 JsonElement root = doc.RootElement;
                 if (root.ValueKind != JsonValueKind.Object) throw new InvalidDataException("parity map is not a JSON object");
-                Entries(root, null, "map");
+                List<JsonProperty> top = Entries(root, null, "map");
                 string schema = Str(root, "schema");
-                if (schema == RetiredSchema)
-                    throw new InvalidDataException("the map is " + RetiredSchema + "; regenerate it with the current converter (map/2 required)");
+                // CONTRACT v1.4 draft P1-F, with the coordinator's review R20: N is the refused file's own map version.
+                if (RetiredSchemas.Contains(schema))
+                    throw new InvalidDataException("the map is " + schema + "; regenerate it with the current converter (map/3 required)");
                 if (schema != Schema) throw new InvalidDataException("parity map schema is not " + Schema);
                 var map = new ParityMap { ImageSet = Str(root, "imageSet") };
                 if (string.IsNullOrEmpty(map.ImageSet)) throw new InvalidDataException("parity map names no imageSet");
@@ -87,8 +91,346 @@ namespace DesktopAICompanion.Shimeji
                 if (!root.TryGetProperty("poses", out e)) throw new InvalidDataException("parity map has no poses (map/2 requires the object)");
                 if (e.ValueKind != JsonValueKind.Object) throw new InvalidDataException("parity map poses is not an object");
                 foreach (JsonProperty p in Entries(root, "poses", "poses")) map.ReadPose(p);
+                // CONTRACT v1.4 draft FC-1: the new map/3 checks wait until every existing check has passed, Apply's pose
+                // and geometry checks included, so no existing refusal moves behind them. They are kept raw until then.
+                foreach (JsonProperty p in top) map._topLevel.Add(p.Name);
+                if (root.TryGetProperty("soundParameters", out e)) map._soundParameters = e.Clone();
                 return map;
             }
+        }
+
+        /// <summary>The top-level property names as written, and the raw soundParameters (null when absent), read by
+        /// <see cref="CheckTopLevel"/> and <see cref="ReadSoundRows"/> once the existing checks have passed.</summary>
+        private readonly List<string> _topLevel = new List<string>();
+        private JsonElement? _soundParameters;
+
+        /// <summary>CONTRACT v1.4 draft P1-E: map/2's properties plus soundParameters, and nothing else. The set is what the
+        /// converter's map writer emits at base (TickPackEmitter) plus soundParameters, so no real base map is refused by
+        /// it. Unknown-property refusal is new for map/3; a repeated top-level key is already refused by Parse.</summary>
+        private static readonly HashSet<string> TopLevelProperties = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "schema", "imageSet", "frames", "actions", "children", "behaviours", "sourceNames", "poses", "soundParameters",
+        };
+
+        private void CheckTopLevel()
+        {
+            foreach (string name in _topLevel)
+                if (!TopLevelProperties.Contains(name))
+                    throw new InvalidDataException("parity map has the top-level property '" + name + "'; map/3 allows only schema, imageSet, frames, actions, children, behaviours, sourceNames, poses and soundParameters");
+        }
+
+        /// <summary>One soundParameters row as read (CONTRACT v1.4 draft P1-B): the location of a compiled Sound definition
+        /// (kind, nodeId, childIndex or -1), the source element that defined it, the emitted value and cache, and for a
+        /// literal its authored text and that text's source kind. This record holds only what the row says, checked for
+        /// shape; <see cref="BindSounds"/> binds it to its compiled definition (P1-D).</summary>
+        internal sealed class SoundRow
+        {
+            public int Row;
+            public string Kind;
+            public int NodeId;
+            public int ChildIndex = -1;
+            public string SourceRefKey;
+            public string EmittedValue;
+            public string EmittedCache;
+            public string Mode;
+            public string SourceValue;
+            public string SourceKind;
+        }
+
+        /// <summary>The rows in map order, filled by <see cref="Apply"/>.</summary>
+        internal readonly List<SoundRow> SoundRows = new List<SoundRow>();
+
+        /// <summary>Each row by the compiled definition it binds (CONTRACT v1.4 draft P1-D), keyed by the definition
+        /// OBJECT, never by value: <see cref="TickParamDef"/> overrides no Equals, and two definitions that emit the same
+        /// text (/, a backslash and the empty string all emit "") are still two source definitions with their own authored
+        /// spellings (control 5). Kept here, not on the definition, so the engine's model carries nothing a parity run
+        /// needs. Filled by <see cref="BindSounds"/>.</summary>
+        private readonly Dictionary<TickParamDef, SoundRow> _soundRows = new Dictionary<TickParamDef, SoundRow>(ReferenceEqualityComparer.Instance);
+
+        /// <summary>The row bound to <paramref name="def"/>, the compiled definition a Mute read selected; false for a
+        /// definition this map binds no row to.</summary>
+        internal bool TryGetSoundRow(TickParamDef def, out SoundRow row)
+        {
+            row = null;
+            if (def == null) return false;
+            return _soundRows.TryGetValue(def, out row);
+        }
+
+        private static readonly HashSet<string> SoundRowProperties = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "kind", "nodeId", "childIndex", "sourceRefKey", "emittedValue", "emittedCache", "mode", "sourceValue", "sourceKind",
+        };
+        private static readonly string[] SoundRowRequired = { "kind", "nodeId", "sourceRefKey", "emittedValue", "emittedCache", "mode" };
+        private static readonly string[] SoundRowStrings = { "kind", "sourceRefKey", "emittedValue", "emittedCache", "mode", "sourceValue", "sourceKind" };
+
+        /// <summary>
+        /// CONTRACT v1.4 draft P1-B and P1-E, the row shape: every row an object holding exactly the P1-B properties, each
+        /// string field a string, each closed field in its set, nodeId and childIndex canonical nonnegative Int32 read from
+        /// the raw token (TryGetInt32 alone would take "-0" and 1.0), childIndex exactly on child rows, sourceValue and
+        /// sourceKind exactly on literal rows, a literal row's cache none and an evaluated row's cache action or frame, and
+        /// a literal's sourceKind equal to the host's own classification of its sourceValue (P1-C, <see cref="SourceKind"/>).
+        /// Each rule is its own statement with its own message, so each can be removed alone and fail one check (C13).
+        /// Strings are read through <see cref="Str"/>, which gives null for a non-string, so a rule removed by a mutation
+        /// ends in a different refusal or an acceptance, never in an exception of another type standing in for it.
+        /// </summary>
+        private void ReadSoundRows()
+        {
+            if (_soundParameters == null)
+                throw new InvalidDataException("parity map has no soundParameters (map/3 requires the array)");
+            JsonElement rows = _soundParameters.Value;
+            if (rows.ValueKind != JsonValueKind.Array)
+                throw new InvalidDataException("parity map soundParameters is not an array");
+            int i = 0;
+            foreach (JsonElement row in rows.EnumerateArray())
+            {
+                string at = "parity map soundParameters row " + i.ToString(CultureInfo.InvariantCulture) + " ";
+                if (row.ValueKind != JsonValueKind.Object)
+                    throw new InvalidDataException(at + "is not an object");
+                var names = new HashSet<string>(StringComparer.Ordinal);
+                foreach (JsonProperty f in row.EnumerateObject())
+                {
+                    if (!names.Add(f.Name)) throw new InvalidDataException(at + "repeats its property '" + f.Name + "'");
+                    if (!SoundRowProperties.Contains(f.Name))
+                        throw new InvalidDataException(at + "has the property '" + f.Name + "'; a Sound row holds only kind, nodeId, childIndex, sourceRefKey, emittedValue, emittedCache, mode, sourceValue and sourceKind");
+                }
+                foreach (string required in SoundRowRequired)
+                    if (!names.Contains(required)) throw new InvalidDataException(at + "lacks " + required);
+                JsonElement field;
+                foreach (string name in SoundRowStrings)
+                    if (row.TryGetProperty(name, out field) && field.ValueKind != JsonValueKind.String)
+                        throw new InvalidDataException(at + "has " + name + " that is not a string");
+                var read = new SoundRow
+                {
+                    Row = i, Kind = Str(row, "kind"), SourceRefKey = Str(row, "sourceRefKey"), EmittedValue = Str(row, "emittedValue"),
+                    EmittedCache = Str(row, "emittedCache"), Mode = Str(row, "mode"),
+                };
+                if (read.Kind != "action" && read.Kind != "behaviour" && read.Kind != "child")
+                    throw new InvalidDataException(at + "has kind '" + read.Kind + "', not action, behaviour or child");
+                if (read.Mode != "literal" && read.Mode != "evaluated")
+                    throw new InvalidDataException(at + "has mode '" + read.Mode + "', not literal or evaluated");
+                if (read.EmittedCache != "none" && read.EmittedCache != "action" && read.EmittedCache != "frame")
+                    throw new InvalidDataException(at + "has emittedCache '" + read.EmittedCache + "', not none, action or frame");
+                // The value is read in its own statement and each check is only a check, so removing a check leaves the
+                // record as it was (a value read inside the check's condition went with it).
+                JsonElement node = row.TryGetProperty("nodeId", out field) ? field : default(JsonElement);
+                read.NodeId = RowInt(node);
+                if (RowIntFault(node) != null)
+                    throw new InvalidDataException(at + "has nodeId " + RawOf(node) + ", not a canonical nonnegative Int32");
+                bool hasChild = row.TryGetProperty("childIndex", out field);
+                JsonElement child = hasChild ? field : default(JsonElement);
+                if (read.Kind == "child" && !hasChild)
+                    throw new InvalidDataException(at + "is kind child and has no childIndex");
+                if (read.Kind != "child" && hasChild)
+                    throw new InvalidDataException(at + "is kind " + read.Kind + " and has a childIndex (only a child row has one)");
+                if (hasChild) read.ChildIndex = RowInt(child);
+                if (hasChild && RowIntFault(child) != null)
+                    throw new InvalidDataException(at + "has childIndex " + RawOf(child) + ", not a canonical nonnegative Int32");
+                bool hasValue = names.Contains("sourceValue"), hasKind = names.Contains("sourceKind");
+                if (read.Mode == "literal")
+                {
+                    if (!hasValue || !hasKind)
+                        throw new InvalidDataException(at + "is literal and lacks " + (hasValue ? "sourceKind" : "sourceValue"));
+                    if (read.EmittedCache != "none")
+                        throw new InvalidDataException(at + "is literal with emittedCache '" + read.EmittedCache + "' (a literal row has none)");
+                    read.SourceValue = Str(row, "sourceValue");
+                    read.SourceKind = Str(row, "sourceKind");
+                    if (read.SourceKind != "string" && read.SourceKind != "number" && read.SourceKind != "boolean")
+                        throw new InvalidDataException(at + "has sourceKind '" + read.SourceKind + "', not string, number or boolean");
+                    if (IsSourceScript(read.SourceValue))
+                        throw new InvalidDataException(at + "has a literal sourceValue that is a source script, a source-kind disagreement");
+                    if (SourceKind(read.SourceValue) != read.SourceKind)
+                        throw new InvalidDataException(at + "has sourceKind '" + read.SourceKind + "', but its sourceValue classifies as " + SourceKind(read.SourceValue) + " (source-kind disagreement)");
+                }
+                else
+                {
+                    if (hasValue || hasKind)
+                        throw new InvalidDataException(at + "is evaluated and has " + (hasValue ? "sourceValue" : "sourceKind") + " (only a literal row has one)");
+                    if (read.EmittedCache == "none")
+                        throw new InvalidDataException(at + "is evaluated with emittedCache 'none' (an evaluated row has action or frame)");
+                }
+                SoundRows.Add(read);
+                i++;
+            }
+        }
+
+        private const string SoundName = "Sound";
+
+        /// <summary>One compiled Sound definition <see cref="BindSounds"/> found: the definition object, the attribute
+        /// text of the validated XML node it was compiled from, and whether a row has bound it.</summary>
+        private sealed class SoundSite
+        {
+            public TickParamDef Def;
+            public string Value;
+            public string Cache;
+            public bool Bound;
+        }
+
+        /// <summary>
+        /// CONTRACT v1.4 draft P1-D and P1-E, the binding and the coverage: each Sound row binds the compiled definition at
+        /// its location, held by that definition OBJECT (<see cref="TryGetSoundRow"/>), and the rows and the compiled Sound
+        /// definitions are a bijection. The definitions are found by walking the validated XML in TickType.Compile's order
+        /// (CompileAct: its params, then its children with nulls skipped and each child's binds; CompileBehaviour: its
+        /// binds), taking every definition whose name is ordinally "Sound" with the TickParamDef it compiled to. So the walk
+        /// keys on the canonical name the validated document carries, never on a source attribute spelling (control 17,
+        /// host half), and a definition a name lookup shadows is still in it, being found by node id. A row's emittedValue
+        /// and emittedCache are compared with that XML node's attribute TEXT, never with a compiled or evaluated value:
+        /// distinct strings compile to one Number, and evaluating a script to check a map is forbidden. A later node or
+        /// definition at one location replaces an earlier one, as Compile's dictionaries do (the validator refuses a
+        /// repeated node id or name before LoadPets compiles). Each rule is its own statement with its own message, so each
+        /// can be removed alone and fail one check (C13).
+        /// </summary>
+        private void BindSounds(TickType type, XmlData.RootNode document)
+        {
+            var sites = new Dictionary<string, SoundSite>(StringComparer.Ordinal);
+            foreach (XmlData.AnimationNode a in document.Animations.Animation)
+            {
+                if (a == null) continue;
+                if (a.Act != null)
+                {
+                    TickActDef act;
+                    if (!type.ActionsById.TryGetValue(a.Id, out act)) continue;
+                    if (a.Act.Params != null)
+                        foreach (XmlData.ParamNode p in a.Act.Params)
+                            if (p != null && p.Name == SoundName) AddSite(sites, "action " + a.Id, act.Params, p.Name, p.Value, p.Cache);
+                    if (a.Act.Children == null || a.Act.Children.Child == null) continue;
+                    int index = 0;
+                    foreach (XmlData.CompositeChildNode c in a.Act.Children.Child)
+                    {
+                        if (c == null) continue;
+                        if (c.Bind != null && index < act.Children.Length)
+                            foreach (XmlData.BindNode b in c.Bind)
+                                if (b != null && b.Name == SoundName)
+                                    AddSite(sites, "child " + a.Id + ":" + index, act.Children[index].Binds, b.Name, b.Value, b.Cache);
+                        index++;
+                    }
+                }
+                else if (a.Behaviour != null)
+                {
+                    TickBehaviourDef behaviour;
+                    if (!type.BehavioursById.TryGetValue(a.Id, out behaviour) || a.Behaviour.Bind == null) continue;
+                    foreach (XmlData.BindNode b in a.Behaviour.Bind)
+                        if (b != null && b.Name == SoundName) AddSite(sites, "behaviour " + a.Id, behaviour.Binds, b.Name, b.Value, b.Cache);
+                }
+            }
+
+            var located = new HashSet<string>(StringComparer.Ordinal);
+            foreach (SoundRow row in SoundRows)
+            {
+                string at = "parity map soundParameters row " + row.Row.ToString(CultureInfo.InvariantCulture) + " ";
+                string location = row.Kind + " " + row.NodeId + (row.Kind == "child" ? ":" + row.ChildIndex : "");
+                if (!located.Add(location))
+                    throw new InvalidDataException(at + "repeats the location " + location + " (one row per Sound definition)");
+                if (!HasSoundContainer(type, row))
+                    throw new InvalidDataException(at + "names " + location + ", which is no compiled " + (row.Kind == "child" ? "child reference" : row.Kind) + " (surplus)");
+                SoundSite site;
+                sites.TryGetValue(location, out site);
+                if (site == null)
+                    throw new InvalidDataException(at + "names " + location + ", which defines no Sound (surplus)");
+                string section = row.Kind == "action" ? "actions" : row.Kind == "behaviour" ? "behaviours" : "children";
+                string entry = SoundMapEntry(row);
+                // Control 9: an absent entry refuses here, a child's included. Apply tolerates an absent children entry
+                // only for a child that binds no Sound, which no row can name (it is surplus above).
+                if (entry == null)
+                    throw new InvalidDataException(at + "binds " + location + ", which has no " + section + " entry in the map (a Sound definition's location needs one)");
+                if (row.SourceRefKey != entry)
+                    throw new InvalidDataException(at + "has sourceRefKey '" + row.SourceRefKey + "', not the map's " + section + " entry '" + entry + "'");
+                int bar = row.SourceRefKey.IndexOf('|');
+                string set = bar < 0 ? row.SourceRefKey : row.SourceRefKey.Substring(0, bar);
+                if (set != ImageSet)
+                    throw new InvalidDataException(at + "has a sourceRefKey in image set '" + set + "', not '" + ImageSet + "'");
+                if (site.Cache == null)
+                    throw new InvalidDataException(at + "binds " + location + ", whose Sound definition has no cache attribute (map/3 requires one)");
+                if ((row.Mode == "literal") != (site.Def.Cache == TickCache.None))
+                    throw new InvalidDataException(at + "is " + row.Mode + ", but the Sound definition at " + location + " compiles with cache " + site.Def.Cache.ToString().ToLowerInvariant());
+                if (row.EmittedValue != site.Value)
+                    throw new InvalidDataException(at + "has emittedValue '" + row.EmittedValue + "', not the XML value '" + site.Value + "' of the Sound definition at " + location);
+                if (row.EmittedCache != site.Cache)
+                    throw new InvalidDataException(at + "has emittedCache '" + row.EmittedCache + "', not the XML cache '" + site.Cache + "' of the Sound definition at " + location);
+                site.Bound = true;
+                _soundRows.Add(site.Def, row);
+            }
+            foreach (KeyValuePair<string, SoundSite> s in sites)
+                if (!s.Value.Bound)
+                    throw new InvalidDataException("parity map has no soundParameters row for the Sound definition at " + s.Key + " (missing)");
+        }
+
+        private static void AddSite(Dictionary<string, SoundSite> sites, string location, Dictionary<string, TickParamDef> compiled, string name, string value, string cache)
+        {
+            TickParamDef def;
+            if (compiled != null && compiled.TryGetValue(name, out def))
+                sites[location] = new SoundSite { Def = def, Value = value, Cache = cache };
+        }
+
+        /// <summary>Whether the compiled type has the container a row's location names (P1-D's table), Sound or not.</summary>
+        private static bool HasSoundContainer(TickType type, SoundRow row)
+        {
+            if (row.Kind == "behaviour") return type.BehavioursById.ContainsKey(row.NodeId);
+            TickActDef act;
+            if (!type.ActionsById.TryGetValue(row.NodeId, out act)) return false;
+            return row.Kind == "action" || row.ChildIndex < act.Children.Length;
+        }
+
+        /// <summary>The map/2 entry a row's location requires (P1-D): actions[nodeId], behaviours[nodeId] or
+        /// children["nodeId:childIndex"]; null when the map has none.</summary>
+        private string SoundMapEntry(SoundRow row)
+        {
+            string entry;
+            if (row.Kind == "action") return Actions.TryGetValue(row.NodeId, out entry) ? entry : null;
+            if (row.Kind == "behaviour") return Behaviours.TryGetValue(row.NodeId, out entry) ? entry : null;
+            return Children.TryGetValue(row.NodeId + ":" + row.ChildIndex, out entry) ? entry : null;
+        }
+
+        private static string RawOf(JsonElement e)
+        {
+            return e.ValueKind == JsonValueKind.Undefined ? "(absent)" : e.GetRawText();
+        }
+
+        /// <summary>Null when <paramref name="token"/> is a JSON number whose raw text is a canonical nonnegative Int32
+        /// (P1-B: no sign, negative zero, fraction, exponent or leading zero), else why not.</summary>
+        private static string RowIntFault(JsonElement token)
+        {
+            int ignored;
+            return token.ValueKind != JsonValueKind.Number ? "not a number" : CanonicalFault(token.GetRawText(), out ignored);
+        }
+
+        /// <summary>The value of a token <see cref="RowIntFault"/> accepts, else 0.</summary>
+        private static int RowInt(JsonElement token)
+        {
+            int value;
+            return token.ValueKind == JsonValueKind.Number && CanonicalFault(token.GetRawText(), out value) == null ? value : 0;
+        }
+
+        /// <summary>CONTRACT v1.4 draft P1-C rule 0, on the UNTRIMMED text: a literal whose sourceValue is at least three
+        /// characters, ends with <c>}</c> and starts with <c>${</c> or <c>#{</c> is a source script the converter should
+        /// have written as evaluated, so the map is refused as a source-kind disagreement. " ${x}" is a constant.</summary>
+        internal static bool IsSourceScript(string value)
+        {
+            return value != null && value.Length >= 3 && value[value.Length - 1] == '}'
+                && (value.StartsWith("${", StringComparison.Ordinal) || value.StartsWith("#{", StringComparison.Ordinal));
+        }
+
+        /// <summary>
+        /// CONTRACT v1.4 draft P1-C, the source kind of a literal's authored text, computed without evaluating anything:
+        /// exactly <c>true</c> or <c>false</c> (before any trimming or case folding) is boolean; text Java's
+        /// Double.parseDouble accepts after Java's String.trim is number; everything else, <c>null</c> and the empty string
+        /// included, is string. Java's trim removes only U+0000 to U+0020 at the ends. <see cref="TickType.TryParseJavaDouble"/>
+        /// holds the Java number grammar but trims with .NET's string.Trim, which also removes U+0085, U+00A0 and the
+        /// Unicode spaces, so it is asked only about text with no char.IsWhiteSpace at either end, where that Trim does
+        /// nothing. The rejected alternative, TickType.ParseLiteral's kind, calls U+00A0 then 1 a number (P1-C says it
+        /// cannot be reused unmodified). Null in, null out.
+        /// </summary>
+        internal static string SourceKind(string value)
+        {
+            if (value == null) return null;
+            if (value == "true" || value == "false") return "boolean";
+            int start = 0, end = value.Length;
+            while (start < end && value[start] <= ' ') start++;
+            while (end > start && value[end - 1] <= ' ') end--;
+            string trimmed = value.Substring(start, end - start);
+            double ignored;
+            if (trimmed.Length > 0 && !char.IsWhiteSpace(trimmed[0]) && !char.IsWhiteSpace(trimmed[trimmed.Length - 1]) && TickType.TryParseJavaDouble(trimmed, out ignored))
+                return "number";
+            return "string";
         }
 
         /// <summary>One <c>poses</c> entry (CONTRACT v1.1 section 9): a canonical <c>node:variant:pose</c> key, and an
@@ -183,15 +525,21 @@ namespace DesktopAICompanion.Shimeji
         /// <summary>Give every node and child reference its refKey and every emitted pose its source index; a node the map
         /// does not name is a hole in the converter's map, refused rather than traced with a made-up key. Every node is
         /// walked by id: <see cref="TickType.Actions"/> is keyed by name, so a node another of the same name shadows is
-        /// not in it, and its poses would go unchecked.</summary>
-        public void Apply(TickType type)
+        /// not in it, and its poses would go unchecked. <paramref name="document"/> is the validated XML the type was
+        /// compiled from: map/3's Sound rows are checked against its attribute text, never against compiled values
+        /// (CONTRACT v1.4 draft P1-D), so the caller hands over both.</summary>
+        public void Apply(TickType type, XmlData.RootNode document)
         {
+            if (document == null) throw new ArgumentNullException("document");
             string key;
             foreach (TickActDef act in type.ActionsById.Values)
             {
                 if (!Actions.TryGetValue(act.NodeId, out key))
                     throw new InvalidDataException("parity map has no refKey for action node " + act.NodeId + " '" + act.Name + "'");
                 act.RefKey = key;
+                // An absent children entry stays tolerated here (burndown/host-mute-1 kept it: closing it for every child
+                // could refuse real maps outside the Mute wire). A child that binds Sound needs its entry, which
+                // BindSounds requires (CONTRACT v1.4 draft P1-D, control 9).
                 for (int i = 0; i < act.Children.Length; i++)
                     if (Children.TryGetValue(act.NodeId + ":" + i, out key)) act.Children[i].RefKey = key;
             }
@@ -207,6 +555,12 @@ namespace DesktopAICompanion.Shimeji
                     throw new InvalidDataException("parity map has a source name for node " + node + ", which is no action or behaviour of " + type.Name);
             BindPoses(type);
             CheckGeometry(type);
+            // CONTRACT v1.4 draft FC-1: the map/3 checks come last, after the existing pose and geometry checks, so a map
+            // an existing check refuses is refused with the same reason as before. Each is an InvalidDataException that
+            // LoadPets logs as "refused <map path>: <reason>", exit 2 and no trace.
+            CheckTopLevel();
+            ReadSoundRows();
+            BindSounds(type, document);
         }
 
         /// <summary>
@@ -907,9 +1261,142 @@ namespace DesktopAICompanion.Shimeji
                 .StrList("via", via == null ? new string[0] : new[] { via }).End();
         }
 
-        public void Muted(TickMascot mascot, string clip)
+        // CONTRACT v1.4 P2-C, FC-2 and FC-6 (revision 3; burndown/host-mute-1 commit 5a): each completed Mute read is
+        // dispositioned exactly once, in Muted on the two event branches and in MuteReadNoEvent on the Sounds-off null
+        // branch. Everything read here is stored state (the read record, the activation's OwnerType, the owner's map), so
+        // nothing is evaluated again and trace-on and trace-off form the same faults and information. A provenance defect
+        // writes no line and makes no Event() call, so the event count and digest stay what the engine alone gives, and
+        // Finish ends the run in error. Rejected: writing the engine's clip, a canonical value or null for a defect read
+        // (FC-2 step 1), and choosing the map by the companion's current member (a retained action belongs to OwnerType).
+
+        /// <summary>The first Mute provenance fault, "MUTE_PROVENANCE_MISSING tick &lt;t&gt; &lt;sid&gt;: &lt;reason&gt;", or null.
+        /// It also takes ProvenanceFault while that is null; Finish logs it beside ProvenanceFault when an earlier fault of
+        /// another kind holds that (FC-3).</summary>
+        public string FirstMuteFault { get; private set; }
+
+        private readonly List<string> _information = new List<string>();
+
+        /// <summary>The MUTE_VALUE_NOT_STRING and MUTE_VALUE_FAULTED lines of the reads not handled under FC-2, once per
+        /// occurrence, in occurrence order (FC-6). Finish logs each with " (information)"; none changes the status, the exit
+        /// code or ProvenanceFault.</summary>
+        public IReadOnlyList<string> Information { get { return _information; } }
+
+        // FC-2 (commit 5b): an exception raised by this observation code is caught here and retained as the read's
+        // provenance defect, "observer exception <type>: <message>". It must never reach TickMute.Apply, which has no catch,
+        // and so TickMascot.Tick's catch-all, where it would become an internal-fault product error, dispose the companion
+        // and still let the run end complete. The engine's own read has already happened and is never inside these regions.
+        public void Muted(TickMascot mascot, string clip, TickAction activation, TickParamRead read)
         {
-            _out.WriteLine(Event(mascot, "mute").Str("clip", clip).End());
+            try { MutedCore(mascot, clip, activation, read); }
+            catch (Exception e) { MuteFault(mascot, TickParamRead.Defect(e)); }
+        }
+
+        public void MuteReadNoEvent(TickMascot mascot, TickAction activation, TickParamRead read)
+        {
+            try { NoEventCore(mascot, activation, read); }
+            catch (Exception e) { MuteFault(mascot, TickParamRead.Defect(e)); }
+        }
+
+        /// <summary>C18's test seam at one of this writer's observation sites: null in the product. The writer handles only
+        /// the Mute Sound read, so it names that parameter.</summary>
+        private static void Probe(string site)
+        {
+            Action<string, string> probe = TickParamRead.ObservationProbe;
+            if (probe != null) probe(site, "Sound");
+        }
+
+        private void MutedCore(TickMascot mascot, string clip, TickAction activation, TickParamRead read)
+        {
+            Probe("muted");
+            var information = new List<string>(2);
+            string payload;
+            string defect = MuteDisposition(mascot, clip, activation, read, information, out payload);
+            if (defect != null)
+            {
+                MuteFault(mascot, defect);
+                return;
+            }
+            Probe("writer");
+            _out.WriteLine(Event(mascot, "mute").Str("clip", payload).End());
+            _information.AddRange(information);
+        }
+
+        /// <summary>A Mute read that asks for no event (a null with Sounds off) writes nothing: no line and no Event() call.
+        /// It is still dispositioned (P2-B, Q1): a provenance defect ends the run in error, and its information is kept.</summary>
+        private void NoEventCore(TickMascot mascot, TickAction activation, TickParamRead read)
+        {
+            Probe("no-event");
+            var information = new List<string>(2);
+            string payload;
+            string defect = MuteDisposition(mascot, null, activation, read, information, out payload);
+            if (defect != null) MuteFault(mascot, defect);
+            else _information.AddRange(information);
+        }
+
+        /// <summary>
+        /// P2-C for one completed read: null, with the payload to write and the read's information lines added, or the
+        /// provenance defect's reason (FC-2), which withholds both. An absent read needs no binding (the engine took its
+        /// existing null branch), so a missing owner or map is no defect for it. Any other read must have selected a
+        /// definition that its owner's map binds, by the definition object, to a row whose mode agrees with that
+        /// definition's cache; a local has no row (nor would a guard, which no Mute reads: it has no winner). A literal row
+        /// with sourceKind string writes its authored text whatever the compiled kind; every other read writes the engine's
+        /// own value, classified by the row's sourceKind (literal) or the captured kind (evaluated). A reported fault is
+        /// orthogonal: it adds MUTE_VALUE_FAULTED and never forces null. A literal read evaluates nothing and never faults.
+        /// </summary>
+        private string MuteDisposition(TickMascot mascot, string clip, TickAction activation, TickParamRead read, List<string> information, out string payload)
+        {
+            payload = clip;
+            // R9: a read whose engine-side observation threw is a provenance defect, whatever else its record says (its
+            // classification inputs are not trusted), so it forms no information either.
+            if (read.ObservationFault != null) return read.ObservationFault;
+            if (read.Selection == TickParamSelection.Absent) return null;
+            if (read.Selection == TickParamSelection.Local) return "Sound is a local the action published, which no map row binds";
+            Probe("identity");
+            TickType owner = activation.OwnerType;
+            if (owner == null) return "the Mute action has no owner type to find a map by";
+            ParityMap map;
+            if (!_maps.TryGetValue(owner.Name, out map)) return "member " + owner.Name + " has no parity map";
+            Probe("source-value");
+            ParityMap.SoundRow row;
+            if (!map.TryGetSoundRow(read.Winner, out row)) return "the Sound definition read is bound to no soundParameters row of member " + owner.Name;
+            bool literal = row.Mode == "literal";
+            if (literal != (read.Winner.Cache == TickCache.None))
+                return "soundParameters row " + row.Row + " is " + row.Mode + ", but the Sound definition read compiles with cache " + read.Winner.Cache.ToString().ToLowerInvariant();
+            if (literal && (row.SourceValue == null || row.SourceKind == null))
+                return "soundParameters row " + row.Row + " is literal with no sourceValue or sourceKind";
+            string at = " tick " + _tick + " " + mascot.Sid;
+            if (read.Faulted) information.Add("MUTE_VALUE_FAULTED" + at);
+            if (literal)
+            {
+                if (row.SourceKind == "string") payload = row.SourceValue;
+                else information.Add("MUTE_VALUE_NOT_STRING" + at + ": literal " + row.SourceKind);
+            }
+            else
+            {
+                string kind = EvaluatedKind(read.Kind);
+                if (kind != null) information.Add("MUTE_VALUE_NOT_STRING" + at + ": evaluated " + kind);
+            }
+            return null;
+        }
+
+        /// <summary>The NOT_STRING suffix word for an evaluated result's kind; null for String and Null, which claim nothing.</summary>
+        private static string EvaluatedKind(ScriptValueKind kind)
+        {
+            switch (kind)
+            {
+                case ScriptValueKind.Number: return "number";
+                case ScriptValueKind.Boolean: return "boolean";
+                case ScriptValueKind.Point: return "point";
+                default: return null;
+            }
+        }
+
+        /// <summary>FC-2 steps 2 and 3: the first Mute fault, and ProvenanceFault while it is null, take this defect.</summary>
+        private void MuteFault(TickMascot mascot, string reason)
+        {
+            string fault = "MUTE_PROVENANCE_MISSING tick " + _tick + " " + mascot.Sid + ": " + reason;
+            if (FirstMuteFault == null) FirstMuteFault = fault;
+            if (ProvenanceFault == null) ProvenanceFault = fault;
         }
 
         /// <summary>A clip the engine started, or a running one a Mute stopped (TickSound). A parity run has no clip output,
@@ -1763,7 +2250,7 @@ namespace DesktopAICompanion.Shimeji
                     at = xmlPath;
                     TickType type = TickType.Compile(map.ImageSet, root);
                     at = mapPath;
-                    map.Apply(type);
+                    map.Apply(type, root);
                     loaded.Add(new KeyValuePair<TickType, ParityMap>(type, map));
                 }
                 catch (Exception e) when (IsRefusal(e))
@@ -2391,12 +2878,20 @@ namespace DesktopAICompanion.Shimeji
                 status = "error";
                 log.WriteLine("parity trace: " + writer.ProvenanceFault);
             }
+            // CONTRACT v1.4 FC-3: when an earlier fault of another kind holds ProvenanceFault, the first Mute provenance
+            // fault is logged too, so both firsts are visible (it already made the status error through ProvenanceFault).
+            if (writer.FirstMuteFault != null && writer.FirstMuteFault != writer.ProvenanceFault)
+                log.WriteLine("parity trace: " + writer.FirstMuteFault);
             // CONTRACT 10.8: exhaustion leaves the status alone and is still logged, as information. It is read from the
             // draws the run actually made, so an aborted or failed run reports it too, for what it drew before it stopped.
             bool tapeExhausted = random != null && random.TapeExhausted;
             if (tapeExhausted)
                 log.WriteLine("rng-tape-exhausted (information): the run drew past the end of its " + random.TapeLength
                     + "-value tape; each draw past the end yielded 0.5 and the run went on");
+            // CONTRACT v1.4 FC-6 (revision 3): each Mute information line, after every parity trace line and the
+            // rng-tape-exhausted line and before the footer, on every ending and in both trace modes; never a status.
+            foreach (string line in writer.Information)
+                log.WriteLine(line + " (information)");
             writer.Footer(ticks, status, tapeExhausted);
             return status == "complete" ? 0 : 1;
         }

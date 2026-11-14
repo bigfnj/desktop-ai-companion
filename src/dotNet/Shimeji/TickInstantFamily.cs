@@ -61,17 +61,25 @@ namespace DesktopAICompanion.Shimeji
 
         protected override void Apply()
         {
-            string sound = EvalString("Sound", null, null);
+            // CONTRACT v1.4 P2-A and P2-E: Sound is read once, and EvalString's passive record says which definition that
+            // read selected, the result's kind before display coercion and whether a fault was reported during it. Every
+            // completed read reaches the observer exactly once with that record: through Muted on the two branches that
+            // report a `mute` (each still before its TickSound call), or through MuteReadNoEvent on the null-with-Sounds-off
+            // branch, which reports nothing. No second read, no second settings read, and TickSound receives the same
+            // argument as before; TickHost's observer stays a no-op.
+            TickParamRead read;
+            string sound = EvalString("Sound", null, null, out read);
             if (sound != null)
             {
-                World.Observer.Muted(Mascot, sound);
+                World.Observer.Muted(Mascot, sound, this, read);
                 TickSound.MuteNamed(World, Mascot, sound);
             }
             else if (World.Settings.Get("Sounds", Mascot.Type.Name))
             {
-                World.Observer.Muted(Mascot, null);
+                World.Observer.Muted(Mascot, null, this, read);
                 TickSound.MuteAll(World, Mascot);
             }
+            else World.Observer.MuteReadNoEvent(Mascot, this, read);
         }
     }
 

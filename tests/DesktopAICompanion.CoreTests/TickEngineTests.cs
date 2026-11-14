@@ -84,7 +84,25 @@ namespace DesktopAICompanion
             public void Fault(TickMascot m, string message, TickFaultCause cause, string via) { Faults.Add(m.Sid + ": " + message); Order.Add("fault"); }
             /// <summary>Faults and birth refusals in the order they were reported (the two go to separate lists above).</summary>
             public readonly List<string> Order = new List<string>();
-            public void Muted(TickMascot m, string clip) { Events.Add(m.Sid + " mute " + (clip ?? "-")); }
+            // The recorded event text is unchanged by the read record (the TickSoundTests expectations are never edited).
+            public void Muted(TickMascot m, string clip, TickAction activation, TickParamRead read)
+            {
+                Events.Add(m.Sid + " mute " + (clip ?? "-"));
+                Reads.Add(read);
+                ReadSites.Add(clip == null ? "null" : "named");
+                ReadActivations.Add(activation);
+            }
+            public void MuteReadNoEvent(TickMascot m, TickAction activation, TickParamRead read)
+            {
+                Reads.Add(read);
+                ReadSites.Add("no-event");
+                ReadActivations.Add(activation);
+            }
+            /// <summary>Every Mute read the observer was given, in order, the site that gave it (named, null, no-event) and the
+            /// activation it was given with.</summary>
+            public readonly List<TickParamRead> Reads = new List<TickParamRead>();
+            public readonly List<string> ReadSites = new List<string>();
+            public readonly List<TickAction> ReadActivations = new List<TickAction>();
             public void Sound(TickMascot m, string clip, string op) { Events.Add(m.Sid + " sound " + clip + " " + op); }
             public void ScanTargeted(TickMascot m, string affordance, TickMascot target) { Events.Add(m.Sid + " scan-target " + affordance + " " + (target == null ? "-" : target.Sid)); }
             public void Interacted(TickMascot m, IReadOnlyList<TickMascot> with)
