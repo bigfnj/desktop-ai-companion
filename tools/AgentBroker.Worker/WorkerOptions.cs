@@ -23,6 +23,8 @@ public sealed record WorkerOptions(string DataDirectory, string Name, int Loopba
     public bool EnableBrokerDiscovery { get; init; } = true;
     public int DefaultMessageLifetimeMinutes { get; init; } = 1440;
     public string[] AdditionalCodexHomes { get; init; } = [];
+    // Opt-in (lane F, 1.10.5): file attachments between paired brokers. Off by default here and in the module.
+    public bool EnableAttachments { get; init; }
     public string ControlPipeName => AgentBroker.Protocol.ControlProtocol.PipeName(DataDirectory);
 
     public void Validate()
@@ -43,7 +45,7 @@ public sealed record WorkerOptions(string DataDirectory, string Name, int Loopba
             if (i + 1 >= args.Length || args[i] is not ("--data" or "--name" or "--loopback-port" or "--lan-port" or
                 "--lan" or "--allow-unauthenticated-loopback" or "--parent-pid" or "--parent-start" or
                 "--codex-discovery" or "--codex-peer-messages" or "--codex-update-tolerant-delivery" or "--claude-discovery" or "--claude-peer-credentials" or
-                "--claude-update-tolerant-delivery" or "--message-lifetime-minutes" or "--codex-additional-homes") ||
+                "--claude-update-tolerant-delivery" or "--message-lifetime-minutes" or "--codex-additional-homes" or "--attachments") ||
                 !values.TryAdd(args[i], args[i + 1])) throw new ArgumentException("Invalid broker arguments.");
         }
         if (!values.TryGetValue("--data", out var directory)) throw new ArgumentException("--data is required.");
@@ -60,6 +62,7 @@ public sealed record WorkerOptions(string DataDirectory, string Name, int Loopba
             EnableClaudeUpdateTolerantDelivery = Bool("--claude-update-tolerant-delivery", false),
             DefaultMessageLifetimeMinutes = Int("--message-lifetime-minutes", 1440),
             AdditionalCodexHomes = ParseHomes(values.GetValueOrDefault("--codex-additional-homes", "[]")),
+            EnableAttachments = Bool("--attachments", false),
         };
         result.Validate(); return result;
 

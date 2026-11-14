@@ -12,6 +12,9 @@ public sealed partial class BrokerRuntime(BrokerStore store, IPeerFederation fed
     IReadOnlyList<ILocalAgentAdapter> adapters, SessionPreferences? sessionPreferences = null,
     TimeProvider? clock = null, ICallerProcessResolver? callerProcesses = null) : IAsyncDisposable
 {
+    // Lane F (1.10.5): set once at composition (WorkerApplication), before Start. Null when no attachment store was wired;
+    // the attachment tools then answer attachments_disabled and the receipt loop sweeps nothing.
+    internal AgentBroker.Worker.Attachments.AttachmentStore? Attachments { get; set; }
     private readonly ConcurrentDictionary<string, string> adapterErrors = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, string> adapterNotes = new(StringComparer.Ordinal);
     private readonly DeferredDeliveryClaims claims = new(store);
@@ -422,7 +425,12 @@ public sealed partial class BrokerRuntime(BrokerStore store, IPeerFederation fed
     private async Task ReceiptLoopAsync(CancellationToken stop)
     {
         while (!stop.IsCancellationRequested)
-        { await ReconcilePeersAsync(stop); await Task.Delay(TimeSpan.FromSeconds(5), stop); }
+        {
+            await ReconcilePeersAsync(stop);
+            // Attachment retention (lane F): at most once a minute; a sweep failure is that pass's alone (SweepIfDue).
+            Attachments?.SweepIfDue();
+            await Task.Delay(TimeSpan.FromSeconds(5), stop);
+        }
     }
 
     // whoami: the session owned by the nearest process in the caller's ancestry that an adapter binds to exactly one
@@ -501,6 +509,12 @@ public sealed partial class BrokerRuntime(BrokerStore store, IPeerFederation fed
         catch (AgentBroker.Worker.Federation.PeerSubmissionNotStartedException notStarted) when
             (receipt.Message.Recipient.BrokerId != store.BrokerId && notStarted.BrokerId == receipt.Message.Recipient.BrokerId)
         { result = new(AdapterAdmission.DeferredNotSubmitted, "peer_connection_unavailable"); }
+        // Lane F (D-1): the recipient's broker is still fetching this message's attachments and admitted nothing, so it is
+        // released unsubmitted and retried after the same 5 s backoff; the recipient bounds the wait (D-3).
+        catch (AgentBroker.Worker.Federation.PeerAdmissionRefusedException pending) when
+            (receipt.Message.Recipient.BrokerId != store.BrokerId && pending.BrokerId == receipt.Message.Recipient.BrokerId &&
+             pending.Code == AttachmentCodes.FetchPending)
+        { result = new(AdapterAdmission.DeferredNotSubmitted, AttachmentCodes.FetchPending); }
         catch (AgentBroker.Worker.Federation.PeerAdmissionRefusedException refused) when
             (receipt.Message.Recipient.BrokerId != store.BrokerId && refused.BrokerId == receipt.Message.Recipient.BrokerId)
         { result = new(AdapterAdmission.Refused, refused.Code); }

@@ -147,7 +147,7 @@ public sealed partial class PeerFederation : IPeerFederation
             Guid caller = RequirePeer(c); var message = await Read<BrokerMessage>(c, MaximumMessageBodyBytes);
             // Recheck after body read so revocation during a slow upload cannot authorize admission.
             if (RequirePeer(c) != caller) throw new UnauthorizedAccessException();
-            return Results.Json(store.Accept(message, caller), Json);
+            return await AcceptMessageAsync(c, caller, message);
         })));
         // A tombstoned (acknowledged) ID answers 404 like an unknown one, never a receipt with an empty Text: a 1.0.4
         // peer compares the whole message before recording an outcome, so the record shape on this route is unchanged.
@@ -156,6 +156,7 @@ public sealed partial class PeerFederation : IPeerFederation
             return Task.FromResult<IResult>(receipt is not null && (receipt.Message.Sender.BrokerId == caller || receipt.Message.Recipient.BrokerId == caller)
                 ? Results.Json(receipt, Json) : Results.NotFound());
         }));
+        MapAttachmentEndpoints(application);
     }
     private Guid RequirePeer(HttpContext c) => AuthenticatePeer(c) ?? throw new UnauthorizedAccessException("An explicitly paired TLS identity is required.");
     private static async Task<IResult> Handle(HttpContext c, Func<Task<IResult>> action)
@@ -238,6 +239,8 @@ public sealed partial class PeerFederation : IPeerFederation
     public void RevokePeer(Guid brokerId)
     {
         lock (gate) { foreach (var item in pending.Values.Where(p => p.Offer.Peer.BrokerId == brokerId).ToArray()) { Remember(item); pending.Remove(item.Offer.RequestId); } store.RevokePeer(brokerId); }
+        // D-9: a revoked broker loses its attachment permission; pairing again never restores it.
+        Attachments?.Policy.Remove(brokerId);
     }
     public async Task<PeerDirectory> GetDirectoryAsync(PeerTrust peer, CancellationToken token)
     {
@@ -390,6 +393,7 @@ public sealed partial class PeerFederation : IPeerFederation
     }
     public async ValueTask DisposeAsync()
     {
+        StopAttachments();
         await StopReconnectAsync();
         if (discovery is not null) await discovery.DisposeAsync();
     }

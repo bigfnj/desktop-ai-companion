@@ -887,6 +887,70 @@ L2_PEER_DIRECTORY_WITNESSES = (
             "DIRECTORY_PEER_CLOCK_LOCAL_NOW_AFTER_RESPONSE"),
 )
 
+# ---- 1.10.5 lane F: file attachments between paired brokers (design: marathon-1105 ITEM-DESIGNS "Lane F" + lead decisions
+# D-1..D-9). Each recipe removes or weakens one guard and names the first check that must fail. The Network recipes run
+# real paired nodes over mutual TLS; four of them wait out a 40 s bounded state, so this set takes about 35-40 minutes.
+ATTACHMENT_FED = "tools/AgentBroker.Worker/Federation/PeerFederation.Attachments.cs"
+ATTACHMENT_GROUP = ("--attachments-only",)
+ATTACHMENT_WITNESSES = (
+    Witness("attachment-file-count", "src/AgentBroker.Core/AttachmentEnvelope.cs", "core", ATTACHMENT_GROUP,
+            (("    public const int MaximumFiles = 4;", "    public const int MaximumFiles = 5;", 1),),
+            "ATTACHMENT_ENVELOPE_BOUNDS: five files are Invalid"),
+    Witness("attachment-local-only", "tools/AgentBroker.Worker/BrokerTools.Attachments.cs", "worker", ATTACHMENT_GROUP,
+            (("        RequireLocalAttachments();\n        CheckParticipant(sender);", "        CheckParticipant(sender);", 1),),
+            "ATTACHMENT_TOOLS_LOCAL_ONLY: a paired broker's caller is refused both tools and no file is opened"),
+    Witness("attachment-envelope-reserved", TOOLS, "worker", ATTACHMENT_GROUP,
+            (("        RequireNotEnvelope(text);\n        return Run(() =>\n        {\n            var receipt = runtime.Store.Send(",
+              "        return Run(() =>\n        {\n            var receipt = runtime.Store.Send(", 1),),
+            "ATTACHMENT_ENVELOPE_RESERVED: send, send_message and reply refuse envelope text; ordinary JSON text still sends"),
+    Witness("attachment-source-reparse", "tools/AgentBroker.Worker/Attachments/AttachmentSource.cs", "worker", ATTACHMENT_GROUP,
+            (("                if ((File.GetAttributes(component) & FileAttributes.ReparsePoint) != 0) throw Invalid();",
+              "                _ = File.GetAttributes(component);", 1),),
+            "ATTACHMENT_SOURCE_REPARSE_REFUSED: a reparse point in the path, or as the named file, is refused"),
+    Witness("attachment-deferral", "tools/AgentBroker.Worker/BrokerRuntime.cs", "worker", ATTACHMENT_GROUP,
+            (("             pending.Code == AttachmentCodes.FetchPending)", '             pending.Code == "attachment_fetch_pending_mutant")', 1),),
+            "ATTACHMENT_DEFERRAL_MAPPED: attachment_fetch_pending releases the message unsubmitted for a later forward"),
+    Witness("attachment-refusal-codes", "tools/AgentBroker.Worker/Federation/PeerAdmissionRefusal.cs", "worker", ATTACHMENT_GROUP,
+            (('                "recipient_queue_full" or "message_limit") && !AgentBroker.Core.AttachmentCodes.IsAdmissionCode(code)) return false;',
+              '                "recipient_queue_full" or "message_limit")) return false;', 1),),
+            "ATTACHMENT_REFUSAL_CODES_TRAVEL: the attachment admission codes are read as refusals; an unknown code stays unknown"),
+    Witness("attachment-policy-cert", "tools/AgentBroker.Worker/Attachments/AttachmentPolicy.cs", "worker", ATTACHMENT_GROUP,
+            (("            entry.CertificateSha256.Equals(peer.CertificateSha256, StringComparison.OrdinalIgnoreCase));", "            true);", 1),),
+            "ATTACHMENT_POLICY_SIDECAR: an allow survives a restart and is pinned to the broker's current certificate"),
+    Witness("attachment-option-default", "tools/AgentBroker.Worker/WorkerOptions.cs", "worker", ATTACHMENT_GROUP,
+            (('            EnableAttachments = Bool("--attachments", false),', '            EnableAttachments = Bool("--attachments", true),', 1),),
+            "ATTACHMENT_OPTION_DEFAULT_OFF: attachments are off unless --attachments true is passed once"),
+    Witness("attachment-zone-write", "tools/AgentBroker.Worker/LocalOutputFile.cs", "worker", ATTACHMENT_GROUP,
+            (("                if (zoneIdentifier is not null) WriteZoneIdentifier(temp, zoneIdentifier);\n", "", 1),),
+            "ATTACHMENT_ZONE_BEFORE_PUBLISH: the zone stream exists on the temporary before the rename, survives it, and is written only when asked"),
+    Witness("attachment-revoke-clears", "tools/AgentBroker.Worker/Federation/PeerFederation.cs", "network", ATTACHMENT_GROUP,
+            (("        Attachments?.Policy.Remove(brokerId);\n", "", 1),),
+            "ATTACHMENT_REVOKE_CLEARS_ALLOW: revoking a broker removes its attachment permission"),
+    Witness("attachment-hash-compare", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (("        if (Convert.ToHexStringLower(SHA256.HashData(buffer)) != entry.Sha256) return PullOutcome.Mismatch;\n", "", 1),),
+            "ATTACHMENT_MISMATCH_REFUSED: the expected bounded state was not reached."),
+    Witness("attachment-policy-allow", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (("        if (attachments is not { Enabled: true } || !attachments.Policy.Allows(peer))",
+              "        if (attachments is not { Enabled: true })", 1),),
+            "ATTACHMENT_POLICY_REFUSED: the expected bounded state was not reached."),
+    Witness("attachment-recipient-only", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (("                receipt.Message.Recipient.BrokerId != caller ||\n", "", 1),),
+            "ATTACHMENT_ENDPOINT_RECIPIENT_ONLY: another paired broker cannot fetch a file addressed to someone else"),
+    Witness("attachment-content-length", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (("        if (response.Content.Headers.ContentLength != entry.Bytes) return PullOutcome.Mismatch;\n", "", 1),),
+            "ATTACHMENT_OVERSIZE_REFUSED_BEFORE_DOWNLOAD: a Content-Length other than the declared size is refused with no body byte read"),
+    Witness("attachment-slow-pull", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (("    internal static readonly TimeSpan AttachmentInlineWait = TimeSpan.FromSeconds(5);",
+              "    internal static readonly TimeSpan AttachmentInlineWait = TimeSpan.FromSeconds(30);", 1),),
+            "ATTACHMENT_SLOW_PULL_NO_UNCERTAIN: a pull longer than the inline wait defers and later admits, never Uncertain"),
+    Witness("attachment-head-of-line", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (("        if (now - first < AttachmentDeferralBound)", "        if (now - first < AttachmentDeferralBound || first <= now)", 1),),
+            "ATTACHMENT_HEAD_OF_LINE_BOUND: the expected bounded state was not reached."),
+    Witness("attachment-unavailable", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (("        if (response.StatusCode == HttpStatusCode.NotFound) return PullOutcome.Unavailable;\n", "", 1),),
+            "ATTACHMENT_UNAVAILABLE_REFUSED: the expected bounded state was not reached."),
+)
+
 WITNESSES = (
     Witness("hygiene-late-held-allowed", STORE, "core", ("--hygiene-only",), ((X1_GUARD, "", 1),),
             "LATE_HELD_REFUSED: a local Held after the deadline is refused message_expired and the record stays Uncertain"),
@@ -1080,7 +1144,7 @@ WITNESSES = (
 
     Witness('watch-cleanup-exists-omitted', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('if (File.Exists(lockPath)) cleanup = "failed";', '', 1),), 'WATCH_CLEANUP_DELETE_PENDING: a visible delete-pending lock reports cleanup failed without changing the mail exit code'),
 
-)
+) + ATTACHMENT_WITNESSES
 
 
 def sha256(data: bytes) -> str:
@@ -1144,10 +1208,14 @@ EXPECTED_COUNTS = {("core", ("--waiting-mail-only",)): 118, ("worker", ("--waiti
                    # 36 -> 41 (review round 1, measured): CASE_SENSITIVE_ANCESTOR, HANDOFF_CLI_CLEANUP, MCP_CLI_CLEANUP,
                    # POST_CREATE_CHAIN and POST_CREATE_CASE.
                    ("worker", ("--local-output-only",)): 43,
-                   ("worker", ("--inbox-watch-only",)): 167}
+                   ("worker", ("--inbox-watch-only",)): 167,
+                   # 1.10.5 lane F, measured on the lane's healthy focused runs (2026-11-14): Core 64, Worker 23, Network 17.
+                   ("core", ("--attachments-only",)): 64, ("worker", ("--attachments-only",)): 23,
+                   ("network", ("--attachments-only",)): 17}
 CORE_SUMMARIES = {("--waiting-mail-only",): "AgentBroker waiting-mail smoke", ("--reply-receipt-only",): "AgentBroker reply receipt smoke", ("--hygiene-only",): "AgentBroker hygiene smoke", ("--peer-receipt-only",): "AgentBroker peer receipt smoke",
                   ("--commit-timing-only",): "AgentBroker commit timing smoke",
-                  ("--uncertain-notices-only",): "AgentBroker uncertainty notice smoke"}
+                  ("--uncertain-notices-only",): "AgentBroker uncertainty notice smoke",
+                  ("--attachments-only",): "AgentBroker attachment envelope smoke"}
 
 
 def group_key(project: str, args: tuple[str, ...]) -> str:

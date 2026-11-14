@@ -75,9 +75,12 @@ public sealed class WorkerApplication : IAsyncDisposable
         try
         {
             identity = BrokerIdentity.LoadOrCreate(options.DataDirectory, store.BrokerId);
-            federation = new PeerFederation(store, identity, options, enableDiscovery: options.EnableBrokerDiscovery);
+            // Lane F: one attachment store for the federation routes, the tools and the retention sweep.
+            var attachments = new AgentBroker.Worker.Attachments.AttachmentStore(options.DataDirectory, store, options.EnableAttachments, clock);
+            federation = new PeerFederation(store, identity, options, enableDiscovery: options.EnableBrokerDiscovery) { Attachments = attachments };
             nativeAdapters = adapters ?? CreateNativeAdapters(options);
             runtime = new BrokerRuntime(store, federation, nativeAdapters, new SessionPreferences(options.DataDirectory), clock);
+            runtime.Attachments = attachments;
             var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions
             { Args = [], ContentRootPath = AppContext.BaseDirectory, EnvironmentName = "Production" });
             builder.Logging.ClearProviders(); // Neither message text nor credentials enter request logs.

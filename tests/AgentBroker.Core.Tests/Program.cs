@@ -123,6 +123,12 @@ try
         Console.WriteLine($"AgentBroker hygiene smoke: {passed} assertions passed.");
         return 0;
     }
+    if (args.SequenceEqual(["--attachments-only"]))
+    {
+        passed += AttachmentEnvelopeChecks.Run(root);
+        Console.WriteLine($"AgentBroker attachment envelope smoke: {passed} assertions passed.");
+        return 0;
+    }
     if (args.SequenceEqual(["--commit-timing-only"]))
     {
         passed += CommitTimingChecks.Run(root);
@@ -240,6 +246,7 @@ try
     passed += NativeRecoveryChecks.Run(root);
     passed += AvailabilityDiagnosticChecks.Run(root);
     passed += TombstoneSharingChecks.Run(root);
+    passed += AttachmentEnvelopeChecks.Run(root);
     using (var receipts = new BrokerStore(Path.Combine(root, "explicit-receipts"), clock: clock))
     {
         var from = Session(receipts, "from"); var to = Session(receipts, "to");

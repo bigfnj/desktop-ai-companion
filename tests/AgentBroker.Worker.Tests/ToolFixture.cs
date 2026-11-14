@@ -18,14 +18,20 @@ internal sealed class ToolFixture : IAsyncDisposable
     internal BrokerTools Tools { get; }
     // A real clock (TimeProvider.System) instead of the manual one, for checks that a wait wakes at a real deadline.
     // Adapters and a caller resolver are for the whoami checks; every other check runs with neither.
+    // Lane F: attachments null wires no attachment store (every pre-1.10.5 check); true or false wires one under Root\data,
+    // enabled or not, so caller files can live elsewhere under Root.
+    internal AgentBroker.Worker.Attachments.AttachmentStore? Attachments { get; }
     internal ToolFixture(string name, BrokerLimits? limits = null, TimeProvider? clock = null,
         IReadOnlyList<ILocalAgentAdapter>? adapters = null, ICallerProcessResolver? callers = null,
-        IPeerFederation? federation = null)
+        IPeerFederation? federation = null, bool? attachments = null)
     {
         scratch = OwnedScratch.Create(name);
         Root = scratch.Root;
         Store = new BrokerStore(Path.Combine(Root, "store"), limits, clock ?? Clock);
-        Runtime = new BrokerRuntime(Store, federation ?? new NoPeers(), adapters ?? [], new SessionPreferences(Root), clock ?? Clock, callers);
+        Attachments = attachments is { } enabled
+            ? new AgentBroker.Worker.Attachments.AttachmentStore(Path.Combine(Root, "data"), Store, enabled, clock ?? Clock) : null;
+        Runtime = new BrokerRuntime(Store, federation ?? new NoPeers(), adapters ?? [], new SessionPreferences(Root), clock ?? Clock, callers)
+            { Attachments = Attachments };
         Context.Items["agentbroker.identity"] = Store.BrokerId;
         Tools = new BrokerTools(Runtime, new FixedHttpContextAccessor { HttpContext = Context });
     }

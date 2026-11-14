@@ -45,6 +45,10 @@ public sealed record NoticeDropView(int SenderUnavailable, int StoreFull, int Qu
 public sealed record PeerClockView(Guid BrokerId, string State, double? OffsetSeconds, double? UncertaintySeconds,
     double? RoundTripSeconds, DateTimeOffset? CheckedUtc, double? AgeSeconds, bool Warning);
 public sealed record ApprovalPromptView(string State, int? VisiblePromptCount, DateTimeOffset? ObservedAtUtc);
+// File attachments (lane F, 1.10.5): the master switch, the paired brokers allowed to send files, what the quarantine
+// holds (counts only), and the README the pane reveals. Local control pipe only; never sent to a peer.
+public sealed record AttachmentsView(bool Enabled, Guid[] AllowedBrokers, int InboxFiles, long InboxBytes, string? ReadmePath,
+    bool PolicyUnreadable);
 public sealed record BrokerSnapshot(Guid BrokerId, string Name, string LoopbackEndpoint, string? LanEndpoint,
     PeerView[] Discovered, PeerView[] Paired, PairingView[] PairingOffers, SessionView[] Sessions,
     IReadOnlyDictionary<string, string> AdapterErrors, string? CertificateSha256 = null, McpStatusView? Mcp = null,
@@ -54,7 +58,8 @@ public sealed record BrokerSnapshot(Guid BrokerId, string Name, string LoopbackE
     // Count-only notes about some of an adapter's sessions (lane broker-163), absent while there are none.
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyDictionary<string, string>? AdapterNotes = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] PeerClockView[]? PeerClocks = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ApprovalPromptView? ApprovalPrompts = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ApprovalPromptView? ApprovalPrompts = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] AttachmentsView? Attachments = null);
 public sealed record ControlRequest(string Operation, Guid Id = default, PeerView? Peer = null,
     string? SessionId = null, bool Value = false,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? ApprovalPromptCount = null,

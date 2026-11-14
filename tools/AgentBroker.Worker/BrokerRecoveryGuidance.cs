@@ -59,6 +59,17 @@ internal static class BrokerRecoveryGuidance
             "Correct the value to the bounds in the tool description and retry on the same exact address; an empty value clears it."),
         "declaration_limit" or "session_title_limit" => new(code, "list_sessions",
             "The local hint capacity is in use. Clear a hint you set or retry later; never register another session to get around it."),
+        // Lane F (1.10.5): file attachments. None of these is retried automatically.
+        "attachments_disabled" => new(code, "send",
+            "File attachments are off on this workstation; only the owner can turn them on in the AgentBroker pane. Send text, or ask the user."),
+        "attachment_source_invalid" or "attachment_too_large" => new(code, "send_with_attachments",
+            "Name 1 to 4 regular local files by drive-letter paths with no reparse point, at most 8 MiB each and 16 MiB together, outside the broker's own data folder."),
+        "attachment_outbox_full" or "attachment_storage_unavailable" => new(code, "get_message_receipt",
+            "The broker could not stage the files now. Check your earlier attachment messages' receipts and retry later with the same messageId; do not generate new messages."),
+        "attachment_envelope_reserved" => new(code, "send_with_attachments",
+            "Text in the agentbroker.attachments.v1 form is reserved for send_with_attachments. Send files with that tool, or send ordinary text."),
+        "attachment_not_found" => new(code, "read_inbox_page",
+            "Name a message your exact session received or sent with attachments, and an index within its attachments list."),
         _ => null
     };
 

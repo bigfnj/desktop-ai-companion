@@ -24,9 +24,11 @@ internal static class PeerAdmissionRefusal
             var properties = document.RootElement.EnumerateObject().ToArray();
             if (properties.Length != 1 || properties[0].Name != "error" || properties[0].Value.ValueKind != JsonValueKind.String) return false;
             string? code = properties[0].Value.GetString();
-            // Admission-only store outcomes known to leave this submission unaccepted. Future codes stay uncertain.
+            // Admission-only store outcomes known to leave this submission unaccepted. Future codes stay uncertain. The
+            // attachment codes (lane F, D-2) are all answered before the recipient's store.Accept, so none was admitted;
+            // BrokerRuntime.DeliverAsync defers attachment_fetch_pending and records every other one as Refused.
             if (code is not ("recipient_unavailable" or "recipient_cannot_receive" or "private_session" or
-                "recipient_queue_full" or "message_limit")) return false;
+                "recipient_queue_full" or "message_limit") && !AgentBroker.Core.AttachmentCodes.IsAdmissionCode(code)) return false;
             refusal = new(brokerId, code);
             return true;
         }
