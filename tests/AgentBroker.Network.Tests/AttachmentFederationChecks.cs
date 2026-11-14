@@ -53,12 +53,22 @@ internal static class AttachmentFederationChecks
         return a.Store.Send(sender.Address, recipient.Address, id, envelope, null, 60, a.Store.BrokerId).Message;
     }
 
-    private static async Task Until(Func<bool> condition, string label, int seconds = 40)
+    // The label names the state waited for and the observer says what was seen instead. The first line is the label and the
+    // time bound only, so a hygiene recipe can pin it exactly; the observed state (timing-dependent, e.g. Accepted versus
+    // Submitting) follows on its own line.
+    private static async Task Until(Func<bool> condition, string label, Func<string> observe, int seconds = 40)
     {
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(seconds));
         try { while (!condition()) await Task.Delay(25, deadline.Token); }
-        catch (OperationCanceledException error) { throw new InvalidOperationException(label + ": the expected bounded state was not reached.", error); }
+        catch (OperationCanceledException error)
+        {
+            throw new InvalidOperationException(label + " (not reached within " + seconds.ToString(System.Globalization.CultureInfo.InvariantCulture) +
+                " s)" + Environment.NewLine + "  observed: " + observe(), error);
+        }
     }
+
+    private static string Seen(Node node, Guid id) =>
+        node.Store.FindReceipt(id) is { } receipt ? receipt.Status + "/" + (receipt.Reason ?? "null") : "no receipt";
 
     // N-1: two files arrive verified, carry ZoneId=3, and the sender ends Submitted. N-11: a retry of the admitted message
     // never pulls again.
@@ -77,7 +87,9 @@ internal static class AttachmentFederationChecks
         await using (var runtime = new BrokerRuntime(a.Store, a.Federation, []))
         {
             runtime.Start(default);
-            await Until(() => a.Store.FindReceipt(message.Id)?.Status == MessageStatus.Submitted, "ATTACHMENT_PULL_VERIFIED_MOTW");
+            await Until(() => a.Store.FindReceipt(message.Id)?.Status == MessageStatus.Submitted,
+                "ATTACHMENT_PULL_VERIFIED_MOTW: the sender's message reaches Submitted once the recipient has verified both files",
+                () => "sender " + Seen(a, message.Id) + "; recipient " + Seen(b, message.Id) + "; file requests served " + a.Pairing.AttachmentRequests);
         }
         string folder = b.Attachments!.InboxFolder(a.Store.BrokerId, message.Id);
         string largePath = Path.Combine(folder, "0-large.bin"), smallPath = Path.Combine(folder, "1-notes.txt");
@@ -112,7 +124,9 @@ internal static class AttachmentFederationChecks
         await using (var runtime = new BrokerRuntime(a.Store, a.Federation, []))
         {
             runtime.Start(default);
-            await Until(() => a.Store.FindReceipt(message.Id)?.Status == MessageStatus.Refused, "ATTACHMENT_MISMATCH_REFUSED");
+            await Until(() => a.Store.FindReceipt(message.Id)?.Status == MessageStatus.Refused,
+                "ATTACHMENT_MISMATCH_REFUSED: the sender records the message whose staged file was altered as Refused",
+                () => "sender " + Seen(a, message.Id) + " (expected Refused/attachment_mismatch); recipient " + Seen(b, message.Id));
         }
         check(a.Store.FindReceipt(message.Id)?.Reason == AttachmentCodes.Mismatch && b.Store.FindReceipt(message.Id) is null &&
             !Directory.Exists(b.Attachments!.InboxFolder(a.Store.BrokerId, message.Id)),
@@ -135,7 +149,10 @@ internal static class AttachmentFederationChecks
             await using (var runtime = new BrokerRuntime(a.Store, a.Federation, []))
             {
                 runtime.Start(default);
-                await Until(() => a.Store.FindReceipt(message.Id)?.Status == MessageStatus.Refused, "ATTACHMENT_POLICY_REFUSED");
+                await Until(() => a.Store.FindReceipt(message.Id)?.Status == MessageStatus.Refused,
+                    "ATTACHMENT_POLICY_REFUSED (attachments " + tag + " at the recipient, sender not allowed): the sender records the message as Refused by the recipient broker's attachment policy",
+                    () => "sender " + Seen(a, message.Id) + " (expected Refused/attachments_refused_by_policy); recipient " + Seen(b, message.Id) +
+                        "; file requests served by the sender " + a.Pairing.AttachmentRequests);
             }
             check(a.Store.FindReceipt(message.Id)?.Reason == AttachmentCodes.RefusedByPolicy && a.Pairing.AttachmentRequests == 0 &&
                 b.Store.FindReceipt(message.Id) is null,
@@ -195,7 +212,9 @@ internal static class AttachmentFederationChecks
         await using (var runtime = new BrokerRuntime(a.Store, a.Federation, []))
         {
             runtime.Start(default);
-            await Until(() => a.Store.FindReceipt(message.Id)?.Status == MessageStatus.Refused, "ATTACHMENT_OVERSIZE_REFUSED_BEFORE_DOWNLOAD");
+            await Until(() => a.Store.FindReceipt(message.Id)?.Status == MessageStatus.Refused,
+                "ATTACHMENT_OVERSIZE_REFUSED_BEFORE_DOWNLOAD: the sender records the message whose file is served oversized as Refused",
+                () => "sender " + Seen(a, message.Id) + " (expected Refused/attachment_mismatch); recipient " + Seen(b, message.Id));
         }
         check(a.Store.FindReceipt(message.Id)?.Reason == AttachmentCodes.Mismatch && b.Store.FindReceipt(message.Id) is null &&
             Interlocked.Read(ref b.Federation.AttachmentBodyBytesRead) == before,
@@ -229,7 +248,8 @@ internal static class AttachmentFederationChecks
                 var receipt = a.Store.FindReceipt(message.Id);
                 sawDeferral |= receipt is { Status: MessageStatus.Accepted, Reason: AttachmentCodes.FetchPending, Attempts: 0 };
                 return receipt?.Status == MessageStatus.Submitted;
-            }, "ATTACHMENT_FETCH_FAILED_DEFERS_THEN_SUCCEEDS");
+            }, "ATTACHMENT_FETCH_FAILED_DEFERS_THEN_SUCCEEDS: the deferred message reaches Submitted on a later forward",
+                () => "sender " + Seen(a, message.Id) + "; deferral seen " + sawDeferral + "; file requests " + requests);
         }
         check(sawDeferral && b.Store.Messages(recipient.Address).Count(row => row.Message.Id == message.Id) == 1 && requests >= 2,
             "ATTACHMENT_FETCH_FAILED_DEFERS_THEN_SUCCEEDS: a failed file request defers the same message, and a later forward admits it once");
@@ -257,7 +277,8 @@ internal static class AttachmentFederationChecks
                 var status = a.Store.FindReceipt(message.Id)?.Status;
                 if (status is { } value) seen.Add(value);
                 return status is MessageStatus.Submitted or MessageStatus.Uncertain or MessageStatus.Refused;
-            }, "ATTACHMENT_SLOW_PULL_NO_UNCERTAIN");
+            }, "ATTACHMENT_SLOW_PULL_NO_UNCERTAIN: the slow pull's message settles as Submitted, Uncertain or Refused",
+                () => "sender " + Seen(a, message.Id) + "; statuses seen " + string.Join(",", seen));
         }
         check(!seen.Contains(MessageStatus.Uncertain) && a.Store.FindReceipt(message.Id)?.Status == MessageStatus.Submitted &&
             b.Store.FindReceipt(message.Id) is not null,
@@ -282,11 +303,15 @@ internal static class AttachmentFederationChecks
         {
             runtime.Start(default);
             await Until(() => a.Store.FindReceipt(attached.Id) is { Status: MessageStatus.Accepted, Reason: AttachmentCodes.FetchPending },
-                "ATTACHMENT_HEAD_OF_LINE_BOUND");
+                "ATTACHMENT_HEAD_OF_LINE_BOUND: the attachment message is deferred as Accepted with attachment_fetch_pending",
+                () => "attachment message " + Seen(a, attached.Id));
             check(b.Store.FindReceipt(text.Id) is null, "ATTACHMENT_HEAD_OF_LINE_BOUND: the pair's later message waits behind the deferred one");
             clock.Advance(PeerFederation.AttachmentDeferralBound + TimeSpan.FromMinutes(1));
             b.Store.Register(recipient with { LeaseUntil = clock.GetUtcNow().AddMinutes(1) });
-            await Until(() => b.Store.FindReceipt(text.Id) is not null, "ATTACHMENT_HEAD_OF_LINE_BOUND");
+            await Until(() => b.Store.FindReceipt(text.Id) is not null,
+                "ATTACHMENT_HEAD_OF_LINE_BOUND: past the deferral bound the text message queued behind it reaches the recipient",
+                () => "text message at the recipient " + Seen(b, text.Id) + "; attachment message " + Seen(a, attached.Id) +
+                    " (expected Refused/attachment_fetch_failed)");
         }
         check(a.Store.FindReceipt(attached.Id) is { Status: MessageStatus.Refused, Reason: AttachmentCodes.FetchFailed } &&
             b.Store.FindReceipt(attached.Id) is null,
@@ -305,12 +330,20 @@ internal static class AttachmentFederationChecks
         var recipient = b.Register("att-unavailable-recipient");
         string forged = AttachmentEnvelope.Compose(Note, [new AttachmentEntry(0, "data.txt", 10, new string('a', 64))]);
         var message = a.Store.Send(sender.Address, recipient.Address, Guid.NewGuid(), forged, null, 60, a.Store.BrokerId).Message;
+        bool deferred = false;
         await using (var runtime = new BrokerRuntime(a.Store, a.Federation, []))
         {
             runtime.Start(default);
-            await Until(() => a.Store.FindReceipt(message.Id)?.Status == MessageStatus.Refused, "ATTACHMENT_UNAVAILABLE_REFUSED");
+            await Until(() =>
+            {
+                var receipt = a.Store.FindReceipt(message.Id);
+                deferred |= receipt?.Reason == AttachmentCodes.FetchPending;
+                return receipt?.Status == MessageStatus.Refused;
+            }, "ATTACHMENT_UNAVAILABLE_REFUSED: the sender records the message whose sender staged no file as Refused",
+                () => "sender " + Seen(a, message.Id) + " (expected Refused/attachment_unavailable); deferred at least once " + deferred);
         }
-        check(a.Store.FindReceipt(message.Id)?.Reason == AttachmentCodes.Unavailable && b.Store.FindReceipt(message.Id) is null,
-            "ATTACHMENT_UNAVAILABLE_REFUSED: a sender with no staged file is refused attachment_unavailable");
+        // Refused, never deferred: a sender with nothing staged is a definite answer (DIS-1).
+        check(a.Store.FindReceipt(message.Id)?.Reason == AttachmentCodes.Unavailable && b.Store.FindReceipt(message.Id) is null && !deferred,
+            "ATTACHMENT_UNAVAILABLE_REFUSED: a sender with no staged file is refused attachment_unavailable without a deferral");
     }
 }

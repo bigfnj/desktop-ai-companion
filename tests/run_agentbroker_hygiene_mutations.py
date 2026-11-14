@@ -928,11 +928,11 @@ ATTACHMENT_WITNESSES = (
             "ATTACHMENT_REVOKE_CLEARS_ALLOW: revoking a broker removes its attachment permission"),
     Witness("attachment-hash-compare", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
             (("        if (Convert.ToHexStringLower(SHA256.HashData(buffer)) != entry.Sha256) return PullOutcome.Mismatch;\n", "", 1),),
-            "ATTACHMENT_MISMATCH_REFUSED: the expected bounded state was not reached."),
+            "ATTACHMENT_MISMATCH_REFUSED: the sender records the message whose staged file was altered as Refused (not reached within 40 s)"),
     Witness("attachment-policy-allow", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
             (("        if (attachments is not { Enabled: true } || !attachments.Policy.Allows(peer))",
               "        if (attachments is not { Enabled: true })", 1),),
-            "ATTACHMENT_POLICY_REFUSED: the expected bounded state was not reached."),
+            "ATTACHMENT_POLICY_REFUSED (attachments on at the recipient, sender not allowed): the sender records the message as Refused by the recipient broker's attachment policy (not reached within 40 s)"),
     Witness("attachment-recipient-only", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
             (("                receipt.Message.Recipient.BrokerId != caller ||\n", "", 1),),
             "ATTACHMENT_ENDPOINT_RECIPIENT_ONLY: another paired broker cannot fetch a file addressed to someone else"),
@@ -945,10 +945,10 @@ ATTACHMENT_WITNESSES = (
             "ATTACHMENT_SLOW_PULL_NO_UNCERTAIN: a pull longer than the inline wait defers and later admits, never Uncertain"),
     Witness("attachment-head-of-line", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
             (("        if (now - first < AttachmentDeferralBound)", "        if (now - first < AttachmentDeferralBound || first <= now)", 1),),
-            "ATTACHMENT_HEAD_OF_LINE_BOUND: the expected bounded state was not reached."),
+            "ATTACHMENT_HEAD_OF_LINE_BOUND: past the deferral bound the text message queued behind it reaches the recipient (not reached within 40 s)"),
     Witness("attachment-unavailable", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
             (("        if (response.StatusCode == HttpStatusCode.NotFound) return PullOutcome.Unavailable;\n", "", 1),),
-            "ATTACHMENT_UNAVAILABLE_REFUSED: the expected bounded state was not reached."),
+            "ATTACHMENT_UNAVAILABLE_REFUSED: the sender records the message whose sender staged no file as Refused (not reached within 40 s)"),
 )
 
 WITNESSES = (
