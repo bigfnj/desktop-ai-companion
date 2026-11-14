@@ -5772,6 +5772,20 @@ CASES = (
         "coordinator: each module on the fixed licence list ships the licence texts of the libraries it carries, with no Condition"
         " -- Fortunes ONNXRUNTIME_LICENSE.txt: a None Remove can take it out again (",
     ),
+    # Round 3 (the round 2 review's finding): a Condition on a metadata element inside a licence item. MSBuild drops the
+    # CopyToOutputDirectory whose Condition is false, so the item is not copied, while the element still reads as present.
+    (
+        "bd-coordinator: a Condition on a module licence item's CopyToOutputDirectory stops it being copied (N-audit-1106-017)",
+        os.path.join(REPO, "modules", "Reminder", "Reminder.csproj"),
+        b'    <None Include="..\\..\\packaging\\licenses\\ICALNET_LICENSE.txt">\n'
+        b"      <Link>ICALNET_LICENSE.txt</Link>\n"
+        b"      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>\n",
+        b'    <None Include="..\\..\\packaging\\licenses\\ICALNET_LICENSE.txt">\n'
+        b"      <Link>ICALNET_LICENSE.txt</Link>\n"
+        b"      <CopyToOutputDirectory Condition=\"'1'=='2'\">PreserveNewest</CopyToOutputDirectory>\n",
+        "coordinator: each module on the fixed licence list ships the licence texts of the libraries it carries, with no Condition"
+        " -- Reminder ICALNET_LICENSE.txt: a Condition on its CopyToOutputDirectory metadata can stop it shipping in silence",
+    ),
 )
 
 

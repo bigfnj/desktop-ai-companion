@@ -7360,13 +7360,16 @@ Assert-True ($bdcLowPins.Count -eq 0) (
 # not judged until it is added to the list by hand, and AI Brain (its one component, the Windows SDK projection, is an
 # unresolved item there), PetStudio and AgentBroker (whose notices ship by the routes that file describes) are not judged
 # here. For each module on the list, its project (parsed as XML, so a commented-out item does not count) must ship each
-# named file as exactly one None item whose Link element is that name, copied to the output, with NO Condition on the item
-# or on any element that holds it (its ItemGroup, or a Choose's When), so a missing file fails the build instead of being
+# named file as exactly one None item whose Link element is that name, copied to the output, with NO Condition on the item,
+# on any element that holds it (its ItemGroup, or a Choose's When) or on any element inside it (its CopyToOutputDirectory
+# or Link metadata among them: MSBuild drops metadata whose Condition is false, so the item falls back to not copied, or
+# to no Link, while the element still reads as present), so a missing file fails the build instead of being
 # skipped; no None Remove in the project may take it out again (one naming its Include, or one with a wildcard or an item
 # or property reference, which this check cannot resolve and so refuses); a source inside the repository must exist; and
 # the notices' "License files that ship" bullet for that ZIP must name the file. The ItemGroup Condition and the None
 # Remove were found by the round 1 review of the coordinator batch, each skipping a licence in silence while the check
-# passed. WITNESS: Fortunes' ONNX Runtime licence item was read, its Include naming the restored package's LICENSE, and
+# passed, and the Condition on a metadata element by the round 2 review (the round 1 block's exact-text match refused it,
+# and the round 2 XML rewrite let it through). WITNESS: Fortunes' ONNX Runtime licence item was read, its Include naming the restored package's LICENSE, and
 # the notices section was found.
 $bdcLicenceShips = [ordered]@{
     'Reminder'    = @('ICALNET_LICENSE.txt', 'NODATIME_LICENSE.txt', 'NODATIME_NOTICE.txt')
@@ -7399,6 +7402,8 @@ foreach ($bdcModule in $bdcLicenceShips.Keys) {
             if ($bdcUp.HasAttribute('Condition')) { $bdcUp.LocalName }
         })
         if ($bdcHolders.Count) { $bdcLicenceFaults += ($bdcModule + ' ' + $bdcName + ': skipped in silence under a Condition on its ' + ($bdcHolders -join ' and its ')) }
+        $bdcInner = @($bdcItem.SelectNodes('.//*') | Where-Object { $_.HasAttribute('Condition') } | ForEach-Object { $_.LocalName })
+        if ($bdcInner.Count) { $bdcLicenceFaults += ($bdcModule + ' ' + $bdcName + ': a Condition on its ' + ($bdcInner -join ' and its ') + ' metadata can stop it shipping in silence') }
         $bdcRemovedBy = @($bdcRemoves | Where-Object { ($_ -replace '/', '\') -ieq ($bdcInclude -replace '/', '\') -or $_ -match '[*?]|[$@%]\(' })
         if ($bdcRemovedBy.Count) { $bdcLicenceFaults += ($bdcModule + ' ' + $bdcName + ': a None Remove can take it out again (' + ($bdcRemovedBy -join ';') + ')') }
         if (@($bdcItem.ChildNodes | Where-Object { $_.LocalName -ceq 'CopyToOutputDirectory' -and $_.InnerText.Trim() -cmatch '^(PreserveNewest|Always)$' }).Count -eq 0) {
