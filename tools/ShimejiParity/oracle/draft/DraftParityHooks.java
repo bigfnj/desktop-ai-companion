@@ -77,6 +77,46 @@ public final class DraftParityHooks {
         if (enabled()) required().observe(hook, subject, detail);
     }
 
+    // Mute observation is passive and total. Hook failures are producer defects, never source exceptions.
+    // Values here are the local already evaluated by Mute.apply; no hook calls a parameter or a Clip method.
+    private static final List<String> muteDefects = new ArrayList<String>();
+
+    private static void observeMute(String hook, Object action, Object detail) {
+        try {
+            if (enabled()) required().observe(hook, action, detail);
+        } catch (Throwable failure) {
+            try { muteDefects.add("MUTE_OBSERVER_FAILED " + hook + ": " + failure.getClass().getName()); }
+            catch (Throwable ignored) { }
+        }
+    }
+
+    public static void muteSound(Object action, String sound) { observeMute("mute-sound", action, sound); }
+    public static void muteNamed(Object action, String sound) { observeMute("mute-named", action, sound); }
+    public static void muteAll(Object action) { observeMute("mute-all", action, null); }
+    public static void muteAllStop(Object action) { observeMute("mute-all-stop", action, null); }
+    public static void muteDone(Object action) { observeMute("mute-done", action, null); }
+
+    public static void muteLookup(Object action, int tier, Object clips) {
+        try { observeMute("mute-lookup", action, new Object[] { Integer.valueOf(tier), clips }); }
+        catch (Throwable failure) {
+            try { muteDefects.add("MUTE_OBSERVER_FAILED mute-lookup: " + failure.getClass().getName()); }
+            catch (Throwable ignored) { }
+        }
+    }
+
+    public static void muteStop(Object action, Object clip) { observeMute("mute-stop", action, clip); }
+
+    /** Completion validation reads only the runner's stored observation, never source or clip state. */
+    public static void muteIncomplete(long entry) {
+        try {
+            String defect = "MUTE_INCOMPLETE_ENTRY " + entry;
+            if (!muteDefects.contains(defect)) muteDefects.add(defect);
+        } catch (Throwable ignored) { }
+    }
+
+    /** Named producer defects are checked even when a source exception escapes before run returns. */
+    public static List<String> muteDefects() { return new ArrayList<String>(muteDefects); }
+
     public static double random(String sourceSite) {
         if (!enabled()) return Math.random();
         double value = required().random(sourceSite);

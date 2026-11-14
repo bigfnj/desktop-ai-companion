@@ -1200,6 +1200,117 @@ SCENARIOS += [
 ]
 
 
+# Mute intent fixtures are separate from every frozen policy/calibration recipe above.
+# No fixture loads a pose sound or claims a Clip stop. Non-String and faulted reads
+# deliberately expose runtime differences; they are not policy exemptions.
+MUTE_LITERALS = (
+    ("raw", "/TO"), ("same-canonical", "/to"), ("number-crossing", "/01"),
+    ("boolean-crossing", "/true"), ("upper-true", "TRUE"), ("mixed-false", "False"),
+    ("hex-crossing", "/0X1P1"), ("nbsp", chr(0xA0) + "1"),
+    ("space-number", " 1"), ("empty", ""), ("slash", "/"),
+    ("backslash", chr(92)), ("space", " "), ("null-text", "null"),
+    ("number", "01"), ("true", "true"), ("infinity", "Infinity"),
+    ("negative-infinity", "-Infinity"), ("nan", "NaN"), ("hex", "0x1p1"),
+)
+
+
+def mute_action(name, **parameters):
+    return act(name, "Embedded", [], cls="Mute", border=None, **parameters)
+
+
+def pack_mute_literals(root):
+    actions = [posed("Stand", "Stay", [img("shime1.png", ticks=100)], Duration=100)]
+    behaviours = [beh("Stand", 1)]
+    for index, (_, value) in enumerate(MUTE_LITERALS):
+        name = "Mute" + str(index)
+        actions.append(mute_action(name, Sound=value))
+        behaviours.append(beh(name, 0, hidden=True))
+    member(root, "Alpha", actions, behaviours)
+
+
+def pack_mute_bindings(root):
+    member(root, "Alpha", [
+        # Sound on a non-Mute action is unused, but still needs map provenance.
+        posed("Stand", "Stay", [img("shime1.png", ticks=100)], Duration=100, Sound="/unused"),
+        mute_action("Own", Sound="/TO"),
+        act("Incoming", "Sequence", [aref("Own", Sound="/to"), aref("Stand")], Loop="false"),
+        act("Inner", "Sequence", [aref("Own"), aref("Own", Sound="/To")], Loop="false"),
+        act("Nested", "Sequence", [aref("Inner", Sound="/outer-unused"), aref("Stand")], Loop="false"),
+        mute_action("ComputedString", Sound="${'1'}"),
+        mute_action("ComputedNumber", Sound="${1}"),
+        mute_action("Null", Sound="${null}"),
+        mute_action("Absent"),
+        mute_action("Fault", Sound="${Foo}"),
+        act("FaultRefs", "Sequence", [aref("Fault", Foo="/a"), aref("Fault"), aref("Stand")], Loop="false"),
+    ], [beh("Stand", 1),
+        beh("Own", 0, hidden=True), beh("Incoming", 0, hidden=True),
+        beh("BehaviourBind", 0, hidden=True, Action="Own", Sound="/tO"),
+        beh("Nested", 0, hidden=True, Sound="/behaviour-unused"),
+        *[beh(name, 0, hidden=True) for name in
+          ("ComputedString", "ComputedNumber", "Null", "Absent", "Fault", "FaultRefs")]])
+
+
+def pack_mute_reads(root):
+    # Reading Sound makes normalized literals observable. Keep these probes in a
+    # separate pack with no normalized literal, preserving the converter's guard.
+    member(root, "Alpha", [
+        posed("Stand", "Stay", [img("shime1.png", ticks=100)], Duration=100),
+        mute_action("SelfReference", Sound="${Sound == null ? 'x' : 'y'}"),
+        mute_action("Draw", Sound="${Math.random() < 2 ? null : 'x'}", Condition="${Sound == null}"),
+    ], [beh("Stand", 1), beh("SelfReference", 0, hidden=True), beh("Draw", 0, hidden=True)])
+
+
+def pack_mute_retained(root):
+    member(root, "Alpha", [
+        posed("Stand", "Stay", [img("shime1.png", ticks=100)], Duration=100),
+        posed("Morph", "Embedded", [img("shime2.png", ticks=1)], cls="Transform",
+              TransformMascot="Beta", TransformBehavior=""),
+        mute_action("Own", Sound="/TO"),
+        mute_action("OwnNull", Sound="${null}"),
+        act("Retained", "Sequence", [aref("Morph"), aref("OwnNull"), aref("Own"), aref("Stand")], Loop="false"),
+    ], [beh("Stand", 1), beh("Retained", 0, hidden=True)])
+    member(root, "Beta", [
+        posed("Stand", "Stay", [img("shime1.png", ticks=100)], Duration=100),
+        mute_action("Own", Sound="/beta"),
+    ], [beh("Stand", 1), beh("Own", 0, hidden=True)])
+
+
+PACKS.update({"mute-literals": pack_mute_literals, "mute-bindings": pack_mute_bindings, "mute-reads": pack_mute_reads,
+              "mute-retained": pack_mute_retained})
+PACK_MAIN["mute-retained"] = "Alpha"
+for index, (label, _) in enumerate(MUTE_LITERALS):
+    SCENARIOS.append(scenario(
+        "S-mute-literal-" + label + "-01",
+        "Mute source-literal intent/type boundary: " + label + "; no pose audio or Clip-stop claim",
+        "mute-literals", 4, [mascot("m1", "Alpha", "Mute" + str(index), 640)], tape(0.5)))
+for label, behaviour in (("own", "Own"), ("incoming", "Incoming"),
+                         ("behaviour", "BehaviourBind"), ("nested", "Nested"),
+                         ("computed-string", "ComputedString"), ("computed-number", "ComputedNumber"),
+                         ("fault-refs", "FaultRefs")):
+    SCENARIOS.append(scenario(
+        "S-mute-" + label + "-01",
+        "Mute winning-definition/read control: " + label + "; raw intent only, runtime differences remain visible",
+        "mute-bindings", 8, [mascot("m1", "Alpha", behaviour, 640)], tape(0.5)))
+for label, behaviour in (("absent", "Absent"), ("null", "Null"), ("fault", "Fault")):
+    for enabled in (False, True):
+        SCENARIOS.append(scenario(
+            "S-mute-" + label + ("-on-01" if enabled else "-off-01"),
+            "Mute " + label + " with Sounds " + ("on" if enabled else "off")
+            + "; empty audio cache, no Clip-stop assertion",
+            "mute-bindings", 4, [mascot("m1", "Alpha", behaviour, 640)], tape(0.5),
+            settings=cfg(sounds=enabled)))
+SCENARIOS.append(scenario(
+    "S-mute-self-reference-01", "Self-reference can report an inner fault and still return String x; preserve the actual outer result",
+    "mute-reads", 4, [mascot("m1", "Alpha", "SelfReference", 640)], tape(0.5)))
+SCENARIOS.append(scenario(
+    "S-mute-draw-proof-01", "Sound/Condition draw observation-on/off proof; zero added evaluations, not a paired exactness claim",
+    "mute-reads", 4, [mascot("m1", "Alpha", "Draw", 640)], tape(0.25, 0.5, 0.75)))
+SCENARIOS.append(scenario(
+    "S-mute-retained-owner-01", "Retained Alpha definitions run on Beta: null obeys Beta's Sounds-off switch, then named intent uses Alpha's spelling",
+    "mute-retained", 8, [mascot("m1", "Alpha", "Retained", 640)], tape(0.5),
+    typeSettings={"Alpha": {"sounds": True}, "Beta": {"sounds": False}}))
+
+
 OUTPUT_MANIFEST = ".make-packs-manifest.json"
 OUTPUT_SCHEMA = "shimeji-parity-pack-output/1"
 

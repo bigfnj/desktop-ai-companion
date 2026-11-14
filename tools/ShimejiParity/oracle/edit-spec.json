@@ -71,6 +71,9 @@
     },
     "src/com/group_finity/mascot/action/Transform.java": {
       "sha256": "d0437e78f76ca358b5ca7134d33867f5c08ea9ba5e07f5f34288cc1dbc093980"
+    },
+    "src/com/group_finity/mascot/action/Mute.java": {
+      "sha256": "ebc47e7e31e8ba7f727b10786c4bfcd44cc82602b781a74fff031bf8d9e564cd"
     }
   },
   "javaRandomCounts": {
@@ -902,6 +905,99 @@
       "lineSha256": "c0541db2141433256489fab421095b0d090b143a1f99615fd93802af0ab16315",
       "op": "replace-random-token",
       "site": "builtin:regist-facing"
+    },
+    {
+      "file": "src/com/group_finity/mascot/action/Mute.java",
+      "line": 34,
+      "op": "insert-after",
+      "code": [
+        "com.group_finity.mascot.parity.DraftParityHooks.muteSound(this, soundName);"
+      ],
+      "lineSha256": "e38439814987a25d896b48247ad2b1175fb4b1d689b1d04a6009ca421323a740"
+    },
+    {
+      "file": "src/com/group_finity/mascot/action/Mute.java",
+      "line": 37,
+      "op": "wrap-line",
+      "before": [
+        "com.group_finity.mascot.parity.DraftParityHooks.muteNamed(this, soundName);"
+      ],
+      "after": [
+        "com.group_finity.mascot.parity.DraftParityHooks.muteLookup(this, 1, clips);"
+      ],
+      "lineSha256": "4518cbc60b95f4ec08887875a1cba653ea28ae4247b87a441134604069d66811"
+    },
+    {
+      "file": "src/com/group_finity/mascot/action/Mute.java",
+      "line": 39,
+      "op": "wrap-line",
+      "before": [
+        "{"
+      ],
+      "after": [
+        "com.group_finity.mascot.parity.DraftParityHooks.muteLookup(this, 2, clips); }"
+      ],
+      "lineSha256": "145e6c18e765c0844ee2154d6e5d08f068c76595ddcf6a3862a4c1149658f4a7"
+    },
+    {
+      "file": "src/com/group_finity/mascot/action/Mute.java",
+      "line": 41,
+      "op": "wrap-line",
+      "before": [
+        "{"
+      ],
+      "after": [
+        "com.group_finity.mascot.parity.DraftParityHooks.muteLookup(this, 3, clips); }"
+      ],
+      "lineSha256": "f571dc5bf93da76b7b50033944118c69de83a5fc1dde235bc4c9edb82bf9c1c5"
+    },
+    {
+      "file": "src/com/group_finity/mascot/action/Mute.java",
+      "line": 45,
+      "op": "wrap-line",
+      "before": [
+        "{ com.group_finity.mascot.parity.DraftParityHooks.muteStop(this, clip);"
+      ],
+      "after": [
+        "}"
+      ],
+      "lineSha256": "f30b20ce73f4011dded2a78c66b5dda0e2b53e8564e680b41424c17a91b0e395"
+    },
+    {
+      "file": "src/com/group_finity/mascot/action/Mute.java",
+      "line": 50,
+      "op": "insert-before",
+      "code": [
+        "com.group_finity.mascot.parity.DraftParityHooks.muteAll(this);"
+      ],
+      "lineSha256": "ec96e8394251dfc141e676e57765401a95171403efa48d96891a2314471e6f89"
+    },
+    {
+      "file": "src/com/group_finity/mascot/action/Mute.java",
+      "line": 52,
+      "op": "insert-before",
+      "code": [
+        "com.group_finity.mascot.parity.DraftParityHooks.muteAllStop(this);"
+      ],
+      "lineSha256": "0a59f914560d2c052a4235429f9e936420be9559e8025a505d0e68469242e3f8"
+    },
+    {
+      "file": "src/com/group_finity/mascot/action/Mute.java",
+      "line": 55,
+      "op": "insert-after",
+      "code": [
+        "com.group_finity.mascot.parity.DraftParityHooks.muteDone(this);"
+      ],
+      "lineSha256": "2a44168318e224e1f830fe9ab620aa00dd4f7b3fb19ef4399abf59593cf0756d",
+      "context": {
+        "radius": 1,
+        "linesBeforeSha256": [
+          "86afdf70a95436e883aa7fc5c06a2ab083719054438f1218d15ebdaf287b4bac"
+        ],
+        "linesAfterSha256": [
+          "28d86778615f6af47bb1bc4f40face756749768e5111f114cfa234a5060c25af"
+        ]
+      }
     }
   ]
 }
