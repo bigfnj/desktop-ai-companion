@@ -1380,25 +1380,86 @@ namespace DesktopAICompanion.Plugins
             public ModuleStorage(string dir) { DataDirectory = dir; }
             public string DataDirectory { get; private set; }
         }
-        private sealed class ModuleSettings : IModuleSettings
+        /// <summary>
+        /// A module's settings.json. Since the AgentBroker 1.10.5 marathon (lane H, N-audit-1106-234) a save goes through
+        /// AtomicFile and a damaged file is kept. Save used File.WriteAllText, which truncates the file in place, so a failed
+        /// or interrupted save left it half-written; and Load swallowed a read failure and returned an empty dictionary, so the
+        /// next Save overwrote the damaged file and every setting of the module was gone, with no line in any log. Now a file
+        /// that exists but cannot be read or parsed is moved aside to settings.json.corrupt-&lt;utc&gt; (and logged) before the
+        /// first save writes a new one; a handle whose load failed refuses to save over a file that reads as healthy again;
+        /// and a save lands whole or not at all. Internal for --module-host-selftest.
+        /// </summary>
+        internal sealed class ModuleSettings : IModuleSettings
         {
             private readonly string _path;
             private readonly Dictionary<string, string> _d;
-            public ModuleSettings(string path) { _path = path; _d = Load(path); }
+            /// <summary>The file existed at Load and could not be read or parsed.</summary>
+            private bool _loadFailed;
+            public ModuleSettings(string path) { _path = path; _d = Load(path, out _loadFailed); }
             public string Get(string key, string fallback) { string v; return _d.TryGetValue(key, out v) ? v : fallback; }
             public int GetInt(string key, int fallback) { string v; int n; return (_d.TryGetValue(key, out v) && int.TryParse(v, out n)) ? n : fallback; }
             public bool GetBool(string key, bool fallback) { string v; bool b; return (_d.TryGetValue(key, out v) && bool.TryParse(v, out b)) ? b : fallback; }
             public void Set(string key, string value) { _d[key] = value ?? ""; }
             public bool Save()
             {
-                try { File.WriteAllText(_path, JsonSerializer.Serialize(_d), new UTF8Encoding(false)); return true; }
+                try
+                {
+                    if (_loadFailed)
+                    {
+                        // Decided by the file as it is NOW, not as Load found it (the lead's ruling Q4), in three branches:
+                        // no file -> write; unreadable now -> move it aside (a failed move writes nothing), then write; and
+                        // readable again -> refuse and write nothing. This handle's values never came from that file, so
+                        // writing them would replace a good file with a partial one. That third branch is a load that
+                        // failed transiently, and it is also the second handle: GetSettings hands out a new handle on every
+                        // call, so two handles can load the same damaged file, and the second must not move aside, or
+                        // overwrite, the good file the first one's save has just written.
+                        if (File.Exists(_path))
+                        {
+                            if (Readable(_path)) return false;
+                            if (!SetAside(_path)) return false;
+                        }
+                        _loadFailed = false;
+                    }
+                    return DesktopAICompanion.ModuleKit.AtomicFile.TryWriteAllText(_path, JsonSerializer.Serialize(_d), null);
+                }
                 catch { return false; }
             }
-            private static Dictionary<string, string> Load(string path)
+            private static Dictionary<string, string> Load(string path, out bool failed)
             {
-                try { if (File.Exists(path)) return JsonSerializer.Deserialize<Dictionary<string, string>>(File.ReadAllText(path)) ?? new Dictionary<string, string>(); }
-                catch { }
+                failed = false;
+                try { if (File.Exists(path)) return Parse(File.ReadAllText(path)); }
+                catch { failed = true; }
                 return new Dictionary<string, string>();
+            }
+            private static Dictionary<string, string> Parse(string json)
+            {
+                return JsonSerializer.Deserialize<Dictionary<string, string>>(json) ?? new Dictionary<string, string>();
+            }
+            private static bool Readable(string path)
+            {
+                try { Parse(File.ReadAllText(path)); return true; }
+                catch { return false; }
+            }
+            /// <summary>Move an unreadable settings file to settings.json.corrupt-&lt;utc&gt;, with a -N suffix on a same-millisecond
+            /// collision. False when it could not be moved, so the caller leaves it in place.</summary>
+            private static bool SetAside(string path)
+            {
+                string stamp = DateTime.UtcNow.ToString("yyyyMMdd'T'HHmmssfff'Z'", System.Globalization.CultureInfo.InvariantCulture);
+                for (int n = 0; n < 16; n++)
+                {
+                    string target = path + ".corrupt-" + stamp + (n == 0 ? "" : "-" + n);
+                    if (File.Exists(target)) continue;
+                    try { File.Move(path, target); }
+                    catch { if (File.Exists(target)) continue; return false; }
+                    try
+                    {
+                        DiagnosticLog.Write(LogCategory.Modules, "warning", null,
+                            "module settings could not be read and were kept as " + Path.GetFileName(target) + " before a new file was saved: " + path);
+                    }
+                    catch { }
+                    return true;
+                }
+                return false;
             }
         }
     }

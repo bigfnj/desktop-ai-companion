@@ -1956,10 +1956,23 @@ namespace DesktopAICompanion.Wpf
                         Margin = new Thickness(0, 2, 0, 2),
                         Tag = it.Id,
                     };
+                    // N-broker-row-accessibility-01 (AgentBroker 1.10.5 marathon lane H): the detail is part of what the row
+                    // says, so it is part of the box's accessible name and its help text. A UI Automation dump of the
+                    // installed Settings showed each Paired broker's detail as a separate, non-focusable Text element BEFORE
+                    // its checkbox, whose name carried the label alone and whose help text was empty, so a screen reader
+                    // focusing an Awaiting row's box would not hear the comparison code that sits in its detail.
+                    LabelForAutomation(cb, null,
+                        hasDetail ? text + ", " + it.Detail : text,
+                        hasDetail ? it.Detail : null);
                     FrameworkElement shown = cb;
                     if (hasDetail)
                     {
-                        var line = new DockPanel { LastChildFill = true };
+                        // A two-column Grid, box first: the old DockPanel docked the detail right by adding it FIRST, which
+                        // put the detail ahead of its box in the visual tree and so in the automation tree too. The label
+                        // still trims in the star column, and the muted figures still line up on the right.
+                        var line = new Grid();
+                        line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                        line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
                         var detail = new TextBlock
                         {
                             Text = it.Detail,
@@ -1967,9 +1980,10 @@ namespace DesktopAICompanion.Wpf
                             Margin = new Thickness(8, 0, 4, 0),
                             VerticalAlignment = VerticalAlignment.Center,
                         };
-                        DockPanel.SetDock(detail, Dock.Right);
-                        line.Children.Add(detail);
+                        Grid.SetColumn(cb, 0);
+                        Grid.SetColumn(detail, 1);
                         line.Children.Add(cb);
+                        line.Children.Add(detail);
                         shown = line;
                     }
                     shownAs[cb] = shown;
