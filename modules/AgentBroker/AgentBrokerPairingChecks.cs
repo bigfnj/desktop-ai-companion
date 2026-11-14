@@ -12,7 +12,7 @@ public sealed partial class AgentBrokerModule
     private static void RunPairingChecks(Action<bool, string> check, TestDispatcher dispatcher)
     {
         CheckPairingControlDeadlinesAsync(check).GetAwaiter().GetResult();
-        CheckObsoletePairingQuestions(check, dispatcher);
+        RunPaneBrokerChecks(check, dispatcher);
         CheckConfirmedPairingStatus(check, dispatcher);
         CheckPairingObservationsAndList(check, dispatcher);
         CheckIssuedObservationOrdering(check, dispatcher);
@@ -58,12 +58,17 @@ public sealed partial class AgentBrokerModule
                 control.Requests.Count == requests && !feedback.Contains("sharing was enabled", StringComparison.Ordinal),
                 "pairing: healthy status polls preserve the failure without retrying or making a trust claim");
 
+            // Re-pointed from the removed discovery card's Allow (PANE-POPUP) to the pane's Request pairing button.
+            // The invitation above already left the same failure text, so the request count proves this press sent its own
+            // request and got its own failure back (review P-CHK-9).
             module.ApplyStatus(new(true, true, "running", view with { Discovered = [peer] }));
-            host.Asks.Last().Completion.SetResult(new() { Outcome = DesktopAICompanion.Modules.TrayQuestionOutcome.Chosen, ChoiceId = "allow" });
-            Pump(() => !module.discoveryPromptOpen, dispatcher);
-            check(control.Requests.Last() == "pair-request" && pane.Load()["pairingStatus"].Contains("7433", StringComparison.Ordinal) &&
+            int beforePress = control.Requests.Count;
+            string pressed = PressBrokerAction(pane, RequestPairingLabel, row => row.Group == DiscoveredGroup);
+            check(control.Requests.Count == beforePress + 1 &&
+                control.Requests.Last() == "pair-request" && pane.Load()["pairingStatus"].Contains("7433", StringComparison.Ordinal) &&
+                pressed.Contains("7433", StringComparison.Ordinal) &&
                 host.TrayItems.Single().BuildChildren().Any(item => item.Label.StartsWith("Pairing could not", StringComparison.Ordinal)),
-                "pairing: an automatic discovery Allow failure remains visible in Info and the tray");
+                "pairing: a pane Request pairing failure remains visible in its result, Info and the tray");
 
             control.Response = new(false, "pairing_tls_failed");
             result = module.PairInvitationAsync(invitation).GetAwaiter().GetResult();
@@ -74,12 +79,13 @@ public sealed partial class AgentBrokerModule
             check(!module.pairingFailed && result.Contains("current incoming offer", StringComparison.Ordinal) &&
                 !result.Contains("could not", StringComparison.Ordinal) && module.snapshot!.Paired.Length == 0,
                 "pairing: a simultaneous manual request gives informative current-code guidance without claiming failure or trust");
-            module.ResetDiscoveryPrompts();
             module.ApplyStatus(new(true, true, "running", view with { Discovered = [peer] }));
-            host.Asks.Last().Completion.SetResult(new() { Outcome = DesktopAICompanion.Modules.TrayQuestionOutcome.Chosen, ChoiceId = "allow" });
-            Pump(() => !module.discoveryPromptOpen, dispatcher);
-            check(!module.pairingFailed && pane.Load()["pairingStatus"].Contains("Do not request another offer.", StringComparison.Ordinal),
-                "pairing: simultaneous discovery Allow uses the same informative nonretry code guidance");
+            beforePress = control.Requests.Count;
+            pressed = PressBrokerAction(pane, RequestPairingLabel, row => row.Group == DiscoveredGroup);
+            check(control.Requests.Count == beforePress + 1 &&
+                !module.pairingFailed && pane.Load()["pairingStatus"].Contains("Do not request another offer.", StringComparison.Ordinal) &&
+                pressed.Contains("Do not request another offer.", StringComparison.Ordinal),
+                "pairing: a simultaneous pane Request pairing uses the same informative nonretry code guidance");
             control.Response = new(false, privateDiagnostic);
             result = module.PairInvitationAsync(invitation).GetAwaiter().GetResult();
             check(!result.Contains(privateDiagnostic, StringComparison.Ordinal) && !pane.Load()["pairingStatus"].Contains(privateDiagnostic, StringComparison.Ordinal),
@@ -403,54 +409,6 @@ public sealed partial class AgentBrokerModule
             check(module.snapshot!.Paired.Length == 2 && shown.Contains("Approved peer", StringComparison.Ordinal) &&
                 shown.Contains("Unrelated peer", StringComparison.Ordinal),
                 "pairing: an older command snapshot cannot discard another peer confirmed by a newer poll");
-        }
-        finally { module.Shutdown(); Pump(() => module.pending.IsCompleted, dispatcher); }
-    }
-
-    private static void CheckObsoletePairingQuestions(Action<bool, string> check, TestDispatcher dispatcher)
-    {
-        var host = new TestHost();
-        host.UseStorage(Id, new TestStorage(Path.Combine(Path.GetTempPath(), "agentbroker-stale-pairing-ui-synthetic")));
-        host.SettingsFor(Id).Set("enabled", "true");
-        var peer = new PeerView(Guid.NewGuid(), "Synthetic peer", "https://192.168.1.2:7433/", new string('B', 64));
-        var view = new BrokerSnapshot(Guid.NewGuid(), "Synthetic", "http://127.0.0.1:7432", "https://192.168.1.1:7433/",
-            [], [], [], [], new Dictionary<string, string>(), new string('A', 64));
-        var control = new TestControl();
-        var module = new AgentBrokerModule(control, new StatusSupervisor(view)) { ClientSetup = new(new TestClientCommand()) };
-        try
-        {
-            module.Init(host);
-            Pump(() => module.snapshot is not null, dispatcher);
-            var oldOffer = new PairingView(Guid.NewGuid(), peer, "11111111 11111111 11111111 11111111", DateTimeOffset.UtcNow.AddMinutes(2), true);
-            module.snapshot = view with { PairingOffers = [oldOffer] };
-            var oldSource = CancellationTokenSource.CreateLinkedTokenSource(module.run!.Token);
-            module.pairingQuestions.Add(oldOffer.RequestId, oldSource);
-            module.askedOffers.Add(oldOffer.RequestId);
-            host.IgnoreQuestionCancellation = true;
-            Task oldQuestionTask = module.AskPairingAsync(oldOffer, module.generation, oldSource);
-            var oldQuestion = host.Asks.Last();
-            host.IgnoreQuestionCancellation = false;
-            var freshOffer = oldOffer with { RequestId = Guid.NewGuid(), Outbound = false,
-                VerificationCode = "22222222 22222222 22222222 22222222" };
-            module.ApplyStatus(new(true, true, "running", view with { PairingOffers = [freshOffer] }));
-            var freshQuestion = host.Asks.Last();
-            check(oldQuestion.Withdrawn && oldQuestion.Token.IsCancellationRequested && !freshQuestion.Token.IsCancellationRequested &&
-                module.pairingQuestions.Count == 1 && freshQuestion.Question.Text.Contains(freshOffer.VerificationCode, StringComparison.Ordinal),
-                "pairing: replacing a colliding offer withdraws its obsolete question and shows only the fresh complete code");
-            oldQuestion.Completion.SetResult(new() { Outcome = DesktopAICompanion.Modules.TrayQuestionOutcome.Chosen, ChoiceId = "allow" });
-            Pump(() => oldQuestionTask.IsCompleted, dispatcher);
-            check(control.Requests.Count == 0 && module.pairingQuestions.Count == 1,
-                "pairing: a late Allow response for the discarded code cannot approve either old or replacement offer");
-            freshQuestion.Completion.SetResult(new() { Outcome = DesktopAICompanion.Modules.TrayQuestionOutcome.Chosen, ChoiceId = "allow" });
-            Pump(() => control.Requests.Count == 1 && module.pairingQuestions.Count == 0, dispatcher);
-            check(control.Requests.Single().Operation == "pair-approve" && control.Requests.Single().Id == freshOffer.RequestId,
-                "pairing: only explicit approval of the fresh question sends its exact replacement request ID");
-            module.ApplyStatus(new(true, true, "running", view with { PairingOffers = [freshOffer with { RequestId = Guid.NewGuid() }] }));
-            var restartedQuestion = host.Asks.Last();
-            module.Restart();
-            Pump(() => restartedQuestion.Withdrawn && module.pairingQuestions.Count == 0 && module.snapshot is not null, dispatcher);
-            check(restartedQuestion.Token.IsCancellationRequested && control.Requests.Count == 1,
-                "pairing: restart withdraws outstanding offer questions without sending approval or rejection for stale state");
         }
         finally { module.Shutdown(); Pump(() => module.pending.IsCompleted, dispatcher); }
     }

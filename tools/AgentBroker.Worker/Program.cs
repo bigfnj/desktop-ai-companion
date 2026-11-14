@@ -13,11 +13,15 @@ if (args.Length == 1 && args[0] == "--help")
     Console.WriteLine("AgentBroker.Worker --mcp-call --data <absolute directory> --list-tools [--output-file <new absolute local file>]");
     Console.WriteLine("AgentBroker.Worker --handoff-prepare --request-file <absolute JSON file> [--output-file <new absolute local file>] (typed ordinary message text; never opens artifact paths)");
     Console.WriteLine("AgentBroker.Worker --claude-title-hook --data <absolute directory> (opt-in documented custom-title hook; never submits model input)");
+    Console.WriteLine("AgentBroker.Worker --watch-inbox --data <absolute directory> --broker-id <GUID> --session-id <claude:GUID> --incarnation <GUID> --arm-root <plain directory> --max-seconds <1..31536000> (--parent-pid <Windows PID> --parent-start <creation FILETIME> | --unbound) [--cursor <cursor>] [--seen-ids <GUID,...>] [--interval-seconds 15]");
+    Console.WriteLine("Inbox watch exits: 0 unseen mail, 2 invalid arming, 20 caller lifetime/cancellation, 21 session/tool refusal, 22 four failed scans, 23 parent exited, 24 cursor reset, 25 already armed, 26 internal error. Metadata only; never acknowledges.");
     Console.WriteLine("MCP client exits: 0 success, 2 invalid request, 10 tool error, 11 RPC error, 12 HTTP failure, 69 transport unconfirmed, 74 local output failure. Never retries a submission.");
     return 0;
 }
 try
 {
+    if (args.Length > 0 && args[0] == InboxWatchClient.Command)
+        return await InboxWatchClient.RunCommandAsync(args, Console.OpenStandardOutput());
     if (args.Length > 0 && args[0] == ClaudeTitleHook.Command)
         return await ClaudeTitleHook.RunCommandAsync(args, Console.OpenStandardInput(), Console.OpenStandardOutput(), Console.OpenStandardError());
     if (args.Length > 0 && args[0] == McpCallClient.Command)

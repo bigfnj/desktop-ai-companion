@@ -48,7 +48,8 @@ public sealed partial class BrokerRuntime(BrokerStore store, IPeerFederation fed
         ? SenderReceipt.From(receipt, Now, includeText)
         : SenderReceipt.From(receipt, Now, includeText,
             observations.BusySince(receipt, BrokerStore.ReceiptAdmissionEpoch(receipt)),
-            observations.EngineAtAttempt(receipt.Message, BrokerStore.ReceiptAdmissionEpoch(receipt)));
+            observations.EngineAtAttempt(receipt.Message, BrokerStore.ReceiptAdmissionEpoch(receipt)),
+            store.ReadMessageWait(receipt)?.Waits);
 
     public void SetSessionPreference(string sessionId, bool? isPrivate, bool? isMuted)
     {
@@ -373,10 +374,34 @@ public sealed partial class BrokerRuntime(BrokerStore store, IPeerFederation fed
         }
     }
 
+    // Four delivery loops share one monotonic advisory retry budget; ordinary selection stays outside this gate.
+    private readonly object waitingMailGate = new();
+    private long? waitingMailFailedAt;
+    private void AdmitWaitingMailPass()
+    {
+        lock (waitingMailGate)
+        {
+            var observationClock = clock ?? TimeProvider.System;
+            if (waitingMailFailedAt is { } failed && observationClock.GetElapsedTime(failed) < TimeSpan.FromSeconds(5)) return;
+            try
+            {
+                store.AdmitDueWaitingMailNotices();
+                waitingMailFailedAt = null; adapterErrors.TryRemove("waiting_mail", out _);
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            {
+                waitingMailFailedAt = observationClock.GetTimestamp();
+                adapterErrors["waiting_mail"] = "waiting_mail_notice_write_failed";
+            }
+        }
+    }
+
     private async Task DeliveryLoopAsync(CancellationToken stop)
     {
         while (!stop.IsCancellationRequested)
         {
+            // Before selection: Unknown+NativeIdleGuard may otherwise spend every pass Submitting.
+            AdmitWaitingMailPass();
             var pending = claims.BeginDelivery();
             if (pending is not null) await DeliverAsync(pending, stop);
             await Task.Delay(pending is null ? 500 : 50, stop);

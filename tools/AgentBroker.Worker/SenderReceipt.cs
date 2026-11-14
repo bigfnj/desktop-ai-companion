@@ -25,10 +25,11 @@ namespace AgentBroker.Worker;
 public sealed record SenderReceipt(SenderReceiptMessage Message, MessageStatus Status, DateTimeOffset UpdatedAt,
     string? Reason, int Attempts, int? TextBytes, DateTimeOffset ReadAt,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] DateTimeOffset? BusySince = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] EngineBinding? EngineBinding = null)
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] EngineBinding? EngineBinding = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] WaitReasonObservation[]? Waits = null)
 {
     internal static SenderReceipt From(MessageReceipt receipt, DateTimeOffset readAt, bool includeText = false,
-        DateTimeOffset? busySince = null, EngineBinding? engine = null)
+        DateTimeOffset? busySince = null, EngineBinding? engine = null, WaitReasonObservation[]? waits = null)
     {
         var message = receipt.Message;
         // An empty text is always a tombstone: real message text is never empty or whitespace (BrokerStore.FindReceipt).
@@ -36,7 +37,7 @@ public sealed record SenderReceipt(SenderReceiptMessage Message, MessageStatus S
         return new(new(message.Id, message.ConversationId, message.ReplyTo, message.Sender, message.Recipient,
                 message.CreatedAt, message.ExpiresAt, message.RemainingReplies, includeText ? message.Text : null),
             receipt.Status, receipt.UpdatedAt, receipt.Reason, receipt.Attempts,
-            held ? Encoding.UTF8.GetByteCount(message.Text) : null, readAt, busySince, engine);
+            held ? Encoding.UTF8.GetByteCount(message.Text) : null, readAt, busySince, engine, waits);
     }
 }
 

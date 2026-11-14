@@ -10,7 +10,6 @@ public sealed partial class AgentBrokerModule
     private PairingPeerIdentity? pairingActivityPeer;
     private string? unscopedPairingFailure;
     private readonly Dictionary<PairingPeerIdentity, string> pairingFailures = [];
-    private readonly Dictionary<Guid, CancellationTokenSource> pairingQuestions = [];
 
     private readonly record struct PairingPeerIdentity(Guid BrokerId, string CertificateSha256);
 
@@ -41,8 +40,11 @@ public sealed partial class AgentBrokerModule
     private string PairingDisplayText()
     {
         string paired = PairedTrustSummary();
-        if (paired.Length != 0) return paired + (pairingStatus.Length == 0 ? "" : " " + pairingStatus);
-        return pairingStatus.Length != 0 ? pairingStatus : "No pairing attempt yet.";
+        string text = paired.Length != 0 ? paired + (pairingStatus.Length == 0 ? "" : " " + pairingStatus)
+            : pairingStatus.Length != 0 ? pairingStatus : "No pairing attempt yet.";
+        // PANE-POPUP (1.10.5): a waiting offer leads the live Pairing row instead of raising a question.
+        string offers = PendingOfferText();
+        return offers.Length == 0 ? text : paired.Length == 0 && pairingStatus.Length == 0 ? offers : offers + " " + text;
     }
 
     private string PairedBrokersDisplay()
@@ -91,18 +93,10 @@ public sealed partial class AgentBrokerModule
         NotifyInfoChanged();
     }
 
-    private void CancelObsoletePairingQuestions(PairingView[]? offers)
-    {
-        foreach (var entry in pairingQuestions.ToArray())
-        {
-            if (offers?.Any(o => o.RequestId == entry.Key && !o.LocalApproved && o.ExpiresAt > DateTimeOffset.UtcNow) == true) continue;
-            pairingQuestions.Remove(entry.Key);
-            entry.Value.Cancel();
-            // AskPairingAsync owns disposal after the question service has finished.
-        }
-    }
-
-    private string DisplayedStatus() => status + (settings.Enabled ? " " + McpDisplay().Summary : "") +
+    // BSM-4 (1.10.5): the passive waiting-mail suffix follows the incoming pairing text and precedes pairing errors and dropped
+    // notices; it replaces none of them.
+    private string DisplayedStatus() => status + (settings.Enabled ? " " + McpDisplay().Summary : "") + IncomingOfferStatus() +
+        WaitingMailStatusSignal(WaitingMailSignalSessions()) +
         (pairingFailed ? " " + pairingStatus : "") + (settings.Enabled ? NoticeDropText(snapshot?.DroppedNotices) : "");
 
     // N-agentbroker-notice-loss-signal-01 (1.5.0): a delivery notice that could not be admitted before its message's

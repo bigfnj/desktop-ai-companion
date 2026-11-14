@@ -12,6 +12,9 @@ internal interface IWorkerSupervisor
 {
     Task<WorkerStatus> RefreshAsync(WorkerLaunch launch, CancellationToken token);
     Task StopOwnedAsync(string dataDirectory, CancellationToken token);
+    // BSM-4 (1.10.5): the worker's separate waiting-mail read, made after a connected status in the same poll. Null is no
+    // answer. A supervisor without the read reports none, which the pane shows as "measurement unavailable", never as zero.
+    Task<ControlResponse?> ReadWaitingMailAsync(WorkerLaunch launch, CancellationToken token) => Task.FromResult<ControlResponse?>(null);
 }
 
 internal sealed class WorkerSupervisor(IBrokerControlClient control, IWorkerChildLauncher? launcher = null,
@@ -120,6 +123,21 @@ internal sealed class WorkerSupervisor(IBrokerControlClient control, IWorkerChil
                 finally { child.Dispose(); owned = null; failures = 0; retryDelay = default; }
             }
         }
+        finally { gate.Release(); }
+    }
+
+    public async Task<ControlResponse?> ReadWaitingMailAsync(WorkerLaunch launch, CancellationToken token)
+    {
+        await gate.WaitAsync(token).ConfigureAwait(false);
+        try
+        {
+            // Bound to the owned child exactly as its status is, so the answer never comes from another process (a child
+            // that exited fails the bound read); a standby reads unbound, as its status does.
+            return await control.SendAsync(launch.DataDirectory, new(AgentBrokerModule.WaitingMailOperation), token, owned?.Id).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
+            OperationCanceledException or System.Text.Json.JsonException)
+        { token.ThrowIfCancellationRequested(); return null; }
         finally { gate.Release(); }
     }
 

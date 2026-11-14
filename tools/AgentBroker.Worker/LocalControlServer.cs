@@ -83,6 +83,12 @@ public sealed class LocalControlServer : IAsyncDisposable
         switch (request.Operation)
         {
             case "status": return new(true, "ok", Snapshot());
+            case "waiting-mail":
+                var mail = worker.Runtime.Store.ReadWaitingMail();
+                return new(true, "ok", WaitingMail: new(mail.BrokerId, mail.ObservedAtUtc, mail.NoticeAfterSeconds,
+                    mail.Sessions.Select(row => new WaitingMailSessionView(row.Session.SessionId, row.Session.Incarnation,
+                        row.PendingCount, row.QueuedCount, row.BlockedCount, row.BusyCount, row.UnobservedBlockedCount,
+                        row.OldestBusyObservedAtUtc, row.OldestBusyObservedAgeMilliseconds)).ToArray()));
             case "peer-diagnostics":
                 return new(true, "ok", PeerDiagnostics: await PeerDiagnostics.CollectAsync(worker.Runtime, token));
             case "connection":

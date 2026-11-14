@@ -65,7 +65,14 @@ public sealed record PeerDiagnosticView(Guid BrokerId, string Endpoint, string C
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] PeerClockView? Clock = null);
 public sealed record ControlResponse(bool Success, string Code, BrokerSnapshot? Snapshot = null,
     LocalConnection? Connection = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] PeerDiagnosticView[]? PeerDiagnostics = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] PeerDiagnosticView[]? PeerDiagnostics = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] WaitingMailView? WaitingMail = null);
+// Only the separate waiting-mail operation returns these members. Legacy status/session JSON stays unchanged.
+public sealed record WaitingMailView(Guid BrokerId, DateTimeOffset ObservedAtUtc, int NoticeAfterSeconds,
+    WaitingMailSessionView[] Sessions);
+public sealed record WaitingMailSessionView(string SessionId, Guid Incarnation, int PendingCount, int QueuedCount,
+    int BlockedCount, int BusyCount, int UnobservedBlockedCount, DateTimeOffset? OldestBusyObservedAtUtc,
+    long? OldestBusyObservedAgeMilliseconds);
 
 public static class ControlProtocol
 {

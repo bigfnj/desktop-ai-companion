@@ -23,6 +23,8 @@
     <Compile Include="..\..\tools\AgentBroker.CodexDesktopAdapter\CodexHomePaths.cs" Link="Protocol\CodexHomePaths.cs" />
     <Compile Include="..\..\shared\AgentBroker\CodexApprovalObservation.cs" Link="Shared\CodexApprovalObservation.cs" />
     <EmbeddedResource Include="Resources\agentbroker.png" />
+    <!-- PANE-TEXT (1.10.5): the offline guide, embedded so it adds no file to the release output. -->
+    <EmbeddedResource Include="Guide\agentbroker-guide.html" />
     <!-- These inputs ship in a separate process, outside the host's assembly graph. -->
     <ModulePayloadProject Include="..\..\tools\AgentBroker.Worker\AgentBroker.Worker.csproj" />
     <ModulePayloadInput Include="..\..\packaging\Publish-AgentBrokerWorker.ps1" />

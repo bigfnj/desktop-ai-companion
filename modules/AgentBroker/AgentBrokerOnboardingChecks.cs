@@ -101,6 +101,10 @@ public sealed partial class AgentBrokerModule
         host.UseStorage(Id, new TestStorage(Path.Combine(Path.GetTempPath(), "agentbroker-onboarding-synthetic")));
         var control = new StatusControl { Response = new(true, "ok", Connection: new(endpoint, null)) };
         var module = new AgentBrokerModule(control, new StatusSupervisor(view)) { McpNow = () => now, ClientSetup = setup };
+        // PANE-TEXT (1.10.5): the pane folds an ok state into its client's summary line as a glyph and a token; the full
+        // sentence for every state stays in ClientStateLines, which the tray lists item by item. A healthy fact is
+        // asserted in both places: the token in the pane and the sentence in the state lines.
+        string Detail(string client) => string.Join("\n", module.ClientStateLines(client));
         try
         {
             module.Init(host);
@@ -116,14 +120,16 @@ public sealed partial class AgentBrokerModule
                 pane.Schema.Any(field => field.Id == "codexClient" && field.Kind == SettingKind.Info) &&
                 claude.StartsWith("Claude Code: configuration not checked yet.", StringComparison.Ordinal) &&
                 codex.StartsWith("Codex: configuration not checked yet.", StringComparison.Ordinal) &&
-                claude.Contains("\u2713 Broker: running.", StringComparison.Ordinal) && command.Calls.Count == 0,
+                claude.Contains("\u2713 broker", StringComparison.Ordinal) &&
+                Detail("claude").Contains("\u2713 Broker: running.", StringComparison.Ordinal) && command.Calls.Count == 0,
                 "onboarding: each client has its own row, unchecked until asked, and status polls launch no CLI");
 
             var traffic = empty with { LastToolsListUtc = now, Clients = [new(McpClientFamily.Other),
                 new(McpClientFamily.Claude, LastInitializeUtc: now, LastToolsListUtc: now.AddMinutes(-2)), new(McpClientFamily.Codex)] };
             module.ApplyStatus(new(true, true, "running", view with { Mcp = traffic }));
             claude = pane.Load()["claudeClient"]; codex = pane.Load()["codexClient"];
-            check(claude.Contains("\u2713 Tools: listed by this client 2 min ago.", StringComparison.Ordinal) &&
+            check(claude.Contains("\u2713 tools", StringComparison.Ordinal) &&
+                Detail("claude").Contains("\u2713 Tools: listed by this client 2 min ago.", StringComparison.Ordinal) &&
                 claude.Contains("\u2717 Inbox: none registered.", StringComparison.Ordinal),
                 "onboarding: Claude MCP traffic shows its tools without claiming an inbox");
             check(codex.Contains("\u26A0 Tools: no traffic from this client since the broker started.", StringComparison.Ordinal),
@@ -138,7 +144,8 @@ public sealed partial class AgentBrokerModule
             var attributed = traffic with { Inboxes = [new(away.SessionId, away.Incarnation, McpClientFamily.Claude)] };
             module.ApplyStatus(new(true, true, "running", view with { Mcp = attributed, Sessions = [native, away] }));
             claude = pane.Load()["claudeClient"]; codex = pane.Load()["codexClient"];
-            check(claude.Contains("\u2713 Inbox: 1 registered through this client (0 present, 1 away).", StringComparison.Ordinal) &&
+            check(claude.Contains("\u2713 inbox 1", StringComparison.Ordinal) &&
+                Detail("claude").Contains("\u2713 Inbox: 1 registered through this client (0 present, 1 away).", StringComparison.Ordinal) &&
                 codex.Contains("\u2717 Inbox: none registered.", StringComparison.Ordinal),
                 "onboarding: a verified Claude registration counts for Claude only, present and away separately");
             module.ApplyStatus(new(true, true, "running", view with { Mcp = attributed with { Inboxes = [new(away.SessionId, Guid.NewGuid(), McpClientFamily.Claude)] }, Sessions = [native, away] }));
@@ -156,8 +163,9 @@ public sealed partial class AgentBrokerModule
                 answer.Contains("Claude Code: configured, with an inbox registered through this client.", StringComparison.Ordinal) &&
                 answer.Contains("Codex: not configured.", StringComparison.Ordinal),
                 "onboarding: Check client setup runs one read-only get per client and answers per client");
-            check(claude.Contains("\u2713 Configuration: the exact entry for this broker, user scope (every project), local HTTP. Checked just now.", StringComparison.Ordinal) &&
-                claude.Contains("\u2713 Endpoint: reachable; the Claude CLI connected and listed tools during the check.", StringComparison.Ordinal) &&
+            check(claude.Contains("\u2713 config", StringComparison.Ordinal) && claude.Contains("\u2713 endpoint", StringComparison.Ordinal) &&
+                Detail("claude").Contains("\u2713 Configuration: the exact entry for this broker, user scope (every project), local HTTP. Checked just now.", StringComparison.Ordinal) &&
+                Detail("claude").Contains("\u2713 Endpoint: reachable; the Claude CLI connected and listed tools during the check.", StringComparison.Ordinal) &&
                 codex.Contains("\u2717 Configuration: absent. Use Connect Codex MCP", StringComparison.Ordinal),
                 "onboarding: configuration, scope and the CLI's own reachability are separate lines per client");
             var tray = host.TrayItems.Single().BuildChildren().ToArray();

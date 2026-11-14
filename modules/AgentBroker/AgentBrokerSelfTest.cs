@@ -33,6 +33,8 @@ public sealed partial class AgentBrokerModule
             RunClientRouteChecks(Check);
             RunDesktopChatChecks(Check, dispatcher);
             RunPeerClockChecks(Check);
+            RunPaneTextChecks(Check, dispatcher);
+            RunWaitingMailChecks(Check, dispatcher);
             var host = new TestHost();
             string directory = Path.Combine(Path.GetTempPath(), "agentbroker-synthetic-" + Guid.NewGuid().ToString("N"));
             host.UseStorage(Id, new TestStorage(directory));
@@ -113,40 +115,55 @@ public sealed partial class AgentBrokerModule
             var view = new BrokerSnapshot(Guid.NewGuid(), "Synthetic", "http://127.0.0.1:7432", null,
                 [peer], [peer], [offer], [session], new Dictionary<string, string>());
             supervisor.View = view;
-            module.ApplyStatus(new(true, false, "attached_standby", view));
-            Check(host.Asks.Count == 1 && host.Asks[0].Question.Text.Length <= 240 &&
-                host.Asks[0].Question.Text.Contains("current and future", StringComparison.Ordinal) &&
-                host.Asks[0].Question.Text.Contains(comparisonCode, StringComparison.Ordinal), "pairing scope full 128-bit code and ABI bounds");
-            Check(host.Asks[0].Question.TimeoutChoiceId == "reject", "pairing safely rejects on timeout");
-            module.ApplyStatus(new(true, false, "attached_standby", view));
-            Check(host.Asks.Count == 1, "one question per pairing offer");
-            host.Asks[0].Completion.SetResult(new TrayAnswer { Outcome = TrayQuestionOutcome.Chosen, ChoiceId = "allow" });
-            Pump(() => control.Requests.Any(r => r.Operation == "pair-approve"), dispatcher);
-            Check(control.Requests.Single(r => r.Operation == "pair-approve").Id == offer.RequestId,
+            // PANE-POPUP (1.10.5): an offer raises no question however often status repeats. It is a passive signal, and the
+            // decision is an explicit press on one offer in the pane (or the tray) with the complete code beside it. This
+            // replaces the offer card's checks ("pairing scope full 128-bit code and ABI bounds", "one question per pairing
+            // offer"); the card's reject-on-timeout is CLOSED-VERIFIED: an unanswered offer lapses by worker expiry.
+            int requestsBeforeOffer = control.Requests.Count;
+            for (int poll = 0; poll < 3; poll++) module.ApplyStatus(new(true, false, "attached_standby", view));
+            Check(host.Asks.Count == 0 && control.Requests.Count == requestsBeforeOffer,
+                "NO_OFFER_POPUP: an incoming pairing offer raises no question and sends no control request by itself");
+            Check(pane.Load()["pairingStatus"].StartsWith("Pairing request waiting from ", StringComparison.Ordinal) &&
+                pane.Load()["status"].Contains("Pairing request waiting; see Pairing.", StringComparison.Ordinal) &&
+                host.TrayItems.Single().DynamicText?.Invoke() == TrayRootWaitingLabel,
+                "INBOUND_OFFER_SIGNAL: an incoming offer shows in Pairing, Status and the tray root label");
+            ListCard brokers = pane.Lists!.Single();
+            var unpairedPeer = peer with { BrokerId = Guid.NewGuid(), CertificateSha256 = new string('C', 64) };
+            var unpairedOffer = offer with { RequestId = Guid.NewGuid(), Peer = unpairedPeer };
+            module.ApplyStatus(new(true, false, "attached_standby", view with { PairingOffers = [unpairedOffer] }));
+            // Total conditions (review P-CHK-3): a mutant that lists no Awaiting row fails these checks by label instead of
+            // throwing and skipping every check after it.
+            ListItem[] offerRows = brokers.LoadItems().Where(item => item.Group == AwaitingGroup).ToArray();
+            if (offerRows.Length == 1) brokers.SetChecked(offerRows[0].Id, true);
+            string approved = brokers.Actions.Single(action => action.Label == ApprovePairingLabel).InvokeAsync().GetAwaiter().GetResult();
+            Check(offerRows.Length == 1 && approved.Contains(comparisonCode, StringComparison.Ordinal) && approved.Contains("current and future", StringComparison.Ordinal) &&
+                approved.Contains("both workstations", StringComparison.Ordinal) && approved.Length <= 400,
+                "SCOPE_AT_DECISION: the approve result carries the full 128-bit code and the current-and-future sharing scope");
+            Check(control.Requests.Where(r => r.Operation == "pair-approve").ToArray() is [var approvedRequest] && approvedRequest.Id == unpairedOffer.RequestId,
                 "explicit allow approves exact offer");
-            int asked = host.Asks.Count;
+            foreach (var row in offerRows) brokers.SetChecked(row.Id, false);
+            int asked = host.Asks.Count, requestsBeforeOutbound = control.Requests.Count;
             var outbound = offer with { RequestId = Guid.NewGuid(), Outbound = true };
             module.ApplyStatus(new(true, false, "standby", view with { PairingOffers = [outbound] }));
-            Check(host.Asks.Count == asked + 1 && host.Asks.Last().Question.Text.Contains(comparisonCode, StringComparison.Ordinal) &&
+            Check(host.Asks.Count == asked && control.Requests.Count == requestsBeforeOutbound &&
+                brokers.LoadItems().Where(item => item.Group == AwaitingGroup).ToArray() is [{ } outboundRow] && outboundRow.Detail == comparisonCode &&
                 host.TrayItems.Single().BuildChildren().Any(t => t.Label.Contains(comparisonCode, StringComparison.Ordinal)),
-                "outgoing request requires separate final approval and displays the complete code");
-            host.Asks.Last().Completion.SetResult(new TrayAnswer { Outcome = TrayQuestionOutcome.Chosen, ChoiceId = "allow" });
-            Pump(() => control.Requests.Any(r => r.Operation == "pair-approve" && r.Id == outbound.RequestId), dispatcher);
-            asked = host.Asks.Count;
+                "PAIRING_FINISHES_IN_PANE: an outgoing request waits under Awaiting approval with the complete code for a separate final approval");
             module.ApplyStatus(new(true, false, "standby", view with { PairingOffers = [outbound with { LocalApproved = true }] }));
             Check(host.Asks.Count == asked && host.TrayItems.Single().BuildChildren().Single(t =>
                 t.Label.Contains(comparisonCode, StringComparison.Ordinal)).BuildChildren().First().Label.StartsWith("Waiting", StringComparison.Ordinal),
                 "local confirmation waits for authenticated remote approval without another consent prompt");
+            Check(host.TrayItems.Single().DynamicText?.Invoke() == "AgentBroker" &&
+                !pane.Load()["status"].Contains("Pairing request waiting", StringComparison.Ordinal),
+                "INBOUND_OFFER_SIGNAL: the signal clears once no incoming offer waits");
 
+            // The discovery card is gone (its checks move to NO_DISCOVERY_POPUP in AgentBrokerPaneBrokerChecks.cs).
             var discovered = peer with { BrokerId = Guid.NewGuid() };
-            module.ApplyStatus(new(true, false, "standby", view with { PairingOffers = [], Discovered = [discovered] }));
-            Check(host.Asks.Count == asked + 1 && host.Asks.Last().Question.Text.Length <= 240 &&
-                host.Asks.Last().Question.Text.Contains("current and future", StringComparison.Ordinal),
-                "new broker discovery prompts explicit authorization within card bounds");
             int beforeDiscovery = control.Requests.Count;
-            host.Asks.Last().Completion.SetResult(new TrayAnswer { Outcome = TrayQuestionOutcome.TimedOut, ChoiceId = "later" });
-            Pump(() => !module.discoveryPromptOpen, dispatcher);
-            Check(control.Requests.Count == beforeDiscovery, "unanswered discovery never creates a pairing request");
+            module.ApplyStatus(new(true, false, "standby", view with { PairingOffers = [], Discovered = [discovered] }));
+            Check(host.Asks.Count == asked && control.Requests.Count == beforeDiscovery &&
+                brokers.LoadItems().Any(item => item.Group == DiscoveredGroup && item.Id.Contains(discovered.BrokerId.ToString("N"), StringComparison.Ordinal)),
+                "a newly discovered broker is listed under Discovered without a question or a pairing request");
             module.ApplyStatus(new(true, false, "standby", view with { PairingOffers = [] }));
 
             // N-agentbroker-notice-loss-signal-01 (1.5.0): dropped notices reach Status as counts by reason, naming nothing.
@@ -324,15 +341,24 @@ public sealed partial class AgentBrokerModule
             Check(control.Requests.Any(r => r.Operation == "session-private" && r.SessionId == session.SessionId && r.Value) &&
                 control.Requests.Any(r => r.Operation == "session-muted" && r.SessionId == session.SessionId && r.Value),
                 "private and mute exact session controls");
-            tray.Single(t => t.Label == "Paired brokers").BuildChildren().Single().BuildChildren().Single().Click();
-            Check(control.Requests.Last().Operation == "peer-revoke" && control.Requests.Last().Id == peer.BrokerId,
-                "revoke exact peer");
+            // No revoke in the tray (owner decision 2026-11-12, D10): revoking is the pane's deliberate two-press action. The
+            // paired summary line proves this tray was built with a paired broker, so a revoke item would be on the menu. Only
+            // actionable items count: a status line may quote a pane result such as "Sharing revoked for ...".
+            static IEnumerable<TrayItem> TrayTree(IEnumerable<TrayItem> items) => items.SelectMany(item =>
+                new[] { item }.Concat(item.BuildChildren is null ? Enumerable.Empty<TrayItem>() : TrayTree(item.BuildChildren())));
+            TrayItem[] trayTree = TrayTree(tray).ToArray();
+            Check(trayTree.Any(t => (t.Label ?? "").StartsWith("Paired with ", StringComparison.Ordinal)) &&
+                !trayTree.Any(t => (t.Click is not null || t.BuildChildren is not null) &&
+                    ((t.Label ?? "").Contains("revoke", StringComparison.OrdinalIgnoreCase) || t.Label == "Paired brokers")),
+                "TRAY_NO_REVOKE: the tray offers no revoke; removing a pairing is the pane's deliberate two-press action");
             var failedOffer = offer with { RequestId = Guid.NewGuid(), Peer = peer with { BrokerId = Guid.NewGuid() } };
             int requestsBeforeFault = control.Requests.Count;
             host.ThrowNextAsk = true;
             module.ApplyStatus(new(true, false, "standby", view with { PairingOffers = [failedOffer] }));
-            Check(control.Requests.Count == requestsBeforeFault && module.status.Contains("confirmation unavailable", StringComparison.Ordinal),
-                "throwing question service reports failure and never approves or rejects an offer implicitly");
+            // PANE-POPUP: an offer never reaches the question service now, so a failing one cannot approve or reject it.
+            Check(control.Requests.Count == requestsBeforeFault && host.ThrowNextAsk,
+                "an offer never calls the question service, so a failing one cannot approve or reject an offer implicitly");
+            host.ThrowNextAsk = false;
             var manualConfirmation = host.TrayItems.Single().BuildChildren().Single(t =>
                 t.Label.Contains(comparisonCode, StringComparison.Ordinal)).BuildChildren().First();
             manualConfirmation.Click();
@@ -343,8 +369,11 @@ public sealed partial class AgentBrokerModule
             int stopsBeforeShutdown = supervisor.Stops;
             module.Shutdown();
             Pump(() => module.pending.IsCompleted, dispatcher);
-            Check(host.Asks.Last().Withdrawn && supervisor.Stops > stopsBeforeShutdown,
-                "shutdown withdraws questions and cleans owned worker off thread");
+            Check(host.Asks.Count == asked && supervisor.Stops > stopsBeforeShutdown,
+                "shutdown leaves no question behind and cleans owned worker off thread");
+            // CLOSED-VERIFIED in the lane P freeze record (review P-CHK-10): no question can be pending any more, and a late
+            // tray or pane press after shutdown is guarded in depth (the shutDown flag, the disposed run token, the cleared
+            // snapshot and ticks), so a single-site mutant removing the flag SURVIVED a late-press check. Kept as it was.
             int requests = control.Requests.Count;
             dispatcher.Drain();
             Check(control.Requests.Count == requests, "shutdown never approves late answers");

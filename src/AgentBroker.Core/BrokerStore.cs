@@ -394,7 +394,8 @@ public sealed partial class BrokerStore : IDisposable
         AcceptWithSubjects(message, authenticatedBroker, "caller_sender", "peer_recipient");
 
     // Subject labels change diagnostics only; admission, idempotence and exact-address routing stay shared.
-    private MessageReceipt AcceptWithSubjects(BrokerMessage message, Guid authenticatedBroker, string senderSubject, string recipientSubject)
+    private MessageReceipt AcceptWithSubjects(BrokerMessage message, Guid authenticatedBroker, string senderSubject, string recipientSubject,
+        Guid? implicitReplyParent = null)
     {
         lock (gate)
         {
@@ -456,8 +457,9 @@ public sealed partial class BrokerStore : IDisposable
             }
             else if (message.RemainingReplies != limits.MaximumReplies) Fail("invalid_reply_budget");
             var retained = Expire(state.Messages);
+            if (implicitReplyParent is Guid parentId) StageLocalReplyReceipt(retained, parentId);
             // Only messages that still carry their text count here; acknowledged ones are tombstones.
-            if (retained.Count >= limits.MaximumMessages) Fail("message_limit");
+            if (retained.Count(receipt => !Tombstoned(receipt)) >= limits.MaximumMessages) Fail("message_limit");
             // Every message admitted here may become a tombstone, so the tombstone cap bounds both together and an
             // acknowledgement never has to drop a tombstone (which would lose a retry's de-duplication) to fit.
             PruneTombstones();
@@ -470,10 +472,27 @@ public sealed partial class BrokerStore : IDisposable
         }
     }
 
+    // Fresh reply admission has already checked the exact reversed participants, caller, addressability and Reply
+    // capability under gate. This extra recipient receipt is conditional: Reply-only sessions still admit replies.
+    // Stage it before capacity checks, so a local parent's tombstone can fund the reply's text slot, but publish both
+    // only with the one successful admission commit. Generic Accept/federation ingress and stable-ID retries never call it.
+    private void StageLocalReplyReceipt(List<MessageReceipt> messages, Guid parentId)
+    {
+        int index = messages.FindIndex(receipt => receipt.Message.Id == parentId);
+        if (index < 0) return; // An already acknowledged parent may be a tombstone.
+        var parent = messages[index];
+        if (parent.Message.Sender.BrokerId != state.BrokerId || parent.Message.Recipient.BrokerId != state.BrokerId) return;
+        var now = Now;
+        if (!NeedsRecipientReceipt(parent, now)) return;
+        if (!sessions[parent.Message.Recipient].Capabilities.HasFlag(SessionCapabilities.Receive)) return;
+        messages[index] = parent with { Status = MessageStatus.Delivered, UpdatedAt = now, Reason = "reply_receipt", Attempts = 1 };
+    }
+
     /// <summary>
     /// Creates a reply once under the same state lock as admission. Stable-ID retries reuse the
     /// originally persisted timestamps; they cannot turn into a new payload merely because time passed.
-    /// The parent's expiry is its delivery deadline, not a deadline for completing and replying to work.
+    /// The parent's expiry is its delivery deadline, not a deadline for completing and replying to work. Fresh replies
+    /// also settle a still-pending both-local parent when the replying session currently has Receive permission.
     /// </summary>
     public MessageReceipt AcceptReply(Guid originalMessageId, Guid messageId, string text, Guid authenticatedBroker)
     {
@@ -501,7 +520,7 @@ public sealed partial class BrokerStore : IDisposable
             var now = Now;
             return AcceptWithSubjects(new(messageId, parent.ConversationId, parent.Id, parent.Recipient, parent.Sender,
                 text, now, now.AddMinutes(limits.DefaultMessageLifetimeMinutes), parent.RemainingReplies - 1), authenticatedBroker,
-                "stored_request_recipient", "stored_request_sender");
+                "stored_request_recipient", "stored_request_sender", parent.Id);
         }
     }
 
@@ -581,6 +600,7 @@ public sealed partial class BrokerStore : IDisposable
         {
             EnsureOpen();
             var messages = Expire(state.Messages);
+            ObserveDirectoryWaits();
             // Re-evaluate mutable local policy immediately before claiming. Prior acceptance never
             // grants a permanent right to a session that became private or lost its receive capability.
             for (int i = 0; i < messages.Count; i++)
@@ -776,7 +796,9 @@ public sealed partial class BrokerStore : IDisposable
             var next = previous.Message.ExpiresAt <= Now
                 ? previous with { Status = MessageStatus.Expired, UpdatedAt = Now, Reason = "expired" }
                 : previous with { Status = MessageStatus.Accepted, UpdatedAt = Now, Reason = reason, Attempts = 0 };
-            messages[index] = next; Commit(state with { Messages = messages }); return next;
+            messages[index] = next; Commit(state with { Messages = messages });
+            ObserveAdapterWait(next, reason);
+            return next;
         }
     }
 
@@ -1005,6 +1027,7 @@ public sealed partial class BrokerStore : IDisposable
             BeginCommitStage(SnapshotReplaceStage);
             ReplaceFile(temporary, path);
             state = next;
+            PruneWaitingMail();
             (inboxSequences, inboxHighWater) = inbox;
             if (owing is not null) owed = owing;
             if (dropped is not null) noticeDrops = dropped;

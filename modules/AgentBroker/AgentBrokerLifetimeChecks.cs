@@ -20,8 +20,10 @@ public sealed partial class AgentBrokerModule
             check(pane.Schema.Any(field => field.Id == "messageLifetimeHours" && field.Kind == SettingKind.Int &&
                 field.Min == 1 && field.Max == 24),
                 "message lifetime: options expose the bounded one-to-twenty-four-hour delivery window");
+            // FU-1 (1.10.5): the second clause pinned "already received remain received", which blurred Held into Delivered; it
+            // now pins the corrected meaning (WORDING_DELIVERY_STATES in AgentBrokerWaitingMailChecks.cs holds the rest).
             check(pane.Load()["messageLifetimeHelp"].Contains("explicit message deadlines stay unchanged", StringComparison.Ordinal) &&
-                pane.Load()["messageLifetimeHelp"].Contains("already received remain received", StringComparison.Ordinal),
+                pane.Load()["messageLifetimeHelp"].Contains("Delivered remains Delivered after its original delivery deadline", StringComparison.Ordinal),
                 "message lifetime: help distinguishes delivery deadlines from already received messages");
             int saves = host.SettingsFor(Id).SaveCount, generation = module.generation;
             foreach (string invalid in new[] { "0", "25", "-1", "1.5", "", " 2", "2 " })

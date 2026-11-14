@@ -144,12 +144,16 @@ public sealed partial class AgentBrokerModule
         var command = new TestClientCommand { Existing =
             "{\"transport\":{\"type\":\"streamable_http\",\"url\":\"" + live + "\"},\"enabled\":true}" };
         var module = new AgentBrokerModule(control, new WorkerSupervisor(control, control)) { ClientSetup = new(command) };
+        // PANE-TEXT (1.10.5): a ready endpoint is an ok state, so the pane shows it as the "endpoint" token and the full
+        // sentence with its address lives in the state lines the tray lists. The address checks read those lines.
+        string Detail(string client) => string.Join("\n", module.ClientStateLines(client));
         try
         {
             module.Init(host);
             var pane = host.OptionsPanes.Single();
             Pump(() => module.snapshot?.Mcp?.EndpointReady == true, dispatcher);
-            check(!module.ownsWorker && control.Starts == 0 && pane.Load()["codexClient"].Contains(ready, StringComparison.Ordinal),
+            check(!module.ownsWorker && control.Starts == 0 && pane.Load()["codexClient"].Contains("\u2713 endpoint", StringComparison.Ordinal) &&
+                Detail("codex").Contains(ready, StringComparison.Ordinal),
                 "CLIENT_ENDPOINT_BASELINE: the real supervisor attaches to an existing ready worker without launching one");
             check(pane.Save(new Dictionary<string, string> { ["loopbackPort"] = "17432" }),
                 "CLIENT_ENDPOINT_SETTINGS: a standby instance can save a different requested port");
@@ -160,8 +164,8 @@ public sealed partial class AgentBrokerModule
             check(module.codexInspection?.State == ClientConfiguration.Configured && command.Calls.Count == 1 &&
                 command.Calls[0].Arguments.SequenceEqual(new[] { "mcp", "get", AgentClientSetup.ServerName, "--json" }),
                 "CLIENT_ENDPOINT_CHECK_CONFIGURED: the real Check action verifies the existing live HTTP entry");
-            string details = pane.Load()["codexClient"];
-            string claudeDetails = pane.Load()["claudeClient"];
+            string details = Detail("codex");
+            string claudeDetails = Detail("claude");
             check(module.settings.LoopbackPort == 17432 && !module.ownsWorker && control.Starts == 0 && control.Stops == 0 &&
                 details.Contains(ready, StringComparison.Ordinal) && !details.Contains(":17432/mcp", StringComparison.Ordinal) &&
                 claudeDetails.Contains(ready, StringComparison.Ordinal) && !claudeDetails.Contains(":17432/mcp", StringComparison.Ordinal),
@@ -172,7 +176,7 @@ public sealed partial class AgentBrokerModule
 
             control.View = view with { LoopbackEndpoint = "http://localhost:7432" };
             module.ApplyStatus(new(true, false, "attached_standby", control.View));
-            check(pane.Load()["codexClient"].Contains("Endpoint: ready at http://localhost:7432/mcp.", StringComparison.Ordinal),
+            check(Detail("codex").Contains("Endpoint: ready at http://localhost:7432/mcp.", StringComparison.Ordinal),
                 "CLIENT_ENDPOINT_CANONICAL_LOCALHOST: another canonical loopback spelling is displayed exactly");
             foreach (var invalid in new (string Name, string? Endpoint)[] {
                 ("EMPTY", ""), ("ABSENT", null), ("DOUBLE_PATH", live),
@@ -182,8 +186,9 @@ public sealed partial class AgentBrokerModule
             {
                 control.View = view with { LoopbackEndpoint = invalid.Endpoint! };
                 module.ApplyStatus(new(true, false, "attached_standby", control.View));
-                details = pane.Load()["codexClient"];
-                check(details.Contains(unverified, StringComparison.Ordinal) && !details.Contains("Endpoint: ready at", StringComparison.Ordinal) &&
+                details = Detail("codex");
+                check(details.Contains(unverified, StringComparison.Ordinal) && pane.Load()["codexClient"].Contains(unverified, StringComparison.Ordinal) &&
+                    !details.Contains("Endpoint: ready at", StringComparison.Ordinal) &&
                     !details.Contains("SYNTHETIC_VALUE", StringComparison.Ordinal),
                     "CLIENT_ENDPOINT_UNVERIFIED_" + invalid.Name + ": ready status without a canonical address has no URL or token claim");
             }

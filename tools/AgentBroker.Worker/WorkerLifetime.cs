@@ -15,13 +15,16 @@ internal static class WorkerLifetime
         bool cleanupFailure = false) =>
         durableFailure ? 73 : cleanupFailure ? 1 : renewalRequested && !externalCancellation && parentAlive ? CertificateRestartExitCode : 0;
 
-    internal static bool ParentIsAlive(WorkerOptions options)
+    internal static bool ParentIsAlive(WorkerOptions options) => ParentIsAlive(options.ParentPid, options.ParentCreationFileTime);
+
+    // FILETIME UTC, matching --parent-start in the worker and the opt-in inbox watcher; never DateTime ticks.
+    internal static bool ParentIsAlive(int parentPid, long parentCreationFileTime)
     {
-        if (options.ParentPid == 0) return true;
+        if (parentPid == 0) return true;
         try
         {
-            using var parent = Process.GetProcessById(options.ParentPid);
-            return !parent.HasExited && parent.StartTime.ToUniversalTime().ToFileTimeUtc() == options.ParentCreationFileTime;
+            using var parent = Process.GetProcessById(parentPid);
+            return !parent.HasExited && parent.StartTime.ToUniversalTime().ToFileTimeUtc() == parentCreationFileTime;
         }
         catch (ArgumentException) { return false; }
         catch (InvalidOperationException) { return false; }

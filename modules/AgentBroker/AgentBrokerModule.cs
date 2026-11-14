@@ -11,12 +11,12 @@ public sealed partial class AgentBrokerModule : IModule
     private readonly IBrokerControlClient control;
     private readonly IWorkerSupervisor supervisor;
     private readonly SemaphoreSlim lifecycle = new(1, 1);
-    private readonly HashSet<Guid> askedOffers = [];
     private IHost? host;
     private IModuleSettings? settingsStore;
     private OptionsPane? optionsPane;
-    private (string Status, string NativeStatus, string PairingStatus, string McpStatus, string AgentInboxes, string LanAccess, string PairedBrokers,
-        string ClaudeClient, string CodexClient, string ApprovalPrompts)? notifiedInfo;
+    // The live Info values last notified, in InfoValues order. An array rather than a fixed tuple so that a new live Info
+    // row is one more entry in InfoValues, compared the same way (lane P, 1.10.5).
+    private string[]? notifiedInfo;
     private ITrayQuestions? questions;
     private SynchronizationContext? ui;
     private BrokerSettings settings = new(false, "AgentBroker", 7432, 7433, true, true, true, true, false, false);
@@ -41,7 +41,8 @@ public sealed partial class AgentBrokerModule : IModule
     {
         Id = "agentbroker",
         Name = "AgentBroker",
-        Version = "1.10.4",  // Slow native discovery consumes its refresh interval instead of adding a second full pause.
+        Version = "1.10.5",  // Reply settlement, waiting-mail observations, compiled inbox watching and clearer pairing controls.
+                             // 1.10.4: slow native discovery consumes its refresh interval instead of adding a second full pause.
                              // 1.10.3: --mcp-call encodes and bounds the whole query before connecting, so depth-limit requests travel.
                              // 1.10.2: request values decoded before dispatch, output checks before dispatch, live endpoint display.
                              // 1.10.1: verified client HTTP setup and a single cancellation outcome.
@@ -217,11 +218,12 @@ public sealed partial class AgentBrokerModule : IModule
         settings = BrokerSettings.Read(settingsStore);
         string? storage = host.GetStorage(Id)?.DataDirectory;
         if (storage is not null && Path.IsPathFullyQualified(storage)) dataDirectory = Path.GetFullPath(storage);
+        brokerCard = BuildBrokerCard();
         optionsPane = BuildOptions();
-        notifiedInfo = (DisplayedStatus(), NativeStatusText(), PairingDisplayText(), McpDisplay().Detail, AgentInboxDisplay().Detail, LanAccessText(), PairedBrokersDisplay(),
-            ClientDisplay("claude"), ClientDisplay("codex"), ApprovalPromptText());
+        notifiedInfo = InfoValues();
         host.AddOptionsPane(optionsPane);
-        host.AddTrayItems([new TrayItem { Label = "AgentBroker", Group = 30, Order = 0, BuildChildren = BuildTray,
+        // PANE-POPUP (1.10.5): a waiting incoming pairing request is a passive signal on the tray root, read when the menu opens.
+        host.AddTrayItems([new TrayItem { Label = "AgentBroker", DynamicText = TrayRootLabel, Group = 30, Order = 0, BuildChildren = BuildTray,
             IconPng = DesktopAICompanion.ModuleKit.EmbeddedResources.LoadBytes(typeof(AgentBrokerModule).Assembly, "agentbroker.png") }]);
         host.HostShutdown += Shutdown;
         Restart();
@@ -233,12 +235,12 @@ public sealed partial class AgentBrokerModule : IModule
         shutDown = true; generation++;
         if (host is not null) { host.HostShutdown -= Shutdown; DetachApprovalObservation(host); }
         run?.Cancel();
-        CancelObsoletePairingQuestions(null);
+        ResetBrokerList();
         CancellationTokenSource? stopped = run;
         _ = pending.ContinueWith(_ => stopped?.Dispose(), TaskScheduler.Default);
         // RunAsync's finally stops our own child off the UI thread. Parent PID/start binding is
         // the worker's last cleanup guard if host exit prevents this continuation.
-        host = null; questions = null; snapshot = null; optionsPane = null;
+        host = null; questions = null; snapshot = null; waitingMail = null; optionsPane = null;
     }
 
     private OptionsPane BuildOptions() => new()
@@ -249,6 +251,7 @@ public sealed partial class AgentBrokerModule : IModule
             new() { Id = "status", Label = "Status", Kind = SettingKind.Info, Group = "AgentBroker", FullWidth = true, PinTop = true },
             new() { Id = "pairedBrokers", Label = "Paired brokers", Kind = SettingKind.Info, Group = "AgentBroker", FullWidth = true },
             new() { Id = "agentInboxes", Label = "Agent inboxes", Kind = SettingKind.Info, Group = "AgentBroker", FullWidth = true },
+            new() { Id = "waitingMail", Label = "Waiting mail", Kind = SettingKind.Info, Group = "AgentBroker", FullWidth = true },
             new() { Id = "mcpStatus", Label = "MCP client traffic", Kind = SettingKind.Info, Group = "AgentBroker", FullWidth = true },
             new() { Id = "approvalPrompts", Label = "Visible Codex approval prompts", Kind = SettingKind.Info, Group = "AgentBroker", FullWidth = true },
             new() { Id = "enabled", Label = "Enable AgentBroker", Kind = SettingKind.Bool, Group = "AgentBroker" },
@@ -262,13 +265,15 @@ public sealed partial class AgentBrokerModule : IModule
             new() { Id = "lanAccess", Label = "LAN firewall access", Kind = SettingKind.Info, Group = "Connections", FullWidth = true },
             new() { Id = "sharing", Label = "Sharing", Kind = SettingKind.Info, Group = "Connections" },
             new() { Id = "pairingStatus", Label = "Pairing", Kind = SettingKind.Info, Group = "Connections" },
-            new() { Id = "manualPeer", Label = "Broker invitation (optional)", Kind = SettingKind.Text, Group = "Connections", FullWidth = true },
+            new() { Id = "manualPeer", Label = "Broker invitation (optional)", Kind = SettingKind.Text, Group = "Pair by invitation", FullWidth = true,
+                Collapsible = true, StartCollapsed = true },
             new() { Id = "codexDiscovery", Label = "Discover open Codex sessions", Kind = SettingKind.Bool, Group = "Coding agents" },
             new() { Id = "additionalCodexHome", Label = "Additional Codex home to observe", Kind = SettingKind.FolderPath,
                 Group = "Coding agents", EmptyHint = "Optional; the default Codex home is already observed", EnabledWhen = "codexDiscovery=true" },
             new() { Id = "claudeDiscovery", Label = "Discover open Claude sessions", Kind = SettingKind.Bool, Group = "Coding agents" },
             new() { Id = "codexPeerMessages", Label = "Wake existing Codex sessions", Kind = SettingKind.Bool, Group = "Coding agents" },
             new() { Id = "claudePeerCredentials", Label = "Wake existing Claude sessions", Kind = SettingKind.Bool, Group = "Coding agents" },
+            new() { Id = "claudeWakeConsent", Label = "Claude wake-up", Kind = SettingKind.Info, Group = "Coding agents" },
             new() { Id = "codexUpdateTolerantDelivery", Label = "Also wake updated Codex builds (publisher verified)", Kind = SettingKind.Bool,
                 Group = "Coding agents", EnabledWhen = "codexPeerMessages=true" },
             new() { Id = "claudeUpdateTolerantDelivery", Label = "Also wake updated Claude builds (publisher verified)", Kind = SettingKind.Bool,
@@ -285,17 +290,19 @@ public sealed partial class AgentBrokerModule : IModule
             new() { Id = "desktopChatThreadId", Label = "Thread ID from the chat link", Kind = SettingKind.Text,
                 Group = "Reopen a Codex desktop chat", EnabledWhen = "desktopChatOrigin=" + DesktopChatOrigin }
         ],
+        Lists = [brokerCard!],
         Load = LoadOptions, Save = SaveOptions,
         Actions = [new PaneAction { Label = "Refresh status", Group = "AgentBroker", ReloadPaneAfter = true,
             InvokeAsync = RefreshStatusAsync },
+            new PaneAction { Label = GuideActionLabel, Group = "AgentBroker", InvokeAsync = OpenGuideAsync },
             new PaneAction { Label = "Check client setup", Group = "Coding agents", ReloadPaneAfter = true, InvokeAsync = () => CheckClientSetupAsync() },
             new PaneAction { Label = "Connect Codex MCP", Group = "Coding agents", ReloadPaneAfter = true, InvokeAsync = () => ConnectAndCheckAsync("codex") },
             new PaneAction { Label = "Connect Claude MCP", Group = "Coding agents", ReloadPaneAfter = true, InvokeAsync = () => ConnectAndCheckAsync("claude") },
             new PaneAction { Label = "Open existing desktop chat", Group = "Reopen a Codex desktop chat",
                 InvokeWithPendingAsync = OpenCodexDesktopChatAsync },
             new PaneAction { Label = "Allow LAN access", Group = "Connections", ReloadPaneAfter = true, InvokeAsync = AllowLanAccessAsync },
-            new PaneAction { Label = "Copy broker invitation", Group = "Connections", InvokeAsync = CopyInvitationAsync },
-            new PaneAction { Label = "Pair from invitation", Group = "Connections", InvokeWithPendingAsync = PairInvitationAsync }]
+            new PaneAction { Label = "Copy broker invitation", Group = "Pair by invitation", InvokeAsync = CopyInvitationAsync },
+            new PaneAction { Label = "Pair from invitation", Group = "Pair by invitation", InvokeWithPendingAsync = PairInvitationAsync }]
     };
 
     private IReadOnlyDictionary<string, string> LoadOptions()
@@ -305,25 +312,34 @@ public sealed partial class AgentBrokerModule : IModule
         values["approvalPrompts"] = ApprovalPromptText();
         values["mcpStatus"] = McpDisplay().Detail;
         values["agentInboxes"] = AgentInboxDisplay().Detail;
-        values["messageLifetimeHelp"] = "Default for new replies and sends using ttlMinutes 0; explicit message deadlines stay unchanged. Messages already received remain received after the deadline.";
+        values["waitingMail"] = WaitingMailText();
+        // FU-1 (1.10.5): reading never acknowledges, and Held is not Delivered (Codex b7a31d8e's wording).
+        values["messageLifetimeHelp"] = "Default for new replies and sends using ttlMinutes 0; explicit message deadlines stay unchanged. Delivered remains Delivered after its original delivery deadline; reading alone does not acknowledge; Held keeps the text without extending its deadline.";
         values["pairingStatus"] = PairingDisplayText();
         values["pairedBrokers"] = PairedBrokersDisplay();
         values["lanAccess"] = LanAccessText();
-        values["sharing"] = "Pair brokers from the tray. Pairing shares current and future sessions. Mark a session private to hide it, or mute it to stop peer messages. LAN connections always authenticate.";
+        values["sharing"] = "Pair brokers in the Brokers list or from the tray; pairing shares current and future sessions. Mark a session private to hide it or mute it to stop peer messages; LAN connections always authenticate.";
         values["manualPeer"] = "";
-        values["nativePrivacy"] = "The wake switches let messages reach existing idle client sessions automatically. MCP agents can still poll and reply without them. For Claude, \"Also wake updated Claude builds\" (on by default) accepts a valid Anthropic signature on the running session's own executable for a build that is not exactly verified; turn it off to wake exactly verified builds only. For Codex, \"Also wake updated Codex builds\" (on by default) accepts a valid OpenAI signature plus the native capability checks for a build that is not exactly pinned; turn it off to wake exactly verified builds only. Claude wake-up uses sensitive local peer credentials. Existing agent permission controls still apply.";
+        // PANE-TEXT (1.10.5): each static explanation is at most two sentences (PaneTextRows); the full text is in the guide.
+        // The defaults stay literal, "(on by default)" after each switch name with how to turn it off, and the consent for
+        // Claude wake-up sits in its own row directly under its switch, never only in the guide.
+        values["nativePrivacy"] = "For Claude, \"Also wake updated Claude builds\" (on by default) accepts Anthropic-signed builds. For Codex, \"Also wake updated Codex builds\" (on by default) accepts OpenAI-signed builds that pass the native checks; turn either off to wake exactly verified builds only.";
+        values["claudeWakeConsent"] = ClaudeWakeConsent;
         // N-agentbroker-client-reconnect-01: a session that started while the worker was down (every companion restart
         // stops and starts it) keeps no broker tools, and neither client retries by itself.
-        values["clientSetup"] = "Connect MCP once per client for receipt and reply tools. Claude Code uses the local HTTP endpoint when it needs no token; other connections use the stdio bridge. Client policy can require administrator approval. For Claude Code in VS Code, start a new conversation and check /mcp afterward. " + ReconnectAdvice;
+        values["clientSetup"] = "Connect MCP once per client for receipt and reply tools. " + ReconnectAdvice;
         values["nativeStatus"] = NativeStatusText();
         values["claudeClient"] = ClientDisplay("claude");
         values["codexClient"] = ClientDisplay("codex");
-        values["desktopChatHelp"] = "Choose the chat's original app and enter its thread ID from the chat link. This asks the desktop app to open that chat. Sending broker messages remains a separate action.";
+        values["desktopChatHelp"] = "Choose the chat's original app and enter its thread ID from the chat link to ask the desktop app to open that chat. Sending broker messages remains a separate action.";
         values["desktopChatOrigin"] = DesktopChatOriginPrompt;
         values["desktopChatThreadId"] = "";
         return values;
     }
 
+    internal const string ClaudeWakeConsent = "Claude wake-up uses sensitive local peer credentials. Agent permission controls still apply.";
+    // The static explanation rows PANE_TEXT_SHORT holds to two sentences and 280 characters.
+    internal static readonly string[] PaneTextRows = ["nativePrivacy", "claudeWakeConsent", "clientSetup", "sharing", "messageLifetimeHelp", "desktopChatHelp"];
     internal const string ReconnectAdvice = "A session that started while the broker was down, including during a companion restart, has no broker tools until you reconnect its MCP server (Claude Code: /mcp) or restart the session.";
 
     private string NativeStatusText() => snapshot is null ? "No worker status yet." : (snapshot.AdapterErrors.Count == 0
@@ -339,12 +355,18 @@ public sealed partial class AgentBrokerModule : IModule
         NotifyInfoChanged();
     }
 
+    // Every Info value the pane reloads live. Order is fixed; equality is ordinal per entry, as the tuple's was.
+    private string[] InfoValues() =>
+    [
+        DisplayedStatus(), NativeStatusText(), PairingDisplayText(), McpDisplay().Detail, AgentInboxDisplay().Detail, LanAccessText(),
+        PairedBrokersDisplay(), ClientDisplay("claude"), ClientDisplay("codex"), ApprovalPromptText(), WaitingMailText()
+    ];
+
     private void NotifyInfoChanged()
     {
         if (shutDown || optionsPane is null) return;
-        var current = (DisplayedStatus(), NativeStatusText(), PairingDisplayText(), McpDisplay().Detail, AgentInboxDisplay().Detail, LanAccessText(), PairedBrokersDisplay(),
-            ClientDisplay("claude"), ClientDisplay("codex"), ApprovalPromptText());
-        if (notifiedInfo == current) return;
+        string[] current = InfoValues();
+        if (notifiedInfo is not null && notifiedInfo.SequenceEqual(current, StringComparer.Ordinal)) return;
         notifiedInfo = current;
         optionsPane.NotifyInfoChanged();
     }
@@ -370,16 +392,17 @@ public sealed partial class AgentBrokerModule : IModule
         if (shutDown) return;
         CancellationTokenSource? previous = run;
         previous?.Cancel();
-        CancelObsoletePairingQuestions(null);
         if (previous is not null) _ = pending.ContinueWith(_ => previous.Dispose(), TaskScheduler.Default);
         run = new CancellationTokenSource();
         int current = ++generation;
-        snapshot = null; ownsWorker = false; askedOffers.Clear();
+        snapshot = null; ownsWorker = false;
+        ResetBrokerList();
+        // BSM-4: the previous worker's waiting mail is process-local and never joins a status read after the restart.
+        waitingMail = null;
         ResetPairingStatus();
         lanFirewallStatus = "";
         // A check compared the entry with the previous port, worker and data directory; it no longer applies.
         claudeInspection = null; codexInspection = null; clientSetupResults.Clear();
-        ResetDiscoveryPrompts();
         SetStatus(!settings.Enabled ? "Disabled" : dataDirectory is null ? "Module storage unavailable" :
             !settings.Valid ? "Invalid broker settings" : ui is null ? "UI dispatcher unavailable" : "Starting");
         var selected = settings;
@@ -428,14 +451,25 @@ public sealed partial class AgentBrokerModule : IModule
                     }
                     catch (Exception error) when (error is IOException or UnauthorizedAccessException or OperationCanceledException or System.Text.Json.JsonException) { }
                 }
-                Post(current, () => ApplyStatus(state, requestedObservation));
+                // BSM-4 (1.10.5): waiting mail is the worker's separate "waiting-mail" read, after a connected status in this
+                // poll and applied in the same generation-guarded post. Any failure is "measurement unavailable" for this poll
+                // and never ends supervision.
+                ControlResponse? mail = null;
+                if (state.Connected && state.Snapshot is not null)
+                {
+                    try { mail = await supervisor.ReadWaitingMailAsync(launch, token).ConfigureAwait(false); }
+                    catch (OperationCanceledException) when (token.IsCancellationRequested) { break; }
+                    catch (Exception) { mail = null; }
+                }
+                Post(current, () => ApplyStatus(state, requestedObservation, mail));
                 await Task.Delay(TimeSpan.FromSeconds(2), token).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) { }
         catch (Exception) { Post(current, () => {
             if (!AcceptObservation(observation)) return;
-            snapshot = null;
+            // BSM-4: no status means no measurement, so a later action's status never re-joins this answer.
+            snapshot = null; waitingMail = null;
             SetStatus("Worker unavailable. Check the packaged worker and settings.");
         }); }
         finally
@@ -463,9 +497,16 @@ public sealed partial class AgentBrokerModule : IModule
 
     private void ApplyStatus(WorkerStatus state) => ApplyStatus(state, NextObservation());
 
-    private bool ApplyStatus(WorkerStatus state, long observation)
+    // A status from any other source (Refresh status, an action's answer) keeps the waiting mail already held; the row joins
+    // it to the new snapshot by BrokerId and exact address when it is drawn.
+    private bool ApplyStatus(WorkerStatus state, long observation) => ApplyStatus(state, observation, waitingMail);
+
+    private bool ApplyStatus(WorkerStatus state, long observation, ControlResponse? mail)
     {
         if (!AcceptObservation(observation)) return false;
+        // BSM-4: the poll's waiting-mail answer belongs to this accepted observation and is set before Status notifies, so
+        // one poll raises one InfoChanged. No status means no measurement.
+        waitingMail = state.Snapshot is null ? null : mail;
         // A standby that takes over, or a worker that reappears on another port, makes every client verdict stale; Restart is
         // not the only way that happens (post-push audit U5). The same endpoint seen again keeps them.
         string? liveEndpoint = state.Snapshot?.LoopbackEndpoint;
@@ -475,6 +516,8 @@ public sealed partial class AgentBrokerModule : IModule
             clientEpoch++;
         }
         if (liveEndpoint is not null) verdictEndpoint = liveEndpoint;
+        // A pressed-once revoke belongs to the broker it was shown for; another worker identity or no status disarms it.
+        if (state.Snapshot is null || state.Snapshot.BrokerId != snapshot?.BrokerId) revokeArm = null;
         snapshot = state.Snapshot;
         ownsWorker = state.OwnsWorker;
         SetStatus(state.Connected ? (state.OwnsWorker ? "Running" : "Connected to the existing broker (standby)") +
@@ -489,18 +532,11 @@ public sealed partial class AgentBrokerModule : IModule
                 "worker_unresponsive" => "Worker is not responding to status requests. Retrying automatically.",
                 _ => "Worker status unavailable. Retrying automatically."
             });
-        CancelObsoletePairingQuestions(snapshot?.PairingOffers);
-        if (snapshot is null) { askedOffers.Clear(); return true; }
+        // PANE-POPUP (1.10.5): no question is raised here for a discovered broker or a pairing offer. Discovered brokers
+        // and offers show in the Brokers list, an incoming offer also in Pairing, Status and the tray root, and only an
+        // explicit press on one row or tray item sends pair-request, pair-approve or pair-reject.
+        if (snapshot is null) return true;
         ReconcilePairingStatus();
-        askedOffers.RemoveWhere(id => !snapshot.PairingOffers.Any(o => o.RequestId == id));
-        foreach (var offer in snapshot.PairingOffers.Where(o => !o.LocalApproved && o.ExpiresAt > DateTimeOffset.UtcNow.AddSeconds(10)).Take(32))
-            if (askedOffers.Add(offer.RequestId))
-            {
-                var question = CancellationTokenSource.CreateLinkedTokenSource(run!.Token);
-                pairingQuestions.Add(offer.RequestId, question);
-                _ = AskPairingAsync(offer, generation, question);
-            }
-        AskAboutDiscovery(snapshot);
         return true;
     }
 
@@ -530,8 +566,8 @@ public sealed partial class AgentBrokerModule : IModule
                     new TrayItem { Label = "Cancel pairing", Click = () => _ = SendAsync(new("pair-reject", offer.RequestId)) }] });
         items.Add(new() { Label = "Pair a broker", BuildChildren = () => view.Discovered.Take(32).Select(peer => new TrayItem
             { Label = Safe(peer.Name, 60), Click = () => _ = SendAsync(new("pair-request", Peer: peer)) }).ToArray() });
-        items.Add(new() { Label = "Paired brokers", BuildChildren = () => view.Paired.Take(32).Select(peer => new TrayItem
-            { Label = Safe(peer.Name, 60), BuildChildren = () => [new TrayItem { Label = "Revoke sharing", Click = () => _ = SendAsync(new("peer-revoke", peer.BrokerId)) }] }).ToArray() });
+        // No revoke in the tray (owner decision 2026-11-12, D10): removing a pairing is a deliberate action, the pane's two-press
+        // Revoke sharing. The paired summary line above still names the paired brokers.
         items.Add(new() { Label = "Sessions", BuildChildren = () => view.Sessions.Take(256).Select(session => new TrayItem
         {
             Label = Safe(session.Label, 60) + " (" + Safe(session.Activity, 24) + ")",
@@ -544,49 +580,6 @@ public sealed partial class AgentBrokerModule : IModule
             ]
         }).ToArray() });
         return items;
-    }
-
-    private async Task AskPairingAsync(PairingView offer, int current, CancellationTokenSource question)
-    {
-        CancellationToken token = question.Token;
-        try
-        {
-            var questionHost = questions;
-            if (questionHost is null || shutDown) return;
-            string name = Safe(offer.Peer.Name, 20);
-            string code = Safe(offer.VerificationCode, 35);
-            TrayAnswer answer = await questionHost.AskAsync(Id, new TrayQuestion
-            {
-                Key = "pair." + offer.RequestId.ToString("N"), Title = "Share with " + name,
-                Text = "Match the full code on both brokers:\n" + code + "\nShare current and future discoverable sessions with " + name +
-                    "? Both workstations must confirm. Private sessions stay hidden; muted sessions cannot receive.",
-                Choices = [new("allow", "Allow sharing"), new("reject", "Reject")], TimeoutChoiceId = "reject",
-                Timeout = TimeSpan.FromMinutes(2), Deadline = offer.ExpiresAt
-            }, token);
-            if (shutDown || generation != current || token.IsCancellationRequested ||
-                snapshot?.PairingOffers.Any(currentOffer => currentOffer.RequestId == offer.RequestId &&
-                    currentOffer.VerificationCode == offer.VerificationCode && currentOffer.Peer == offer.Peer &&
-                    !currentOffer.LocalApproved && currentOffer.ExpiresAt > DateTimeOffset.UtcNow) != true) return;
-            bool approved = answer.Outcome == TrayQuestionOutcome.Chosen && answer.ChoiceId == "allow";
-            if (approved || answer.Outcome is TrayQuestionOutcome.Chosen or TrayQuestionOutcome.TimedOut or TrayQuestionOutcome.Expired)
-                await SendAsync(new(approved ? "pair-approve" : "pair-reject", offer.RequestId));
-        }
-        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
-        catch (Exception)
-        {
-            if (!shutDown && generation == current)
-            {
-                PairingPeerIdentity? peer = PairingIdentity(offer.Peer);
-                if (!IsTrustedPairingPeer(peer)) SetStatus("Pairing confirmation unavailable. Compare codes and confirm from the tray menu.");
-                SetPairingStatus("Pairing confirmation unavailable. Compare codes and confirm from the tray menu.", true, peer);
-            }
-        }
-        finally
-        {
-            if (pairingQuestions.TryGetValue(offer.RequestId, out var active) && ReferenceEquals(active, question))
-                pairingQuestions.Remove(offer.RequestId);
-            question.Dispose();
-        }
     }
 
     private async Task<ControlResponse?> SendAsync(ControlRequest request)
@@ -631,7 +624,8 @@ public sealed partial class AgentBrokerModule : IModule
         if (!AcceptObservation(observation)) return;
         if (request.Operation == "status")
         {
-            snapshot = null;
+            // BSM-4: no status means no measurement, so a later action's status never re-joins the held waiting mail.
+            snapshot = null; waitingMail = null;
             SetStatus("Worker unavailable. " + reason + " Retrying automatically.");
         }
         // The read-only "connection" probe (Check client setup, Connect) changes nothing, so its failure must not replace the
