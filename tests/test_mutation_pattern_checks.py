@@ -204,6 +204,12 @@ class GuardsModuleGrade(ScratchCase):
         path, before = self.artifact(b"mutant bytes", -10)
         self.assertEqual(self.guards.rebuild_problem(path, before, "0" * 64), "module.dll not rebuilt")
 
+    def test_GUARDS_REBUILD_UNKNOWN_BASELINE_BROKEN(self):
+        # Round 7 (T6-X1C-1, DECISIONS 106): an artefact the baseline never hashed cannot prove the mutant reached it, however
+        # new its timestamp.
+        path, before = self.artifact(b"mutant bytes", 10)
+        self.assertEqual(self.guards.rebuild_problem(path, before, None), "module.dll has no baseline SHA-256")
+
     def test_GUARDS_REBUILD_CHANGED_SHA_ACCEPTED(self):
         # WITNESS: an advanced timestamp and a changed hash are the proof.
         path, before = self.artifact(b"mutant bytes", 10)
