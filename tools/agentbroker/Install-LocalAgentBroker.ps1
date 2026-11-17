@@ -40,6 +40,13 @@ Set-StrictMode -Version Latest
 # nothing, immediately before a host runtime file's replace or move; it may change files as a failing operation would, and a
 # non-null result is thrown as that operation's failure (a Win32 1177 partial replacement, or a failure reported after landing).
 $script:HostRuntimeOperationForSelfTest = $null
+# Lane T round 8 (2/2, S-010, DECISIONS 118): a replace or move that a transient lock refuses (an indexer or scanner holding the
+# file) is tried again, at most ReplaceAttempts times, ReplaceRetryDelayMs apart, and only for the two Win32 errors that leave
+# every file where it was. Self-test seam, null outside -SelfTest: called (name, attempt, failure) after a transient failure and
+# before the delay, so a fixture releases a hold on an OBSERVED retry, never on the clock (X1b T-r3 finding 4).
+$script:ReplaceAttempts = 5
+$script:ReplaceRetryDelayMs = 100
+$script:ReplaceRetryForSelfTest = $null
 
 function Initialize-InstallerNative {
     if ('AgentBrokerLocalInstallNative' -as [type]) { return }
@@ -395,7 +402,18 @@ function Publish-UpdateMarker([string]$Path, $Snapshot) {
         if ($current.Exists -ne $Snapshot.Exists -or $current.Stamp -cne $Snapshot.Stamp -or $current.Digest -cne $Snapshot.Digest) {
             throw 'The update marker changed during staging; its existing IDs were not replaced.'
         }
-        [AgentBrokerLocalInstallNative]::PublishMarkerFile($temporary, $Path, $Snapshot.Exists)
+        # Round 8 (2/2): retried on a transient lock; the marker and the staged copy are re-read after each delay, so a module
+        # ID added while waiting is never overwritten (X1b T-r3 finding 1's marker counterexample).
+        $stagedDigest = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes))
+        Invoke-WithTransientRetry 'the update marker' {
+            param($attempt)
+            [AgentBrokerLocalInstallNative]::PublishMarkerFile($temporary, $Path, $Snapshot.Exists)
+        } {
+            $again = Read-UpdateMarker $Path
+            if ($again.Exists -ne $Snapshot.Exists -or $again.Stamp -cne $Snapshot.Stamp -or $again.Digest -cne $Snapshot.Digest) { 'the update marker changed' }
+            elseif ([Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([IO.File]::ReadAllBytes($temporary))) -cne $stagedDigest) { 'its staged copy changed' }
+            else { $null }
+        }
     }
     finally {
         [void](Assert-ContainedPath $temporary $parent)
@@ -650,21 +668,77 @@ function Restore-HostRuntimePlan($Plan) {
         if ($record.OldExists) {
             $backup = Assert-ContainedPath (Join-Path $Plan.Previous $record.Name) $Plan.Previous
             if ((Get-HostRuntimeFileSnapshot $backup).Hash -cne $record.OldHash) { throw 'A runtime rollback copy failed verification.' }
-            [AgentBrokerLocalInstallNative]::PublishMarkerFile($backup, $record.Target, $true)
+            # Round 8 (2/2): the rollback's replace is retried like publication's, its backup and target re-read after each delay.
+            Invoke-WithTransientRetry ('rollback of ' + $record.Name) {
+                param($attempt)
+                [AgentBrokerLocalInstallNative]::PublishMarkerFile($backup, $record.Target, $true)
+            } {
+                if ((Get-HostRuntimeFileSnapshot $backup).Hash -cne $record.OldHash) { 'its rollback copy changed' }
+                elseif ((Get-HostRuntimeFileSnapshot $record.Target).Hash -cne $record.Hash) { 'the published file changed' }
+                else { $null }
+            }
         } else { [IO.File]::Delete($record.Target) }
     }
     $Plan.Changed.Clear()
     $Plan.Applied = $false
 }
 
-function Invoke-HostRuntimeOperation($Record, [string]$Source, $Backup) {
-    # The single replace-or-move of one host runtime file. A future bounded retry (S-010, if the owner rules yes) belongs here.
-    if ($null -ne $script:HostRuntimeOperationForSelfTest) {
-        $fault = & $script:HostRuntimeOperationForSelfTest $Record $Source $Backup
-        if ($null -ne $fault) { throw $fault }
+function Test-TransientReplaceFailure($Failure) {
+    $inner = $Failure
+    while ($null -ne $inner -and $inner -isnot [IO.IOException] -and $null -ne $inner.InnerException) { $inner = $inner.InnerException }
+    # Win32 1175 (ERROR_UNABLE_TO_REMOVE_REPLACED) and 32 (ERROR_SHARING_VIOLATION): both leave every file where it was.
+    return $inner -is [IO.IOException] -and ($inner.HResult -eq -2147023721 -or $inner.HResult -eq -2147024864)
+}
+
+# Round 8 (2/2): runs Operation (given the attempt number) until it succeeds, a failure is not transient, or ReplaceAttempts
+# attempts failed. Before every REPEATED attempt, so AFTER each delay, Guard re-reads the starting state and returns $null or why
+# it changed (X1b T-r3 finding 1: the parked design checked before the delay, so a change made while waiting went unseen); a
+# refused retry throws an IOException naming the change, with the first transient failure as its inner exception.
+function Invoke-WithTransientRetry([string]$Name, [scriptblock]$Operation, [scriptblock]$Guard) {
+    $first = $null
+    for ($attempt = 1; ; $attempt++) {
+        if ($attempt -gt 1) {
+            $refusal = & $Guard
+            if ($null -ne $refusal) { throw [IO.IOException]::new("$Name was not retried: $refusal.", $first) }
+        }
+        try { & $Operation $attempt; return }
+        catch {
+            $failure = $_.Exception
+            if ($attempt -ge $script:ReplaceAttempts -or -not (Test-TransientReplaceFailure $failure)) { throw }
+            if ($null -eq $first) { $first = $failure }
+            if ($null -ne $script:ReplaceRetryForSelfTest) { & $script:ReplaceRetryForSelfTest $Name $attempt $failure }
+            Start-Sleep -Milliseconds $script:ReplaceRetryDelayMs
+        }
     }
-    if ($Record.OldExists) { [IO.File]::Replace($Source, $Record.Target, $Backup) }
-    else { [IO.File]::Move($Source, $Record.Target, $false) }
+}
+
+# Round 8 (2/2): the starting state a repeated host runtime operation needs, read again after the delay: the staged source by
+# digest, no backup yet, and the installed file by file identity AND digest (a by-name swap for identical bytes, and a same-length
+# rewrite that keeps its timestamp, are each refused; X1b T-r3 findings 1 and 3). A move needs its destination still absent.
+function Get-HostRuntimeRetryRefusal($Record, [string]$Source, $Backup) {
+    try {
+        if ((Get-HostRuntimeFileSnapshot $Source).Hash -cne $Record.Hash) { return 'its staged source changed' }
+        if ($Record.OldExists) {
+            if (Test-Path -LiteralPath $Backup) { return 'its backup appeared' }
+            $current = Get-HostRuntimeFileSnapshot $Record.Target
+            if ($current.Stamp -cne $Record.OldStamp) { return 'the installed file was replaced by another file' }
+            if ($current.Hash -cne $Record.OldHash) { return 'the installed file changed' }
+        } elseif (Test-Path -LiteralPath $Record.Target) { return 'its destination appeared' }
+        return $null
+    } catch { return 'its starting state could not be read (' + $_.Exception.Message + ')' }
+}
+
+function Invoke-HostRuntimeOperation($Record, [string]$Source, $Backup) {
+    # The single replace-or-move of one host runtime file, under the bounded retry (S-010).
+    Invoke-WithTransientRetry $Record.Name {
+        param($attempt)
+        if ($null -ne $script:HostRuntimeOperationForSelfTest) {
+            $fault = & $script:HostRuntimeOperationForSelfTest $Record $Source $Backup $attempt
+            if ($null -ne $fault) { throw $fault }
+        }
+        if ($Record.OldExists) { [IO.File]::Replace($Source, $Record.Target, $Backup) }
+        else { [IO.File]::Move($Source, $Record.Target, $false) }
+    } { Get-HostRuntimeRetryRefusal $Record $Source $Backup }
 }
 
 # Round 8: true only when every planned record's installed file is verified on disk in ONE consistent state: the new runtime
@@ -962,6 +1036,194 @@ function Test-HostRuntimeTransaction([string]$Parent) {
             throw "INSTALL_ROLLBACK_UNVERIFIABLE_BACKUP_INCOMPLETE: a partial replacement whose backup is tampered with or missing reports an incomplete rollback, keeps the backup and refuses recovery (wrong: $($incompleteWrong -join '; '))."
         }
         $checks++
+
+        # Lane T round 8 (2/2, S-010, DECISIONS 118): the bounded retry. A hold is a real FileStream sharing read but not delete,
+        # which ReplaceFile and a rename need (measured: sharing violation 0x80070020); the retry seam releases it when it OBSERVES
+        # the retry, so no fixture depends on timing (X1b T-r3 finding 4). The watchdog releases the bound fixture's hold if a
+        # retry ever runs past the bound, so a broken bound fails instead of hanging.
+        $script:RetryWitness = @{}; $script:ReleaseOnRetry = @{}; $script:WatchdogHold = $null; $script:DuringDelayWrite = $null
+        $script:ReplaceRetryForSelfTest = {
+            param($name, $attempt, $failure)
+            $script:RetryWitness[$name] = 1 + [int]$script:RetryWitness[$name]
+            if ($script:ReleaseOnRetry.ContainsKey($name)) { $script:ReleaseOnRetry[$name].Dispose(); [void]$script:ReleaseOnRetry.Remove($name) }
+            if ($null -ne $script:DuringDelayWrite) { & $script:DuringDelayWrite; $script:DuringDelayWrite = $null }
+            if ($attempt -ge $script:ReplaceAttempts -and $null -ne $script:WatchdogHold) { $script:WatchdogHold.Dispose(); $script:WatchdogHold = $null }
+        }
+        $hold = { param($path) [IO.FileStream]::new($path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read) }
+        $retries = { param($name) [int]$script:RetryWitness[$name] }
+        $allNew = { (& $readDestination 'existing.bin') -ceq 'new-existing.bin' -and (& $readDestination 'added.bin') -ceq 'new-added.bin' -and
+            (& $readDestination 'last.bin') -ceq 'new-last.bin' }
+        $resetDestination = {
+            if ((& $readDestination 'existing.bin') -cne 'old-existing.bin') {
+                if ([IO.File]::Exists((Join-Path $destination 'existing.bin'))) { [IO.File]::Delete((Join-Path $destination 'existing.bin')) }
+                [IO.File]::WriteAllText((Join-Path $destination 'existing.bin'), 'old-existing.bin')
+            }
+        }
+        $newPlan = { $next = New-HostRuntimePlan $source $destination $names $null; $plans.Add($next); Stage-HostRuntimePlan $next; $script:RetryWitness = @{}; $next }
+        try {
+            # A destination held for one delay is replaced after one retry.
+            $plan = & $newPlan
+            $script:ReleaseOnRetry['existing.bin'] = & $hold (Join-Path $destination 'existing.bin')
+            $raised = $null
+            try { Publish-HostRuntimePlan $plan } catch { $raised = $_.Exception }
+            if ($null -ne $raised -or -not $plan.Applied -or (& $retries 'existing.bin') -ne 1 -or -not (& $allNew)) {
+                throw "INSTALL_REPLACE_RETRIES_TRANSIENT_LOCK: a destination held for one delay is replaced after exactly one retry (raised $(if ($raised) { $raised.Message } else { 'none' }), retries $(& $retries 'existing.bin'), applied $($plan.Applied))."
+            }
+            Restore-HostRuntimePlan $plan
+            if (-not (& $allOld)) { throw 'The retry fixture could not restore its original runtime files.' }
+            $checks++
+            Close-HostRuntimePlan $plan
+
+            # A new file's staged source held for one delay is moved after one retry.
+            $plan = & $newPlan
+            $script:ReleaseOnRetry['added.bin'] = & $hold (Join-Path $plan.New 'added.bin')
+            $raised = $null
+            try { Publish-HostRuntimePlan $plan } catch { $raised = $_.Exception }
+            if ($null -ne $raised -or -not $plan.Applied -or (& $retries 'added.bin') -ne 1 -or -not (& $allNew)) {
+                throw "INSTALL_MOVE_RETRIES_TRANSIENT_LOCK: a new file's staged source held for one delay is moved after exactly one retry (raised $(if ($raised) { $raised.Message } else { 'none' }), retries $(& $retries 'added.bin'))."
+            }
+            Restore-HostRuntimePlan $plan
+            if (-not (& $allOld)) { throw 'The retry fixture could not restore its original runtime files.' }
+            $checks++
+            Close-HostRuntimePlan $plan
+
+            # The rollback's own replace: existing.bin, already published, is held when the rollback reaches it.
+            $plan = & $newPlan
+            $script:HostRuntimeOperationForSelfTest = {
+                param($record, $staged, $backup, $attempt)
+                # Not a closure: $script: must stay this installer's scope (the hold table the retry seam reads), and $hold and
+                # $destination resolve through the call stack.
+                if ($record.Name -ceq 'added.bin' -and -not $script:ReleaseOnRetry.ContainsKey('rollback of existing.bin')) {
+                    $script:ReleaseOnRetry['rollback of existing.bin'] = & $hold (Join-Path $destination 'existing.bin')
+                }
+                return $null
+            }
+            $raised = $null
+            try { Publish-HostRuntimePlan $plan -FailAfter 2 } catch { $raised = $_.Exception } finally { $script:HostRuntimeOperationForSelfTest = $null }
+            if ($null -eq $raised -or $plan.RollbackIncomplete -or $plan.Applied -or (& $retries 'rollback of existing.bin') -ne 1 -or -not (& $allOld)) {
+                throw "INSTALL_ROLLBACK_REPLACE_RETRIES_TRANSIENT_LOCK: a rollback whose destination is held for one delay completes after exactly one retry (rollback incomplete $($plan.RollbackIncomplete), retries $(& $retries 'rollback of existing.bin'), existing.bin $(& $readDestination 'existing.bin'))."
+            }
+            $checks++
+            Close-HostRuntimePlan $plan
+
+            # The update marker held for one delay is replaced after one retry, keeping its existing ID.
+            $retryMarker = Assert-ContainedPath (Join-Path $root 'retry-update-marker.txt') $root
+            [IO.File]::WriteAllText($retryMarker, "alpha`n", [Text.UTF8Encoding]::new($false))
+            $markerSnapshot = Read-UpdateMarker $retryMarker
+            $script:RetryWitness = @{}
+            $script:ReleaseOnRetry['the update marker'] = & $hold $retryMarker
+            $raised = $null
+            try { Publish-UpdateMarker $retryMarker $markerSnapshot } catch { $raised = $_.Exception }
+            if ($null -ne $raised -or (& $retries 'the update marker') -ne 1 -or [IO.File]::ReadAllText($retryMarker) -cne "alpha`nagentbroker`n") {
+                throw "INSTALL_MARKER_REPLACE_RETRIES_TRANSIENT_LOCK: an update marker held for one delay is replaced after exactly one retry and keeps its IDs (raised $(if ($raised) { $raised.Message } else { 'none' }), retries $(& $retries 'the update marker'))."
+            }
+            $checks++
+
+            # Only the two transient errors are retried: an injected 1175 once is retried; another I/O error never is.
+            $plan = & $newPlan
+            $script:HostRuntimeOperationForSelfTest = {
+                param($record, $staged, $backup, $attempt)
+                if ($record.Name -ceq 'existing.bin' -and $attempt -eq 1) { return [IO.IOException]::new('synthetic ERROR_UNABLE_TO_REMOVE_REPLACED (1175)', -2147023721) }
+                return $null
+            }
+            $raised = $null
+            try { Publish-HostRuntimePlan $plan } catch { $raised = $_.Exception } finally { $script:HostRuntimeOperationForSelfTest = $null }
+            $transientRetried = $null -eq $raised -and $plan.Applied -and (& $retries 'existing.bin') -eq 1 -and (& $allNew)
+            if ($plan.Applied) { Restore-HostRuntimePlan $plan }
+            Close-HostRuntimePlan $plan
+            & $resetDestination
+            $plan = & $newPlan
+            $script:HostRuntimeOperationForSelfTest = {
+                param($record, $staged, $backup, $attempt)
+                if ($record.Name -ceq 'existing.bin') { return [IO.IOException]::new('synthetic non-transient I/O failure', -2147024891) }
+                return $null
+            }
+            $raised = $null
+            try { Publish-HostRuntimePlan $plan } catch { $raised = $_.Exception } finally { $script:HostRuntimeOperationForSelfTest = $null }
+            $otherNotRetried = $null -ne $raised -and -not $plan.Applied -and -not $plan.RollbackIncomplete -and (& $retries 'existing.bin') -eq 0 -and (& $allOld)
+            if (-not $transientRetried -or -not $otherNotRetried) {
+                throw "INSTALL_REPLACE_RETRY_ONLY_TRANSIENT_ERRORS: Win32 1175 is retried and a non-transient I/O failure is not (1175 retried $transientRetried, other not retried $otherNotRetried)."
+            }
+            $checks++
+            Close-HostRuntimePlan $plan
+
+            # A destination held past the bound: five attempts, four retries, its own sharing violation, and a rollback that is
+            # consistent (nothing landed for the held file) and settled once the hold ends.
+            $plan = & $newPlan
+            $script:WatchdogHold = & $hold (Join-Path $destination 'existing.bin')
+            $raised = $null
+            try { Publish-HostRuntimePlan $plan } catch { $raised = $_.Exception }
+            if ($null -ne $script:WatchdogHold) { $script:WatchdogHold.Dispose(); $script:WatchdogHold = $null }
+            $inner = $raised; while ($null -ne $inner -and $inner -isnot [IO.IOException] -and $null -ne $inner.InnerException) { $inner = $inner.InnerException }
+            if ($null -eq $raised -or $null -eq $inner -or $inner.HResult -ne -2147024864 -or (& $retries 'existing.bin') -ne 4 -or $plan.Applied -or
+                $plan.RollbackIncomplete -or -not (& $allOld) -or -not (Test-HostRuntimePlanSettled $plan) -or -not (Test-RecoveryLaunchPermitted $false $true $true $plan $null)) {
+                throw "INSTALL_REPLACE_GIVES_UP_AFTER_BOUND: a destination held past the bound fails with its own sharing violation after 5 attempts and leaves a settled rollback (raised $(if ($inner) { $inner.HResult } else { 'none' }), retries $(& $retries 'existing.bin'), applied $($plan.Applied), rollback incomplete $($plan.RollbackIncomplete))."
+            }
+            $checks++
+            Close-HostRuntimePlan $plan
+
+            # The starting state is re-read AFTER each delay, by digest and file identity, for the source and the backup too: each
+            # change made after the first transient failure (or during the delay itself) refuses the retry and is kept.
+            $revalidateWrong = @()
+            foreach ($change in @('content', 'same-length-same-time', 'identity', 'source', 'backup', 'during-delay')) {
+                $plan = & $newPlan
+                $changeKind = $change
+                $installedPath = Join-Path $destination 'existing.bin'
+                $stagedPath = Join-Path $plan.New 'existing.bin'
+                $backupPath = Join-Path $plan.Previous 'existing.bin'
+                if ($change -ceq 'during-delay') { $script:DuringDelayWrite = { [IO.File]::WriteAllText($installedPath, 'written during the delay') }.GetNewClosure() }
+                # Witness: a refused retry never reaches the operation again (a [ref], because the closure has its own scope).
+                $reachedAgain = [ref]$false
+                $script:HostRuntimeOperationForSelfTest = {
+                    param($record, $staged, $backup, $attempt)
+                    if ($record.Name -ceq 'existing.bin' -and $attempt -ge 2) { $reachedAgain.Value = $true }
+                    if ($record.Name -cne 'existing.bin' -or $attempt -ne 1) { return $null }
+                    switch ($changeKind) {
+                        'content' { [IO.File]::WriteAllText($installedPath, 'a concurrent writer rewrote this') }
+                        'same-length-same-time' {
+                            $time = [IO.File]::GetLastWriteTimeUtc($installedPath)
+                            [IO.File]::WriteAllText($installedPath, 'OLD-existing.bin'); [IO.File]::SetLastWriteTimeUtc($installedPath, $time)
+                        }
+                        'identity' { [IO.File]::Delete($installedPath); [IO.File]::WriteAllText($installedPath, 'old-existing.bin') }
+                        'source' { [IO.File]::WriteAllText($stagedPath, 'a changed staged source') }
+                        'backup' { [IO.File]::WriteAllText($backupPath, 'a planted backup') }
+                    }
+                    return [IO.IOException]::new('synthetic sharing violation', -2147024864)
+                }.GetNewClosure()
+                $raised = $null
+                try { Publish-HostRuntimePlan $plan } catch { $raised = $_.Exception } finally { $script:HostRuntimeOperationForSelfTest = $null; $script:DuringDelayWrite = $null }
+                $why = @{ 'content' = 'the installed file changed'; 'same-length-same-time' = 'the installed file changed'
+                    'identity' = 'the installed file was replaced by another file'; 'source' = 'its staged source changed'
+                    # A planted backup beside an unchanged target cannot be told from a landed replace, so the rollback reports
+                    # itself incomplete and keeps the planted file; the witness below shows the retry itself was refused.
+                    'backup' = 'automatic rollback is incomplete'; 'during-delay' = 'the installed file changed' }[$change]
+                $kept = switch ($change) {
+                    'content' { (& $readDestination 'existing.bin') -ceq 'a concurrent writer rewrote this' }
+                    'same-length-same-time' { (& $readDestination 'existing.bin') -ceq 'OLD-existing.bin' }
+                    'during-delay' { (& $readDestination 'existing.bin') -ceq 'written during the delay' }
+                    'identity' { (& $readDestination 'existing.bin') -ceq 'old-existing.bin' }
+                    'source' { (& $readDestination 'existing.bin') -ceq 'old-existing.bin' }
+                    'backup' { [IO.File]::Exists($backupPath) -and [IO.File]::ReadAllText($backupPath) -ceq 'a planted backup' -and $plan.RollbackIncomplete }
+                }
+                $message = if ($null -ne $raised) { $raised.Message } else { '' }
+                if ($null -eq $raised -or -not $message.Contains($why) -or (& $retries 'existing.bin') -ne 1 -or $plan.Applied -or -not $kept -or
+                    $reachedAgain.Value) {
+                    $revalidateWrong += "$change (raised '$message', retries $(& $retries 'existing.bin'), operation reached again $($reachedAgain.Value), existing.bin $(& $readDestination 'existing.bin'))"
+                }
+                Close-HostRuntimePlan $plan
+                if ([IO.File]::Exists($backupPath)) { [IO.File]::Delete($backupPath) }
+                & $resetDestination
+            }
+            if ($revalidateWrong.Count -ne 0) {
+                throw "INSTALL_REPLACE_RETRY_REVALIDATES_AFTER_DELAY: a retry re-reads the source, backup and destination (digest and identity) after the delay and keeps any change (wrong: $($revalidateWrong -join '; '))."
+            }
+            $checks++
+        } finally {
+            foreach ($open in @($script:ReleaseOnRetry.Values)) { $open.Dispose() }
+            $script:ReleaseOnRetry = @{}
+            if ($null -ne $script:WatchdogHold) { $script:WatchdogHold.Dispose(); $script:WatchdogHold = $null }
+            $script:ReplaceRetryForSelfTest = $null; $script:HostRuntimeOperationForSelfTest = $null; $script:DuringDelayWrite = $null
+        }
 
         $sourceLink = Assert-ContainedPath (Join-Path $root 'source-linked.bin') $root
         [AgentBrokerLocalInstallNative]::CreateTestHardLink($sourceLink, (Join-Path $source 'existing.bin'))
