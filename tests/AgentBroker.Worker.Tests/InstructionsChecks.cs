@@ -127,10 +127,12 @@ internal static class InstructionsChecks
             check(hasDirectorySchema && directoryShape.Properties.SequenceEqual(new[] { "afterAddress", "limit", "scope" }) &&
                 directoryShape.Required.Length == 0 &&
                 directorySchema.GetProperty("properties").GetProperty("scope").TryGetProperty("type", out var scopeType) &&
-                scopeType.ValueKind == JsonValueKind.String && scopeType.GetString() == "string" &&
+                scopeType.ValueKind == JsonValueKind.Array &&
+                scopeType.EnumerateArray().Select(type => type.GetString()!).Order(StringComparer.Ordinal)
+                    .SequenceEqual(new[] { "null", "string" }) &&
                 descriptions["list_sessions"].Contains("scope defaults to federated", StringComparison.Ordinal) &&
                 descriptions["list_sessions"].Contains("local returns this workstation only without fetching peers", StringComparison.Ordinal),
-                "LIST_SESSIONS_SCOPE_SCHEMA: real tools/list publishes optional string scope and its default/local behavior");
+                "LIST_SESSIONS_SCOPE_SCHEMA: real tools/list publishes optional nullable string scope and its default/local behavior");
             var send = Shape(tools["send"]);
             var messages = Shape(tools["wait_for_messages"]);
             var replyShape = Shape(tools["wait_for_reply"]);

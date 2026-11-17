@@ -42,7 +42,7 @@ public sealed partial class BrokerTools(BrokerRuntime runtime, IHttpContextAcces
     [McpServerTool(Name = "list_sessions", ReadOnly = true, OpenWorld = false),
      Description("List a page of sessions. scope defaults to federated for this workstation and explicitly paired brokers; local returns this workstation only without fetching peers. An explicit null scope uses the same federated default. Only the exact non-null scope values local and federated are accepted. A local generic mailbox whose one-minute presence lapsed is still listed, with Activity Away and its past LeaseUntil, and still receives; paired brokers list present sessions only. A present generic mailbox lists as Idle only while its owner is inside a wait, otherwise Unknown: registration alone does not prove anyone reads it. limit defaults to 16 and must be 1..16. Results sort by broker ID, ordinal session ID, then incarnation. For a full page, continue with its last address as afterAddress; a shorter or empty page ends this scan. Start each new poll without a cursor; this is a mutable live view, not a snapshot. Route by complete address, never label. Preserve recipient permissions and never bypass a denied action.")]
     public async Task<IReadOnlyList<ListedSession>> ListSessions(CancellationToken cancellationToken,
-        int limit = MaximumPageSize, SessionAddress? afterAddress = null, string scope = "federated")
+        int limit = MaximumPageSize, SessionAddress? afterAddress = null, string? scope = "federated")
     {
         ValidateLimit(limit);
         if (afterAddress is not null) Run(() => { afterAddress.Validate(); return true; });

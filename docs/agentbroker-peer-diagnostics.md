@@ -38,3 +38,12 @@ from another authenticated response, rather than the directory response being
 listed. If the latest sample is unusable, this PC's clock is used. This changes
 which peer rows are presented as live; stored message expiry, session leases,
 admission and authorization are unchanged.
+
+Qualification bounds for directory lookup: the cancellation fixture directly
+observes that the already-started transport token becomes cancelled when its
+caller cancels, with five-second startup and completion watchdogs; those are
+fixture limits, not a delivery-time guarantee. The current per-response
+clock-view enumeration has a counted upper bound of P*(P+1) store-gate
+acquisitions per listing, at most 1,056 at the configured 32-peer limit,
+in addition to the base path's roughly 4-6 per peer. This is an operation-count
+bound from the source, not a measured latency or performance saving.

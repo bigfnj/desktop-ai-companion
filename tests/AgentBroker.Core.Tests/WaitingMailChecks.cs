@@ -168,7 +168,7 @@ internal static class WaitingMailChecks
         // Inspect write-time revocation before the later read-time/notice policy checks can mask it.
         using (var f = new Fixture(Path.Combine(root, "waiting-directory-policy")))
         {
-            var receipt = f.Accept(); f.Tick(TimeSpan.Zero);
+            var receipt = f.Accept(); var firstAt = f.Clock.Utc; f.Tick(TimeSpan.Zero);
             f.Target = f.Target with { Capabilities = SessionCapabilities.Receive };
             f.Tick(TimeSpan.FromMilliseconds(200));
             Check(BusyEpisodeEnded(f.Store, receipt) && f.Store.ReadMessageWait(receipt)?.BusyObservedAgeMilliseconds is null,
@@ -176,7 +176,8 @@ internal static class WaitingMailChecks
             f.Target = f.Target with { Capabilities = SessionCapabilities.Receive | SessionCapabilities.WakeIdle };
             f.Tick(TimeSpan.FromMilliseconds(200));
             Check(f.Store.ReadMessageWait(receipt) is { BusyObservedAgeMilliseconds: 0 } regained &&
-                regained.FirstBusyObservedAtUtc == f.Clock.Utc && regained.Waits.Single().Count == 1,
+                regained.FirstBusyObservedAtUtc == f.Clock.Utc && regained.Waits.Single() is { Count: 1 } history &&
+                history.FirstObservedAtUtc == firstAt && history.LastObservedAtUtc == firstAt,
                 "WAITING_DIRECTORY_POLICY_REGAIN_RESTARTS");
         }
         using (var f = new Fixture(Path.Combine(root, "waiting-race")))
@@ -362,6 +363,13 @@ internal static class WaitingMailChecks
                 fresh.FirstBusyObservedAtUtc == firstAt && fresh.Waits.Single() is { Count: 1 } counted &&
                 counted.FirstObservedAtUtc == firstAt && counted.LastObservedAtUtc == firstAt,
                 "WAITING_DIRECTORY_THROTTLED_REFRESHES_FRESHNESS");
+            Check(f.Store.ReadWaitingMail().Sessions.Single(row => row.Session == f.Target.Address) is
+                { BusyCount: 1, UnobservedBlockedCount: 0, OldestBusyObservedAgeMilliseconds: 30000 },
+                "WAITING_DIRECTORY_THROTTLED_SUMMARY_FRESHNESS");
+            f.Tick(TimeSpan.Zero);
+            Check(f.Store.ReadMessageWait(receipt) is { BusyObservedAgeMilliseconds: 30000 } continued &&
+                continued.FirstBusyObservedAtUtc == firstAt && continued.Waits.Single().Count == 2,
+                "WAITING_DIRECTORY_THROTTLED_NEXT_PASS_KEEPS_EPISODE");
         }
         using (var f = new Fixture(Path.Combine(root, "waiting-adapter-rate"), adapter: "codex-native"))
         {
@@ -429,11 +437,18 @@ internal static class WaitingMailChecks
             f.Store.Register(busy);
             f.Store.Accept(new(Guid.NewGuid(), Guid.NewGuid(), null, f.Sender.Address, busy.Address,
                 "A synthetic second-target waiting request.", f.Clock.Utc, f.Clock.Utc.AddHours(4)), f.Store.BrokerId);
+            // Ready, Busy, Ready pins both memo directions, including a shared false latch.
+            var readyAgain = f.Target with { Address = f.Target.Address with { SessionId = f.Target.Address.SessionId + "-ready-again" } };
+            f.Store.Register(readyAgain);
+            f.Store.Accept(new(Guid.NewGuid(), Guid.NewGuid(), null, f.Sender.Address, readyAgain.Address,
+                "A synthetic third-target waiting request.", f.Clock.Utc, f.Clock.Utc.AddHours(4)), f.Store.BrokerId);
             var rows = f.Store.ReadWaitingMail().Sessions;
             check(rows.Single(row => row.Session == f.Target.Address) is
                     { PendingCount: 1, QueuedCount: 1, BlockedCount: 0, BusyCount: 0 } &&
                 rows.Single(row => row.Session == busy.Address) is
-                    { PendingCount: 1, QueuedCount: 1, BlockedCount: 1, BusyCount: 0 },
+                    { PendingCount: 1, QueuedCount: 1, BlockedCount: 1, BusyCount: 0 } &&
+                rows.Single(row => row.Session == readyAgain.Address) is
+                    { PendingCount: 1, QueuedCount: 1, BlockedCount: 0, BusyCount: 0 },
                 "WAITING_SUMMARY_READY_IS_PER_TARGET");
         }
         using (var f = new Fixture(Path.Combine(root, "waiting-a7-equal-value")))
@@ -557,12 +572,17 @@ internal static class WaitingMailChecks
         }
         using (var f = new Fixture(Path.Combine(root, "waiting-a7-observed-nonbusy")))
         {
+            // Distinguish both uninitialized anchors from the first nonbusy observation.
+            f.Clock.Timestamp = TimeSpan.FromHours(1).Ticks;
             f.Target = f.Target with { Activity = SessionActivity.ApprovalRequired }; f.Renew();
-            f.Accept(); f.Tick(TimeSpan.Zero);
+            var receipt = f.Accept(); var firstAt = f.Clock.Utc; f.Tick(TimeSpan.Zero);
+            f.Tick(TimeSpan.FromSeconds(1)); // A nonbusy repeat must refresh freshness without recounting.
             f.Accept(); // no observation for this message
             var row = f.Store.ReadWaitingMail().Sessions.Single(item => item.Session == f.Target.Address);
             check(row is { PendingCount: 2, QueuedCount: 2, BlockedCount: 2, BusyCount: 0,
-                UnobservedBlockedCount: 1, OldestBusyObservedAtUtc: null, OldestBusyObservedAgeMilliseconds: null },
+                UnobservedBlockedCount: 1, OldestBusyObservedAtUtc: null, OldestBusyObservedAgeMilliseconds: null } &&
+                f.Store.ReadMessageWait(receipt)?.Waits.Single() is { Count: 1 } nonbusy &&
+                nonbusy.FirstObservedAtUtc == firstAt && nonbusy.LastObservedAtUtc == firstAt,
                 "WAITING_SUMMARY_FRESH_NONBUSY_IS_OBSERVED");
         }
         using (var f = new Fixture(Path.Combine(root, "waiting-a7-oldest-tie")))
