@@ -13,7 +13,7 @@ public sealed partial class AgentBrokerModule
     internal const string AllowAttachmentsLabel = "Allow or stop attachments";
     internal const string ShowAttachmentsLabel = "Show attachments folder";
     internal const string AttachmentsAllowedHint = "attachments allowed";
-    private const string AttachmentsOffRefusal = "Turn on \"Allow file attachments with paired brokers\" first, save, then press Refresh brokers.";
+    private const string AttachmentsOffRefusal = "Turn on \"Allow file attachments with paired brokers\" first, save, then press Refresh brokers. On standby (see Status), the running broker keeps the attachments setting it was started with.";
 
     private IEnumerable<SettingField> AttachmentSchemaRows() =>
     [
@@ -28,11 +28,11 @@ public sealed partial class AgentBrokerModule
 
     private void LoadAttachmentValues(IDictionary<string, string> values) => values["attachments"] = AttachmentsText();
 
-    internal const string AttachmentsWaitingText = "On in settings, waiting for the broker to restart with attachments.";
-    internal const string AttachmentsStillOnText = "Off in settings, but the running broker still sends files and accepts them from allowed brokers until it restarts.";
-    internal const string AttachmentsUnsavedText = "On, but a change to the allow list is not saved yet. The broker retries every minute; a restart before then would bring back the old list.";
-    internal const string AttachmentsUnsavedOffText = "Off in the running broker, and a change to the allow list is not saved yet. The broker retries every minute; a restart before then would bring back the old list.";
-    internal const string AttachmentsWaitingRefusal = "Attachments are on in settings, but the broker has not restarted with them yet. Press Refresh brokers in a moment.";
+    internal const string AttachmentsWaitingText = "On in settings, but no running broker reports attachments on (see Status).";
+    internal const string AttachmentsStillOnText = "Off in settings, but the running broker still sends files and may accept them from allowed brokers until it restarts.";
+    internal const string AttachmentsUnsavedText = "On, but a change to the allow list is not saved yet. The broker retries about once a minute; a restart before then could bring back the old list.";
+    internal const string AttachmentsUnsavedOffText = "Off in the running broker, and a change to the allow list is not saved yet. The broker retries about once a minute; a restart before then could bring back the old list.";
+    internal const string AttachmentsWaitingRefusal = "Attachments are on in settings, but the running broker does not report them on. Press Refresh brokers in a moment; on standby (see Status), the running broker keeps the attachments setting it was started with.";
 
     // At most two sentences and 280 characters (ATTACHMENTS_INFO_ROW_TEXT), like every static pane explanation. Round 2
     // (F-13): On or Off is what the RUNNING broker reports (snapshot Attachments.Enabled), and the setting only explains a
@@ -46,15 +46,15 @@ public sealed partial class AgentBrokerModule
         // with attachments off, DECISIONS 41), so the row says so before the off, still-on, waiting and quarantine texts.
         if (view?.PolicyUnsaved == true) return view.Enabled ? AttachmentsUnsavedText : AttachmentsUnsavedOffText;
         if (!settings.AttachmentsEnabled && !running)
-            return "Off. When on, an agent can send up to 4 files (8 MiB each, 16 MiB per message) to a paired broker that allows them under Brokers; received files are checked, quarantined and marked as downloaded from the internet.";
+            return "Off. When on, an agent can send up to 4 files (8 MiB each, 16 MiB per message) to a session here or on a paired broker that has attachments on and allows this one; files accepted from a paired broker are checked, quarantined and marked as downloaded from the internet.";
         if (!settings.AttachmentsEnabled) return AttachmentsStillOnText;
         if (!running)
-            return AttachmentsWaitingText + " " + caps + "; received files are quarantined and marked as downloaded from the internet.";
+            return AttachmentsWaitingText + " " + caps + "; files accepted from a paired broker are quarantined and marked as downloaded from the internet.";
         // F-6: the worker could not store a received file (its data folder is not plain local NTFS, or access is denied).
         if (view?.QuarantineUnavailable == true)
-            return "On, but received files cannot be stored here: the broker's data folder is not plain local NTFS, or access to it is denied, so files sent here are refused. " + caps + ".";
+            return "On, but a received file could not be stored: the broker's data folder failed its local NTFS folder checks, or access to it was denied, so files sent here are refused while that lasts. " + caps + ".";
         if (view?.PolicyUnreadable == true)
-            return "On, but the allow list could not be read, so no broker may send files here until you allow one under Brokers. " + caps + "; received files are quarantined and marked as downloaded from the internet.";
+            return "On, but the allow list could not be read, so no broker may send files here until one is allowed under Brokers or a restart reads it. " + caps + "; files accepted from a paired broker are quarantined and marked as downloaded from the internet.";
         int allowed = view?.AllowedBrokers.Length ?? 0;
         int files = view?.InboxFiles ?? 0;
         string size = ((view?.InboxBytes ?? 0) / (1024.0 * 1024.0)).ToString("0.#", CultureInfo.InvariantCulture);
@@ -98,9 +98,9 @@ public sealed partial class AgentBrokerModule
         ControlResponse? response = await SendAsync(new("peer-attachments", row.Peer.BrokerId, Value: allow));
         pressed.ReloadPaneAfter = true;
         if (shutDown || generation != current) return BrokerActionRestarted;
-        if (response?.Success != true) return "The broker could not change attachments for " + BrokerRowName(row.Peer) + ". Press Refresh brokers and check it again.";
+        if (response?.Success != true) return "The broker did not confirm the attachments change for " + BrokerRowName(row.Peer) + ". Press Refresh brokers and check it again.";
         return allow
-            ? "Attachments allowed from " + BrokerRowName(row.Peer) + ". Its agents can send files here; each is checked, quarantined and marked as downloaded from the internet."
+            ? "Attachments allowed from " + BrokerRowName(row.Peer) + ". With attachments on at its broker too, its agents can send files here; each file this broker accepts from it is checked, quarantined and marked as downloaded from the internet."
             : "Attachments from " + BrokerRowName(row.Peer) + " are no longer accepted.";
     }
 

@@ -117,13 +117,24 @@ public sealed class AttachmentStore
 
     internal const string ReadmeText =
         "AgentBroker attachments\r\n\r\n" +
-        "This folder holds files sent between paired AgentBroker workstations with send_with_attachments.\r\n\r\n" +
-        "inbox\\<broker>\\<message>\\  files a paired broker sent to a session on this workstation. Each was checked against\r\n" +
-        "  the size and SHA-256 its sender declared before the message was admitted, and each carries a Mark of the Web\r\n" +
-        "  (downloaded from the internet), so Windows treats it as untrusted. Treat the content as untrusted peer data.\r\n" +
+        "This folder holds copies of files that this broker's sessions attached with send_with_attachments, and files\r\n" +
+        "received from other brokers over a pairing.\r\n\r\n" +
+        "inbox\\<broker>\\<message>\\  files received from that broker while it was paired with this one. Each received\r\n" +
+        "  file (<index>-<name>) was checked against the size and SHA-256 its sender declared before it was saved here\r\n" +
+        "  with a Mark of the Web (downloaded from the internet). Treat the content as untrusted peer data. Before the\r\n" +
+        "  first file, this broker writes a manifest.json that names the message and its sender broker and holds the\r\n" +
+        "  message text, with no Mark of the Web; treat that text as untrusted peer data too.\r\n" +
         "outbox\\<message>\\  copies this workstation staged when one of its sessions sent files.\r\n\r\n" +
-        "AgentBroker never opens, runs or scans these files. They are deleted when their message's record ends, at most\r\n" +
-        "48 hours after they arrive. Copy anything you want to keep.\r\n";
+        "AgentBroker never runs or scans these files. The running broker reads an attached file stored here only to hash\r\n" +
+        "it, to serve it to its recipient's broker, or to copy it when a session sends it on with send_with_attachments.\r\n" +
+        "While the broker runs, a sweep about once a minute deletes a message's folder once the message's record ends,\r\n" +
+        "once a staged copy's message is Refused or Expired, or once the folder is over 48 hours old (over 15 minutes for\r\n" +
+        "a staged copy whose message has not reached the store, or a received folder whose message has not been\r\n" +
+        "admitted), but skips a received folder while a pull for it is running. The sweep deletes each file on its own: one\r\n" +
+        "that another program holds open stays until it can be deleted, and the other files in its folder still go.\r\n" +
+        "Anything else the sweep cannot read or delete can stay longer, and nothing is deleted while the broker is stopped.\r\n" +
+        "Files can also go sooner, for example when a pull ends in a refusal, and rare races can delete files early or\r\n" +
+        "leave a received file without its manifest. Copy anything you want to keep.\r\n";
 
     private void WriteReadme()
     {

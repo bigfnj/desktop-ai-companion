@@ -188,18 +188,26 @@ DesktopAICompanion sends data only when a network feature is used:
   Treat the destination as third-party content and review it before selecting it.
 - The Help window itself is fully local. Selecting one of its online-documentation links asks the
   default browser to open that project-owned HTTPS repository page.
-- **Since AgentBroker 1.10.5 an agent can send files to a paired broker, and only if you turned that on.**
+- **Since AgentBroker 1.10.5 an agent can send files to a session on this broker or on a paired broker, and only if you turned that on.**
   **Allow file attachments with paired brokers** in the AgentBroker pane is off by default. With it on, a coding
   agent on this computer can call `send_with_attachments` to send up to 4 files (8 MiB each, 16 MiB per message)
-  that it names, to a session on a broker you paired; the files go only to that broker, over the same encrypted,
-  certificate-pinned LAN connection as broker messages. Copies wait in `attachments\outbox` in the module's data
+  that it names, to a session on this broker or on a broker you paired. Files for a paired broker go only to that broker,
+  over the same encrypted, certificate-pinned channel as broker messages, which reaches a paired broker only at a
+  private-network or loopback IPv4 address. Copies wait in `attachments\outbox` in the module's data
   folder. Files arrive here only from a paired broker you allowed on the Brokers card; each is checked against the
   size and SHA-256 its sender declared, kept in `attachments\inbox`, and marked as downloaded from the internet.
-  AgentBroker never runs or scans these files; it reads them only to check and serve them. While the broker runs, sent
-  copies and received files are both deleted when their message's record ends, at most 48 hours later, and a sent copy
-  goes sooner if its message is refused or expires; while it is stopped nothing is deleted until it starts again. The brokers
-  you allowed stay allowed while the switch is off, so turning it back on restores them; you can stop one at any
-  time, also while the switch is off, and revoking a pairing removes its permission. Nothing goes to any other
+  AgentBroker never runs or scans these files; it reads them only to check them, serve them, or copy
+  one that an agent forwards. While the broker runs, a check about once a minute deletes sent copies and received
+  files once their message's record ends or their folder is more than 48 hours old by the computer's clock, whichever
+  is first, and a sent copy once its message is marked Refused or Expired. Each file is deleted on its own, so a file
+  the check cannot delete then, such as one another program has locked, stays until a later check can delete it.
+  While the broker is stopped nothing is deleted until it starts again. Turning the switch on or off
+  takes effect in the broker when it next starts; saving stops a broker the module started, but not one it found
+  already running. The switch does not change which brokers you allowed, so turning it back on restores them, unless
+  one was paired again meanwhile or the saved allow list is gone or unreadable. While the pane has the running broker's
+  status you can stop an allowed broker listed under Paired on the Brokers card, also while the switch is off; if a
+  stop cannot be saved, the broker retries the save about once a minute, and a restart before that succeeds may undo
+  the stop. Revoking a pairing removes its permission. Nothing goes to any other
   computer or service.
 
 Remote AI endpoints must use HTTPS. Plain HTTP is accepted only for the local loopback computer.
