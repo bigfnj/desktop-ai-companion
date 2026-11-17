@@ -251,6 +251,40 @@ public sealed partial class AgentBrokerModule
             postedWrites == 1 && postedResult == "Clipboard copy failed. Discovery remains available in the Brokers list." &&
             PairingRequestCount(posted.Control) == 0,
             "INVITATION_COPY_PENDING_RESULT: only a write still queued after the wait says it may still complete; a definite failure says it failed; both keep discovery available");
+
+        // U round 7 (U6-X3-1, DECISIONS 124): the completion boundary, through the test-only seam that runs after the wait ended
+        // and before the queued write's state is read. Each press is made off the UI thread while the UI thread is blocked, so the
+        // 2-second wait ends with the write still queued, unless the input pumps the UI. Four inputs:
+        //   pending, then completes: the seam runs the queued write (the UI catching up exactly at the boundary) -> copied;
+        //   pending, stays pending:  the seam does nothing -> "may still complete", and draining afterwards runs the write;
+        //   completed during the wait: the UI is pumped, the wait succeeds, and the seam is never reached -> copied;
+        //   faulted at the boundary: the seam runs a queued write that throws -> "failed".
+        // The state is read ONCE: the round 6 code's second read let a write completing between two reads report "failed".
+        string Boundary(Action<int>? atBoundary, bool pumpUi, bool throwing, out int writes, out int boundaryCalls)
+        {
+            using var fixture = new ClipboardPairingFixture(dispatcher);
+            int written = 0, calls = 0;
+            fixture.Module.writeInvitationClipboard = _ => { written++; if (throwing) throw new InvalidOperationException("synthetic posted clipboard failure"); };
+            fixture.Module.AfterInvitationCopyWaitForTest = () => { calls++; atBoundary?.Invoke(calls); };
+            PaneAction press = fixture.Module.BrokerAction(CopyInvitationLabel, _ => fixture.Module.CopyInvitationAsync());
+            Task<string> pressed = Task.Run(() => press.InvokeAsync());
+            if (pumpUi) Pump(() => pressed.IsCompleted, dispatcher);
+            string result = pressed.GetAwaiter().GetResult();
+            fixture.Module.AfterInvitationCopyWaitForTest = null;
+            dispatcher.Drain();
+            writes = written; boundaryCalls = calls;
+            return result;
+        }
+        string thenCompletes = Boundary(_ => dispatcher.Drain(), false, false, out int completesWrites, out int completesCalls);
+        string staysPending = Boundary(null, false, false, out int pendingWrites, out int pendingCalls);
+        string completedEarly = Boundary(null, true, false, out int earlyWrites, out int earlyCalls);
+        string faulted = Boundary(_ => dispatcher.Drain(), false, true, out int faultedWrites, out int faultedCalls);
+        check(thenCompletes.StartsWith("Public broker invitation copied.", StringComparison.Ordinal) && completesWrites == 1 && completesCalls == 1 &&
+            staysPending == "Clipboard copy did not finish; it may still complete. Discovery remains available in the Brokers list." &&
+            pendingWrites == 1 && pendingCalls == 1 &&
+            completedEarly.StartsWith("Public broker invitation copied.", StringComparison.Ordinal) && earlyWrites == 1 && earlyCalls == 0 &&
+            faulted == "Clipboard copy failed. Discovery remains available in the Brokers list." && faultedWrites == 1 && faultedCalls == 1,
+            "INVITATION_COPY_WAIT_BOUNDARY: one read of the queued write's state at the end of the wait: completing then is copied, still pending may still complete, faulted failed, completed during the wait never reaches it");
     }
 
     private static void RunPairingAvailabilityChecks(Action<bool, string> check, TestDispatcher dispatcher)

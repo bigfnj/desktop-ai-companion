@@ -51,15 +51,29 @@ public sealed partial class AgentBrokerModule
             queued = copied.Task;
             return await queued.WaitAsync(TimeSpan.FromSeconds(2), run?.Token ?? CancellationToken.None);
         }
-        // Decided from the queued write's own state, read after the wait ended: a write that lands between the timeout and
-        // this filter reports what happened, never a failure it did not have (pre-build review of U-m25).
+        // Decided from the queued write's own state, read ONCE after the wait ended (U round 7, U6-X3-1): a write that lands
+        // between the timeout and this read reports what happened, never a failure it did not have.
         catch (Exception) when (queued is not null)
         {
-            if (queued.IsCompletedSuccessfully) return true;
-            return queued.IsCompleted ? false : (bool?)null;
+            AfterInvitationCopyWaitForTest?.Invoke();
+            return QueuedCopyOutcome(queued.Status);
         }
         catch (Exception) { return false; }
     }
+
+    // U round 7 (U6-X3-1): one snapshot of the queued write's state. The round 6 code read IsCompletedSuccessfully and then
+    // IsCompleted; a write that succeeded between the two reads was reported as a failure. Completed = written; faulted or
+    // cancelled = definitely not written; anything still pending may yet run, so it stays the uncertain outcome.
+    internal static bool? QueuedCopyOutcome(TaskStatus status) => status switch
+    {
+        TaskStatus.RanToCompletion => true,
+        TaskStatus.Faulted or TaskStatus.Canceled => false,
+        _ => null,
+    };
+
+    // Self-test seam (U round 7), null outside the self-test: runs after the wait for a posted write ended and before its state
+    // is read, which is exactly where a write that completes late lands.
+    internal Action? AfterInvitationCopyWaitForTest { get; set; }
 
     private static string StripDisplayIdentity(string? text) => string.Concat((text ?? "").EnumerateRunes()
         .Where(rune => Rune.GetUnicodeCategory(rune) is not
