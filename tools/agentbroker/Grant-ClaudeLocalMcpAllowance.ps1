@@ -15,7 +15,9 @@ lock is true. jz calls Qse/G1e (merged denials) before the allowlist check.
 Review and authorize the exact live -Apply operation separately. This script
 never changes a managed file/cache, registry, denylist, lock or server definition.
 It does not register a server or claim it is authorized effectively. Claude's
-normal CLI remains the final policy authority. No retries or policy bypasses.
+normal CLI remains the final policy authority. No policy bypasses. The one retry:
+a replace refused by a transient lock (Win32 1175 or 32) is tried at most 5 times,
+100 ms apart, the file's ID and digest rechecked after each delay.
 Unrelated JSON values are preserved semantically; formatting may change.
 An existing file gets a uniquely named backup readable only by this user/SYSTEM.
 The snapshot's file ID and digest are rechecked just before an atomic replace.
@@ -245,6 +247,18 @@ public static class ClaudeUserGrant {
             throw;
         } finally { LocalFree(descriptor); }
     }
+    // Lane T round 8 (2/2, S-010, DECISIONS 118): a replace or move refused by a transient lock (Win32 1175 or sharing violation
+    // 32, both leaving every file where it was) is tried again, at most ReplaceAttempts times, ReplaceRetryDelayMs apart. Before
+    // each REPEATED attempt, so after the delay, the settings file's identity and digest (Stamp) and the staged bytes are re-read;
+    // any change refuses the retry (X1b T-r3 finding 1). Self-test only, null otherwise: FaultForTest's non-null result is thrown
+    // as an attempt's failure; RetryForTest runs after a transient failure, before the delay (a hold released on an OBSERVED retry).
+    // Round 8 (3/3, X3's T8-X3-1): WaitForTest, also null otherwise, runs at the END of the delay, after the sleep and before the
+    // next attempt's guard, so a fixture's concurrent write lands inside the wait, where only a guard after the wait sees it.
+    public const int ReplaceAttempts=5, ReplaceRetryDelayMs=100;
+    public static Func<int,Exception> FaultForTest;
+    public static Action<int> RetryForTest;
+    public static Action<int> WaitForTest;
+    static bool Transient(IOException error)=>error.HResult==unchecked((int)0x80070497)||error.HResult==unchecked((int)0x80070020);
     public static ClaudeUserGrantResult Publish(ClaudeUserGrantPlan plan) {
         var result=new ClaudeUserGrantResult();
         if (!plan.ChangeNeeded) {
@@ -263,8 +277,24 @@ public static class ClaudeUserGrant {
             var current=Snapshot(plan.Path);
             if (current.Exists!=plan.Exists || current.Stamp!=plan.Stamp) throw new IOException("concurrent_modification");
             OrdinaryPath(plan.Path);
-            if (plan.Exists) File.Replace(stage,plan.Path,null);
-            else File.Move(stage,plan.Path,false);
+            IOException first=null;
+            for (int attempt=1;;attempt++) {
+                if (attempt>1) {
+                    var again=Snapshot(plan.Path);
+                    if (again.Exists!=plan.Exists || again.Stamp!=plan.Stamp) throw new IOException("concurrent_modification",first);
+                    if (!File.ReadAllBytes(stage).AsSpan().SequenceEqual(plan.Updated)) throw new IOException("stage_changed",first);
+                    OrdinaryPath(plan.Path);
+                }
+                try {
+                    var fault=FaultForTest?.Invoke(attempt); if (fault!=null) throw fault;
+                    if (plan.Exists) File.Replace(stage,plan.Path,null);
+                    else File.Move(stage,plan.Path,false);
+                    break;
+                } catch (IOException error) when (attempt<ReplaceAttempts && Transient(error)) {
+                    first??=error; RetryForTest?.Invoke(attempt); System.Threading.Thread.Sleep(ReplaceRetryDelayMs);
+                    WaitForTest?.Invoke(attempt);
+                }
+            }
             stageCreated=false; result.Applied=true; result.PrivateBackupCreated=backupCreated;
             result.BackupFileName=backupCreated?System.IO.Path.GetFileName(backup):null;
             try { result.Verified=Snapshot(plan.Path).Bytes.AsSpan().SequenceEqual(plan.Updated); } catch { result.Verified=false; }
@@ -316,6 +346,76 @@ public static class ClaudeUserGrant {
         refused=false;try{PrepareAt(path);}catch(IOException){refused=true;}check(refused);
         File.WriteAllText(path,"{\"allowedMcpServers\":null}");
         refused=false;try{PrepareAt(path);}catch(IOException){refused=true;}check(refused);
+        File.Delete(path);
+        // Lane T round 8 (2/2, S-010): the bounded retry. A hold shares read but not delete (ReplaceFile then fails with sharing
+        // violation 32); RetryForTest releases it when it OBSERVES the retry, so nothing depends on timing (X1b T-r3 finding 4).
+        int retries=0; FileStream hold=null;
+        try {
+            // 22: a settings file held for one delay is replaced after exactly one retry.
+            RetryForTest=attempt=>{retries++; hold?.Dispose(); hold=null;};
+            File.WriteAllText(path,original,new UTF8Encoding(false));
+            plan=PrepareAt(path); retries=0;
+            hold=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.Read);
+            // A failure is this check's own (labelled), not an exception escaping the self-test.
+            bool applied=false; try{result=Publish(plan); applied=result.Applied && result.Verified;}catch(IOException){}
+            check(applied && retries==1);
+            File.Delete(System.IO.Path.Combine(root,result.BackupFileName));
+            // 23: a non-transient failure is not retried, and the file is left as it was.
+            File.WriteAllText(path,original,new UTF8Encoding(false));
+            plan=PrepareAt(path); retries=0;
+            FaultForTest=attempt=>attempt==1?new IOException("synthetic non-transient",unchecked((int)0x80070005)):null;
+            refused=false;try{Publish(plan);}catch(IOException){refused=true;}
+            FaultForTest=null;
+            check(refused && retries==0 && File.ReadAllText(path)==original);
+            // 24: held past the bound: five attempts, four retries, its own sharing violation, the file untouched and only its
+            // own stage and backup removed. The watchdog releases the hold if a retry ever runs past the bound.
+            RetryForTest=attempt=>{retries++; if(attempt>=ReplaceAttempts){hold?.Dispose();hold=null;}};
+            plan=PrepareAt(path); retries=0;
+            hold=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.Read);
+            int hresult=0;
+            try{Publish(plan);}catch(IOException error){hresult=error.HResult;}
+            hold?.Dispose(); hold=null;
+            check(hresult==unchecked((int)0x80070020) && retries==4 && File.ReadAllText(path)==original && Directory.GetFiles(root).Length==1);
+            // 25: the settings file rewritten after the first failure (in RetryForTest, before the sleep) is not overwritten: the
+            // retry is refused. A write inside the wait itself is check 27.
+            RetryForTest=attempt=>{retries++; File.WriteAllText(path,original+"  ");};
+            plan=PrepareAt(path); retries=0;
+            FaultForTest=attempt=>attempt==1?new IOException("synthetic sharing violation",unchecked((int)0x80070020)):null;
+            refused=false;try{Publish(plan);}catch(IOException){refused=true;}
+            FaultForTest=null;
+            check(refused && retries==1 && File.ReadAllText(path)==original+"  " && Directory.GetFiles(root).Length==1);
+            // 26: Win32 1175 is the other transient error: retried once, then applied.
+            RetryForTest=attempt=>retries++;
+            File.WriteAllText(path,original,new UTF8Encoding(false));
+            plan=PrepareAt(path); retries=0;
+            FaultForTest=attempt=>attempt==1?new IOException("synthetic unable to remove replaced",unchecked((int)0x80070497)):null;
+            applied=false; try{result=Publish(plan); applied=result.Applied && result.Verified;}catch(IOException){}
+            FaultForTest=null;
+            check(applied && retries==1);
+            File.Delete(System.IO.Path.Combine(root,result.BackupFileName));
+            // Round 8 (3/3, X3's T8-X3-1 and T8-X3-2, DECISIONS 128): writes that land INSIDE the wait (WaitForTest). These follow
+            // 25 on purpose: 25 owns the guard itself, and this self-test stops at its first failure, so each owns one defect.
+            // 27: the settings file rewritten during the wait is not overwritten. A guard moved to just before the sleep passes 25,
+            // whose write is made in RetryForTest, and fails here.
+            RetryForTest=attempt=>retries++;
+            int waited=0;
+            WaitForTest=attempt=>{waited++; File.WriteAllText(path,original+"   ");};
+            File.WriteAllText(path,original,new UTF8Encoding(false));
+            plan=PrepareAt(path); retries=0;
+            FaultForTest=attempt=>attempt==1?new IOException("synthetic sharing violation",unchecked((int)0x80070020)):null;
+            string refusal=null; try{Publish(plan);}catch(IOException error){refusal=error.Message;}
+            FaultForTest=null; WaitForTest=null;
+            check(waited==1 && refusal=="concurrent_modification" && retries==1 && File.ReadAllText(path)==original+"   " &&
+                Directory.GetFiles(root).Length==1);
+            // 28: the staged settings rewritten during the wait are not published (stage_changed); the file is left as it was.
+            File.WriteAllText(path,original,new UTF8Encoding(false));
+            plan=PrepareAt(path); retries=0; waited=0;
+            WaitForTest=attempt=>{foreach(var staged in Directory.GetFiles(root,"settings.agentbroker-stage-*.json")){File.WriteAllText(staged,"{\"planted\":true}");waited++;}};
+            FaultForTest=attempt=>attempt==1?new IOException("synthetic sharing violation",unchecked((int)0x80070020)):null;
+            refusal=null; try{Publish(plan);}catch(IOException error){refusal=error.Message;}
+            FaultForTest=null; WaitForTest=null;
+            check(waited==1 && refusal=="stage_changed" && retries==1 && File.ReadAllText(path)==original && Directory.GetFiles(root).Length==1);
+        } finally { RetryForTest=null; FaultForTest=null; WaitForTest=null; hold?.Dispose(); }
         File.Delete(path);
         return checks;
     }

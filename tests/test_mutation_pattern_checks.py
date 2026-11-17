@@ -114,6 +114,29 @@ class GuardsPatternCheck(ScratchCase):
         self.assertEqual(code, 0, out)
         self.assertIn("1 cases, 0 not matching exactly once.", out)
 
+    def test_GUARDS_PATTERN_APPHOST_ARTEFACT_REFUSED(self):
+        # Round 9 (DECISIONS 121): an .exe rebuild artefact (the framework-dependent apphost) is refused even when the
+        # pattern matches once; the same case naming a .dll passes. Both arms, so the refusal is not just any failure.
+        path = self.source("a.cs", b"alpha\n")
+        host = ("apphost case", str(path), b"alpha\n", b"replaced\n", "Host.csproj", str(self.scratch / "Host.exe"),
+                "--synthetic", "synthetic.txt", "never")
+        code, out = self.check_cases([host])
+        self.assertEqual(code, 1, out)
+        self.assertIn("APPHOST ARTEFACT  apphost case (Host.exe)", out)
+        code, out = self.check_cases([host[:5] + (str(self.scratch / "Host.dll"),) + host[6:]])
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("APPHOST ARTEFACT", out)
+
+    def test_GUARDS_CATALOGUE_NAMES_NO_APPHOST(self):
+        # Round 9: the real catalogue names no .exe rebuild artefact, and every case built by the host project that used to
+        # name the apphost names DesktopAICompanion.dll beside it.
+        exe = [case[0] for case in self.guards.CASES if isinstance(case[5], str) and case[5].lower().endswith(".exe")]
+        host = [case for case in self.guards.CASES if case[4] == self.guards.HOST_CSPROJ and case[5] == self.guards.HOST_DLL]
+        self.assertEqual(exe, [])
+        self.assertEqual(Path(self.guards.HOST_DLL).name, "DesktopAICompanion.dll")
+        self.assertEqual(Path(self.guards.HOST_DLL).parent, Path(self.guards.EXE).parent)
+        self.assertGreaterEqual(len(host), 462)
+
     def test_GUARDS_PATTERN_ONLY_REFUSED(self):
         proc = subprocess.run([sys.executable, "-B", "-X", "utf8", str(TESTS / "mutate-selftest-guards.py"),
                                "--check-patterns", "--only=synthetic"], capture_output=True, text=True, timeout=300)
@@ -193,6 +216,21 @@ class GuardsModuleGrade(ScratchCase):
         path = self.source("module.dll", data)
         stamp = path.stat().st_mtime
         return str(path), stamp - age
+
+    def test_GUARDS_REBUILD_APPHOST_NEVER_PROOF(self):
+        # Round 9 (DECISIONS 121): the framework-dependent host's build re-touches its apphost .exe with IDENTICAL bytes and
+        # changes only the .dll beside it. The rebuild proof refuses the .exe for exactly that reason (bytes unchanged though
+        # its mtime advanced) and accepts the .dll: why host cases name the .dll and --check-patterns refuses an .exe artefact.
+        exe = self.source("Host.exe", b"apphost bytes")
+        dll = self.source("Host.dll", b"code before the mutant")
+        baseline = {path: self.guards.artifact_sha256(str(path)) for path in (exe, dll)}
+        before = {path: path.stat().st_mtime - 10 for path in (exe, dll)}
+        exe.write_bytes(b"apphost bytes")
+        dll.write_bytes(b"code after the mutant")
+        problem = self.guards.rebuild_problem(str(exe), before[exe], baseline[exe])
+        self.assertIsNotNone(problem)
+        self.assertIn("Host.exe rebuilt with the baseline SHA-256", problem)
+        self.assertIsNone(self.guards.rebuild_problem(str(dll), before[dll], baseline[dll]))
 
     def test_GUARDS_REBUILD_SAME_SHA_BROKEN(self):
         path, before = self.artifact(b"baseline bytes", 10)
