@@ -56,13 +56,15 @@ public sealed partial class AgentBrokerModule
                 "CARD_ORDER_AND_WIDTHS: pinned status and full-width Clients precede consecutive narrow Connections, Coding agents and folded Reopen cards");
 
             ListCard[] lists = pane.Lists?.ToArray() ?? [];
+            // Lane F (DECISIONS 140): the per-broker attachments allow acts on one ticked Paired row, so it sits with the seven
+            // pairing actions; the card still holds exactly the broker actions and nothing else.
             string[] expectedActions = [RefreshBrokersLabel, RequestPairingLabel, ApprovePairingLabel, CancelPairingLabel,
-                RevokeSharingLabel, CopyInvitationLabel, PairCopiedInvitationLabel];
+                AllowAttachmentsLabel, RevokeSharingLabel, CopyInvitationLabel, PairCopiedInvitationLabel];
             check(lists is [{ Title: "Brokers" }] && lists[0].Actions.Select(action => action.Label).SequenceEqual(expectedActions, StringComparer.Ordinal) &&
                 !schema.Any(field => field.Id is "manualPeer" or "pairedBrokers" or "nativePrivacy" || field.Group == "Pair by invitation") &&
                 !pane.Load().ContainsKey("pairedBrokers") &&
                 !pane.Actions.Any(action => action.Group is "Pair by invitation" or "Brokers" || expectedActions.Contains(action.Label, StringComparer.Ordinal)),
-                "BROKERS_ONE_CARD: one Brokers list owns all seven pairing actions and no invitation text box or duplicate summary paragraph remains");
+                "BROKERS_ONE_CARD: one Brokers list owns exactly the seven pairing actions and the attachments allow, and no invitation text box or duplicate summary paragraph remains");
 
             // Health folding and the pinned summary are checked separately by RunClientsSummaryChecks.
         }

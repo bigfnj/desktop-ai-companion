@@ -25,6 +25,7 @@ using var scratchOwner = OwnedScratch.Create("network");
 string scratch = scratchOwner.Root;
 Console.WriteLine("WITNESS: POSTPUSH_NETWORK_EXECUTED");
 Console.WriteLine("NETWORK_WORKER_SHA256=" + Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(typeof(PeerFederation).Assembly.Location))));
+Console.WriteLine("NETWORK_CORE_SHA256=" + Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(typeof(BrokerStore).Assembly.Location))));
 Console.WriteLine("NETWORK_HARNESS_SHA256=" + Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(System.Reflection.Assembly.GetExecutingAssembly().Location))));
 try
 {
@@ -41,6 +42,11 @@ try
     if (args.Contains("--dns-contract-only"))
     {
         CheckDnsBound(IPAddress.Parse("10.23.4.5"), DateTimeOffset.UtcNow);
+        Console.WriteLine($"RESULT=PASS assertions={assertions}"); return 0;
+    }
+    if (args.Contains("--attachments-only"))
+    {
+        await AttachmentFederationChecks.RunAsync(scratch, Identity, Check);
         Console.WriteLine($"RESULT=PASS assertions={assertions}"); return 0;
     }
     if (args.Contains("--federation-boundaries-only"))
@@ -232,6 +238,7 @@ try
     await PairedReconnectChecks.RunAsync(scratch, Identity, Check);
     await PairedAdmissionChecks.RunAsync(scratch, Identity, Check);
     await FederationBoundaryChecks.RunAsync(scratch, Identity, Check);
+    await AttachmentFederationChecks.RunAsync(scratch, Identity, Check);
     Console.WriteLine($"RESULT=PASS assertions={assertions}");
     return 0;
 }
@@ -262,8 +269,15 @@ void CheckDnsBound(IPAddress source, DateTimeOffset now)
 sealed class TestClock : TimeProvider
 {
     private DateTimeOffset now = DateTimeOffset.UtcNow;
+    private long elapsedTimestamp;
     public override DateTimeOffset GetUtcNow() => now;
-    public void Advance(TimeSpan time) => now += time;
+    // Lane F round 2: the attachment deferral bound is monotonic (GetTimestamp), so Advance moves both clocks together.
+    public override long GetTimestamp() => global::System.Diagnostics.Stopwatch.GetTimestamp() + Interlocked.Read(ref elapsedTimestamp);
+    public void Advance(TimeSpan time)
+    {
+        now += time;
+        Interlocked.Add(ref elapsedTimestamp, (long)(time.TotalSeconds * global::System.Diagnostics.Stopwatch.Frequency));
+    }
 }
 sealed class SkewClock(TimeProvider parent, TimeSpan skew) : TimeProvider
 {
@@ -282,8 +296,10 @@ sealed class Node : IAsyncDisposable
     public required string HttpEndpoint { get; init; }
     public required PairingProbe Pairing { get; init; }
     public BrokerAdvertisement Advertisement => new(Store.BrokerId, "Synthetic broker", Endpoint, Identity.Fingerprint, DateTimeOffset.UtcNow);
+    public AgentBroker.Worker.Attachments.AttachmentStore? Attachments => Federation.Attachments;
     public static async Task<Node> Create(string directory, TimeProvider clock, Func<string, Guid, BrokerIdentity> loadIdentity,
-        Func<IReadOnlyList<BrokerAdvertisement>>? discovered = null, TimeSpan? reconnectInterval = null, bool enableLan = true)
+        Func<IReadOnlyList<BrokerAdvertisement>>? discovered = null, TimeSpan? reconnectInterval = null, bool enableLan = true,
+        bool? attachments = null, AgentBroker.Worker.Attachments.AttachmentLimits? attachmentLimits = null)
     {
         var store = new BrokerStore(directory, clock: clock);
         BrokerIdentity? identity = null;
@@ -308,6 +324,11 @@ sealed class Node : IAsyncDisposable
                 await beforeMessages(context)) return;
             if (context.Request.Path.StartsWithSegments("/federation/receipts") && probe.BeforeReceipt is { } beforeReceipt &&
                 await beforeReceipt(context)) return;
+            if (context.Request.Path.StartsWithSegments("/federation/attachments"))
+            {
+                Interlocked.Increment(ref probe.AttachmentRequests);
+                if (probe.BeforeAttachment is { } beforeAttachment && await beforeAttachment(context)) return;
+            }
             if (context.Request.Path == "/broker/info")
             {
                 Interlocked.Increment(ref probe.InfoRequests);
@@ -337,7 +358,8 @@ sealed class Node : IAsyncDisposable
             finally { context.Response.Body = original; }
         });
         federation = new PeerFederation(store, identity, new(directory, "Synthetic broker", LanPort: 0, EnableLan: enableLan), enableDiscovery: false, clock: clock)
-        { DiscoverySource = discovered, ReconnectInterval = reconnectInterval ?? TimeSpan.FromSeconds(5) };
+        { DiscoverySource = discovered, ReconnectInterval = reconnectInterval ?? TimeSpan.FromSeconds(5),
+          Attachments = attachments is { } enabled ? new AgentBroker.Worker.Attachments.AttachmentStore(directory, store, enabled, clock, attachmentLimits) : null };
         federation.MapEndpoints(app); await app.StartAsync(); await federation.StartAsync(default);
         return new Node { Directory = directory, Store = store, Identity = identity, Federation = federation, App = app,
             Endpoint = app.Urls.Single(u => u.StartsWith("https://", StringComparison.Ordinal)) + "/",
@@ -398,4 +420,7 @@ sealed class PairingProbe
     public string? LastRequest;
     public bool DropNextApprovalResponse;
     public string? LastApproval;
+    // Lane F: every /federation/attachments request this node served or intercepted, and an optional interception.
+    public int AttachmentRequests;
+    public Func<HttpContext, Task<bool>>? BeforeAttachment;
 }

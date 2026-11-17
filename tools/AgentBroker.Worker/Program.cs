@@ -6,7 +6,7 @@ if (args.Length > 0 && args[0] == AgentBroker.Firewall.FirewallSetupProtocol.Com
 
 if (args.Length == 1 && args[0] == "--help")
 {
-    Console.WriteLine("AgentBroker.Worker --data <absolute directory> [--name <label>] [--loopback-port 7432] [--lan-port 7433] [--lan true|false] [--allow-unauthenticated-loopback true|false] [--parent-pid <PID> --parent-start <FILETIME>]");
+    Console.WriteLine("AgentBroker.Worker --data <absolute directory> [--name <label>] [--loopback-port 7432] [--lan-port 7433] [--lan true|false] [--allow-unauthenticated-loopback true|false] [--attachments true|false] [--parent-pid <PID> --parent-start <FILETIME>]");
     Console.WriteLine("AgentBroker.Worker --allow-lan-access --port <1..65535> (explicit elevated Private/local-subnet firewall setup)");
     Console.WriteLine("AgentBroker.Worker --mcp-channel --data <absolute directory> [--label <text>] [--private] (opt-in Claude Code channel over stdio)");
     Console.WriteLine("AgentBroker.Worker --mcp-call --data <absolute directory> --request-file <absolute JSON file> [--output-file <new absolute local file>] (one decoded result; request: tool and arguments)");

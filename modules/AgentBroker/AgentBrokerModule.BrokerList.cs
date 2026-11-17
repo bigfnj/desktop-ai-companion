@@ -50,6 +50,7 @@ public sealed partial class AgentBrokerModule
             BrokerAction(RequestPairingLabel, RequestPairingFromListAsync),
             BrokerAction(ApprovePairingLabel, ApprovePairingFromListAsync),
             BrokerAction(CancelPairingLabel, CancelPairingFromListAsync),
+            BrokerAction(AllowAttachmentsLabel, ToggleAttachmentsFromListAsync),
             BrokerAction(RevokeSharingLabel, RevokeFromListAsync),
             BrokerAction(CopyInvitationLabel, _ => CopyInvitationAsync()),
             BrokerAction(PairCopiedInvitationLabel, PairCopiedInvitationAsync)
@@ -111,8 +112,8 @@ public sealed partial class AgentBrokerModule
             try { endpoint = Safe(InvitationPreviewAuthority(peer), 80); }
             catch (UriFormatException) { }
         }
-        return view.PeerClocks?.FirstOrDefault(clock => clock.BrokerId == peer.BrokerId)?.Warning == true
-            ? endpoint + ", check clocks" : endpoint;
+        return (view.PeerClocks?.FirstOrDefault(clock => clock.BrokerId == peer.BrokerId)?.Warning == true
+            ? endpoint + ", check clocks" : endpoint) + AttachmentPairedSuffix(peer, view);
     }
 
     // Each broker identity (broker ID and certificate) appears once, in the first group that applies: a pairing offer under

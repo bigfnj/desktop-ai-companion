@@ -7,9 +7,14 @@ namespace DesktopAICompanion.AgentBroker;
 internal sealed record BrokerSettings(bool Enabled, string Name, int LoopbackPort, int LanPort,
     bool EnableLan, bool NoAuthLoopback, bool CodexDiscovery, bool ClaudeDiscovery,
     bool CodexPeerMessages, bool ClaudePeerCredentials, int MessageLifetimeHours = 24,
-    bool CodexUpdateTolerantDelivery = true, bool ClaudeUpdateTolerantDelivery = true, string AdditionalCodexHome = "")
+    bool CodexUpdateTolerantDelivery = true, bool ClaudeUpdateTolerantDelivery = true, string AdditionalCodexHome = "",
+    bool AttachmentsEnabled = false)
 {
-    internal static BrokerSettings Read(IModuleSettings settings) => new(
+    // Off by default (lane F, 1.10.5): file attachments between paired brokers are an explicit owner choice.
+    internal static BrokerSettings Read(IModuleSettings settings) =>
+        ReadCore(settings) with { AttachmentsEnabled = settings.GetBool("attachmentsEnabled", false) };
+
+    private static BrokerSettings ReadCore(IModuleSettings settings) => new(
         settings.GetBool("enabled", false), settings.Get("name", Environment.MachineName),
         settings.GetInt("loopbackPort", 7432), settings.GetInt("lanPort", 7433),
         settings.GetBool("enableLan", true), settings.GetBool("noAuthLoopback", true),
@@ -39,7 +44,8 @@ internal sealed record BrokerSettings(bool Enabled, string Name, int LoopbackPor
         ["codexUpdateTolerantDelivery"] = Bool(CodexUpdateTolerantDelivery),
         ["claudeUpdateTolerantDelivery"] = Bool(ClaudeUpdateTolerantDelivery),
         ["messageLifetimeHours"] = MessageLifetimeHours.ToString(CultureInfo.InvariantCulture),
-        ["additionalCodexHome"] = AdditionalCodexHome
+        ["additionalCodexHome"] = AdditionalCodexHome,
+        ["attachmentsEnabled"] = Bool(AttachmentsEnabled)
     };
 
     internal static bool TryEdit(BrokerSettings current, IReadOnlyDictionary<string, string> edit,
@@ -59,10 +65,12 @@ internal sealed record BrokerSettings(bool Enabled, string Name, int LoopbackPor
             !bool.TryParse(values["codexPeerMessages"], out bool codexMessages) ||
             !bool.TryParse(values["claudePeerCredentials"], out bool claudeCredentials) ||
             !bool.TryParse(values["codexUpdateTolerantDelivery"], out bool codexUpdateTolerant) ||
-            !bool.TryParse(values["claudeUpdateTolerantDelivery"], out bool claudeUpdateTolerant)) return false;
+            !bool.TryParse(values["claudeUpdateTolerantDelivery"], out bool claudeUpdateTolerant) ||
+            !bool.TryParse(values["attachmentsEnabled"], out bool attachmentsEnabled)) return false;
         result = new(enabled, values["name"].Trim(), local, lan, enableLan, noAuth,
             codexDiscovery, claudeDiscovery, codexMessages, claudeCredentials, messageLifetimeHours, codexUpdateTolerant,
             claudeUpdateTolerant, values["additionalCodexHome"].Trim());
+        result = result with { AttachmentsEnabled = attachmentsEnabled };
         return result.Valid;
     }
 

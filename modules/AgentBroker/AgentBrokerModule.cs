@@ -268,6 +268,7 @@ public sealed partial class AgentBrokerModule : IModule
             new() { Id = "enableLan", Label = "Enable LAN discovery and pairing", Kind = SettingKind.Bool, Group = "Connections" },
             new() { Id = "lanPort", Label = "LAN port", Kind = SettingKind.Int, Min = 1, Max = 65535, Group = "Connections", EnabledWhen = "enableLan=true" },
             new() { Id = "lanAccess", Label = "LAN firewall access", Kind = SettingKind.Info, Group = "Connections" },
+            .. AttachmentSchemaRows(),
             new() { Id = "codexDiscovery", Label = "Discover open Codex sessions", Kind = SettingKind.Bool, Group = "Coding agents" },
             new() { Id = "additionalCodexHome", Label = "Additional Codex home to observe", Kind = SettingKind.FolderPath,
                 Group = "Coding agents", EmptyHint = "Optional; the default Codex home is already observed", EnabledWhen = "codexDiscovery=true" },
@@ -296,7 +297,8 @@ public sealed partial class AgentBrokerModule : IModule
             new PaneAction { Label = "Connect Claude MCP", Group = "Clients", ReloadPaneAfter = true, InvokeAsync = () => ConnectAndCheckAsync("claude") },
             new PaneAction { Label = "Open existing desktop chat", Group = "Reopen a Codex desktop chat",
                 InvokeWithPendingAsync = OpenCodexDesktopChatAsync },
-            new PaneAction { Label = "Allow LAN access", Group = "Connections", ReloadPaneAfter = true, InvokeAsync = AllowLanAccessAsync }]
+            new PaneAction { Label = "Allow LAN access", Group = "Connections", ReloadPaneAfter = true, InvokeAsync = AllowLanAccessAsync },
+            .. AttachmentActions()]
     };
 
     private IReadOnlyDictionary<string, string> LoadOptions()
@@ -321,6 +323,7 @@ public sealed partial class AgentBrokerModule : IModule
         values["desktopChatHelp"] = "Choose the original app and enter the chat's thread ID from its link to ask the desktop app to open it.";
         values["desktopChatOrigin"] = DesktopChatOriginPrompt;
         values["desktopChatThreadId"] = "";
+        LoadAttachmentValues(values);
         return values;
     }
 
@@ -349,11 +352,13 @@ public sealed partial class AgentBrokerModule : IModule
         NotifyInfoChanged();
     }
 
-    // Every Info value the pane reloads live. Order is fixed; equality is ordinal per entry, as the tuple's was.
+    // Every Info value the pane reloads live. Order is fixed; equality is ordinal per entry, as the tuple's was. Lane F
+    // round 2 (F-12): the File attachments row is live too (allowed brokers, quarantine counts, the worker's state).
     private string[] InfoValues() =>
     [
         DisplayedStatus(), NativeStatusText(), PairingDisplayText(), ClientsSummaryText(), McpDisplay().Detail, AgentInboxDisplay().Detail, LanAccessText(),
-        ClientDisplay("claude"), ClientDisplay("codex"), ApprovalPromptText(), WaitingMailText()
+        ClientDisplay("claude"), ClientDisplay("codex"), AttachmentsText(),
+        ApprovalPromptText(), WaitingMailText()
     ];
 
     private void NotifyInfoChanged()

@@ -12,6 +12,9 @@ public sealed partial class BrokerRuntime(BrokerStore store, IPeerFederation fed
     IReadOnlyList<ILocalAgentAdapter> adapters, SessionPreferences? sessionPreferences = null,
     TimeProvider? clock = null, ICallerProcessResolver? callerProcesses = null) : IAsyncDisposable
 {
+    // Lane F (1.10.5): set once at composition (WorkerApplication), before Start. Null when no attachment store was wired;
+    // the attachment tools then answer attachments_disabled and the receipt loop sweeps nothing.
+    internal AgentBroker.Worker.Attachments.AttachmentStore? Attachments { get; set; }
     private readonly ConcurrentDictionary<string, string> adapterErrors = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, string> adapterNotes = new(StringComparer.Ordinal);
     private readonly DeferredDeliveryClaims claims = new(store);
@@ -414,15 +417,81 @@ public sealed partial class BrokerRuntime(BrokerStore store, IPeerFederation fed
             // Before selection: Unknown+NativeIdleGuard may otherwise spend every pass Submitting.
             AdmitWaitingMailPass();
             var pending = claims.BeginDelivery();
-            if (pending is not null) await DeliverAsync(pending, stop);
+            if (pending is not null && !ForwardedInBackground(pending, stop)) await DeliverAsync(pending, stop);
             await Task.Delay(pending is null ? 500 : 50, stop);
+        }
+    }
+
+    // Lane F round 2 (F-20): forwarding an attachments envelope can take up to the recipient's 5 s inline wait, so it runs on
+    // its own task, at most two at a time, and no delivery loop waits on it. Its claim stays Submitting, so nothing else to
+    // that recipient overtakes it. With both slots busy the claim is released unsubmitted (nothing was sent) and retried
+    // after the usual 5 s backoff, again without holding a loop.
+    internal const int MaximumAttachmentForwards = 2;
+    private readonly ConcurrentDictionary<Guid, Task> attachmentForwards = new();
+    private int attachmentForwardCount;
+    private bool ForwardedInBackground(DeliveryClaim claim, CancellationToken stop)
+    {
+        if (claim.Message.Recipient.BrokerId == store.BrokerId ||
+            AttachmentEnvelope.TryParse(claim.Message.Text, out _) == AttachmentParse.NotEnvelope) return false;
+        if (Interlocked.Increment(ref attachmentForwardCount) > MaximumAttachmentForwards)
+        {
+            Interlocked.Decrement(ref attachmentForwardCount);
+            claims.ReleaseUnsubmittedClaim(claim, "attachment_forwards_busy");
+            return true;
+        }
+        attachmentForwards[claim.Message.Id] = ForwardAsync(claim, stop);
+        return true;
+    }
+
+    // Test seam (round 2b, M1), null in production: a fault thrown on the background forward path, where a settlement commit
+    // failure would surface.
+    internal Func<Exception?>? AttachmentForwardFault { get; set; }
+
+    private async Task ForwardAsync(DeliveryClaim claim, CancellationToken stop)
+    {
+        await Task.Yield(); // the caller records this task before its body runs
+        try
+        {
+            if (AttachmentForwardFault?.Invoke() is { } fault) throw fault;
+            await DeliverAsync(claim, stop);
+        }
+        // Round 2b (M1): this task has no loop around it, so it applies the delivery loop's own policy (GuardAsync). DeliverAsync
+        // settles every submission outcome itself; what escapes is its settlement's commit failing, which means the durable
+        // state is unavailable exactly as for a loop, so the worker stops instead of leaving the claim Submitting in silence.
+        catch (OperationCanceledException) when (stop.IsCancellationRequested) { }
+        catch (Exception e) when (e is IOException or InvalidDataException or BrokerException or UnauthorizedAccessException)
+        {
+            adapterErrors["broker"] = "durable_state_unavailable";
+            if (Interlocked.Exchange(ref durableStateUnavailable, 1) == 0)
+            {
+                lifetime?.Cancel(); FatalError?.Invoke();
+            }
+        }
+        catch (Exception) when (!stop.IsCancellationRequested)
+        {
+            int failures = loopFailures.AddOrUpdate("attachment_forward", 1, (_, count) => count + 1);
+            adapterErrors["attachment_forward"] = "loop_failed: " + failures + (failures == 1 ? " unexpected failure" : " unexpected failures") +
+                ", the last at " + Now.ToString("HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture) + " UTC.";
+            // The submission may have been written, so the message settles Uncertain like any unconfirmed one (N-broker-161-02).
+            try { claims.CompleteDelivery(claim, MessageStatus.Uncertain, "submission_failed", () => { }); }
+            catch (Exception settle) when (settle is IOException or InvalidDataException or BrokerException or UnauthorizedAccessException) { }
+        }
+        finally
+        {
+            Interlocked.Decrement(ref attachmentForwardCount);
+            attachmentForwards.TryRemove(claim.Message.Id, out _);
         }
     }
 
     private async Task ReceiptLoopAsync(CancellationToken stop)
     {
         while (!stop.IsCancellationRequested)
-        { await ReconcilePeersAsync(stop); await Task.Delay(TimeSpan.FromSeconds(5), stop); }
+        {
+            await ReconcilePeersAsync(stop);
+            // Attachment retention (lane F): at most once a minute; a sweep failure is that pass's alone (SweepIfDue).
+            Attachments?.SweepIfDue();
+            await Task.Delay(TimeSpan.FromSeconds(5), stop);
+        }
     }
 
     // whoami: the session owned by the nearest process in the caller's ancestry that an adapter binds to exactly one
@@ -501,6 +570,18 @@ public sealed partial class BrokerRuntime(BrokerStore store, IPeerFederation fed
         catch (AgentBroker.Worker.Federation.PeerSubmissionNotStartedException notStarted) when
             (receipt.Message.Recipient.BrokerId != store.BrokerId && notStarted.BrokerId == receipt.Message.Recipient.BrokerId)
         { result = new(AdapterAdmission.DeferredNotSubmitted, "peer_connection_unavailable"); }
+        // Lane F (D-1): the recipient's broker is still fetching this message's attachments and admitted nothing, so it is
+        // released unsubmitted and retried after the same 5 s backoff. Round 2 (F-7): the sender keeps its OWN bound too,
+        // stamped beside its staging at the first such answer, so a recipient restart (which loses the recipient's clock)
+        // cannot hold this sender pair for a day: past the bound the message is refused attachment_fetch_failed here.
+        catch (AgentBroker.Worker.Federation.PeerAdmissionRefusedException pending) when
+            (receipt.Message.Recipient.BrokerId != store.BrokerId && pending.BrokerId == receipt.Message.Recipient.BrokerId &&
+             pending.Code == AttachmentCodes.FetchPending)
+        {
+            result = Attachments?.FetchPendingExpired(receipt.Message.Id, AgentBroker.Worker.Federation.PeerFederation.AttachmentDeferralBound) == true
+                ? new(AdapterAdmission.Refused, AttachmentCodes.FetchFailed)
+                : new(AdapterAdmission.DeferredNotSubmitted, AttachmentCodes.FetchPending);
+        }
         catch (AgentBroker.Worker.Federation.PeerAdmissionRefusedException refused) when
             (receipt.Message.Recipient.BrokerId != store.BrokerId && refused.BrokerId == receipt.Message.Recipient.BrokerId)
         { result = new(AdapterAdmission.Refused, refused.Code); }
@@ -589,6 +670,9 @@ public sealed partial class BrokerRuntime(BrokerStore store, IPeerFederation fed
         try { lifetime?.Cancel(); }
         catch (Exception error) { failures.Add(error); }
         try { if (loop is not null) await loop; }
+        catch (Exception error) { failures.Add(error); }
+        // F-20: background attachment forwards end with the lifetime token; wait for them before the adapters go.
+        try { await Task.WhenAll(attachmentForwards.Values.ToArray()); }
         catch (Exception error) { failures.Add(error); }
         // Every adapter owns independent native resources. One failure cannot skip the others.
         foreach (var adapter in adapters)

@@ -61,7 +61,7 @@ internal static class NativeRecoveryToolChecks
                 var uncovered = JsonSerializer.SerializeToElement(new { name = "uncovered_query", outputSchema = new { type = "object" } });
                 check(!HasSchemaFixtureCoverage(tools.Append(uncovered)),
                     "RECOVERY_SCHEMA_UNCOVERED_CONTROL_" + transport + ": a third tool publishing an outputSchema cannot escape contract coverage");
-                check(tools.Length == 16 && new[] { "read_inbox_page", "read_native_recovery" }.All(name => tools.Any(tool =>
+                check(tools.Length == 18 && new[] { "read_inbox_page", "read_native_recovery" }.All(name => tools.Any(tool =>
                         tool.GetProperty("name").GetString() == name && tool.TryGetProperty("outputSchema", out var schema) && schema.ValueKind == JsonValueKind.Object)) &&
                     tools.All(tool => tool.GetProperty("name").GetString() is not ("acknowledge_recovered_message" or "reply_to_recovered_message")),
                     "RECOVERY_READ_ONLY_TOOLS_" + transport + ": structured query tools exist without successor mutation operations");

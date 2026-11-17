@@ -223,7 +223,8 @@ if (args.Length == 1 && args[0] == "--local-snapshot-mapping-only")
 }
 if (args.Length == 1 && args[0] is "--mailbox-only" or "--wait-tools-only" or "--wait-lifecycle-only" or "--wait-lifecycle-core-only" or "--wait-lifecycle-registry-only" or "--wait-host-stop-only" or "--directory-stop-only" or "--directory-stop-core-only" or "--directory-host-stop-only" or "--send-only" or "--instructions-only" or
     "--inbox-attribution-only" or "--lan-profile-only" or "--receipt-wait-only" or "--first-contact-only" or "--send-advisory-only" or "--peer-forward-only" or
-    "--compact-receipts-only" or "--engine-binding-report-only" or "--pending-inbox-only" or "--native-recovery-only" or "--metadata-only")
+    "--compact-receipts-only" or "--engine-binding-report-only" or "--pending-inbox-only" or "--native-recovery-only" or "--metadata-only" or
+    "--attachments-only")
 {
     try
     {
@@ -249,6 +250,7 @@ if (args.Length == 1 && args[0] is "--mailbox-only" or "--wait-tools-only" or "-
         if (args[0] == "--pending-inbox-only") await PendingInboxToolChecks.RunAsync(Check);
         if (args[0] == "--native-recovery-only") await NativeRecoveryToolChecks.RunAsync(Check);
         if (args[0] == "--metadata-only") await MetadataChecks.RunAsync(Check);
+        if (args[0] == "--attachments-only") await AttachmentChecks.RunAsync(Check);
         Console.WriteLine($"RESULT=PASS assertions={assertions}");
         return 0;
     }
@@ -539,6 +541,8 @@ try
         await LocalSnapshotMappingChecks.RunAsync(Check);
         await EngineObservationOrderChecks.RunAsync(Check);
         await SendToolChecks.RunAsync(Check);
+        // File attachments between paired brokers (lane F, 1.10.5).
+        await AttachmentChecks.RunAsync(Check);
         await InstructionsChecks.RunAsync(Check);
         // Compact sender receipts that tell their age and since when their recipient was seen busy (lane broker-163).
         await CompactReceiptChecks.RunAsync(Check);
@@ -618,10 +622,10 @@ try
         Check(initialize.GetProperty("result").TryGetProperty("protocolVersion", out _), "official MCP HTTP transport negotiates initialization");
         var tools = await Rpc(client, "tools/list", new { });
         var names = tools.GetProperty("result").GetProperty("tools").EnumerateArray().Select(t => t.GetProperty("name").GetString()).ToArray();
-        Check(names.Length == 16 && new[] { "list_sessions", "whoami", "register_agent", "send", "send_message", "wait_for_messages", "wait_for_reply",
+        Check(names.Length == 18 && new[] { "list_sessions", "whoami", "register_agent", "send", "send_message", "wait_for_messages", "wait_for_reply",
                 "wait_for_receipt", "read_inbox", "read_inbox_page", "read_native_recovery", "set_session_declaration", "set_session_title",
-                "acknowledge_message", "get_message_receipt", "reply_to_message" }.All(names.Contains),
-            "MCP publishes exactly the sixteen real broker operations");
+                "acknowledge_message", "get_message_receipt", "reply_to_message", "send_with_attachments", "fetch_attachment" }.All(names.Contains),
+            "MCP publishes exactly the eighteen real broker operations");
         var stdioInput = new System.IO.Pipelines.Pipe();
         var stdioOutput = new System.IO.Pipelines.Pipe();
         using (var bridgeInput = stdioInput.Reader.AsStream())
@@ -632,7 +636,7 @@ try
             await stdioInput.Writer.WriteAsync("{\"jsonrpc\":\"2.0\",\"id\":77,\"method\":\"tools/list\",\"params\":{}}\n"u8.ToArray());
             string line = await bridgeReader.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(10)) ?? throw new IOException("Missing stdio response.");
             using var reply = JsonDocument.Parse(line);
-            Check(reply.RootElement.GetProperty("id").GetInt32() == 77 && reply.RootElement.GetProperty("result").GetProperty("tools").GetArrayLength() == 16,
+            Check(reply.RootElement.GetProperty("id").GetInt32() == 77 && reply.RootElement.GetProperty("result").GetProperty("tools").GetArrayLength() == 18,
                 "stdio bridge discovers authenticated broker tools without persisting a token");
             Check(!line.Contains(connection.BearerToken!, StringComparison.Ordinal), "stdio output never exposes the local bearer token");
             await stdioInput.Writer.CompleteAsync();

@@ -115,6 +115,7 @@ public sealed partial class BrokerTools(BrokerRuntime runtime, IHttpContextAcces
         Guid? conversationId = null, int ttlMinutes = 0)
     {
         if (ttlMinutes < 0) throw new McpException("ttlMinutes must be 0 (the default lifetime) or a positive number of minutes.");
+        RequireNotEnvelope(text);
         return Run(() =>
         {
             var receipt = runtime.Store.Send(sender, recipient, messageId, text, conversationId, ttlMinutes, Caller);
@@ -131,7 +132,8 @@ public sealed partial class BrokerTools(BrokerRuntime runtime, IHttpContextAcces
     // The operation itself, for SendMessageTool and for callers that want the stored receipt.
     public MessageReceipt SendMessage(BrokerMessage message) => Run(() =>
     {
-        var receipt = runtime.Store.Accept(message, Caller);
+        RequireNotEnvelope(message?.Text);
+        var receipt = runtime.Store.Accept(message!, Caller);
         runtime.RenewPollingAgent(receipt.Message.Sender, Caller);
         ObserveInboxParticipant(receipt.Message.Sender);
         return receipt;
@@ -256,6 +258,7 @@ public sealed partial class BrokerTools(BrokerRuntime runtime, IHttpContextAcces
         if (parent.Sender.SessionId == BrokerStore.NoticeSessionId) throw ToolFailure("notice_reply_refused");
         // Named here because the store's refusal (invalid_reply) also covers malformed replies and says nothing about send.
         if (parent.RemainingReplies <= 0) throw ToolFailure("reply_budget_exhausted");
+        RequireNotEnvelope(text);
         return Run(() =>
         {
             var receipt = runtime.Store.AcceptReply(originalMessageId, messageId, text, Caller);

@@ -103,6 +103,16 @@ public sealed class LocalControlServer : IAsyncDisposable
                 worker.Runtime.Federation.RejectPair(request.Id); break;
             case "peer-revoke" when request.Id != Guid.Empty:
                 worker.Runtime.Federation.RevokePeer(request.Id); break;
+            // Lane F (D-9): the owner's per-broker attachment choice, for a currently paired broker and its current certificate.
+            // DECISIONS 41 (F-23): allowing a broker needs the master switch on; removing an allow never does, so the owner
+            // can withdraw one while attachments are off. A removal needs no pairing either: it only ever narrows.
+            case "peer-attachments" when request.Id != Guid.Empty:
+                if (worker.Runtime.Attachments is not { } attachments || (request.Value && !attachments.Enabled))
+                    throw new BrokerException(AttachmentCodes.Disabled, "File attachments are off.");
+                if (!request.Value) { attachments.Policy.Remove(request.Id); break; }
+                attachments.Policy.Set(worker.Runtime.Store.Peers().SingleOrDefault(peer => peer.BrokerId == request.Id)
+                    ?? throw new BrokerException("unpaired_peer", "That broker is not paired."), true);
+                break;
             case "session-private" when request.SessionId is not null:
                 worker.Runtime.SetSessionPreference(request.SessionId, request.Value, null); break;
             case "session-muted" when request.SessionId is not null:
@@ -141,8 +151,15 @@ public sealed class LocalControlServer : IAsyncDisposable
             DroppedNotices(runtime.Store.DroppedNotices()),
             runtime.AdapterNotes.Count == 0 ? null : new Dictionary<string, string>(runtime.AdapterNotes, StringComparer.Ordinal),
             runtime.Federation.ClockObservations is { Count: > 0 } clocks ? clocks.Take(32).ToArray() : null,
-            runtime.ApprovalObservationView is { } approval ? new ApprovalPromptView(approval.State, approval.VisiblePromptCount, approval.ObservedAtUtc) : null);
+            runtime.ApprovalObservationView is { } approval ? new ApprovalPromptView(approval.State, approval.VisiblePromptCount, approval.ObservedAtUtc) : null,
+            AttachmentsSnapshot(runtime));
     }
+
+    // Absent while attachments are off and leave nothing behind, so that snapshot is exactly the one before lane F.
+    private static AttachmentsView? AttachmentsSnapshot(BrokerRuntime runtime) =>
+        runtime.Attachments?.View() is { } view && (view.Enabled || view.AllowedBrokers.Length > 0 || view.InboxFiles > 0 ||
+            view.PolicyUnreadable || view.QuarantineUnavailable == true || view.PolicyUnsaved == true)
+            ? view : null;
 
     // Absent while none was dropped, so the snapshot is unchanged for a worker that has nothing to report.
     public static NoticeDropView? DroppedNotices(NoticeDrops drops) => drops.Total == 0 ? null

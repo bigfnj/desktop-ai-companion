@@ -109,7 +109,11 @@ internal static class LocalOutputFile
     }
 
     // The beforePublish seam permits an actual destination-race check without timing-dependent test loops.
-    internal static Retention Save(string destination, byte[] bytes, Action? beforePublish = null, Seams? seams = null)
+    // zoneIdentifier (lane F, 1.10.5): when given, these bytes become the temporary's :Zone.Identifier stream, written and
+    // flushed through a stream opened RELATIVE TO THE TEMPORARY'S OWN HANDLE (no path) after the payload and before the
+    // rename, so the published file never exists without its Mark of the Web. Null (every pre-1.10.5 caller) writes no stream.
+    internal static Retention Save(string destination, byte[] bytes, Action? beforePublish = null, Seams? seams = null,
+        byte[]? zoneIdentifier = null)
     {
         try
         {
@@ -129,6 +133,7 @@ internal static class LocalOutputFile
                 if (!IsFinalPathOf(created, volume, tempLeaf)) throw new IOException("output_unavailable");
                 RequireChain(canon, parent, seams); // step 3b, post-create: our entry exists; last proof before any payload byte
                 Write(temp, bytes);
+                if (zoneIdentifier is not null) WriteZoneIdentifier(temp, zoneIdentifier);
                 beforePublish?.Invoke();
                 int status = Rename(temp, held, leaf);
                 if (seams?.RenameStatus is { } observeRenamed) status = observeRenamed(status);
@@ -267,6 +272,56 @@ internal static class LocalOutputFile
         if (!FlushFileBuffers(temp)) throw Unavailable(Marshal.GetLastPInvokeError());
     }
 
+    // Lane F step 5b. NtCreateFile with RootDirectory = the owned temporary and ObjectName ":Zone.Identifier" creates that
+    // file's named stream through the handle, so no path is resolved and nothing else can be named (spike S1, 2026-11-14,
+    // NTFS). FILE_CREATE: the stream must be new. The stream's share mode is FILE_SHARE_DELETE only, because NTFS checks
+    // DELETE sharing file-wide and the temporary holds DELETE access; read and write sharing stay refused, and the
+    // temporary itself keeps share 0. Any non-zero status is output_unavailable and Save discards the temporary.
+    private static void WriteZoneIdentifier(SafeFileHandle temp, byte[] zone)
+    {
+        const string name = ":Zone.Identifier";
+        IntPtr buffer = Marshal.StringToHGlobalUni(name);
+        IntPtr unicode = Marshal.AllocHGlobal(Marshal.SizeOf<UnicodeString>());
+        bool added = false;
+        try
+        {
+            temp.DangerousAddRef(ref added);
+            Marshal.StructureToPtr(new UnicodeString { Length = (ushort)(name.Length * 2), MaximumLength = (ushort)(name.Length * 2),
+                Buffer = buffer }, unicode, false);
+            var attributes = new ObjectAttributes { Length = Marshal.SizeOf<ObjectAttributes>(), RootDirectory = temp.DangerousGetHandle(),
+                ObjectName = unicode, Attributes = ObjCaseInsensitive };
+            int status = NtCreateFile(out SafeFileHandle stream, FileGenericWrite, ref attributes, out _, IntPtr.Zero, FileAttributeNormal,
+                FileShareDelete, FileCreate, FileSynchronousIoNonAlert | FileNonDirectoryFile | FileWriteThroughOption, IntPtr.Zero, 0);
+            using (stream)
+            {
+                if (status != 0 || stream.IsInvalid)
+                {
+                    var inner = new IOException("NtCreateFile status 0x" + status.ToString("X8", CultureInfo.InvariantCulture));
+                    inner.Data[NtStatusDataKey] = "0x" + status.ToString("X8", CultureInfo.InvariantCulture);
+                    throw new IOException("output_unavailable", inner);
+                }
+                Write(stream, zone);
+            }
+        }
+        finally
+        {
+            if (added) temp.DangerousRelease();
+            Marshal.FreeHGlobal(unicode);
+            Marshal.FreeHGlobal(buffer);
+        }
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct UnicodeString { public ushort Length; public ushort MaximumLength; public IntPtr Buffer; }
+    [StructLayout(LayoutKind.Sequential)]
+    private struct ObjectAttributes
+    {
+        public int Length; public IntPtr RootDirectory; public IntPtr ObjectName; public uint Attributes;
+        public IntPtr SecurityDescriptor; public IntPtr SecurityQualityOfService;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    private struct IoStatus { public IntPtr Status; public IntPtr Information; }
+
     // Step 6. FILE_RENAME_INFORMATION as the WDK defines it for 64-bit callers: 0 ReplaceIfExists (BOOLEAN), 8 RootDirectory,
     // 16 FileNameLength in bytes, 20 FileName; sizeof 24. RootDirectory is the held parent and FileName the bare leaf, so the
     // kernel resolves the target through the handle, not a path. The I/O manager copies this buffer before the call goes on.
@@ -350,6 +405,10 @@ internal static class LocalOutputFile
     private const uint CaseSensitiveDirectory = 0x1; // FILE_CS_FLAG_CASE_SENSITIVE_DIR
     private const uint DispositionDelete = 0x1, DispositionPosixSemantics = 0x2, DispositionIgnoreReadOnly = 0x10;
     private const int StatusObjectNameCollision = unchecked((int)0xC0000035), StatusPending = 0x103, IoStatusBlockSize = 16;
+    // Lane F zone stream: FILE_GENERIC_WRITE (includes SYNCHRONIZE), OBJ_CASE_INSENSITIVE, FILE_CREATE, and the create options
+    // FILE_SYNCHRONOUS_IO_NONALERT | FILE_NON_DIRECTORY_FILE | FILE_WRITE_THROUGH.
+    private const uint FileGenericWrite = 0x00120116, ObjCaseInsensitive = 0x40, FileCreate = 2;
+    private const uint FileSynchronousIoNonAlert = 0x20, FileNonDirectoryFile = 0x40, FileWriteThroughOption = 0x2;
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, ExactSpelling = true, SetLastError = true)]
     private static extern SafeFileHandle CreateFileW(string path, uint access, uint share, IntPtr security, uint creation,
@@ -371,6 +430,10 @@ internal static class LocalOutputFile
     [DllImport("kernel32.dll", ExactSpelling = true, SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool FlushFileBuffers(SafeFileHandle file);
+    // Returns an NTSTATUS. The relative open of the temporary's :Zone.Identifier stream (WriteZoneIdentifier).
+    [DllImport("ntdll.dll", ExactSpelling = true)]
+    private static extern int NtCreateFile(out SafeFileHandle handle, uint access, ref ObjectAttributes attributes, out IoStatus status,
+        IntPtr allocationSize, uint fileAttributes, uint share, uint disposition, uint options, IntPtr eaBuffer, uint eaLength);
     // Returns an NTSTATUS, so there is no last error to capture. ioStatusBlock is unmanaged memory owned by Rename.
     [DllImport("ntdll.dll", ExactSpelling = true)]
     private static extern int NtSetInformationFile(SafeFileHandle file, IntPtr ioStatusBlock, byte[] information, uint length,
