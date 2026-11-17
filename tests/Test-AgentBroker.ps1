@@ -114,36 +114,88 @@ $repin7Checks = [int]([regex]::Match([string]$repin7Summary[0], '^PASS: ([0-9]+)
 $treeCompare = Join-Path $repoRoot 'tools\agentbroker\Compare-AgentBrokerTree.ps1'
 $treeChecks = @{}
 $treeSkipped = @{}
-# Round 5 (C4): the fixture count is pinned per edition, so a fixture deleted or renamed out of the self-test fails here even
-# when its name is not required below. Update the constant with every fixture added or removed. Only the labels listed as
-# skippable may print SKIP instead of running (the case-sensitivity fixture, when fsutil cannot set the flag on the volume);
-# a SKIP counts toward the pin, is reported as a DEGRADED run here and in the final summary, and is never passed in silence.
-$treeFixtureCount = 34
+# Round 5 (C4) and round 6 (DECISIONS 101): every fixture label of the self-test is pinned by name, in both children. Each
+# label must appear exactly once, as a PASS line or, for a label listed as skippable, as one SKIP line carrying its reason (the
+# case-sensitivity fixture, when fsutil cannot set the flag on the volume), never as both; no other TREE_COMPARE_ label may
+# appear, and the summary count must equal the PASS fixture lines. Round 5 pinned only passed + skipped, so a permitted SKIP
+# printed for a fixture that also passed stood in for a different fixture that was gone (X1c's confirm of round 5). Update the
+# list with every fixture added or removed. A SKIP is reported as a DEGRADED run here and in the final summary.
+$treeFixtureLabels = @('TREE_COMPARE_MISSING_DIRECTORY_IS_FILE', 'TREE_COMPARE_LEGACY_DIRECTORY_FALSE',
+    'TREE_COMPARE_DIRECTORY_ROW_NOT_COMPARED', 'TREE_COMPARE_RECEIPT_SHAPE', 'TREE_COMPARE_VACUOUS_REFUSED',
+    'TREE_COMPARE_COUNT_MISMATCH_REFUSED', 'TREE_COMPARE_HASH_MISMATCH_FAILS', 'TREE_COMPARE_MISSING_FAILS', 'TREE_COMPARE_EXTRA_FAILS',
+    'TREE_COMPARE_NAME_OUTSIDE_REFUSED', 'TREE_COMPARE_NESTED_EXTRA_FAILS', 'TREE_COMPARE_BYTES_MISMATCH_FAILS',
+    'TREE_COMPARE_RECEIPT_COUNT_MISMATCH_REFUSED', 'TREE_COMPARE_RECEIPT_VACUOUS_REFUSED', 'TREE_COMPARE_DUPLICATE_NAME_REFUSED',
+    'TREE_COMPARE_DOT_PREFIX_ACCEPTED', 'TREE_COMPARE_EMPTY_SEGMENT_REFUSED', 'TREE_COMPARE_RELATIVE_PATHS_FOLLOW_LOCATION',
+    'TREE_COMPARE_DRIVE_ROOT_REFUSED', 'TREE_COMPARE_SAMPLE_SHAPES_READ', 'TREE_COMPARE_TRAILING_DOT_REFUSED',
+    'TREE_COMPARE_TRAILING_SPACE_REFUSED', 'TREE_COMPARE_COLON_REFUSED', 'TREE_COMPARE_CASE_SENSITIVE_SECOND_SPELLING_EXTRA',
+    'TREE_COMPARE_REPARSE_JUNCTION_REFUSED', 'TREE_COMPARE_REPARSE_LOOP_REFUSED', 'TREE_COMPARE_INCOMPLETE_ROW_REFUSED',
+    'TREE_COMPARE_LOWERCASE_HASH_ACCEPTED', 'TREE_COMPARE_CHILD_ARGUMENT_QUOTE_REFUSED',
+    'TREE_COMPARE_CHILD_ARGUMENT_TRAILING_BACKSLASH_REFUSED', 'TREE_COMPARE_CHILD_MATCH_EXIT_0_PS51',
+    'TREE_COMPARE_CHILD_DIFFERS_EXIT_1_PS51', 'TREE_COMPARE_CHILD_REFUSAL_EXIT_1_PS51', 'TREE_COMPARE_CHILD_MATCH_EXIT_0_PS7',
+    'TREE_COMPARE_CHILD_DIFFERS_EXIT_1_PS7', 'TREE_COMPARE_CHILD_REFUSAL_EXIT_1_PS7')
 $treeSkippable = @('TREE_COMPARE_CASE_SENSITIVE_SECOND_SPELLING_EXTRA')
-function Get-TreeFixtureCountProblems([object[]]$Output, [int]$Expected, [string[]]$Skippable) {
-    $summary = @($Output | Where-Object { "$_" -cmatch '^PASS: ([1-9][0-9]*) tree compare fixture checks$' })
-    $passed = -1
-    if ($summary.Count -eq 1) { $passed = [int]([regex]::Match([string]$summary[0], '^PASS: ([0-9]+)').Groups[1].Value) }
-    $skips = @($Output | Where-Object { "$_" -cmatch '^SKIP: ' })
-    foreach ($skip in $skips) {
-        $label = [regex]::Match([string]$skip, '^SKIP: ([A-Z0-9_]+) \(.+\)$').Groups[1].Value
-        if ($label.Length -eq 0 -or $Skippable -cnotcontains $label) { "skip not allowed or without its reason: $skip" }
+function Get-TreeFixtureLabelProblems([object[]]$Output, [string[]]$Labels, [string[]]$Skippable) {
+    $passLabels = @($Output | ForEach-Object { [regex]::Match("$_", '^PASS: (TREE_COMPARE_[A-Z0-9_]+)$') } |
+        Where-Object { $_.Success } | ForEach-Object { $_.Groups[1].Value })
+    $skipLabels = New-Object 'Collections.Generic.List[string]'
+    foreach ($skip in @($Output | Where-Object { "$_" -cmatch '^SKIP: ' })) {
+        $match = [regex]::Match("$skip", '^SKIP: (TREE_COMPARE_[A-Z0-9_]+) \(.+\)$')
+        if (-not $match.Success) { "a SKIP line without a fixture label and its reason: $skip"; continue }
+        $skipLabels.Add($match.Groups[1].Value)
     }
-    if ($passed + $skips.Count -ne $Expected) { "$passed passed + $($skips.Count) skipped, expected $Expected" }
+    foreach ($label in $Labels) {
+        $passCount = @($passLabels | Where-Object { $_ -ceq $label }).Count
+        $skipCount = @($skipLabels | Where-Object { $_ -ceq $label }).Count
+        if ($passCount -gt 0 -and $skipCount -gt 0) { "$label both passed and skipped" }
+        elseif ($passCount -gt 1 -or $skipCount -gt 1) { "$label seen $($passCount + $skipCount) times" }
+        elseif ($passCount + $skipCount -eq 0) { "$label missing" }
+        if ($skipCount -gt 0 -and $Skippable -cnotcontains $label) { "$label skipped but not skippable" }
+    }
+    foreach ($label in @($passLabels) + @($skipLabels)) {
+        if ($Labels -cnotcontains $label) { "$label is not a pinned fixture label" }
+    }
+    $summary = @($Output | Where-Object { "$_" -cmatch '^PASS: ([0-9]+) tree compare fixture checks$' })
+    $summaryCount = -1
+    if ($summary.Count -eq 1) { $summaryCount = [int]([regex]::Match([string]$summary[0], '^PASS: ([0-9]+)').Groups[1].Value) }
+    if ($summaryCount -ne $passLabels.Count) { "summary count $summaryCount, PASS fixture lines $($passLabels.Count)" }
 }
-# The count rule is judged on four synthetic receipts first, on every run: the full count, a listed skip with its reason, a
-# fixture missing in silence, and a skip of a label that is not listed.
-$countSummary = "PASS: $treeFixtureCount tree compare fixture checks"
-$countShort = "PASS: $($treeFixtureCount - 1) tree compare fixture checks"
-$countSkip = "SKIP: $($treeSkippable[0]) (synthetic reason)"
-$countHealthy = @(Get-TreeFixtureCountProblems @($countSummary) $treeFixtureCount $treeSkippable)
-$countDegraded = @(Get-TreeFixtureCountProblems @($countSkip, $countShort) $treeFixtureCount $treeSkippable)
-$countSilent = @(Get-TreeFixtureCountProblems @($countShort) $treeFixtureCount $treeSkippable)
-$countUnlisted = @(Get-TreeFixtureCountProblems @('SKIP: TREE_COMPARE_BYTES_MISMATCH_FAILS (synthetic reason)', $countShort) $treeFixtureCount $treeSkippable)
-if ($countHealthy.Count -ne 0 -or $countDegraded.Count -ne 0 -or $countSilent.Count -ne 1 -or $countUnlisted.Count -ne 1) {
-    throw "AgentBroker tree compare fixture-count rule failed its synthetic receipts: full [$($countHealthy -join '; ')], listed skip [$($countDegraded -join '; ')], silent loss [$($countSilent -join '; ')], unlisted skip [$($countUnlisted -join '; ')]."
+# The label rule is judged on synthetic receipts first, on every run, before any build. Two are accepted (every label passed;
+# the listed label skipped with its reason) and each refusal is made by exactly one rule (Expect 1); X1c's misattributed skip
+# (a listed label both passed and skipped while another label is gone) is a witness that must be refused (Expect -1).
+function New-TreeReceipt([string[]]$Passed, [string[]]$Extra, [int]$Summary) {
+    @($Passed | ForEach-Object { "PASS: $_" }) + @($Extra) + @("PASS: $Summary tree compare fixture checks")
 }
-Write-Host "PASS: the tree compare fixture-count rule refuses a fixture lost in silence ($($countSilent -join '; ')) and an unlisted skip"
+$receiptSkippable = $treeSkippable[0]
+$receiptLost = 'TREE_COMPARE_BYTES_MISMATCH_FAILS'
+$withoutSkippable = @($treeFixtureLabels | Where-Object { $_ -cne $receiptSkippable })
+$withoutLost = @($treeFixtureLabels | Where-Object { $_ -cne $receiptLost })
+$listedSkip = "SKIP: $receiptSkippable (synthetic reason)"
+$receiptAll = $treeFixtureLabels.Count
+$treeReceipts = [ordered]@{
+    'full' = @{ Expect = 0; Output = (New-TreeReceipt $treeFixtureLabels @() $receiptAll) }
+    'listed skip' = @{ Expect = 0; Output = (New-TreeReceipt $withoutSkippable @($listedSkip) ($receiptAll - 1)) }
+    'silent loss' = @{ Expect = 1; Output = (New-TreeReceipt $withoutLost @() ($receiptAll - 1)) }
+    'duplicate' = @{ Expect = 1; Output = (New-TreeReceipt (@($treeFixtureLabels) + @($receiptLost)) @() ($receiptAll + 1)) }
+    'contradictory' = @{ Expect = 1; Output = (New-TreeReceipt $treeFixtureLabels @($listedSkip) $receiptAll) }
+    'unlisted skip' = @{ Expect = 1; Output = (New-TreeReceipt $withoutLost @("SKIP: $receiptLost (synthetic reason)") ($receiptAll - 1)) }
+    'unknown label' = @{ Expect = 1; Output = (New-TreeReceipt (@($treeFixtureLabels) + @('TREE_COMPARE_NOT_A_FIXTURE')) @() ($receiptAll + 1)) }
+    'summary mismatch' = @{ Expect = 1; Output = (New-TreeReceipt $treeFixtureLabels @() ($receiptAll - 1)) }
+    'reasonless skip' = @{ Expect = 1; Output = (New-TreeReceipt $treeFixtureLabels @("SKIP: $receiptSkippable") $receiptAll) }
+    'misattributed skip' = @{ Expect = -1; Output = (New-TreeReceipt $withoutLost @($listedSkip) ($receiptAll - 1)) }
+}
+$receiptFailures = New-Object 'Collections.Generic.List[string]'
+foreach ($receiptName in $treeReceipts.Keys) {
+    $receipt = $treeReceipts[$receiptName]
+    $receiptProblems = @(Get-TreeFixtureLabelProblems $receipt.Output $treeFixtureLabels $treeSkippable)
+    $receiptOk = if ($receipt.Expect -lt 0) { $receiptProblems.Count -ge 1 } else { $receiptProblems.Count -eq $receipt.Expect }
+    if (-not $receiptOk) { $receiptFailures.Add("$receiptName ($($receiptProblems.Count): $($receiptProblems -join '; '))") }
+}
+if ($receiptFailures.Count -gt 0) {
+    # One plain line each, before the throw: the error view wraps a long message and colours it.
+    foreach ($receiptFailure in $receiptFailures) { Write-Host "REFUSED SYNTHETIC RECEIPT: $receiptFailure" }
+    throw "AgentBroker tree compare fixture-label rule failed its synthetic receipts: $($receiptFailures -join ' | ')"
+}
+Write-Host "PASS: the tree compare fixture-label rule judged $($treeReceipts.Count) synthetic receipts (2 accepted, 8 refused, X1c's misattributed skip among them)"
 # Round 2: a stray file below the root (nested extra) and relative arguments judged at the PowerShell location are
 # required by name too: each was a clean MATCH for the wrong tree before its fix.
 $treeGuardNames = @('PASS: TREE_COMPARE_MISSING_DIRECTORY_IS_FILE', 'PASS: TREE_COMPARE_VACUOUS_REFUSED',
@@ -173,10 +225,11 @@ foreach ($edition in @(@{ Name = 'Windows PowerShell'; Exe = 'powershell.exe'; A
     foreach ($line in $treeOutput) { Write-Host $line }
     $treeSummary = @($treeOutput | Where-Object { "$_" -match '^PASS: ([1-9][0-9]*) tree compare fixture checks$' })
     $treeGuardProblems = @(Get-TreeGuardNameProblems $treeOutput $treeGuardNames)
-    $treeCountProblems = @(Get-TreeFixtureCountProblems $treeOutput $treeFixtureCount $treeSkippable)
-    if ($treeExit -ne 0 -or $treeSummary.Count -ne 1 -or $treeGuardProblems.Count -gt 0 -or $treeCountProblems.Count -gt 0 -or
+    $treeLabelProblems = @(Get-TreeFixtureLabelProblems $treeOutput $treeFixtureLabels $treeSkippable)
+    foreach ($problem in $treeLabelProblems) { Write-Host "TREE FIXTURE LABEL PROBLEM under $($edition.Name): $problem" }
+    if ($treeExit -ne 0 -or $treeSummary.Count -ne 1 -or $treeGuardProblems.Count -gt 0 -or $treeLabelProblems.Count -gt 0 -or
         @($treeOutput | Where-Object { "$_" -match '^(FAIL:|RESULT=FAIL)' }).Count -gt 0) {
-        throw "AgentBroker tree compare self-test under $($edition.Name) failed: tools/agentbroker/Compare-AgentBrokerTree.ps1 -SelfTest (exit $treeExit; guard lines missing or repeated: $($treeGuardProblems -join '; '); fixture count: $($treeCountProblems -join '; '))."
+        throw "AgentBroker tree compare self-test under $($edition.Name) failed: tools/agentbroker/Compare-AgentBrokerTree.ps1 -SelfTest (exit $treeExit; guard lines missing or repeated: $($treeGuardProblems -join '; '); fixture labels: $($treeLabelProblems -join '; '))."
     }
     $treeChecks[$edition.Name] = [int]([regex]::Match([string]$treeSummary[0], '^PASS: ([0-9]+)').Groups[1].Value)
     $treeSkipLines = @($treeOutput | Where-Object { "$_" -cmatch '^SKIP: ' })

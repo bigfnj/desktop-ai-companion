@@ -438,6 +438,15 @@ try {
     $r = Get-Compare $live (Write-Map 'maplower' ([ordered]@{ EntryCount = 2; Entries = @($lower) }))
     Assert-Case 'TREE_COMPARE_LOWERCASE_HASH_ACCEPTED' ($r.Match -and $r.Matched -eq 2) "matched $($r.Matched)"
 
+    # Round 6 (DECISIONS 100, X1c's confirm of round 5): Invoke-CompareChild refuses an argument its whitespace quoting
+    # cannot carry, before any process starts. The executable named here does not exist, so a run without the refusal fails
+    # on the missing file instead, and no child is ever started by these two fixtures.
+    $absentChild = Join-Path $scratch 'absent-child.exe'
+    $why = Get-Refusal { Invoke-CompareChild $absentChild @('-Path', 'a"b') }
+    Assert-Case 'TREE_COMPARE_CHILD_ARGUMENT_QUOTE_REFUSED' ($why -ceq 'child argument cannot be quoted safely: a"b') $why
+    $why = Get-Refusal { Invoke-CompareChild $absentChild @('-Path', 'folder\') }
+    Assert-Case 'TREE_COMPARE_CHILD_ARGUMENT_TRAILING_BACKSLASH_REFUSED' ($why -ceq 'child argument cannot be quoted safely: folder\') $why
+
     # The release path (K1) in a child of each edition: a match exits 0 with its verdict line, a difference exits 1 with
     # TREE_COMPARE_DIFFERS, and a refused map exits 1 naming its refusal. The fixtures above call the function, never these lines.
     $pwshExe = Join-Path $PSHOME 'pwsh.exe'

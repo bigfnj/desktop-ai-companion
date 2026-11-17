@@ -52,9 +52,9 @@ internal static class CoordinationBenchmark
     // BrokerStore.Send), and the window is capped far inside that, so the "still Accepted" postcondition can fail only for a
     // real delivery or refusal, never for expiry: the 120 s maximum is inside the 60-minute lifetime (round 5, D4/D10: the
     // clause that restated this against `seconds` could never decide, so it was dropped). T2-12: a window of at least 3 s spans
-    // D2's A8 directory observation interval (A8 is not in this tree; the floor is sized for its 2 s interval), so with messages
-    // waiting, fewer observations than messages means the window measured nothing for some of them: that is an error, not a
-    // rate of 0/s.
+    // D2's A8 directory observation interval, 2 s, which sizes this floor (A8 lives in BrokerStore.WaitingMail.cs once the D2
+    // lane is merged; round 6, D11), so with messages waiting, fewer observations than messages means the window measured
+    // nothing for some of them: that is an error, not a rate of 0/s.
     private const int SeededLifetimeMinutes = 60, MinimumIdleSeconds = 3, MaximumIdleSeconds = 120;
 
     private static async Task<string> BusyIdleAsync(int pending, int seconds, string root)
