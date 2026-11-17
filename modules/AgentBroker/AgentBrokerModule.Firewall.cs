@@ -12,7 +12,7 @@ public sealed partial class AgentBrokerModule
     private string LanAccessText()
     {
         string action = lanFirewallStatus.Length != 0 ? lanFirewallStatus :
-            "Allow LAN access can add this worker's inbound TCP rule for Private networks and the local subnet. Windows administrator approval is required. Run it on each workstation that needs to receive pairing requests.";
+            "Allow LAN access can add a Private-network rule with administrator approval.";
         string profile = LanProfileText(settings.Enabled && settings.EnableLan ? snapshot : null);
         return profile.Length == 0 ? action : profile + "\n" + action;
     }

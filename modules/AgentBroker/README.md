@@ -8,6 +8,18 @@ a private session or mute incoming messages. Federation directory and delivery r
 the paired client certificate; public broker information remains readable for identity checks. Loopback authentication
 is optional. Native peer delivery is a separate opt-in and preserves each agent's existing permission controls.
 
+The pinned status band keeps Pairing, including clock warnings and the paired-broker limit. While enabled without a
+current worker snapshot, it shows paired-broker status unavailable beside any retained pairing result.
+The always-visible Clients line counts OK clients, notes and clients whose native opt-in is off. The full-width Clients
+card folds when no actionable warning or error remains; publisher-verified update-tolerant delivery notes and owner-chosen
+wake-off or discovery-off states do not keep it open. Configuration not checked, unattributed tools, an unregistered inbox,
+adapter errors and unknown or truncated notes keep it open. Connections, Coding agents and
+the folded Reopen card follow together; the single Brokers card contains all pairing actions.
+For invitation pairing, use **Copy my invitation** on one workstation and **Pair from copied invitation**
+on the other. The first press previews the name, short ID and HTTPS authority; the second within 30 seconds
+requests pairing. Clipboard text is never echoed, and this broker's own or an already-paired identity is refused.
+Both workstations must still compare and approve the complete code.
+
 The worker executable lives at worker/AgentBroker.Worker.exe beneath the module. All persisted identity,
 pairing and delivery state uses the host-provisioned module DataDirectory. The supervisor passes parent
 PID and creation FILETIME, performs control work off the host UI thread and never stops an existing

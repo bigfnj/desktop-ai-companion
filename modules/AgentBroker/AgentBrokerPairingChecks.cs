@@ -13,6 +13,7 @@ public sealed partial class AgentBrokerModule
     {
         CheckPairingControlDeadlinesAsync(check).GetAwaiter().GetResult();
         RunPaneBrokerChecks(check, dispatcher);
+        RunPaneLayoutChecks(check, dispatcher);
         CheckConfirmedPairingStatus(check, dispatcher);
         CheckPairingObservationsAndList(check, dispatcher);
         CheckIssuedObservationOrdering(check, dispatcher);
@@ -173,58 +174,69 @@ public sealed partial class AgentBrokerModule
         {
             module.Init(host); Pump(() => module.snapshot is not null, dispatcher);
             var pane = host.OptionsPanes.Single();
-            check(pane.Schema.Single(field => field.Id == "pairedBrokers") is
-                { Kind: DesktopAICompanion.Modules.SettingKind.Info, Group: "AgentBroker", FullWidth: true } &&
-                pane.Load()["pairedBrokers"].StartsWith("No paired brokers.", StringComparison.Ordinal),
-                "pairing list: explicit full-width paired broker list sits beside primary Status with a clear empty state");
+            var card = pane.Lists!.Single();
+            var emptyValues = pane.Load();
+            check(emptyValues.TryGetValue("pairingStatus", out string? emptyPairing) &&
+                emptyPairing.StartsWith("No paired brokers.", StringComparison.Ordinal),
+                "PAIRING_EMPTY_STATE: no saved trust or pairing activity has a clear empty Pairing value");
             var paired = view with { Paired = [peer, other] };
             Apply(paired);
-            string shown = pane.Load()["pairedBrokers"];
-            check(shown.Contains(peer.Endpoint, StringComparison.Ordinal) && shown.Contains(other.Endpoint, StringComparison.Ordinal) &&
-                shown.Contains("Same name", StringComparison.Ordinal) && shown.Contains("Saved trust", StringComparison.Ordinal) &&
-                shown.Contains("reachability is unknown", StringComparison.Ordinal),
-                "pairing list: identical broker names retain both endpoints and distinguish saved trust from reachability");
-            Apply(paired with { PeerClocks = [new(peer.BrokerId, "observed", 20, 1.1, .2, DateTimeOffset.UtcNow, 1, true),
-                new(Guid.NewGuid(), "observed", 999, 1.1, .2, DateTimeOffset.UtcNow, 1, true)] });
-            string withClock = pane.Load()["pairedBrokers"];
+            string shown = pane.Load()["pairingStatus"];
+            var brokerRows = card.LoadItems().Where(row => row.Group == PairedGroup).ToArray();
+            check(brokerRows.Length == 2 && brokerRows.Any(row => row.Detail == new Uri(peer.Endpoint).Authority) &&
+                brokerRows.Any(row => row.Detail == new Uri(other.Endpoint).Authority) &&
+                brokerRows.Select(row => row.Label).Distinct(StringComparer.Ordinal).Count() == 2 &&
+                shown.Contains("Same name", StringComparison.Ordinal) && shown.Contains("Trust is saved", StringComparison.Ordinal) &&
+                shown.Contains("current reachability is not verified", StringComparison.Ordinal),
+                "pairing list: identical broker names retain distinct list identities and endpoints while Pairing distinguishes saved trust from reachability");
+            Apply(paired with { PeerClocks = [new(Guid.NewGuid(), "observed", 999, 1.1, .2, DateTimeOffset.UtcNow, 1, true),
+                new(peer.BrokerId, "observed", 20, 1.1, .2, DateTimeOffset.UtcNow, 1, true)] });
+            string withClock = pane.Load()["pairingStatus"];
             check(withClock.Contains("+20.0 s", StringComparison.Ordinal) && !withClock.Contains("+999.0 s", StringComparison.Ordinal) &&
                 withClock.Contains("Check time settings on both PCs", StringComparison.Ordinal),
-                "PEER_CLOCK_MATCHED_PANE: the actual paired-brokers field shows only the matching paired identity's clock observation");
+                "PEER_CLOCK_MATCHED_PANE: the pinned Pairing line shows only the matching paired identity's clock warning");
+            Apply(paired with { PeerClocks = [new(peer.BrokerId, "unavailable", null, null, null, null, null, false)] });
+            string unavailableClock = pane.Load()["pairingStatus"];
+            check(unavailableClock.Contains(BrokerRowName(peer), StringComparison.Ordinal) &&
+                unavailableClock.Contains("unavailable", StringComparison.OrdinalIgnoreCase),
+                "PEER_CLOCK_MATCHED_PANE: a matching unavailable clock observation remains visible in the pinned Pairing line");
             Apply(paired);
             int notifications = 0; pane.InfoChanged += () => notifications++;
             var moved = other with { Endpoint = "https://192.0.2.22:7433/" };
             Apply(view with { Paired = [peer, moved] });
-            shown = pane.Load()["pairedBrokers"];
-            check(notifications == 1 && shown.Contains(moved.Endpoint, StringComparison.Ordinal) &&
-                !shown.Contains(other.Endpoint, StringComparison.Ordinal),
-                "pairing list: endpoint-only changes notify the live Info row even when counts and names are unchanged");
+            shown = pane.Load()["pairingStatus"];
+            brokerRows = card.LoadItems().Where(row => row.Group == PairedGroup).ToArray();
+            check(brokerRows.Any(row => row.Detail == new Uri(moved.Endpoint).Authority) &&
+                !brokerRows.Any(row => row.Detail == new Uri(other.Endpoint).Authority),
+                "pairing list: a fresh Brokers render shows endpoint-only changes even when trust counts and names are unchanged");
             int before = notifications;
             Apply(view with { Paired = [moved, peer] });
-            check(pane.Load()["pairedBrokers"] == shown && notifications == before,
+            check(pane.Load()["pairingStatus"] == shown && notifications == before,
                 "pairing list: stable ordering avoids list churn for reordered equivalent snapshots");
             var alpha = peer with { Name = "Alpha" };
             var zulu = moved with { Name = "Zulu" };
             Apply(view with { Paired = [zulu, alpha] });
-            shown = pane.Load()["pairedBrokers"]; before = notifications;
+            shown = pane.Load()["pairingStatus"]; before = notifications;
             Apply(view with { Paired = [alpha, zulu] });
-            check(pane.Load()["pairedBrokers"] == shown && notifications == before &&
+            check(pane.Load()["pairingStatus"] == shown && notifications == before &&
                 shown.IndexOf("Alpha", StringComparison.Ordinal) < shown.IndexOf("Zulu", StringComparison.Ordinal),
                 "pairing list: distinct broker names and the trust summary use the same stable order across equivalent snapshots");
             Apply(view with { Paired = [peer with { Name = "Line\n&Break" }] });
-            check(pane.Load()["pairedBrokers"].Contains("LineBreak", StringComparison.Ordinal) &&
-                !pane.Load()["pairedBrokers"].Contains("Line\n&Break", StringComparison.Ordinal),
+            check(pane.Load()["pairingStatus"].Contains("LineBreak", StringComparison.Ordinal) &&
+                !pane.Load()["pairingStatus"].Contains("Line\n&Break", StringComparison.Ordinal),
                 "pairing list: broker names are sanitized before display");
             Apply(view with { Paired = Enumerable.Range(0, 35).Select(index => peer with {
                 BrokerId = new Guid(index + 1, 0, 0, new byte[8]), Name = "Peer" + index.ToString("D2"),
                 Endpoint = "https://192.0.2." + (index + 1) + ":7433/" }).ToArray() });
-            shown = pane.Load()["pairedBrokers"];
-            check(shown.Split('\n').Length == 66 && shown.Contains("Peer31", StringComparison.Ordinal) &&
-                !shown.Contains("Peer32", StringComparison.Ordinal) && shown.Contains("Showing 32 of 35", StringComparison.Ordinal),
-                "pairing list: lists thirty-two actual peers and states the bounded display when more exist");
+            shown = pane.Load()["pairingStatus"];
+            brokerRows = card.LoadItems().Where(row => row.Group == PairedGroup).ToArray();
+            check(brokerRows.Length == 32 && brokerRows.Any(row => row.Label.Contains("Peer31", StringComparison.Ordinal)) &&
+                !brokerRows.Any(row => row.Label.Contains("Peer32", StringComparison.Ordinal)) && shown.Contains("Showing 32 of 35", StringComparison.Ordinal),
+                "pairing list: the list shows thirty-two actual peers and Pairing states the bounded display when more exist");
             module.ApplyStatus(new(false, false, "worker_unresponsive"));
-            check(pane.Load()["pairedBrokers"].Contains("unavailable", StringComparison.Ordinal) &&
-                !pane.Load()["pairedBrokers"].Contains("Peer31", StringComparison.Ordinal),
-                "pairing list: unavailable worker state does not retain a misleading live peer list");
+            check(pane.Load()["pairingStatus"].Contains("unavailable", StringComparison.Ordinal) &&
+                !pane.Load()["pairingStatus"].Contains("Peer31", StringComparison.Ordinal),
+                "pairing list: Pairing reports unavailable worker state without retaining a misleading live peer list");
 
             Apply(paired);
             long oldPoll = module.NextObservation();
@@ -232,7 +244,7 @@ public sealed partial class AgentBrokerModule
             module.SendAsync(new("peer-revoke", peer.BrokerId)).GetAwaiter().GetResult();
             bool staleRevokePoll = module.ApplyStatus(new(true, false, "standby", paired), oldPoll);
             check(!staleRevokePoll && module.snapshot!.Paired.Length == 0 &&
-                pane.Load()["pairedBrokers"].StartsWith("No paired brokers.", StringComparison.Ordinal),
+                card.LoadItems().All(row => row.Group != PairedGroup) && !pane.Load()["pairingStatus"].Contains("Paired with", StringComparison.Ordinal),
                 "pairing observation: an older supervisor poll cannot resurrect trust after a newer revoke command snapshot");
 
             Apply(view);
@@ -241,7 +253,7 @@ public sealed partial class AgentBrokerModule
             module.SendAsync(new("pair-request", Peer: peer)).GetAwaiter().GetResult();
             bool staleEmptyPoll = module.ApplyStatus(new(true, false, "standby", view), oldEmptyPoll);
             check(!staleEmptyPoll && module.snapshot!.Paired.Length == 2 &&
-                pane.Load()["pairedBrokers"].Contains(peer.Endpoint, StringComparison.Ordinal),
+                card.LoadItems().Any(row => row.Group == PairedGroup && row.Detail == new Uri(peer.Endpoint).Authority),
                 "pairing observation: an older supervisor poll cannot erase trust confirmed by a newer command snapshot");
 
             control.Pending = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -249,7 +261,7 @@ public sealed partial class AgentBrokerModule
             Apply(paired);
             control.Pending.SetException(new IOException("SYNTHETIC_PRIVATE_OLD_STATUS_ERROR"));
             Pump(() => lateStatus.IsCompleted, dispatcher); lateStatus.GetAwaiter().GetResult(); control.Pending = null;
-            check(module.snapshot?.Paired.Length == 2 && pane.Load()["pairedBrokers"].Contains(peer.Endpoint, StringComparison.Ordinal),
+            check(module.snapshot?.Paired.Length == 2 && card.LoadItems().Any(row => row.Group == PairedGroup && row.Detail == new Uri(peer.Endpoint).Authority),
                 "pairing observation: an older failed status request cannot clear a newer successful peer snapshot");
         }
         finally { module.Shutdown(); Pump(() => module.pending.IsCompleted, dispatcher); }
@@ -340,7 +352,7 @@ public sealed partial class AgentBrokerModule
             Apply(view with { Paired = [], PairingOffers = [offer] });
             control.Response = new(true, "ok", view);
             module.SendAsync(new("pair-approve", offer.RequestId)).GetAwaiter().GetResult();
-            shown = pane.Load()["pairingStatus"];
+            shown = module.PairingDisplayText();
             check(shown.Contains("Paired with Approved peer", StringComparison.Ordinal) &&
                 !shown.Contains("Sending this workstation", StringComparison.Ordinal) &&
                 !shown.Contains("Confirmation received", StringComparison.Ordinal) && module.pairingStatus == unrelatedFailure,
@@ -353,8 +365,8 @@ public sealed partial class AgentBrokerModule
             control.Pending.SetResult(new(true, "ok", view with { Paired = [], PairingOffers = [offer] }));
             Pump(() => late.IsCompleted, dispatcher);
             late.GetAwaiter().GetResult(); control.Pending = null;
-            check(pane.Load()["pairingStatus"].Contains("Paired with Approved peer", StringComparison.Ordinal) &&
-                !pane.Load()["pairingStatus"].Contains("Pairing requested", StringComparison.Ordinal) &&
+            check(module.PairingDisplayText().Contains("Paired with Approved peer", StringComparison.Ordinal) &&
+                !module.PairingDisplayText().Contains("Pairing requested", StringComparison.Ordinal) &&
                 module.snapshot!.Paired.Any(paired => paired.BrokerId == peer.BrokerId) && module.pairingStatus == unrelatedFailure,
                 "pairing: a late successful pre-completion reply cannot replace already confirmed trust with an older pending snapshot");
 
@@ -372,7 +384,7 @@ public sealed partial class AgentBrokerModule
 
             Apply(view with { Paired = [], PairingOffers = [offer] });
             Apply(view with { Paired = [] });
-            check(!pane.Load()["pairingStatus"].Contains("Paired with", StringComparison.Ordinal) && module.pairingFailed,
+            check(!module.PairingDisplayText().Contains("Paired with", StringComparison.Ordinal) && module.pairingFailed,
                 "pairing: superseded or disappearing offers alone cannot imply completed trust");
             module.ApplyStatus(new(false, false, "worker_unresponsive"));
             check(!pane.Load()["pairingStatus"].Contains("Paired with", StringComparison.Ordinal) &&
@@ -395,7 +407,7 @@ public sealed partial class AgentBrokerModule
             control.Pending.SetResult(new(true, "ok", view));
             Pump(() => late.IsCompleted, dispatcher);
             late.GetAwaiter().GetResult(); control.Pending = null;
-            check(module.snapshot!.Paired.Length == 0 && !pane.Load()["pairingStatus"].Contains("Paired with", StringComparison.Ordinal),
+            check(module.snapshot!.Paired.Length == 0 && !module.PairingDisplayText().Contains("Paired with", StringComparison.Ordinal),
                 "pairing: a delayed successful approval snapshot cannot resurrect trust after a newer revocation poll");
 
             Apply(view with { Paired = [] });

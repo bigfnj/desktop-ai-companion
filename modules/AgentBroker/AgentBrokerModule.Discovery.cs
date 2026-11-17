@@ -8,8 +8,8 @@ public sealed partial class AgentBrokerModule
     // PANE-POPUP (1.10.5, N-broker-pairing-popups-01). Discovery and pairing offers raise no question any more: the
     // "Another broker discovered" card and the "Share with" offer card are gone, with their prompt state. A discovered
     // broker shows only in the Brokers list. An incoming offer is a passive signal: the tray root reads "AgentBroker:
-    // pairing request waiting" when the menu opens, Status gains a short suffix, and the live Pairing row names the
-    // requester. These are pure functions of the current snapshot and clock, so nothing here can send a control request,
+    // pairing request waiting" when the menu opens, and the live Pairing row names the requester. These are pure functions
+    // of the current snapshot and clock, so nothing here can send a control request,
     // and no episode cache exists to keep in step. Approval stays an explicit press on one offer, in the pane or the tray,
     // after the owner compares the same complete code on both workstations.
     // Every unexpired offer with a usable identity, in the Brokers list's order.
@@ -51,14 +51,12 @@ public sealed partial class AgentBrokerModule
         if (outgoing.Length != 0) parts.Add("Your pairing request to " + OfferNames(outgoing) + " also needs approval here.");
         if (approved.Length != 0) parts.Add("Approved here; waiting for " + OfferNames(approved) + " to approve.");
         if (incoming.Length + outgoing.Length != 0)
-            parts.Add("Press Refresh brokers, compare the full code under Awaiting approval on both workstations, then approve on both.");
+            parts.Add("Press Refresh brokers, compare the full code under Awaiting approval on both workstations, then press Codes match: approve on both.");
         if (waiting.Any(offer => CertificateDiffers(snapshot, offer.Peer)))
             parts.Add("A request whose " + CertificateDiffersHint + " cannot complete while that pairing is saved.");
         parts.Add(PairingScopeSentence);
         return string.Join(" ", parts);
     }
-
-    private string IncomingOfferStatus() => IncomingOffers().Length == 0 ? "" : " Pairing request waiting; see Pairing.";
 
     internal const string TrayRootWaitingLabel = "AgentBroker: pairing request waiting";
 

@@ -68,8 +68,8 @@ public sealed partial class AgentBrokerModule
         RunDeliveryWordingChecks(check, dispatcher);
     }
 
-    // The passive waiting-mail signals (PLAN 3.6 under Addendum A.3), read through their real consumers: the Status row from the
-    // pane's Load and the tray root's DynamicText. Literal texts, so a wording change fails here and not only in the label.
+    // The passive waiting-mail signals (PLAN 3.6 under Addendum A.3), read through the Status row and the production tray-label
+    // function. The separate INBOUND_OFFER_SIGNAL integration check owns the DynamicText wiring in the tray schema.
     private const string WaitingStatusSuffix = " Mail has waited past the notice threshold for a busy session; see Waiting mail.";
     private const string WaitingTrayLabel = "AgentBroker: mail waiting for a busy session";
 
@@ -110,7 +110,7 @@ public sealed partial class AgentBrokerModule
             (string Status, string Tray) Shown(BrokerSnapshot view, ControlResponse? answer)
             {
                 module.ApplyStatus(new WorkerStatus(true, true, "running", view), module.NextObservation(), answer);
-                return (pane.Load()["status"], host.TrayItems.Single().DynamicText?.Invoke() ?? "");
+                return (pane.Load()["status"], module.TrayRootLabel());
             }
 
             var baseline = Shown(status, quiet);
@@ -148,20 +148,20 @@ public sealed partial class AgentBrokerModule
                 two.Tray == "AgentBroker: mail waiting for 2 busy sessions" && oneOfThree == raised,
                 "WAITING_SIGNAL_SESSIONS: the signals count sessions: two eligible sessions read 2, one session with three busy messages reads one");
 
-            // An incoming pairing offer at the same time: both signals and the core status stay.
+            // An incoming pairing offer stays in Pairing and the tray; Status carries the waiting-mail suffix without
+            // repeating the pairing request that is directly below it in the pinned status band.
             var peer = new PeerView(Guid.NewGuid(), "Pairing peer", "https://192.0.2.41:7433/", new string('A', 64));
             BrokerSnapshot offering = status with { PairingOffers = [new PairingView(Guid.NewGuid(), peer, "01234567 89ABCDEF FEDCBA98 76543210",
                 DateTimeOffset.UtcNow.AddMinutes(10), false)] };
             var offerOnly = Shown(offering, quiet);
-            string pairingRow = pane.Load()["pairingStatus"];
+            string pairingRow = module.PairingDisplayText();
             var both = Shown(offering, eligible);
-            string pairingBoth = pane.Load()["pairingStatus"];
-            check(offerOnly.Status.StartsWith(baseline.Status, StringComparison.Ordinal) &&
-                offerOnly.Status.EndsWith(" Pairing request waiting; see Pairing.", StringComparison.Ordinal) &&
+            string pairingBoth = module.PairingDisplayText();
+            check(offerOnly.Status == baseline.Status &&
                 both.Status == offerOnly.Status + WaitingStatusSuffix && offerOnly.Tray == TrayRootWaitingLabel &&
                 both.Tray == "AgentBroker: pairing request waiting; mail waiting for a busy session" &&
                 pairingBoth == pairingRow && pairingBoth.StartsWith("Pairing request waiting from Pairing peer (", StringComparison.Ordinal),
-                "WAITING_SIGNAL_WITH_PAIRING: with an incoming pairing offer, Status keeps the core status and the pairing text before the mail suffix, and the tray root carries both signals");
+                "WAITING_SIGNAL_WITH_PAIRING: Pairing and the tray carry the offer while Status keeps only the core status and mail suffix");
 
             // A pairing error and dropped notices at the same time: the suffix sits after the core status and before both, and
             // replaces neither. Reset afterwards so the later checks compare against the same baseline.
@@ -269,7 +269,7 @@ public sealed partial class AgentBrokerModule
         {
             module.Init(host);
             OptionsPane pane = host.OptionsPanes.Single();
-            string Tray() => host.TrayItems.Single().DynamicText?.Invoke() ?? "";
+            string Tray() => module.TrayRootLabel();
             bool Raised() => pane.Load()["status"].EndsWith(WaitingStatusSuffix, StringComparison.Ordinal) && Tray() == WaitingTrayLabel;
             bool Clear() => !pane.Load()["status"].Contains("Mail has waited", StringComparison.Ordinal) && Tray() == "AgentBroker";
 
@@ -507,7 +507,7 @@ public sealed partial class AgentBrokerModule
             // passive waiting-mail label, so the clause pins that exact label instead (still an exact equality).
             check(past.Contains("past the 2 min sender notice threshold", StringComparison.Ordinal) && asks == 0 && host.Asks.Count == 0 &&
                 host.SaidLines.Count == 0 && host.BroadcastLines.Count == 0 && host.PlayedSounds.Count == 0 &&
-                host.TrayItems.Single().DynamicText?.Invoke() == WaitingTrayLabel,
+                module.TrayRootLabel() == WaitingTrayLabel,
                 "WAITING_PASSIVE: mail past the notice threshold raises no question, speech, broadcast or sound, and the tray root gains only its passive label");
 
             int notified = 0;
@@ -578,18 +578,21 @@ public sealed partial class AgentBrokerModule
         {
             module.Init(host);
             Pump(() => module.pending.IsCompleted, dispatcher);
-            string help = host.OptionsPanes.Single().Load()["messageLifetimeHelp"];
+            var pane = host.OptionsPanes.Single();
+            var values = pane.Load();
             byte[]? bytes = GuideBytes();
             string guide = bytes is null ? "" : Encoding.UTF8.GetString(bytes);
             string[] meaning = ["Delivered remains Delivered after its original delivery deadline", "reading alone does not acknowledge",
                 "Held keeps the text without extending its deadline"];
             string[] retired = ["until the recipient reads it", "remain received"];
-            check(guide.Length > 0 && meaning.All(text => help.Contains(text, StringComparison.Ordinal) && guide.Contains(text, StringComparison.Ordinal)) &&
-                retired.All(text => !help.Contains(text, StringComparison.OrdinalIgnoreCase) && !guide.Contains(text, StringComparison.OrdinalIgnoreCase)) &&
-                // The whole sentence: a reply settles a parent only in narrow cases (PICK-C: local parent and reply, not Held,
-                // replier with Receive), and never mail from a paired broker, so the guide makes no reply claim here.
-                guide.Contains("stays pending in its recipient's inbox until the recipient acknowledges it or its deadline passes.", StringComparison.Ordinal),
-                "WORDING_DELIVERY_STATES: the pane help and the guide say reading never acknowledges, Delivered stays Delivered and Held keeps its deadline");
+            check(guide.Length > 0 && meaning.All(text => guide.Contains(text, StringComparison.Ordinal)) &&
+                new[] { "sharing", "clientSetup" }.All(id => !values.ContainsKey(id) && !pane.Schema.Any(field => field.Id == id)) &&
+                retired.All(text => !guide.Contains(text, StringComparison.OrdinalIgnoreCase)) &&
+                guide.Contains("stays pending in its recipient's inbox until the recipient acknowledges it, an eligible fresh local reply settles it, or its deadline passes.", StringComparison.Ordinal) &&
+                guide.Contains("both peers are local", StringComparison.Ordinal) && guide.Contains("current row has <code>Receive</code>", StringComparison.Ordinal) &&
+                guide.Contains("the unexpired parent is <code>Accepted</code>, <code>Submitting</code>, <code>Submitted</code> or <code>Uncertain</code>", StringComparison.Ordinal) &&
+                guide.Contains("A retry of an existing reply, a reply to a paired broker, or a reply to <code>Held</code> leaves that parent's receipt unchanged.", StringComparison.Ordinal),
+                "WORDING_DELIVERY_STATES: the guide keeps delivery-state meanings and the pane removes duplicate help rows");
             // FU-3: a client row is one summary line only without supplementary notes or a stored setup result.
             check(guide.Contains("supplementary notes or a stored setup result (Last setup action) add lines too, so a healthy client is a single line only when it has neither", StringComparison.Ordinal),
                 "WORDING_CLIENT_LINES: the guide says notes and a stored setup result add lines, so healthy means one line only without them");
@@ -599,23 +602,26 @@ public sealed partial class AgentBrokerModule
             int wakeStart = guide.IndexOf("<section id=\"wake\">", StringComparison.Ordinal);
             int wakeEnd = wakeStart < 0 ? -1 : guide.IndexOf("</section>", wakeStart, StringComparison.Ordinal);
             string wake = wakeStart < 0 || wakeEnd < 0 ? "" : guide[wakeStart..wakeEnd];
-            string[] recipe = ["--watch-inbox", "Claude Code only", "StartTime.ToUniversalTime().ToFileTimeUtc()",
+            // Executable array contents, optional pairs, duration, invocation and exit propagation are independently
+            // checked by GUIDE_RECIPE_PARSES_PS51; this guard owns the prose around that runnable example.
+            string[] recipe = ["--watch-inbox", "Claude Code's background-command mechanism", "StartTime.ToUniversalTime().ToFileTimeUtc()",
                 "Do not use a .NET DateTime's Ticks", "-ne 'claude.exe' -and $i -lt 32", "throw 'No claude.exe ancestor",
-                "'--max-seconds', '7200'", "'--seen-ids', '&lt;handled IDs", "&amp; $worker @watchArgs", "--unbound",
-                "Arming never requires acknowledging anything", "they never mean mail", "handle each message ID once"];
+                "--unbound",
+                "Arming never requires acknowledging anything", "outcomes never mean mail", "handle each message ID once"];
             check(wake.Length > 0 && recipe.All(text => wake.Contains(text, StringComparison.Ordinal)) &&
                 !guide.Contains("Get-ClaudeHost", StringComparison.Ordinal) && !guide.Contains("AGENTBROKER_MAIL", StringComparison.Ordinal),
-                "WATCH_GUIDE_RECIPE: the wake section's --watch-inbox recipe has a bounded parent walk printing the FILETIME, an explicit duration, seen IDs, the exit meanings and no prototype helper");
-            // Windows PowerShell 5.1 drops an empty native argument, so "--seen-ids ''" reaches the worker as a valueless flag
-            // and the command is refused (exit 2). The recipe must say to leave a pair out, never to pass it empty (freeze 5).
-            check(wake.Contains("Never pass an empty value: Windows PowerShell 5.1 drops an empty argument", StringComparison.Ordinal) &&
-                wake.Contains("leave out the --cursor pair when you have no cursor and the --seen-ids pair when you handled no IDs", StringComparison.Ordinal) &&
-                wake.Contains("If there are none, leave the whole --seen-ids pair out of the command.", StringComparison.Ordinal) &&
-                !wake.Contains("or empty&gt;", StringComparison.Ordinal),
+                "WATCH_GUIDE_RECIPE: the wake section explains its bounded parent walk, FILETIME, background command, unbound identity and no prototype helper");
+            // Empty optional values need omission, including on Windows PowerShell 5.1, which drops empty native arguments.
+            // The exact worker refusal and argument limits are checked by WATCH_GUIDE_EXACT_CONTRACT before this check.
+            check(wake.Contains("Never pass an empty value.", StringComparison.Ordinal) &&
+                wake.Contains("Windows PowerShell 5.1 drops an empty native argument", StringComparison.Ordinal) &&
+                wake.Contains("conditional additions omit the --cursor pair when you have no cursor and the --seen-ids pair when you handled no IDs", StringComparison.Ordinal) &&
+                wake.Contains("leave the corresponding variable empty instead of editing the argument array", StringComparison.Ordinal),
                 "WATCH_GUIDE_EMPTY_ARGS: the recipe says to leave the --cursor and --seen-ids pairs out instead of passing an empty value");
             // A failed output write ends with exit 26 and may leave no complete line, so the line is promised only on a normal end.
             check(wake.Contains("When the command ends normally it prints one line of fixed metadata", StringComparison.Ordinal) &&
-                wake.Contains("a run that ends without a complete line mean review the command; they never mean mail", StringComparison.Ordinal) &&
+                wake.Contains("A run that ends without a complete metadata line establishes neither mail nor an empty inbox; read the inbox before deciding whether to rearm.", StringComparison.Ordinal) &&
+                wake.Contains("<tr><td>26</td>", StringComparison.Ordinal) &&
                 !wake.Contains("it has printed one line", StringComparison.Ordinal),
                 "WATCH_GUIDE_NO_LINE: the recipe promises the metadata line only on a normal end, and treats no complete line like exit 26, never as mail");
             // Freeze 7 (G7 claims audit wf_1c41a366-ff1, 2026-11-12): the recipe must run as written on a default Windows
