@@ -28,13 +28,29 @@ public sealed partial class AgentBrokerModule
 
     private void LoadAttachmentValues(IDictionary<string, string> values) => values["attachments"] = AttachmentsText();
 
-    // At most two sentences and 280 characters (ATTACHMENTS_INFO_ROW_TEXT), like every static pane explanation.
+    internal const string AttachmentsWaitingText = "On in settings, waiting for the broker to restart with attachments.";
+    internal const string AttachmentsStillOnText = "Off in settings, but the running broker still sends files and accepts them from allowed brokers until it restarts.";
+    internal const string AttachmentsUnsavedText = "On, but a change to the allow list is not saved yet. The broker retries every minute; a restart before then would bring back the old list.";
+    internal const string AttachmentsWaitingRefusal = "Attachments are on in settings, but the broker has not restarted with them yet. Press Refresh brokers in a moment.";
+
+    // At most two sentences and 280 characters (ATTACHMENTS_INFO_ROW_TEXT), like every static pane explanation. Round 2
+    // (F-13): On or Off is what the RUNNING broker reports (snapshot Attachments.Enabled), and the setting only explains a
+    // difference, because a standby worker or a pending restart can disagree with it.
     internal string AttachmentsText()
     {
         const string caps = "Up to 4 files, 8 MiB each, 16 MiB per message";
-        if (!settings.AttachmentsEnabled)
-            return "Off. When on, an agent can send up to 4 files (8 MiB each, 16 MiB per message) to a paired broker that allows them under Brokers; received files are checked, quarantined and marked as downloaded from the internet.";
         var view = snapshot?.Attachments;
+        bool running = view?.Enabled == true;
+        if (!settings.AttachmentsEnabled && !running)
+            return "Off. When on, an agent can send up to 4 files (8 MiB each, 16 MiB per message) to a paired broker that allows them under Brokers; received files are checked, quarantined and marked as downloaded from the internet.";
+        if (!settings.AttachmentsEnabled) return AttachmentsStillOnText;
+        if (!running)
+            return AttachmentsWaitingText + " " + caps + "; received files are quarantined and marked as downloaded from the internet.";
+        // F-6: the worker could not store a received file (its data folder is not plain local NTFS, or access is denied).
+        if (view?.QuarantineUnavailable == true)
+            return "On, but received files cannot be stored here: the broker's data folder is not plain local NTFS, or access to it is denied, so files sent here are refused. " + caps + ".";
+        // Round 2b: an allow removal is in force but its save failed; the worker retries it every minute.
+        if (view?.PolicyUnsaved == true) return AttachmentsUnsavedText;
         if (view?.PolicyUnreadable == true)
             return "On, but the allow list could not be read, so no broker may send files here until you allow one under Brokers. " + caps + "; received files are quarantined and marked as downloaded from the internet.";
         int allowed = view?.AllowedBrokers.Length ?? 0;
@@ -61,17 +77,21 @@ public sealed partial class AgentBrokerModule
     private static string AttachmentPairedSuffix(PeerView peer, BrokerSnapshot view) =>
         AttachmentsAllowed(peer, view) ? ", " + AttachmentsAllowedHint : "";
 
+    internal const string NoLongerPairedRefusal = "This broker is no longer paired. Press Refresh brokers to see the current state.";
+
     // One ticked Paired row, still paired under the same certificate. The owner's choice toggles that broker's permission;
-    // the worker pins it to the broker's current certificate and a revoke removes it (D-9).
+    // the worker pins it to the broker's current certificate and a revoke removes it (D-9). DECISIONS 41 (round 2, F-23):
+    // stopping an allowed broker works with attachments off; allowing one needs attachments on, in settings and in the
+    // running broker.
     private async Task<string> ToggleAttachmentsFromListAsync(PaneAction pressed)
     {
         if (BrokerActionUnavailable() is { } unavailable) return unavailable;
-        if (!settings.AttachmentsEnabled || snapshot!.Attachments is not { Enabled: true }) return AttachmentsOffRefusal;
         if (TickedBrokerRow(PairedGroup, out string refusal) is not { } row) return refusal;
         PairingPeerIdentity? identity = PairingIdentity(row.Peer);
-        if (snapshot.Paired.All(peer => PairingIdentity(peer) != identity))
-            return "This broker is no longer paired. Press Refresh brokers to see the current state.";
+        if (snapshot!.Paired.All(peer => PairingIdentity(peer) != identity)) return NoLongerPairedRefusal;
         bool allow = !AttachmentsAllowed(row.Peer, snapshot);
+        if (allow && (!settings.AttachmentsEnabled || snapshot.Attachments is not { Enabled: true }))
+            return settings.AttachmentsEnabled ? AttachmentsWaitingRefusal : AttachmentsOffRefusal;
         int current = generation;
         ControlResponse? response = await SendAsync(new("peer-attachments", row.Peer.BrokerId, Value: allow));
         pressed.ReloadPaneAfter = true;
@@ -138,25 +158,77 @@ public sealed partial class AgentBrokerModule
                 control.Requests.LastOrDefault() is { Operation: "peer-attachments", Value: false } && stopped.EndsWith("are no longer accepted.", StringComparison.Ordinal),
                 "ATTACHMENTS_ALLOW_ACTION_ONE_PAIRED_ROW: an allowed broker says so in its row, and the same action stops it");
 
+            // F-11: the row was ticked while paired; a snapshot without that pairing arrives before the press.
+            var tickedRows = card.LoadItems();
+            foreach (var item in tickedRows) card.SetChecked(item.Id, item.Group == PairedGroup && IsPaired(item, b));
+            module.ApplyStatus(new(true, false, "standby", view with { Paired = [a], Attachments = new AttachmentsView(true, [a.BrokerId], 2, 3 * 1024 * 1024, null, false) }));
+            int beforeStale = control.Requests.Count;
+            string stale = Invoke(card, AllowAttachmentsLabel);
+            check(stale == NoLongerPairedRefusal && control.Requests.Count == beforeStale,
+                "ATTACHMENTS_ALLOW_ACTION_STALE_PAIRING: a row ticked while paired, pressed after the pairing ended, says it is no longer paired and sends nothing");
+
+            var onView = view with { Attachments = new AttachmentsView(true, [a.BrokerId], 2, 3 * 1024 * 1024, null, false) };
+            module.ApplyStatus(new(true, false, "standby", onView));
             string on = module.AttachmentsText();
+            module.ApplyStatus(new(true, false, "standby", view with { Attachments = new AttachmentsView(false, [a.BrokerId], 0, 0, null, false) }));
             module.settings = module.settings with { AttachmentsEnabled = false };
             string off = module.AttachmentsText();
-            int requests = control.Requests.Count;
-            string refused = Press(item => IsPaired(item, a));
             check(new[] { on, off }.All(text => text.Length <= 280) &&
                 on.StartsWith("On: 1 paired broker may", StringComparison.Ordinal) && on.Contains("2 received files (3 MiB)", StringComparison.Ordinal) &&
-                off.StartsWith("Off.", StringComparison.Ordinal) && refused == AttachmentsOffRefusal && control.Requests.Count == requests,
+                off.StartsWith("Off.", StringComparison.Ordinal),
                 "ATTACHMENTS_INFO_ROW_TEXT: the row states off or on, the allowed brokers, the caps and the quarantine in at most 280 characters");
 
+            // F-23 (DECISIONS 41) with the switch off: allowing a broker is refused with nothing sent; stopping the one still
+            // allowed sends the removal.
+            int beforeOff = control.Requests.Count;
+            string refused = Press(item => IsPaired(item, b));
+            bool refusedQuietly = refused == AttachmentsOffRefusal && control.Requests.Count == beforeOff;
+            string removedWhileOff = Press(item => IsPaired(item, a));
+            check(refusedQuietly && control.Requests.LastOrDefault() is { Operation: "peer-attachments", Value: false } removal && removal.Id == a.BrokerId &&
+                removedWhileOff.EndsWith("are no longer accepted.", StringComparison.Ordinal),
+                "ATTACHMENTS_ALLOW_ACTION_SWITCH_OFF: with attachments off, allowing a broker is refused and sends nothing, while stopping an allowed one still works");
+
+            // F-13: On or Off comes from the running worker; F-12: a change there alone reaches the open pane.
+            module.settings = module.settings with { AttachmentsEnabled = true };
+            module.ApplyStatus(new(true, false, "standby", view with { Attachments = null }));
+            string waiting = module.AttachmentsText();
+            // Round 2b: with only the setting on, allowing a broker says the broker has not restarted yet, and sends nothing.
+            int beforeWaiting = control.Requests.Count;
+            string waitingRefusal = Press(item => IsPaired(item, b));
+            check(waitingRefusal == AttachmentsWaitingRefusal && control.Requests.Count == beforeWaiting,
+                "ATTACHMENTS_ALLOW_ACTION_WAITING: with attachments on in settings but not yet in the broker, allowing says to wait for the restart and sends nothing");
+            module.settings = module.settings with { AttachmentsEnabled = false };
+            module.ApplyStatus(new(true, false, "standby", onView));
+            string stillOn = module.AttachmentsText();
+            module.settings = module.settings with { AttachmentsEnabled = true };
+            check(waiting.StartsWith(AttachmentsWaitingText, StringComparison.Ordinal) && waiting.Length <= 280 && stillOn == AttachmentsStillOnText,
+                "ATTACHMENTS_INFO_ROW_FROM_WORKER: the row reports what the running broker does: waiting for a restart while only the setting is on, still on until a restart while only the worker is");
+            module.ApplyStatus(new(true, false, "standby", onView with { Attachments = onView.Attachments! with { PolicyUnsaved = true } }));
+            string unsaved = module.AttachmentsText();
+            module.ApplyStatus(new(true, false, "standby", onView));
+            check(unsaved == AttachmentsUnsavedText && unsaved.Length <= 280,
+                "ATTACHMENTS_INFO_ROW_UNSAVED: an allow-list change the broker could not save yet is shown as not saved, with what a restart would do");
+            int notified = 0;
+            Action counter = () => notified++;
+            pane.InfoChanged += counter;
+            module.ApplyStatus(new(true, false, "standby", onView with { Attachments = onView.Attachments! with { InboxFiles = 3, InboxBytes = 4 * 1024 * 1024 } }));
+            pane.InfoChanged -= counter;
+            check(notified == 1 && pane.Load()["attachments"].Contains("3 received files (4 MiB)", StringComparison.Ordinal),
+                "ATTACHMENTS_INFO_ROW_LIVE: a change only in the worker's attachment counts notifies the open pane once, and the row it reloads shows it");
+
+            // F-11: the reveal's two refusals, exactly.
+            module.settings = module.settings with { AttachmentsEnabled = false };
+            string revealOff = pane.Actions.Single(action => action.Label == ShowAttachmentsLabel).InvokeAsync().GetAwaiter().GetResult();
             module.settings = module.settings with { AttachmentsEnabled = true };
             string missing = pane.Actions.Single(action => action.Label == ShowAttachmentsLabel).InvokeAsync().GetAwaiter().GetResult();
             string readme = Path.Combine(storage, "attachments", "README.txt");
             Directory.CreateDirectory(Path.GetDirectoryName(readme)!);
             File.WriteAllText(readme, "Synthetic README.");
             string revealed = pane.Actions.Single(action => action.Label == ShowAttachmentsLabel).InvokeAsync().GetAwaiter().GetResult();
-            check(pane.Actions.Single(action => action.Label == ShowAttachmentsLabel).RevealsPath && missing.StartsWith("\u2717", StringComparison.Ordinal) &&
+            check(pane.Actions.Single(action => action.Label == ShowAttachmentsLabel).RevealsPath && revealOff == "\u2717 " + AttachmentsOffRefusal &&
+                missing == "\u2717 The attachments folder appears once the broker has restarted with attachments on. Press Refresh status." &&
                 revealed == readme,
-                "ATTACHMENTS_REVEAL_FILE: the action reveals the README file inside the module's storage, and says why when it does not exist");
+                "ATTACHMENTS_REVEAL_FILE: the action reveals the README file inside the module's storage, and says exactly why when it cannot");
         }
         finally
         {

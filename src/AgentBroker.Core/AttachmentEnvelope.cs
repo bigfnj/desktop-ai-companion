@@ -186,6 +186,8 @@ public static class AttachmentCodes
     public const string EnvelopeReserved = "attachment_envelope_reserved";
     public const string NotFound = "attachment_not_found";
     public const string StorageUnavailable = "attachment_storage_unavailable";
+    // Round 2 (F-18): the note does not fit beside the attachment list inside the 16 KiB envelope.
+    public const string TextTooLong = "attachment_text_too_long";
 
     public const string RefusedByPolicy = "attachments_refused_by_policy";
     public const string EnvelopeInvalid = "attachment_envelope_invalid";
@@ -194,7 +196,10 @@ public static class AttachmentCodes
     public const string FetchFailed = "attachment_fetch_failed";
     public const string QuarantineFull = "attachment_quarantine_full";
     public const string FetchPending = "attachment_fetch_pending";
+    // Round 2 (F-6): the recipient's quarantine cannot hold files at all (its folder is not a plain local NTFS folder), a
+    // definite refusal rather than ten minutes of deferral blamed on the sender.
+    public const string QuarantineUnavailable = "attachment_quarantine_unavailable";
 
     public static bool IsAdmissionCode([System.Diagnostics.CodeAnalysis.NotNullWhen(true)] string? code) => code is RefusedByPolicy or EnvelopeInvalid or Mismatch or Unavailable or
-        FetchFailed or QuarantineFull or FetchPending;
+        FetchFailed or QuarantineFull or FetchPending or QuarantineUnavailable;
 }

@@ -238,9 +238,11 @@ public sealed partial class PeerFederation : IPeerFederation
     public void RejectPair(Guid requestId) { lock (gate) { if (pending.Remove(requestId, out var item)) Remember(item); } }
     public void RevokePeer(Guid brokerId)
     {
-        lock (gate) { foreach (var item in pending.Values.Where(p => p.Offer.Peer.BrokerId == brokerId).ToArray()) { Remember(item); pending.Remove(item.Offer.RequestId); } store.RevokePeer(brokerId); }
-        // D-9: a revoked broker loses its attachment permission; pairing again never restores it.
+        // D-9 / round 2 F-14: the attachment permission goes FIRST. If its sidecar cannot be written, the policy already denies
+        // the broker in memory, nothing below is committed, the peer stays paired and the owner can retry; pairing again never
+        // restores it (the allow is pinned to the pairing's PairedAt).
         Attachments?.Policy.Remove(brokerId);
+        lock (gate) { foreach (var item in pending.Values.Where(p => p.Offer.Peer.BrokerId == brokerId).ToArray()) { Remember(item); pending.Remove(item.Offer.RequestId); } store.RevokePeer(brokerId); }
     }
     public async Task<PeerDirectory> GetDirectoryAsync(PeerTrust peer, CancellationToken token)
     {
@@ -306,7 +308,8 @@ public sealed partial class PeerFederation : IPeerFederation
         if (consumed.Count > 256) consumed.Remove(consumed.MinBy(p => p.Value.Until).Key);
     }
     private void Trim() { foreach (var p in pending.Where(p => p.Value.Offer.ExpiresAt <= Now).ToArray()) { Remember(p.Value); pending.Remove(p.Key); } foreach (var p in consumed.Where(p => p.Value.Until <= Now).ToArray()) consumed.Remove(p.Key); }
-    private HttpClient Client(BrokerAdvertisement peer, Action<IPAddress>? local = null, ConnectionAttempt? attempt = null)
+    private HttpClient Client(BrokerAdvertisement peer, Action<IPAddress>? local = null, ConnectionAttempt? attempt = null,
+        Func<HttpMessageHandler, HttpMessageHandler>? wrap = null)
     {
         Uri endpoint = NetworkPolicy.Endpoint(peer.Endpoint);
         var handler = new SocketsHttpHandler { AllowAutoRedirect = false, UseCookies = false, UseProxy = false, ConnectTimeout = TimeSpan.FromSeconds(10), PooledConnectionLifetime = TimeSpan.Zero };
@@ -328,7 +331,7 @@ public sealed partial class PeerFederation : IPeerFederation
                 socket.Dispose(); throw;
             }
         };
-        return new HttpClient(handler) { BaseAddress = endpoint, Timeout = TimeSpan.FromSeconds(10) };
+        return new HttpClient(wrap is null ? handler : wrap(handler)) { BaseAddress = endpoint, Timeout = TimeSpan.FromSeconds(10) };
     }
     private async Task<T> Exchange<T>(HttpClient client, HttpMethod method, string path, object? payload, CancellationToken token,
         int maximum = 32768, bool pairingRequest = false, BrokerStore.PeerAuthorization? authorization = null,

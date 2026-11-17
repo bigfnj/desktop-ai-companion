@@ -193,10 +193,14 @@ DesktopAICompanion sends data only when a network feature is used:
   agent on this computer can call `send_with_attachments` to send up to 4 files (8 MiB each, 16 MiB per message)
   that it names, to a session on a broker you paired; the files go only to that broker, over the same encrypted,
   certificate-pinned LAN connection as broker messages. Copies wait in `attachments\outbox` in the module's data
-  folder until the other broker has fetched them. Files arrive here only from a paired broker you allowed on the
-  Brokers card; each is checked against the size and SHA-256 its sender declared, kept in `attachments\inbox`,
-  and marked as downloaded from the internet. AgentBroker never opens, runs or scans these files, and deletes
-  them when their message's record ends, at most 48 hours later. Nothing goes to any other computer or service.
+  folder. Files arrive here only from a paired broker you allowed on the Brokers card; each is checked against the
+  size and SHA-256 its sender declared, kept in `attachments\inbox`, and marked as downloaded from the internet.
+  AgentBroker never runs or scans these files; it reads them only to check and serve them. While the broker runs, sent
+  copies and received files are both deleted when their message's record ends, at most 48 hours later, and a sent copy
+  goes sooner if its message is refused or expires; while it is stopped nothing is deleted until it starts again. The brokers
+  you allowed stay allowed while the switch is off, so turning it back on restores them; you can stop one at any
+  time, also while the switch is off, and revoking a pairing removes its permission. Nothing goes to any other
+  computer or service.
 
 Remote AI endpoints must use HTTPS. Plain HTTP is accepted only for the local loopback computer.
 Redirects are not followed. Sending screen context to a non-loopback provider requires the explicit

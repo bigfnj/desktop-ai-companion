@@ -7,7 +7,7 @@ using AgentBroker.Worker.Security;
 
 // Lane F (1.10.5): file attachments between real paired nodes over mutual TLS on loopback. Each label names the guard a
 // mutation must break; the hygiene recipes attachment-* target these labels.
-internal static class AttachmentFederationChecks
+internal static partial class AttachmentFederationChecks
 {
     private const string Note = "Synthetic attachment note.";
 
@@ -24,6 +24,7 @@ internal static class AttachmentFederationChecks
         await SlowPullAsync(scratch, identity, check);
         await HeadOfLineAsync(scratch, identity, check);
         await UnavailableAsync(scratch, identity, check);
+        await RoundTwoAsync(scratch, identity, check);
     }
 
     private static async Task Pair(Node a, Node b)
@@ -101,8 +102,10 @@ internal static class AttachmentFederationChecks
             "ATTACHMENT_PULL_VERIFIED_MOTW: every received file carries a ZoneId=3 Mark of the Web");
         check(File.Exists(b.Attachments.ReadmePath), "ATTACHMENT_README: an enabled store writes the README the pane reveals");
         int served = a.Pairing.AttachmentRequests;
+        int pulls = Volatile.Read(ref b.Federation.AttachmentPullsStarted);
         var again = await a.Federation.SubmitAsync(TrustOf(a, b), message, default);
-        check(again.Message == message && a.Pairing.AttachmentRequests == served,
+        // T-10: no file request AND no pull started (a pull answered from verified files would make no request either).
+        check(again.Message == message && a.Pairing.AttachmentRequests == served && Volatile.Read(ref b.Federation.AttachmentPullsStarted) == pulls,
             "ATTACHMENT_IDEMPOTENT_RETRY: a retry of an admitted message is answered by the store and never pulls again");
         b.Federation.RevokePeer(a.Store.BrokerId);
         check(!File.ReadAllText(Path.Combine(b.Directory, "attachment-peers.json")).Contains(a.Store.BrokerId.ToString("D"), StringComparison.OrdinalIgnoreCase),
@@ -121,6 +124,7 @@ internal static class AttachmentFederationChecks
         var recipient = b.Register("att-mismatch-recipient");
         var message = SendAttached(a, sender, recipient, Source(scratch, "mismatch", "data.bin", RandomNumberGenerator.GetBytes(4096)));
         File.WriteAllBytes(Path.Combine(a.Attachments!.OutboxFolder(message.Id), "0-data.bin"), RandomNumberGenerator.GetBytes(4096));
+        long published = b.Attachments!.PublishedFiles; // T-8: unverified bytes never reach the disk, even briefly
         await using (var runtime = new BrokerRuntime(a.Store, a.Federation, []))
         {
             runtime.Start(default);
@@ -129,7 +133,7 @@ internal static class AttachmentFederationChecks
                 () => "sender " + Seen(a, message.Id) + " (expected Refused/attachment_mismatch); recipient " + Seen(b, message.Id));
         }
         check(a.Store.FindReceipt(message.Id)?.Reason == AttachmentCodes.Mismatch && b.Store.FindReceipt(message.Id) is null &&
-            !Directory.Exists(b.Attachments!.InboxFolder(a.Store.BrokerId, message.Id)),
+            !Directory.Exists(b.Attachments.InboxFolder(a.Store.BrokerId, message.Id)) && b.Attachments.PublishedFiles == published,
             "ATTACHMENT_MISMATCH_REFUSED: a file that does not hash to its declared value is refused and nothing is kept");
     }
 
@@ -208,16 +212,20 @@ internal static class AttachmentFederationChecks
             await context.Response.Body.WriteAsync(new byte[declared + 1]);
             return true;
         };
-        long before = Interlocked.Read(ref b.Federation.AttachmentBodyBytesRead);
+        // T-11: body bytes are counted on the recipient's own HttpClient (a DelegatingHandler), not by the product's counter.
+        CountingHandler? counter = null;
+        b.Federation.AttachmentHandler = inner => counter = new CountingHandler(inner);
+        long published = b.Attachments!.PublishedFiles;
         await using (var runtime = new BrokerRuntime(a.Store, a.Federation, []))
         {
             runtime.Start(default);
             await Until(() => a.Store.FindReceipt(message.Id)?.Status == MessageStatus.Refused,
                 "ATTACHMENT_OVERSIZE_REFUSED_BEFORE_DOWNLOAD: the sender records the message whose file is served oversized as Refused",
-                () => "sender " + Seen(a, message.Id) + " (expected Refused/attachment_mismatch); recipient " + Seen(b, message.Id));
+                () => "sender " + Seen(a, message.Id) + " (expected Refused/attachment_mismatch); recipient " + Seen(b, message.Id) +
+                    "; body bytes read " + (counter is null ? "no request" : Interlocked.Read(ref counter.BodyBytes).ToString(System.Globalization.CultureInfo.InvariantCulture)));
         }
         check(a.Store.FindReceipt(message.Id)?.Reason == AttachmentCodes.Mismatch && b.Store.FindReceipt(message.Id) is null &&
-            Interlocked.Read(ref b.Federation.AttachmentBodyBytesRead) == before,
+            counter is not null && Interlocked.Read(ref counter.BodyBytes) == 0 && b.Attachments.PublishedFiles == published,
             "ATTACHMENT_OVERSIZE_REFUSED_BEFORE_DOWNLOAD: a Content-Length other than the declared size is refused with no body byte read");
     }
 

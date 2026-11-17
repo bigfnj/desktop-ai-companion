@@ -80,7 +80,14 @@ internal static class AttachmentEnvelopeChecks
             "ATTACHMENT_ENVELOPE_STRICT: text without the exact kind is ordinary text");
         Check(Parse(JsonSerializer.Serialize(new { kind = AttachmentEnvelope.Kind, text = "x", attachments = new[] { RawEntry(0, "a.txt", 1, hash) }, extra = 1 }))
             == AttachmentParse.Invalid, "ATTACHMENT_ENVELOPE_STRICT: a claimed kind with an unknown member is Invalid, not plain text");
-        Check(Parse("{\"kind\":\"" + AttachmentEnvelope.Kind + "\",\"text\":\"x\",\"text\":\"y\",\"attachments\":[]}") == AttachmentParse.Invalid,
+        // T-1: a VALID one-entry list, so only the duplicate rule (ExactMembers' count) can make these Invalid: once at the top
+        // level and once inside the entry. The same texts without the duplicate are Valid (control).
+        string entry = "{\"index\":0,\"name\":\"a.txt\",\"bytes\":1,\"sha256\":\"" + hash + "\"}";
+        string duplicatedEntry = "{\"index\":0,\"name\":\"a.txt\",\"name\":\"a.txt\",\"bytes\":1,\"sha256\":\"" + hash + "\"}";
+        string Shaped(string text, string listed) => "{\"kind\":\"" + AttachmentEnvelope.Kind + "\"," + text + ",\"attachments\":[" + listed + "]}";
+        Check(Parse(Shaped("\"text\":\"x\"", entry)) == AttachmentParse.Valid &&
+            Parse(Shaped("\"text\":\"x\",\"text\":\"x\"", entry)) == AttachmentParse.Invalid &&
+            Parse(Shaped("\"text\":\"x\"", duplicatedEntry)) == AttachmentParse.Invalid,
             "ATTACHMENT_ENVELOPE_STRICT: a duplicated member is Invalid");
         Check(Parse(Raw(new[] { RawEntry(0, "a.txt", 1, hash), RawEntry(2, "b.txt", 1, hash) })) == AttachmentParse.Invalid &&
             Parse(Raw(new[] { RawEntry(1, "a.txt", 1, hash), RawEntry(0, "b.txt", 1, hash) })) == AttachmentParse.Invalid,

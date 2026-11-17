@@ -23,13 +23,13 @@ internal sealed class ToolFixture : IAsyncDisposable
     internal AgentBroker.Worker.Attachments.AttachmentStore? Attachments { get; }
     internal ToolFixture(string name, BrokerLimits? limits = null, TimeProvider? clock = null,
         IReadOnlyList<ILocalAgentAdapter>? adapters = null, ICallerProcessResolver? callers = null,
-        IPeerFederation? federation = null, bool? attachments = null)
+        IPeerFederation? federation = null, bool? attachments = null, AgentBroker.Worker.Attachments.AttachmentLimits? attachmentLimits = null)
     {
         scratch = OwnedScratch.Create(name);
         Root = scratch.Root;
         Store = new BrokerStore(Path.Combine(Root, "store"), limits, clock ?? Clock);
         Attachments = attachments is { } enabled
-            ? new AgentBroker.Worker.Attachments.AttachmentStore(Path.Combine(Root, "data"), Store, enabled, clock ?? Clock) : null;
+            ? new AgentBroker.Worker.Attachments.AttachmentStore(Path.Combine(Root, "data"), Store, enabled, clock ?? Clock, attachmentLimits) : null;
         Runtime = new BrokerRuntime(Store, federation ?? new NoPeers(), adapters ?? [], new SessionPreferences(Root), clock ?? Clock, callers)
             { Attachments = Attachments };
         Context.Items["agentbroker.identity"] = Store.BrokerId;

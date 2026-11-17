@@ -9,7 +9,7 @@ using Microsoft.AspNetCore.Http;
 
 // Lane F (1.10.5): the attachment tools, the sender's source rules, staging, retention, the zone stream, the sender's
 // deferral mapping and the per-broker policy. Each label names the guard a mutation must break.
-internal static class AttachmentChecks
+internal static partial class AttachmentChecks
 {
     private const string LocalOnly = "Attachments are a local operation.";
 
@@ -24,6 +24,7 @@ internal static class AttachmentChecks
         Policy(check);
         Options(check);
         Zone(check);
+        await RoundTwoAsync(check);
     }
 
     private static string Source(string root, string name, byte[] bytes)
@@ -57,18 +58,23 @@ internal static class AttachmentChecks
             AttachmentSource.OpenedFiles == opened,
             "ATTACHMENT_TOOLS_LOCAL_ONLY: a paired broker's caller is refused both tools and no file is opened");
 
-        // W-5 and W-8: staged bytes, envelope and fetch come from one read, and fetch is the participants' alone.
+        // W-5 and W-8: staged bytes, envelope and fetch come from one read, and fetch is the participants' alone. T-7: the
+        // source is opened exactly once, and a rewrite between that read and the staged write (seam) changes nothing.
         Guid id = Guid.NewGuid();
+        int openedBefore = AttachmentSource.OpenedFiles;
+        fixture.Attachments!.BeforeStageWrite = () => File.WriteAllBytes(path, Encoding.UTF8.GetBytes("Synthetic content rewritten between the read and the copy."));
         var receipt = fixture.Tools.SendWithAttachments(sender.Address, recipient.Address, id, "Synthetic note.", [path]);
+        fixture.Attachments.BeforeStageWrite = null;
+        int openedBySend = AttachmentSource.OpenedFiles - openedBefore;
         check(AttachmentEnvelope.TryParse(receipt.Message.Text, out var envelope) == AttachmentParse.Valid &&
             envelope!.Attachments.Single() is { Name: "notes.txt" } entry && entry.Sha256 == Hash(content) && entry.Bytes == content.Length,
             "ATTACHMENT_STAGED_ENVELOPE: the message text is a valid envelope naming the file's size and SHA-256");
-        string staged = Path.Combine(fixture.Attachments!.OutboxFolder(id), "0-notes.txt");
+        string staged = Path.Combine(fixture.Attachments.OutboxFolder(id), "0-notes.txt");
         File.WriteAllBytes(path, Encoding.UTF8.GetBytes("Synthetic content rewritten after the send."));
         var fetched = fixture.Tools.FetchAttachment(recipient.Address, id, 0);
-        check(File.ReadAllBytes(staged).AsSpan().SequenceEqual(content) && fetched is { State: "ready", Zone: "local" } &&
+        check(openedBySend == 1 && File.ReadAllBytes(staged).AsSpan().SequenceEqual(content) && fetched is { State: "ready", Zone: "local" } &&
             fetched.Path == staged && fetched.Sha256 == Hash(content),
-            "ATTACHMENT_STAGED_HASH_FROM_HANDLE: the staged copy is the bytes that were hashed; changing the original afterwards changes neither");
+            "ATTACHMENT_STAGED_HASH_FROM_HANDLE: the source is opened once; the staged copy is the bytes that were hashed, even when the source changes between the read and the copy or afterwards");
         check(fixture.Tools.FetchAttachment(sender.Address, id, 0) is { State: "ready" } &&
             ToolFixture.Refused(() => fixture.Tools.FetchAttachment(third.Address, id, 0), AttachmentCodes.NotFound) &&
             ToolFixture.Refused(() => fixture.Tools.FetchAttachment(recipient.Address, id, 1), AttachmentCodes.NotFound),
@@ -83,13 +89,16 @@ internal static class AttachmentChecks
             File.ReadAllBytes(staged).AsSpan().SequenceEqual(content),
             "ATTACHMENT_SEND_RETRY_IDEMPOTENT: the same content returns the same receipt; other content collides and leaves the staging intact");
 
-        // W-6: only send_with_attachments may emit the envelope kind.
+        // W-6: only send_with_attachments may emit the envelope kind, valid or not (T-2: an invalid text claiming the kind too).
         string forged = receipt.Message.Text;
+        string invalidKind = "{\"kind\":\"" + AttachmentEnvelope.Kind + "\",\"text\":\"no attachments member\"}";
         var plain = fixture.Tools.Send(sender.Address, recipient.Address, Guid.NewGuid(), "{\"kind\":\"other\",\"text\":\"ordinary JSON\"}");
-        check(ToolFixture.Refused(() => fixture.Tools.Send(sender.Address, recipient.Address, Guid.NewGuid(), forged), AttachmentCodes.EnvelopeReserved) &&
-            ToolFixture.Refused(() => fixture.Tools.SendMessage(new(Guid.NewGuid(), Guid.NewGuid(), null, sender.Address, recipient.Address, forged,
+        bool Reserved(string text) =>
+            ToolFixture.Refused(() => fixture.Tools.Send(sender.Address, recipient.Address, Guid.NewGuid(), text), AttachmentCodes.EnvelopeReserved) &&
+            ToolFixture.Refused(() => fixture.Tools.SendMessage(new(Guid.NewGuid(), Guid.NewGuid(), null, sender.Address, recipient.Address, text,
                 fixture.Clock.GetUtcNow(), fixture.Clock.GetUtcNow().AddMinutes(5))), AttachmentCodes.EnvelopeReserved) &&
-            ToolFixture.Refused(() => fixture.Tools.ReplyToMessage(plain.Message.Id, Guid.NewGuid(), forged), AttachmentCodes.EnvelopeReserved),
+            ToolFixture.Refused(() => fixture.Tools.ReplyToMessage(plain.Message.Id, Guid.NewGuid(), text), AttachmentCodes.EnvelopeReserved);
+        check(AttachmentEnvelope.TryParse(invalidKind, out _) == AttachmentParse.Invalid && Reserved(forged) && Reserved(invalidKind),
             "ATTACHMENT_ENVELOPE_RESERVED: send, send_message and reply refuse envelope text; ordinary JSON text still sends");
     }
 
@@ -132,6 +141,21 @@ internal static class AttachmentChecks
                 "ATTACHMENT_SOURCE_REPARSE_REFUSED: a reparse point in the path, or as the named file, is refused");
         }
         finally { Directory.Delete(chain); Directory.Delete(leaf); }
+        // T-3: a regular FILE that is a reparse point isolates the reparse bit of the opened handle's attributes (a junction leaf
+        // is also a directory). A file symbolic link needs developer mode; a non-Microsoft reparse tag needs no privilege, so
+        // that is what this check sets. If even that is refused, the check is skipped LOUDLY.
+        string reparseFile = Source(fixture.Root, "reparse-file.txt", "Synthetic content behind a reparse tag."u8.ToArray());
+        if (!ReparseFile.TrySet(reparseFile))
+            Console.WriteLine("SKIP: ATTACHMENT_SOURCE_FILE_REPARSE_REFUSED: this volume refused a reparse tag on a file");
+        else
+        {
+            try
+            {
+                check(Refuses(AttachmentCodes.SourceInvalid, reparseFile),
+                    "ATTACHMENT_SOURCE_FILE_REPARSE_REFUSED: a regular file that is a reparse point (no directory bit), named as the source, is refused");
+            }
+            finally { ReparseFile.Remove(reparseFile); }
+        }
         string identityFile = Path.Combine(fixture.Attachments!.DataDirectory, "identity-like.bin");
         Directory.CreateDirectory(fixture.Attachments.DataDirectory);
         File.WriteAllText(identityFile, "Synthetic broker-owned file.");
@@ -211,11 +235,19 @@ internal static class AttachmentChecks
         var refused = Message("codex:attachment-mismatch", AttachmentCodes.Mismatch);
         store.Accept(deferred, store.BrokerId);
         store.Accept(refused, store.BrokerId);
-        var deadline = DateTime.UtcNow.AddSeconds(15);
-        while ((store.FindReceipt(deferred.Id) is not { Reason: AttachmentCodes.FetchPending } ||
-                store.FindReceipt(refused.Id)?.Status != MessageStatus.Refused) && DateTime.UtcNow < deadline) await Task.Delay(50);
-        check(store.FindReceipt(deferred.Id) is { Status: MessageStatus.Accepted or MessageStatus.Submitting, Reason: AttachmentCodes.FetchPending or null } d &&
-            d.Status != MessageStatus.Uncertain && federation.Pending >= 1,
+        // T-6: the release itself must be SEEN (Accepted, attachment_fetch_pending, zero attempts), and a second forward must
+        // follow it (the 5 s backoff), never Uncertain in between.
+        bool sawDeferral = false, sawUncertain = false;
+        var deadline = DateTime.UtcNow.AddSeconds(20);
+        while (DateTime.UtcNow < deadline &&
+               !(sawDeferral && Volatile.Read(ref federation.Pending) >= 2 && store.FindReceipt(refused.Id)?.Status == MessageStatus.Refused))
+        {
+            var current = store.FindReceipt(deferred.Id);
+            sawDeferral |= current is { Status: MessageStatus.Accepted, Reason: AttachmentCodes.FetchPending, Attempts: 0 };
+            sawUncertain |= current?.Status == MessageStatus.Uncertain;
+            await Task.Delay(25);
+        }
+        check(sawDeferral && !sawUncertain && Volatile.Read(ref federation.Pending) >= 2,
             "ATTACHMENT_DEFERRAL_MAPPED: attachment_fetch_pending releases the message unsubmitted for a later forward");
         check(store.FindReceipt(refused.Id) is { Status: MessageStatus.Refused, Reason: AttachmentCodes.Mismatch },
             "ATTACHMENT_DEFERRAL_MAPPED: every other attachment code is a definite refusal under its own reason");

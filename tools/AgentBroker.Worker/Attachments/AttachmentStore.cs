@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text.Json;
 using AgentBroker.Core;
@@ -9,35 +10,69 @@ namespace AgentBroker.Worker.Attachments;
 // What fetch_attachment returns. Path is null unless State is "ready".
 public sealed record AttachmentView(string Name, long Bytes, string Sha256, string? Path, string State, string Zone);
 
+// The attachment bounds (round 2, F-5: a BrokerLimits-style parameter, so checks can drive each bound at a few KiB).
+// QuarantineBytes is the pool for received files; PerPeerAdmittedBytes caps what one broker's ADMITTED files may hold inside
+// it; PerPeerInFlightBytes caps one broker's bytes that are not admitted: reserved by its running pulls plus its finished but
+// never-admitted folders (round 2b, M4). The pull-state and deferral tables have a global bound and a per-broker share; the
+// globals are AttachmentPolicy.MaximumPeers times the share, so one broker can only ever defer itself.
+public sealed record AttachmentLimits(
+    long QuarantineBytes = 512L * 1024 * 1024,
+    long OutboxBytes = 512L * 1024 * 1024,
+    long PerPeerAdmittedBytes = 128L * 1024 * 1024,
+    long PerPeerInFlightBytes = 2 * AttachmentEnvelope.MaximumTotalBytes,
+    int MaximumPulls = 4,
+    int MaximumPullsPerPeer = 2,
+    int MaximumServesPerPeer = 2,
+    int MaximumPullStates = 128,
+    int MaximumDeferrals = 512,
+    int MaximumPullStatesPerPeer = 4,
+    int MaximumDeferralsPerPeer = 16);
+
+// The outcome of reserving quarantine room for a pull (F-5). Defer: room is taken by pulls not yet admitted, or this broker
+// already has its in-flight share; it frees soon. RefuseFull: admitted files alone leave no room (for everyone, or for this
+// broker), which frees only on a retention scale.
+internal enum ReserveResult { Reserved, Defer, RefuseFull }
+
+// Opening a staged file for the GET endpoint (F-16): Missing is a definite 404, Busy (the file exists but cannot be opened
+// now: a sharing violation, an ACL hold) answers 503 so the recipient defers instead of refusing.
+internal enum OutgoingState { Ready, Missing, Busy }
+
 // The worker's attachment folders (lane F, 1.10.5), all under <data>\attachments:
-//   outbox\<messageId>\<index>-<name> + manifest.json   copies this broker staged for send_with_attachments
-//   inbox\<senderBroker>\<messageId>\<index>-<name>      files a paired broker sent, published only after their size and
-//                                                        SHA-256 matched, each with a ZoneId=3 Mark of the Web
-//   README.txt                                           what the folders are; the pane's reveal action selects it
+//   outbox\<messageId>\<index>-<name> + manifest.json     copies this broker staged for send_with_attachments
+//                       + fetch-pending-since.txt         the first time a recipient answered attachment_fetch_pending (F-7)
+//   inbox\<senderBroker>\<messageId>\<index>-<name>        files a paired broker sent, published only after their size and
+//                       + manifest.json                    SHA-256 matched, each with a ZoneId=3 Mark of the Web; the manifest
+//                                                          is the quarantine's record of what arrived and from whom (DECISIONS 49)
+//   README.txt                                             what the folders are; the pane's reveal action selects it
 // No name here comes from a peer except a validated AttachmentEnvelope name behind a numeric index, and every delete names
-// a GUID folder this class owns. The broker never opens, runs or scans a stored file beyond hashing it.
+// a GUID folder this class owns. The broker never runs or scans a stored file; it reads one only to hash it or serve it.
 public sealed class AttachmentStore
 {
-    internal const long QuarantineQuotaBytes = 512L * 1024 * 1024;
-    internal const long OutboxQuotaBytes = 512L * 1024 * 1024;
     internal static readonly TimeSpan Retention = TimeSpan.FromHours(48);
-    // An inbox folder whose message was never admitted stays this long, longer than the 10-minute deferral bound, so a pull
-    // still being retried is never swept from under itself.
+    // A folder whose message was never admitted (inbox) or never reached the store (outbox) stays this long, longer than the
+    // 10-minute deferral bound, so a pull or a staging still in progress is never swept from under itself.
     internal static readonly TimeSpan OrphanGrace = TimeSpan.FromMinutes(15);
     internal static readonly TimeSpan SweepInterval = TimeSpan.FromSeconds(60);
     internal static readonly byte[] InternetZone = "[ZoneTransfer]\r\nZoneId=3\r\nHostUrl=about:internet\r\n"u8.ToArray();
     internal const string ManifestName = "manifest.json";
+    internal const string FetchPendingName = "fetch-pending-since.txt";
     private sealed record OutboxManifest(int Version, Guid MessageId, string Envelope);
+    private sealed record InboxManifest(int Version, Guid MessageId, Guid SenderBroker, string Envelope);
 
     private readonly object gate = new();
     private readonly object stagingGate = new();
     private readonly BrokerStore store;
     private readonly TimeProvider clock;
-    private long inboxBytes, outboxBytes;
+    private Dictionary<(Guid Peer, Guid Message), long> inboxFolderBytes = new();
+    private HashSet<(Guid Peer, Guid Message)> admittedFolders = new();
+    private readonly Dictionary<(Guid Peer, Guid Message), long> reservations = new();
+    private long outboxBytes;
     private int inboxFiles;
     private long? lastSweep;
+    private long publishedFiles, publishedBytes;
 
     public bool Enabled { get; }
+    public AttachmentLimits Limits { get; }
     public AttachmentPolicy Policy { get; }
     public string DataDirectory { get; }
     public string Root { get; }
@@ -45,19 +80,34 @@ public sealed class AttachmentStore
     internal string OutboxRoot => Path.Combine(Root, "outbox");
     internal string InboxRoot => Path.Combine(Root, "inbox");
 
-    public AttachmentStore(string dataDirectory, BrokerStore store, bool enabled, TimeProvider? clock = null)
+    // F-6: set when a received file could not be published because the quarantine is not a plain local NTFS folder; the
+    // pane and the status view show it until a later publication succeeds.
+    public bool QuarantineUnavailable { get; private set; }
+    // Round 2b: the federation's Verified branch (recheck, then admission) and the sweep's decision for one received folder
+    // both run under this gate, so a sweep can never delete a folder between its recheck and its admission.
+    internal readonly object AdmissionGate = new();
+    // Test seams, null in production: a fault thrown at publication (F-6 checks) and a hook between the source read and the
+    // staged write (T-7: a source rewritten there must not change the staged copy).
+    internal Func<Exception?>? PublishFault { get; set; }
+    internal Action? BeforeStageWrite { get; set; }
+    // T-8: monotonic counts of files and bytes this store published into quarantine.
+    internal long PublishedFiles => Interlocked.Read(ref publishedFiles);
+    internal long PublishedBytes => Interlocked.Read(ref publishedBytes);
+
+    public AttachmentStore(string dataDirectory, BrokerStore store, bool enabled, TimeProvider? clock = null, AttachmentLimits? limits = null)
     {
         DataDirectory = Path.TrimEndingDirectorySeparator(Path.GetFullPath(dataDirectory));
         Root = Path.Combine(DataDirectory, "attachments");
         this.store = store;
         this.clock = clock ?? TimeProvider.System;
         Enabled = enabled;
+        Limits = limits ?? new AttachmentLimits();
         Policy = new AttachmentPolicy(DataDirectory);
         if (enabled) WriteReadme();
         Recount();
     }
 
-    public long InboxBytes { get { lock (gate) return inboxBytes; } }
+    public long InboxBytes { get { lock (gate) return inboxFolderBytes.Values.Sum(); } }
     public int InboxFiles { get { lock (gate) return inboxFiles; } }
     public long OutboxBytes { get { lock (gate) return outboxBytes; } }
 
@@ -105,9 +155,15 @@ public sealed class AttachmentStore
             total += file.Bytes.LongLength;
         }
         var entries = loaded.Select((file, index) => new AttachmentEntry(index, file.Name, file.Bytes.LongLength, file.Sha256)).ToArray();
+        if ((text ?? "").Contains('\0')) throw new BrokerException("invalid_message", "The note contains a NUL character.");
         string envelope;
         try { envelope = AttachmentEnvelope.Compose(text ?? "", entries); }
-        catch (ArgumentException) { throw new BrokerException("invalid_message", "The message text does not fit beside its attachments."); }
+        // F-18: the 16 KiB bound is on the whole envelope, so the note's budget shrinks with each file it carries.
+        // Text that is not valid UTF-16 (a lone surrogate) keeps failing as before; only a well-formed note that is too long
+        // gets the new code.
+        catch (ArgumentException) when (WellFormed(text ?? ""))
+        { throw new BrokerException(AttachmentCodes.TextTooLong, "The note does not fit beside its attachments in 16 KiB."); }
+        BeforeStageWrite?.Invoke();
 
         lock (stagingGate)
         {
@@ -122,7 +178,7 @@ public sealed class AttachmentStore
                 DeleteFolder(folder);
             }
             lock (gate)
-                if (outboxBytes + total > OutboxQuotaBytes)
+                if (outboxBytes + total > Limits.OutboxBytes)
                     throw new BrokerException(AttachmentCodes.OutboxFull, "The attachment outbox is full.");
             var created = new List<string>();
             try
@@ -131,7 +187,8 @@ public sealed class AttachmentStore
                 for (int index = 0; index < entries.Length; index++)
                 {
                     string destination = Path.Combine(folder, AttachmentEnvelope.StoredFileName(entries[index]));
-                    LocalOutputFile.Save(destination, loaded[index].Bytes);
+                    // F-17: a source that carried a Mark of the Web (or a received file being forwarded) keeps it.
+                    LocalOutputFile.Save(destination, loaded[index].Bytes, zoneIdentifier: loaded[index].Zone);
                     created.Add(destination);
                 }
                 string manifest = Path.Combine(folder, ManifestName);
@@ -153,36 +210,97 @@ public sealed class AttachmentStore
 
     internal string? ReadManifest(Guid messageId)
     {
-        string path = Path.Combine(OutboxFolder(messageId), ManifestName);
+        var manifest = ReadJson<OutboxManifest>(Path.Combine(OutboxFolder(messageId), ManifestName));
+        return manifest is { Version: 1 } && manifest.MessageId == messageId &&
+            AttachmentEnvelope.TryParse(manifest.Envelope, out _) == AttachmentParse.Valid ? manifest.Envelope : null;
+    }
+
+    private static T? ReadJson<T>(string path) where T : class
+    {
         try
         {
             AttachmentSource.RequirePlainParents(path);
             using SafeFileHandle handle = AttachmentSource.OpenRegularFile(path);
-            var manifest = JsonSerializer.Deserialize<OutboxManifest>(AttachmentSource.ReadBounded(handle, 64 * 1024),
-                Protocol.ControlProtocol.Json);
-            return manifest is { Version: 1 } && manifest.MessageId == messageId &&
-                AttachmentEnvelope.TryParse(manifest.Envelope, out _) == AttachmentParse.Valid ? manifest.Envelope : null;
+            return JsonSerializer.Deserialize<T>(AttachmentSource.ReadBounded(handle, 64 * 1024), Protocol.ControlProtocol.Json);
         }
         catch (Exception error) when (error is BrokerException or IOException or UnauthorizedAccessException or JsonException or
             ArgumentException or NotSupportedException) { return null; }
     }
 
     // The GET endpoint's file: only while the staged manifest is exactly the stored message text and the file has exactly
-    // the declared length. Null otherwise; the endpoint then answers 404.
-    internal SafeFileHandle? OpenOutgoing(Guid messageId, string text, AttachmentEntry entry)
+    // the declared length. Missing answers 404; Busy (the file exists but cannot be opened now) answers 503 (F-16).
+    internal OutgoingState OpenOutgoing(Guid messageId, string text, AttachmentEntry entry, out SafeFileHandle? handle)
     {
-        if (ReadManifest(messageId) != text) return null;
+        handle = null;
+        if (ReadManifest(messageId) != text) return OutgoingState.Missing;
         string path = Path.Combine(OutboxFolder(messageId), AttachmentEnvelope.StoredFileName(entry));
-        SafeFileHandle? handle = null;
+        if (!File.Exists(path)) return OutgoingState.Missing;
         try
         {
             AttachmentSource.RequirePlainParents(path);
             handle = AttachmentSource.OpenRegularFile(path);
-            if (RandomAccess.GetLength(handle) != entry.Bytes) { handle.Dispose(); return null; }
-            return handle;
         }
         catch (Exception error) when (error is BrokerException or IOException or UnauthorizedAccessException)
-        { handle?.Dispose(); return null; }
+        {
+            handle = null;
+            return File.Exists(path) ? OutgoingState.Busy : OutgoingState.Missing;
+        }
+        try
+        {
+            if (RandomAccess.GetLength(handle) == entry.Bytes) return OutgoingState.Ready;
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
+        handle.Dispose();
+        handle = null;
+        return OutgoingState.Missing;
+    }
+
+    // F-7: the first time a recipient answered attachment_fetch_pending for this staged message, stored beside its manifest
+    // so it survives a worker restart. Null when nothing is staged (no bound can be kept for a message this broker did not stage).
+    // A stamp in the future (the wall clock moved back) is not trusted: it is rewritten to now, so the bound starts again
+    // from the corrected clock instead of never expiring (lead's ruling on F-7).
+    internal DateTimeOffset? MarkFetchPending(Guid messageId)
+    {
+        string folder = OutboxFolder(messageId);
+        string path = Path.Combine(folder, FetchPendingName);
+        lock (stagingGate)
+        {
+            if (!Directory.Exists(folder)) return null;
+            var now = clock.GetUtcNow();
+            if (ReadStamp(path) is { } first && first <= now) return first;
+            try
+            {
+                if (File.Exists(path)) File.Delete(path);
+                LocalOutputFile.Save(path, System.Text.Encoding.ASCII.GetBytes(now.UtcTicks.ToString(CultureInfo.InvariantCulture)));
+            }
+            catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException)
+            { return ReadStamp(path) is { } stored && stored <= now ? stored : now; }
+            return now;
+        }
+    }
+
+    // F-7, the sender's own bound: true once this staged message has been answered attachment_fetch_pending for at least
+    // the bound since the first such answer. False when nothing is staged here (only the recipient's bound applies then).
+    internal bool FetchPendingExpired(Guid messageId, TimeSpan bound) =>
+        MarkFetchPending(messageId) is { } first && clock.GetUtcNow() - first >= bound;
+
+    private static readonly System.Text.UTF8Encoding StrictUtf8 = new(false, true);
+    private static bool WellFormed(string text)
+    {
+        try { _ = StrictUtf8.GetByteCount(text); return true; }
+        catch (System.Text.EncoderFallbackException) { return false; }
+    }
+
+    private static DateTimeOffset? ReadStamp(string path)
+    {
+        try
+        {
+            if (!File.Exists(path)) return null;
+            string text = File.ReadAllText(path).Trim();
+            return long.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out long ticks) && ticks > 0
+                ? new DateTimeOffset(ticks, TimeSpan.Zero) : null;
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { return null; }
     }
 
     // ---- Recipient ----
@@ -203,25 +321,102 @@ public sealed class AttachmentStore
         }
         catch (Exception error) when (error is BrokerException or IOException or UnauthorizedAccessException) { }
         DeleteExact([path], null);
-        Recount();
+        TryRecount();
         return false;
+    }
+
+    // F-5: room for one pull's declared bytes, reserved until Release (the pull failed, was abandoned, or its message was
+    // admitted and its folder now counts as admitted bytes).
+    internal ReserveResult Reserve(Guid senderBroker, Guid messageId, long bytes)
+    {
+        var key = (senderBroker, messageId);
+        lock (gate)
+        {
+            if (reservations.ContainsKey(key)) return ReserveResult.Reserved;
+            long admitted = 0, admittedPeer = 0, orphan = 0, orphanPeer = 0;
+            foreach (var (folder, size) in inboxFolderBytes)
+            {
+                if (admittedFolders.Contains(folder)) { admitted += size; if (folder.Peer == senderBroker) admittedPeer += size; }
+                else if (!reservations.ContainsKey(folder)) { orphan += size; if (folder.Peer == senderBroker) orphanPeer += size; }
+            }
+            long reserved = reservations.Values.Sum();
+            long reservedPeer = reservations.Where(pair => pair.Key.Peer == senderBroker).Sum(pair => pair.Value);
+            if (admittedPeer + bytes > Limits.PerPeerAdmittedBytes || admitted + bytes > Limits.QuarantineBytes) return ReserveResult.RefuseFull;
+            if (admitted + orphan + reserved + bytes > Limits.QuarantineBytes)
+                return ReserveResult.Defer;
+            // Round 2b (M4): a broker's finished but never-admitted folders count toward its own share with its running pulls,
+            // so it cannot keep the pool full of unadmitted bytes for every other broker.
+            if (reservedPeer + orphanPeer + bytes > Limits.PerPeerInFlightBytes) return ReserveResult.Defer;
+            reservations[key] = bytes;
+            return ReserveResult.Reserved;
+        }
+    }
+
+    internal void Release(Guid senderBroker, Guid messageId)
+    {
+        lock (gate) reservations.Remove((senderBroker, messageId));
+    }
+
+    // After admission: the reservation ends and the folder counts as admitted bytes. In memory only: the message is already
+    // admitted, so a disk recount failing here must not turn that admission into an error for the sender (round 2b).
+    internal void Admitted(Guid senderBroker, Guid messageId)
+    {
+        lock (gate)
+        {
+            reservations.Remove((senderBroker, messageId));
+            admittedFolders.Add((senderBroker, messageId));
+        }
     }
 
     // Publication of bytes whose size and SHA-256 the caller already verified in memory: unverified bytes never reach the
     // disk, and the Mark of the Web is on the temporary before it is renamed into place (LocalOutputFile.WriteZoneIdentifier).
-    internal void PublishVerified(Guid senderBroker, Guid messageId, AttachmentEntry entry, byte[] bytes)
+    // The inbox manifest, the quarantine's record of the message, its sender broker and its envelope, is written once, before
+    // the first file (DECISIONS 49). Fetch never reads it (the recipient keeps a paired sender's text, BrokerStore.Tombstoned);
+    // the admission gate does, so one message ID carries one text (ReceivedEnvelopeSha256). InvalidDataException or
+    // UnauthorizedAccessException here means the quarantine cannot hold files at all (F-6); IOException stays transient.
+    internal void PublishVerified(Guid senderBroker, Guid messageId, AttachmentEntry entry, byte[] bytes, string envelope)
     {
+        if (PublishFault?.Invoke() is { } fault) throw fault;
         string folder = InboxFolder(senderBroker, messageId);
         Directory.CreateDirectory(folder);
+        string manifest = Path.Combine(folder, ManifestName);
+        if (!File.Exists(manifest))
+            LocalOutputFile.Save(manifest, JsonSerializer.SerializeToUtf8Bytes(new InboxManifest(1, messageId, senderBroker, envelope),
+                Protocol.ControlProtocol.Json));
         LocalOutputFile.Save(Path.Combine(folder, AttachmentEnvelope.StoredFileName(entry)), bytes, zoneIdentifier: InternetZone);
-        lock (gate) { inboxBytes += bytes.LongLength; inboxFiles++; }
+        Interlocked.Increment(ref publishedFiles);
+        Interlocked.Add(ref publishedBytes, bytes.LongLength);
+        QuarantineUnavailable = false;
+        lock (gate)
+        {
+            inboxFolderBytes[(senderBroker, messageId)] = inboxFolderBytes.GetValueOrDefault((senderBroker, messageId)) + bytes.LongLength;
+            inboxFiles++;
+        }
     }
 
-    internal bool QuarantineHasRoom(long bytes) { lock (gate) return inboxBytes + bytes <= QuarantineQuotaBytes; }
+    internal void MarkQuarantineUnavailable() => QuarantineUnavailable = true;
+
+    // Round 2b (M2/M3): the SHA-256 of the envelope a received folder holds files for, or null when there is no such folder.
+    internal string? ReceivedEnvelopeSha256(Guid senderBroker, Guid messageId)
+    {
+        string manifest = Path.Combine(InboxFolder(senderBroker, messageId), ManifestName);
+        if (!File.Exists(manifest)) return null;
+        var record = ReadJson<InboxManifest>(manifest);
+        // A manifest that exists but cannot be read is not evidence of the same text: it holds the ID like a different one.
+        return record is { Version: 1 } && record.MessageId == messageId && record.SenderBroker == senderBroker
+            ? Convert.ToHexStringLower(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(record.Envelope))) : "unreadable";
+    }
+
+    // Round 2b (M2): a received folder counts as admitted only when its message is admitted here from that same broker AND
+    // its text is a valid envelope. A plain text admitted under the same ID never makes a folder admitted.
+    private bool AdmittedHere(Guid senderBroker, Guid messageId) =>
+        store.FindReceiptWithText(messageId) is { } receipt && receipt.Message.Sender.BrokerId == senderBroker &&
+        AttachmentEnvelope.TryParse(receipt.Message.Text, out _) == AttachmentParse.Valid;
 
     internal void DeleteInbox(Guid senderBroker, Guid messageId)
     {
         DeleteFolder(InboxFolder(senderBroker, messageId));
+        Release(senderBroker, messageId);
         Recount();
     }
 
@@ -233,12 +428,14 @@ public sealed class AttachmentStore
         if (receipt is null || receipt.Message.Recipient != session && receipt.Message.Sender != session)
             throw new BrokerException(AttachmentCodes.NotFound, "No such attachment for this session.");
         bool localSender = receipt.Message.Sender.BrokerId == store.BrokerId;
-        // An acknowledged message this broker sent keeps no text; its own staging still names the files.
+        Guid senderBroker = receipt.Message.Sender.BrokerId;
+        // A message this broker SENT keeps no text once acknowledged (BrokerStore.Tombstoned), so its staging manifest names
+        // the files. A paired sender's message keeps its text here until its record ends (ATTACHMENT_PAIRED_TEXT_KEPT).
         string? text = store.FindReceiptWithText(messageId)?.Message.Text ?? (localSender ? ReadManifest(messageId) : null);
         if (AttachmentEnvelope.TryParse(text, out var envelope) != AttachmentParse.Valid || index < 0 || index >= envelope!.Attachments.Count)
             throw new BrokerException(AttachmentCodes.NotFound, "No such attachment for this session.");
         var entry = envelope.Attachments[index];
-        string path = Path.Combine(localSender ? OutboxFolder(messageId) : InboxFolder(receipt.Message.Sender.BrokerId, messageId),
+        string path = Path.Combine(localSender ? OutboxFolder(messageId) : InboxFolder(senderBroker, messageId),
             AttachmentEnvelope.StoredFileName(entry));
         bool ready = false;
         try
@@ -251,7 +448,9 @@ public sealed class AttachmentStore
             }
         }
         catch (Exception error) when (error is BrokerException or IOException or UnauthorizedAccessException) { }
-        return new(entry.Name, entry.Bytes, entry.Sha256, ready ? path : null, ready ? "ready" : "missing", localSender ? "local" : "internet");
+        // F-17: a staged copy that kept a Mark of the Web (a forwarded received file) is reported as internet, like a received one.
+        string zone = !localSender || File.Exists(path + ":Zone.Identifier") ? "internet" : "local";
+        return new(entry.Name, entry.Bytes, entry.Sha256, ready ? path : null, ready ? "ready" : "missing", zone);
     }
 
     // ---- Retention ----
@@ -269,24 +468,37 @@ public sealed class AttachmentStore
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or ObjectDisposedException) { }
     }
 
+    // DECISIONS 38 (round 2, F-3): a staged copy and a received folder follow one rule for every message, local or paired:
+    // they go when the record is gone (after the orphan grace), when the message was Refused or Expired, or after 48 h.
     internal void Sweep()
     {
+        // Round 2b: an allow removal whose save failed is retried here until it holds on disk too.
+        Policy.RetryIfDirty();
         var now = clock.GetUtcNow();
         foreach (var (messageId, folder) in GuidFolders(OutboxRoot))
         {
             var receipt = store.FindReceipt(messageId);
-            bool peer = receipt is not null && receipt.Message.Recipient.BrokerId != store.BrokerId;
-            if (receipt is null || receipt.Status is MessageStatus.Refused or MessageStatus.Expired ||
-                peer && receipt.Status is not (MessageStatus.Accepted or MessageStatus.Submitting) || Age(folder, now) > Retention)
+            TimeSpan age = Age(folder, now);
+            // F-2: a folder whose message has not reached the store yet is a staging in progress; it gets the orphan grace.
+            if (receipt is null && age > OrphanGrace || receipt?.Status is MessageStatus.Refused or MessageStatus.Expired || age > Retention)
                 lock (stagingGate) DeleteFolder(folder.FullName);
         }
-        foreach (var (_, brokerFolder) in GuidFolders(InboxRoot))
+        foreach (var (senderBroker, brokerFolder) in GuidFolders(InboxRoot))
         {
             foreach (var (messageId, folder) in GuidFolders(brokerFolder.FullName))
             {
-                var receipt = store.FindReceipt(messageId);
-                TimeSpan age = Age(folder, now);
-                if (receipt is null && age > OrphanGrace || age > Retention) DeleteFolder(folder.FullName);
+                lock (AdmissionGate)
+                {
+                    bool reserved;
+                    lock (gate) reserved = reservations.ContainsKey((senderBroker, messageId));
+                    if (reserved) continue; // a pull is running for it
+                    bool admitted = AdmittedHere(senderBroker, messageId);
+                    TimeSpan age = Age(folder, now);
+                    // A received folder stays while its message is admitted (the recipient may still fetch after
+                    // acknowledging), up to 48 h; any other folder is an unadmitted pull and goes after the orphan grace.
+                    if (!admitted && age > OrphanGrace || age > Retention)
+                        DeleteFolder(folder.FullName);
+                }
             }
             TryDeleteEmpty(brokerFolder.FullName);
         }
@@ -303,7 +515,11 @@ public sealed class AttachmentStore
     private static IEnumerable<(Guid Id, DirectoryInfo Folder)> GuidFolders(string parent)
     {
         DirectoryInfo[] children;
-        try { children = Directory.Exists(parent) ? new DirectoryInfo(parent).GetDirectories() : []; }
+        try
+        {
+            children = Directory.Exists(parent) && (File.GetAttributes(parent) & FileAttributes.ReparsePoint) == 0
+                ? new DirectoryInfo(parent).GetDirectories() : [];
+        }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException) { yield break; }
         foreach (var child in children)
             if ((child.Attributes & FileAttributes.ReparsePoint) == 0 && Guid.TryParseExact(child.Name, "D", out Guid id))
@@ -336,16 +552,31 @@ public sealed class AttachmentStore
         catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
     }
 
+    // The quota picture from disk: per received folder its attachment bytes and whether its message is admitted here
+    // (AdmittedHere), and the staged bytes. A restarted store recounts every folder, orphans included (F-5).
+    private void TryRecount()
+    {
+        try { Recount(); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or BrokerException) { }
+    }
+
     private void Recount()
     {
-        long inbox = 0, outbox = 0;
+        var folders = new Dictionary<(Guid Peer, Guid Message), long>();
+        var admitted = new HashSet<(Guid Peer, Guid Message)>();
+        long outbox = 0;
         int files = 0;
-        foreach (var (_, brokerFolder) in GuidFolders(InboxRoot))
-            foreach (var (_, folder) in GuidFolders(brokerFolder.FullName))
-                foreach (var file in SafeFiles(folder)) { inbox += file.Length; files++; }
+        foreach (var (senderBroker, brokerFolder) in GuidFolders(InboxRoot))
+            foreach (var (messageId, folder) in GuidFolders(brokerFolder.FullName))
+            {
+                long bytes = 0;
+                foreach (var file in SafeFiles(folder)) if (file.Name != ManifestName) { bytes += file.Length; files++; }
+                folders[(senderBroker, messageId)] = bytes;
+                if (AdmittedHere(senderBroker, messageId)) admitted.Add((senderBroker, messageId));
+            }
         foreach (var (_, folder) in GuidFolders(OutboxRoot))
-            foreach (var file in SafeFiles(folder)) if (file.Name != ManifestName) outbox += file.Length;
-        lock (gate) { inboxBytes = inbox; inboxFiles = files; outboxBytes = outbox; }
+            foreach (var file in SafeFiles(folder)) if (file.Name is not (ManifestName or FetchPendingName)) outbox += file.Length;
+        lock (gate) { inboxFolderBytes = folders; admittedFolders = admitted; inboxFiles = files; outboxBytes = outbox; }
     }
 
     private static IEnumerable<FileInfo> SafeFiles(DirectoryInfo folder)
@@ -355,5 +586,6 @@ public sealed class AttachmentStore
     }
 
     internal Protocol.AttachmentsView View() => new(Enabled, Policy.Allowed(store.Peers()).ToArray(), InboxFiles, InboxBytes,
-        Enabled && File.Exists(ReadmePath) ? ReadmePath : null, Policy.Unreadable);
+        Enabled && File.Exists(ReadmePath) ? ReadmePath : null, Policy.Unreadable, QuarantineUnavailable ? true : null,
+        Policy.Dirty ? true : null);
 }

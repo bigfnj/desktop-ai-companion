@@ -48,7 +48,11 @@ public sealed record ApprovalPromptView(string State, int? VisiblePromptCount, D
 // File attachments (lane F, 1.10.5): the master switch, the paired brokers allowed to send files, what the quarantine
 // holds (counts only), and the README the pane reveals. Local control pipe only; never sent to a peer.
 public sealed record AttachmentsView(bool Enabled, Guid[] AllowedBrokers, int InboxFiles, long InboxBytes, string? ReadmePath,
-    bool PolicyUnreadable);
+    bool PolicyUnreadable,
+    // Round 2 (F-6): the quarantine could not hold a received file (its folder is not a plain local NTFS folder).
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? QuarantineUnavailable = null,
+    // Round 2b: a change to the allow list is in force but not yet saved; the worker retries every minute.
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? PolicyUnsaved = null);
 public sealed record BrokerSnapshot(Guid BrokerId, string Name, string LoopbackEndpoint, string? LanEndpoint,
     PeerView[] Discovered, PeerView[] Paired, PairingView[] PairingOffers, SessionView[] Sessions,
     IReadOnlyDictionary<string, string> AdapterErrors, string? CertificateSha256 = null, McpStatusView? Mcp = null,

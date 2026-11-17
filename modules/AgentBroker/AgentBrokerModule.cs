@@ -352,11 +352,13 @@ public sealed partial class AgentBrokerModule : IModule
         NotifyInfoChanged();
     }
 
-    // Every Info value the pane reloads live. Order is fixed; equality is ordinal per entry, as the tuple's was.
+    // Every Info value the pane reloads live. Order is fixed; equality is ordinal per entry, as the tuple's was. Lane F
+    // round 2 (F-12): the File attachments row is live too (allowed brokers, quarantine counts, the worker's state).
     private string[] InfoValues() =>
     [
         DisplayedStatus(), NativeStatusText(), PairingDisplayText(), ClientsSummaryText(), McpDisplay().Detail, AgentInboxDisplay().Detail, LanAccessText(),
-        ClientDisplay("claude"), ClientDisplay("codex"), ApprovalPromptText(), WaitingMailText()
+        ClientDisplay("claude"), ClientDisplay("codex"), AttachmentsText(),
+        ApprovalPromptText(), WaitingMailText()
     ];
 
     private void NotifyInfoChanged()
