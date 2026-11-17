@@ -22,6 +22,8 @@ internal static partial class AttachmentChecks
         await PlainTextRecountAsync(check);
         await UnsavedWhileOffAsync(check);
         await ZoneUnreadableAsync(check);
+        // F round 3 (DECISIONS 79).
+        await ZoneWithBytesAsync(check);
     }
 
     // M1: a fault on the background forward path follows the delivery loop's policy: durable state unavailable, the worker
@@ -242,5 +244,35 @@ internal static partial class AttachmentChecks
         check(File.Exists(staged + ":Zone.Identifier") && File.ReadAllText(staged + ":Zone.Identifier").Contains("HostUrl=about:internet", StringComparison.Ordinal) &&
             fixture.Tools.FetchAttachment(recipient.Address, id, 0) is { Zone: "internet" },
             "ATTACHMENT_SOURCE_ZONE_UNREADABLE_FAILS_CLOSED: a source whose Mark of the Web cannot be read is staged as downloaded from the internet");
+    }
+
+    // F round 3: the zone belongs to the bytes that were read. While Load holds the source (no delete sharing), a marked source
+    // cannot be replaced by an unmarked file before its zone is read; read after the handle closes, it could, and the copy
+    // would be staged unmarked.
+    private static async Task ZoneWithBytesAsync(Action<bool, string> check)
+    {
+        await using var fixture = new ToolFixture("attachments-zone-with-bytes", attachments: true);
+        var sender = fixture.Register("Synthetic swapped-zone sender");
+        var recipient = fixture.Register("Synthetic swapped-zone recipient");
+        byte[] original = "Synthetic downloaded content that must keep its zone."u8.ToArray();
+        string marked = Source(fixture.Root, "swapped.txt", original);
+        File.WriteAllText(marked + ":Zone.Identifier", "[ZoneTransfer]\r\nZoneId=3\r\nHostUrl=https://example.invalid/swapped\r\n");
+        string replacement = Path.Combine(Path.GetDirectoryName(marked)!, "replacement.txt");
+        File.WriteAllText(replacement, "Synthetic unmarked replacement.");
+        bool swapped = false;
+        AttachmentSource.BeforeZoneRead = full =>
+        {
+            if (!File.Exists(replacement)) return;
+            try { File.Move(replacement, full, overwrite: true); swapped = true; }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
+        };
+        Guid id = Guid.NewGuid();
+        try { fixture.Tools.SendWithAttachments(sender.Address, recipient.Address, id, "x", [marked]); }
+        finally { AttachmentSource.BeforeZoneRead = null; }
+        string staged = Path.Combine(fixture.Attachments!.OutboxFolder(id), "0-swapped.txt");
+        check(!swapped && File.ReadAllBytes(staged).AsSpan().SequenceEqual(original) && File.Exists(staged + ":Zone.Identifier") &&
+            File.ReadAllText(staged + ":Zone.Identifier").Contains("ZoneId=3", StringComparison.Ordinal) &&
+            fixture.Tools.FetchAttachment(recipient.Address, id, 0) is { Zone: "internet" },
+            "ATTACHMENT_SOURCE_ZONE_WITH_BYTES: the Mark of the Web is read while the source's read handle is held, so a marked source replaced by an unmarked file after its bytes were read is still staged marked");
     }
 }

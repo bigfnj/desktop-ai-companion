@@ -21,6 +21,9 @@ internal static class AttachmentSource
 
     // Test seam: counts files this process opened for attachment, so a refused caller can prove nothing was read.
     internal static int OpenedFiles;
+    // Test seam (F round 3, DECISIONS 79), null in production: runs as ZoneOf starts, so a check can try to replace the source
+    // between the byte read and the zone read; while Load still holds the handle that replacement must fail.
+    internal static Action<string>? BeforeZoneRead;
 
     internal static Loaded Load(string path, long remainingBytes, string dataDirectory)
     {
@@ -136,6 +139,7 @@ internal static class AttachmentSource
     // copy as internet, because a large or locked zone is still a Mark of the Web.
     private static byte[]? ZoneOf(string full, string dataDirectory)
     {
+        BeforeZoneRead?.Invoke(full);
         if (IsReceivedFile(full, dataDirectory)) return AttachmentStore.InternetZone;
         try
         {

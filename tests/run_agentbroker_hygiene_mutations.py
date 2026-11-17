@@ -1250,6 +1250,13 @@ ATTACHMENT_R2B_WITNESSES = (
     Witness("attachment-r2b-zone-unreadable", "tools/AgentBroker.Worker/Attachments/AttachmentSource.cs", "worker", ATTACHMENT_GROUP,
             (("        { return AttachmentStore.InternetZone; }\n", "        { return null; }\n", 1),),
             "ATTACHMENT_SOURCE_ZONE_UNREADABLE_FAILS_CLOSED: a source whose Mark of the Web cannot be read is staged as downloaded from the internet"),
+    # F round 3 (DECISIONS 79): the zone read under the held source handle; one recipe per mutant of AttachmentSource.cs:38-41.
+    Witness("attachment-r3-zone-after-dispose", "tools/AgentBroker.Worker/Attachments/AttachmentSource.cs", "worker", ATTACHMENT_GROUP,
+            (("            zone = ZoneOf(full, dataDirectory);\n        }\n", "        }\n        zone = ZoneOf(full, dataDirectory);\n", 1),),
+            "ATTACHMENT_SOURCE_ZONE_WITH_BYTES: the Mark of the Web is read while the source's read handle is held, so a marked source replaced by an unmarked file after its bytes were read is still staged marked"),
+    Witness("attachment-r3-zone-reread", "tools/AgentBroker.Worker/Attachments/AttachmentSource.cs", "worker", ATTACHMENT_GROUP,
+            (("Convert.ToHexStringLower(SHA256.HashData(bytes)), zone);", "Convert.ToHexStringLower(SHA256.HashData(bytes)), ZoneOf(full, dataDirectory));", 1),),
+            "ATTACHMENT_SOURCE_ZONE_WITH_BYTES: the Mark of the Web is read while the source's read handle is held, so a marked source replaced by an unmarked file after its bytes were read is still staged marked"),
     # Round-2b lines the coverage audit judged covered by an existing check: a recipe each, so the claim is executed.
     Witness('attachment-r2b-received-shape-validate', 'tools/AgentBroker.Worker/Attachments/AttachmentSource.cs', 'worker', ATTACHMENT_GROUP,
             (('        if (UnderDataFolder(full, dataDirectory) && !IsReceivedFile(full, dataDirectory)) throw Invalid();', '        if (UnderDataFolder(full, dataDirectory) && !full.StartsWith(Path.Combine(DataPrefix(dataDirectory), "attachments", "inbox") + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) throw Invalid();', 1),),
@@ -1626,9 +1633,10 @@ EXPECTED_COUNTS = {("core", ("--waiting-mail-only",)): 118, ("worker", ("--waiti
                    ("worker", ("--inbox-watch-only",)): 167,
                    # 1.10.5 lane F, measured on the lane's healthy focused runs (2026-11-14): Core 64, Worker 23, Network 17;
                    # round 2 (003-F-round2.md) re-measured Core 64, Worker 44, Network 42; round 2b (audit fixes) Core 64,
-                   # Worker 56 (51 plus five checks after the check-coverage audit), Network 59 (Network 57 plus
+                   # Worker 57 (51 plus five checks after the check-coverage audit and ATTACHMENT_SOURCE_ZONE_WITH_BYTES,
+                   # F round 3, DECISIONS 79), Network 59 (Network 57 plus
                    # ATTACHMENT_SENDER_BOUND_NOT_EARLY, DECISIONS 64, and ATTACHMENT_PREVALIDATED_TRANSIT, the fifth F-19 guard).
-                   ("core", ("--attachments-only",)): 64, ("worker", ("--attachments-only",)): 56,
+                   ("core", ("--attachments-only",)): 64, ("worker", ("--attachments-only",)): 57,
                    ("network", ("--attachments-only",)): 59}
 CORE_SUMMARIES = {("--waiting-mail-only",): "AgentBroker waiting-mail smoke", ("--reply-receipt-only",): "AgentBroker reply receipt smoke", ("--hygiene-only",): "AgentBroker hygiene smoke", ("--peer-receipt-only",): "AgentBroker peer receipt smoke",
                   ("--commit-timing-only",): "AgentBroker commit timing smoke",
