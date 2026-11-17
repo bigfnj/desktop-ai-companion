@@ -18,7 +18,7 @@ public sealed partial class AgentBrokerModule
     private IEnumerable<SettingField> AttachmentSchemaRows() =>
     [
         new() { Id = "attachmentsEnabled", Label = "Allow file attachments with paired brokers", Kind = SettingKind.Bool, Group = "Connections" },
-        new() { Id = "attachments", Label = "File attachments", Kind = SettingKind.Info, Group = "Connections", FullWidth = true }
+        new() { Id = "attachments", Label = "File attachments", Kind = SettingKind.Info, Group = "Connections" }
     ];
 
     private IEnumerable<PaneAction> AttachmentActions() =>
@@ -139,7 +139,21 @@ public sealed partial class AgentBrokerModule
             OptionsPane pane = host.OptionsPanes.Single();
             ListCard card = pane.Lists!.Single();
             module.ApplyStatus(new(true, false, "standby", view));
-            string Press(Func<ListItem, bool> pick) => PressBrokerAction(pane, AllowAttachmentsLabel, pick);
+            // The presses use the production action factory and handler (lane U's fixture rule, AgentBrokerPaneLayoutChecks), so
+            // whether the action sits in the Brokers list is BROKERS_ONE_CARD's question alone.
+            PaneAction allow = module.BrokerAction(AllowAttachmentsLabel, module.ToggleAttachmentsFromListAsync);
+            string InvokeAllow()
+            {
+                try { return allow.InvokeAsync().GetAwaiter().GetResult(); }
+                catch (Exception error) { return "EXCEPTION " + error.GetType().Name; }
+            }
+            string Press(Func<ListItem, bool> pick)
+            {
+                IReadOnlyList<ListItem> items = card.LoadItems();
+                foreach (var item in items) card.SetChecked(item.Id, false);
+                foreach (var item in items.Where(pick)) card.SetChecked(item.Id, true);
+                return InvokeAllow();
+            }
             bool IsPaired(ListItem item, PeerView peer) => item.Group == PairedGroup && item.Id.Contains(peer.BrokerId.ToString("N"), StringComparison.Ordinal);
 
             string none = Press(_ => false);
@@ -165,7 +179,7 @@ public sealed partial class AgentBrokerModule
             foreach (var item in tickedRows) card.SetChecked(item.Id, item.Group == PairedGroup && IsPaired(item, b));
             module.ApplyStatus(new(true, false, "standby", view with { Paired = [a], Attachments = new AttachmentsView(true, [a.BrokerId], 2, 3 * 1024 * 1024, null, false) }));
             int beforeStale = control.Requests.Count;
-            string stale = Invoke(card, AllowAttachmentsLabel);
+            string stale = InvokeAllow();
             check(stale == NoLongerPairedRefusal && control.Requests.Count == beforeStale,
                 "ATTACHMENTS_ALLOW_ACTION_STALE_PAIRING: a row ticked while paired, pressed after the pairing ended, says it is no longer paired and sends nothing");
 

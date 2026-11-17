@@ -14634,6 +14634,23 @@ CASES = (
      AGENTBROKER_CSPROJ, AGENTBROKER_DLL,
      "--module-selftest=agentbroker", "dp-module-agentbroker-selftest.txt",
      'BROKERS_ONE_CARD'),
+    # Lane F (DECISIONS 140): BROKERS_ONE_CARD now names the attachments allow beside the seven pairing actions; its two
+    # exact-label killers, the allow missing from the list and an eighth action present. The attachment behaviour checks press
+    # the action through the production factory, so only this check asks about list membership.
+    ('broker-pane: layout: the attachments allow leaves Brokers',
+     os.path.join(REPO, "modules", "AgentBroker", "AgentBrokerModule.BrokerList.cs"),
+     b'            BrokerAction(AllowAttachmentsLabel, ToggleAttachmentsFromListAsync),\n',
+     b'',
+     AGENTBROKER_CSPROJ, AGENTBROKER_DLL,
+     "--module-selftest=agentbroker", "dp-module-agentbroker-selftest.txt",
+     'BROKERS_ONE_CARD'),
+    ('broker-pane: layout: an eighth action joins Brokers',
+     os.path.join(REPO, "modules", "AgentBroker", "AgentBrokerModule.BrokerList.cs"),
+     b'            BrokerAction(AllowAttachmentsLabel, ToggleAttachmentsFromListAsync),\n',
+     b'            BrokerAction(AllowAttachmentsLabel, ToggleAttachmentsFromListAsync),\n            BrokerAction("Synthetic eighth action", RefreshBrokersAsync),\n',
+     AGENTBROKER_CSPROJ, AGENTBROKER_DLL,
+     "--module-selftest=agentbroker", "dp-module-agentbroker-selftest.txt",
+     'BROKERS_ONE_CARD'),
     ('broker-pane: layout: Reopen becomes a full-width barrier again',
      AGENTBROKER_MODULE,
      b'Group = "Reopen a Codex desktop chat", Collapsible = true, StartCollapsed = true',
