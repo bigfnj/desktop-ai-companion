@@ -43,10 +43,14 @@ $script:HostRuntimeOperationForSelfTest = $null
 # Lane T round 8 (2/2, S-010, DECISIONS 118): a replace or move that a transient lock refuses (an indexer or scanner holding the
 # file) is tried again, at most ReplaceAttempts times, ReplaceRetryDelayMs apart, and only for the two Win32 errors that leave
 # every file where it was. Self-test seam, null outside -SelfTest: called (name, attempt, failure) after a transient failure and
-# before the delay, so a fixture releases a hold on an OBSERVED retry, never on the clock (X1b T-r3 finding 4).
+# before the delay, so a fixture releases a hold on an OBSERVED retry, never on the clock (X1b T-r3 finding 4). Round 8 (3/3, X3's
+# T8-X3-1): a second seam, also null outside -SelfTest, called (name, attempt) at the END of the delay, after the sleep and before
+# the next attempt's guard, so a fixture's concurrent write lands inside the wait itself, where only a guard that runs after the
+# wait can see it (a write made in the first seam is seen by a guard moved to just before the sleep, too).
 $script:ReplaceAttempts = 5
 $script:ReplaceRetryDelayMs = 100
 $script:ReplaceRetryForSelfTest = $null
+$script:ReplaceRetryWaitForSelfTest = $null
 
 function Initialize-InstallerNative {
     if ('AgentBrokerLocalInstallNative' -as [type]) { return }
@@ -708,6 +712,7 @@ function Invoke-WithTransientRetry([string]$Name, [scriptblock]$Operation, [scri
             if ($null -eq $first) { $first = $failure }
             if ($null -ne $script:ReplaceRetryForSelfTest) { & $script:ReplaceRetryForSelfTest $Name $attempt $failure }
             Start-Sleep -Milliseconds $script:ReplaceRetryDelayMs
+            if ($null -ne $script:ReplaceRetryWaitForSelfTest) { & $script:ReplaceRetryWaitForSelfTest $Name $attempt }
         }
     }
 }
@@ -1163,7 +1168,8 @@ function Test-HostRuntimeTransaction([string]$Parent) {
             Close-HostRuntimePlan $plan
 
             # The starting state is re-read AFTER each delay, by digest and file identity, for the source and the backup too: each
-            # change made after the first transient failure (or during the delay itself) refuses the retry and is kept.
+            # change made after the first transient failure refuses the retry and is kept. The 'during-delay' case writes in the first
+            # seam, BEFORE the sleep (its name predates round 8 3/3); a write inside the wait itself is the order check below.
             $revalidateWrong = @()
             foreach ($change in @('content', 'same-length-same-time', 'identity', 'source', 'backup', 'during-delay')) {
                 $plan = & $newPlan
@@ -1218,11 +1224,145 @@ function Test-HostRuntimeTransaction([string]$Parent) {
                 throw "INSTALL_REPLACE_RETRY_REVALIDATES_AFTER_DELAY: a retry re-reads the source, backup and destination (digest and identity) after the delay and keeps any change (wrong: $($revalidateWrong -join '; '))."
             }
             $checks++
+
+            # Lane T round 8 (3/3, X3's T8-X3-1 and T8-X3-2, DECISIONS 128): writes that land INSIDE the wait. The wait seam runs
+            # after the sleep and before the next attempt's guard, and makes each write below once, keyed by the retry's name; the
+            # WaitWritten witness proves it ran, so a seam that never fires fails here instead of passing. These checks follow
+            # REVALIDATES_AFTER_DELAY on purpose: that check owns the shared guard (skipped, or moved before the first seam), and
+            # this self-test stops at its first failure, so each check below owns exactly one narrower defect.
+            $script:DuringWaitWrite = @{}; $script:WaitWritten = @{}
+            $script:ReplaceRetryWaitForSelfTest = {
+                param($name, $attempt)
+                # Not a closure: $script: must stay this installer's scope (the tables above).
+                if ($script:DuringWaitWrite.ContainsKey($name)) {
+                    $write = $script:DuringWaitWrite[$name]; [void]$script:DuringWaitWrite.Remove($name)
+                    & $write
+                    $script:WaitWritten[$name] = $true
+                }
+            }
+            $holdOnRollback = {
+                param($record, $staged, $backup, $attempt)
+                # As the rollback-replace check above: hold existing.bin when added.bin is published, so the rollback's own replace
+                # of existing.bin meets a sharing violation and waits. Not a closure, for the same reason.
+                if ($record.Name -ceq 'added.bin' -and -not $script:ReleaseOnRetry.ContainsKey('rollback of existing.bin')) {
+                    $script:ReleaseOnRetry['rollback of existing.bin'] = & $hold (Join-Path $destination 'existing.bin')
+                }
+                return $null
+            }
+
+            # The order (T8-X3-1): a destination rewritten during the wait refuses the retry and is kept. A guard moved to just before
+            # the sleep (after the first seam) passes REVALIDATES_AFTER_DELAY, whose write is made in the first seam, and fails here.
+            $plan = & $newPlan
+            $script:WaitWritten = @{}
+            $installedPath = Join-Path $destination 'existing.bin'
+            $script:DuringWaitWrite['existing.bin'] = { [IO.File]::WriteAllText($installedPath, 'written during the wait') }.GetNewClosure()
+            $reachedAgain = [ref]$false
+            $script:HostRuntimeOperationForSelfTest = {
+                param($record, $staged, $backup, $attempt)
+                if ($record.Name -ceq 'existing.bin' -and $attempt -ge 2) { $reachedAgain.Value = $true }
+                if ($record.Name -ceq 'existing.bin' -and $attempt -eq 1) { return [IO.IOException]::new('synthetic sharing violation', -2147024864) }
+                return $null
+            }.GetNewClosure()
+            $raised = $null
+            try { Publish-HostRuntimePlan $plan } catch { $raised = $_.Exception } finally { $script:HostRuntimeOperationForSelfTest = $null }
+            $message = if ($null -ne $raised) { $raised.Message } else { '' }
+            if (-not $script:WaitWritten['existing.bin'] -or -not $message.Contains('the installed file changed') -or (& $retries 'existing.bin') -ne 1 -or
+                $plan.Applied -or (& $readDestination 'existing.bin') -cne 'written during the wait' -or $reachedAgain.Value) {
+                throw "INSTALL_RETRY_GUARD_RUNS_AFTER_THE_WAIT: a destination rewritten during the wait itself (after the sleep) refuses the retry and is kept (written $([bool]$script:WaitWritten['existing.bin']), raised '$message', retries $(& $retries 'existing.bin'), operation reached again $($reachedAgain.Value), existing.bin $(& $readDestination 'existing.bin'))."
+            }
+            $checks++
+            Close-HostRuntimePlan $plan
+            & $resetDestination
+
+            # Marker state (T8-X3-2, Publish-UpdateMarker's first predicate): a module ID added to the marker during the wait refuses
+            # the repeat publication and the concurrent marker is kept.
+            [IO.File]::WriteAllText($retryMarker, "alpha`n", [Text.UTF8Encoding]::new($false))
+            $markerSnapshot = Read-UpdateMarker $retryMarker
+            $script:RetryWitness = @{}; $script:WaitWritten = @{}
+            $script:ReleaseOnRetry['the update marker'] = & $hold $retryMarker
+            $script:DuringWaitWrite['the update marker'] = { [IO.File]::WriteAllText($retryMarker, "alpha`nbeta`n", [Text.UTF8Encoding]::new($false)) }.GetNewClosure()
+            $raised = $null
+            try { Publish-UpdateMarker $retryMarker $markerSnapshot } catch { $raised = $_.Exception }
+            $message = if ($null -ne $raised) { $raised.Message } else { '' }
+            $markerNow = [IO.File]::ReadAllText($retryMarker)
+            if (-not $script:WaitWritten['the update marker'] -or -not $message.Contains('the update marker changed') -or
+                (& $retries 'the update marker') -ne 1 -or $markerNow -cne "alpha`nbeta`n") {
+                throw "INSTALL_MARKER_RETRY_REFUSES_CHANGED_MARKER: an update marker changed during the retry wait (an ID added) refuses the repeat publication and keeps the concurrent marker (written $([bool]$script:WaitWritten['the update marker']), raised '$message', retries $(& $retries 'the update marker'), marker '$($markerNow.Replace("`n", '|'))')."
+            }
+            $checks++
+
+            # Marker staged digest (T8-X3-2, the second predicate): the staged copy rewritten during the wait refuses the repeat
+            # publication and the marker is left as it was.
+            [IO.File]::WriteAllText($retryMarker, "alpha`n", [Text.UTF8Encoding]::new($false))
+            $markerSnapshot = Read-UpdateMarker $retryMarker
+            $script:RetryWitness = @{}; $script:WaitWritten = @{}
+            $script:ReleaseOnRetry['the update marker'] = & $hold $retryMarker
+            $markerParent = Split-Path -Parent $retryMarker
+            $plantedStages = [ref]0
+            $script:DuringWaitWrite['the update marker'] = {
+                foreach ($staged in [IO.Directory]::GetFiles($markerParent, 'agentbroker-update-*.tmp')) {
+                    [IO.File]::WriteAllText($staged, "alpha`nplanted`n"); $plantedStages.Value++
+                }
+            }.GetNewClosure()
+            $raised = $null
+            try { Publish-UpdateMarker $retryMarker $markerSnapshot } catch { $raised = $_.Exception }
+            $message = if ($null -ne $raised) { $raised.Message } else { '' }
+            $markerNow = [IO.File]::ReadAllText($retryMarker)
+            if (-not $script:WaitWritten['the update marker'] -or $plantedStages.Value -ne 1 -or -not $message.Contains('its staged copy changed') -or
+                (& $retries 'the update marker') -ne 1 -or $markerNow -cne "alpha`n") {
+                throw "INSTALL_MARKER_RETRY_REFUSES_CHANGED_STAGE: an update marker whose staged copy changed during the retry wait is not published (written $([bool]$script:WaitWritten['the update marker']), staged copies rewritten $($plantedStages.Value), raised '$message', retries $(& $retries 'the update marker'), marker '$($markerNow.Replace("`n", '|'))')."
+            }
+            $checks++
+
+            # Rollback backup digest (T8-X3-2, the rollback guard's first predicate): the rollback copy rewritten during the rollback's
+            # wait refuses the rollback; the published file is kept, the rollback reports itself incomplete, recovery stays refused.
+            $plan = & $newPlan
+            $script:WaitWritten = @{}
+            $rollbackBackup = Join-Path $plan.Previous 'existing.bin'
+            $script:DuringWaitWrite['rollback of existing.bin'] = { [IO.File]::WriteAllText($rollbackBackup, 'a rollback copy rewritten during the wait') }.GetNewClosure()
+            $script:HostRuntimeOperationForSelfTest = $holdOnRollback
+            $raised = $null
+            try { Publish-HostRuntimePlan $plan -FailAfter 2 } catch { $raised = $_.Exception } finally { $script:HostRuntimeOperationForSelfTest = $null }
+            $message = if ($null -ne $raised) { $raised.Message } else { '' }
+            $backupNow = if ([IO.File]::Exists($rollbackBackup)) { [IO.File]::ReadAllText($rollbackBackup) } else { '<absent>' }
+            if (-not $script:WaitWritten['rollback of existing.bin'] -or -not $message.Contains('automatic rollback is incomplete') -or
+                -not $plan.RollbackIncomplete -or (& $retries 'rollback of existing.bin') -ne 1 -or (& $readDestination 'existing.bin') -cne 'new-existing.bin' -or
+                $backupNow -cne 'a rollback copy rewritten during the wait' -or (Test-RecoveryLaunchPermitted $false $true $true $plan $null)) {
+                throw "INSTALL_ROLLBACK_RETRY_REFUSES_CHANGED_BACKUP: a rollback whose copy changed during its retry wait is refused, keeps the published file, reports itself incomplete and refuses recovery (written $([bool]$script:WaitWritten['rollback of existing.bin']), raised '$message', rollback incomplete $($plan.RollbackIncomplete), retries $(& $retries 'rollback of existing.bin'), existing.bin $(& $readDestination 'existing.bin'), backup '$backupNow')."
+            }
+            $checks++
+            Close-HostRuntimePlan $plan
+            if ([IO.File]::Exists($rollbackBackup)) { [IO.File]::Delete($rollbackBackup) }
+            & $resetDestination
+
+            # Rollback target digest (T8-X3-2, the second predicate): the published file rewritten during the rollback's wait is not
+            # overwritten by the rollback; it reports itself incomplete and recovery stays refused.
+            $plan = & $newPlan
+            $script:WaitWritten = @{}
+            $rollbackBackup = Join-Path $plan.Previous 'existing.bin'
+            $rollbackTarget = Join-Path $destination 'existing.bin'
+            $script:DuringWaitWrite['rollback of existing.bin'] = { [IO.File]::WriteAllText($rollbackTarget, 'a published file rewritten during the wait') }.GetNewClosure()
+            $script:HostRuntimeOperationForSelfTest = $holdOnRollback
+            $raised = $null
+            try { Publish-HostRuntimePlan $plan -FailAfter 2 } catch { $raised = $_.Exception } finally { $script:HostRuntimeOperationForSelfTest = $null }
+            $message = if ($null -ne $raised) { $raised.Message } else { '' }
+            $backupNow = if ([IO.File]::Exists($rollbackBackup)) { [IO.File]::ReadAllText($rollbackBackup) } else { '<absent>' }
+            if (-not $script:WaitWritten['rollback of existing.bin'] -or -not $message.Contains('automatic rollback is incomplete') -or
+                -not $plan.RollbackIncomplete -or (& $retries 'rollback of existing.bin') -ne 1 -or
+                (& $readDestination 'existing.bin') -cne 'a published file rewritten during the wait' -or $backupNow -cne 'old-existing.bin' -or
+                (Test-RecoveryLaunchPermitted $false $true $true $plan $null)) {
+                throw "INSTALL_ROLLBACK_RETRY_REFUSES_CHANGED_TARGET: a rollback whose target changed during its retry wait does not overwrite it, reports itself incomplete and refuses recovery (written $([bool]$script:WaitWritten['rollback of existing.bin']), raised '$message', rollback incomplete $($plan.RollbackIncomplete), retries $(& $retries 'rollback of existing.bin'), existing.bin $(& $readDestination 'existing.bin'), backup '$backupNow')."
+            }
+            $checks++
+            Close-HostRuntimePlan $plan
+            if ([IO.File]::Exists($rollbackBackup)) { [IO.File]::Delete($rollbackBackup) }
+            & $resetDestination
         } finally {
             foreach ($open in @($script:ReleaseOnRetry.Values)) { $open.Dispose() }
             $script:ReleaseOnRetry = @{}
             if ($null -ne $script:WatchdogHold) { $script:WatchdogHold.Dispose(); $script:WatchdogHold = $null }
             $script:ReplaceRetryForSelfTest = $null; $script:HostRuntimeOperationForSelfTest = $null; $script:DuringDelayWrite = $null
+            $script:ReplaceRetryWaitForSelfTest = $null; $script:DuringWaitWrite = @{}; $script:WaitWritten = @{}
         }
 
         $sourceLink = Assert-ContainedPath (Join-Path $root 'source-linked.bin') $root

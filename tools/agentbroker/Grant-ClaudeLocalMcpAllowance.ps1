@@ -252,9 +252,12 @@ public static class ClaudeUserGrant {
     // each REPEATED attempt, so after the delay, the settings file's identity and digest (Stamp) and the staged bytes are re-read;
     // any change refuses the retry (X1b T-r3 finding 1). Self-test only, null otherwise: FaultForTest's non-null result is thrown
     // as an attempt's failure; RetryForTest runs after a transient failure, before the delay (a hold released on an OBSERVED retry).
+    // Round 8 (3/3, X3's T8-X3-1): WaitForTest, also null otherwise, runs at the END of the delay, after the sleep and before the
+    // next attempt's guard, so a fixture's concurrent write lands inside the wait, where only a guard after the wait sees it.
     public const int ReplaceAttempts=5, ReplaceRetryDelayMs=100;
     public static Func<int,Exception> FaultForTest;
     public static Action<int> RetryForTest;
+    public static Action<int> WaitForTest;
     static bool Transient(IOException error)=>error.HResult==unchecked((int)0x80070497)||error.HResult==unchecked((int)0x80070020);
     public static ClaudeUserGrantResult Publish(ClaudeUserGrantPlan plan) {
         var result=new ClaudeUserGrantResult();
@@ -289,6 +292,7 @@ public static class ClaudeUserGrant {
                     break;
                 } catch (IOException error) when (attempt<ReplaceAttempts && Transient(error)) {
                     first??=error; RetryForTest?.Invoke(attempt); System.Threading.Thread.Sleep(ReplaceRetryDelayMs);
+                    WaitForTest?.Invoke(attempt);
                 }
             }
             stageCreated=false; result.Applied=true; result.PrivateBackupCreated=backupCreated;
@@ -372,7 +376,8 @@ public static class ClaudeUserGrant {
             try{Publish(plan);}catch(IOException error){hresult=error.HResult;}
             hold?.Dispose(); hold=null;
             check(hresult==unchecked((int)0x80070020) && retries==4 && File.ReadAllText(path)==original && Directory.GetFiles(root).Length==1);
-            // 25: the settings file rewritten during the delay is not overwritten: the retry is refused after the delay.
+            // 25: the settings file rewritten after the first failure (in RetryForTest, before the sleep) is not overwritten: the
+            // retry is refused. A write inside the wait itself is check 27.
             RetryForTest=attempt=>{retries++; File.WriteAllText(path,original+"  ");};
             plan=PrepareAt(path); retries=0;
             FaultForTest=attempt=>attempt==1?new IOException("synthetic sharing violation",unchecked((int)0x80070020)):null;
@@ -388,7 +393,29 @@ public static class ClaudeUserGrant {
             FaultForTest=null;
             check(applied && retries==1);
             File.Delete(System.IO.Path.Combine(root,result.BackupFileName));
-        } finally { RetryForTest=null; FaultForTest=null; hold?.Dispose(); }
+            // Round 8 (3/3, X3's T8-X3-1 and T8-X3-2, DECISIONS 128): writes that land INSIDE the wait (WaitForTest). These follow
+            // 25 on purpose: 25 owns the guard itself, and this self-test stops at its first failure, so each owns one defect.
+            // 27: the settings file rewritten during the wait is not overwritten. A guard moved to just before the sleep passes 25,
+            // whose write is made in RetryForTest, and fails here.
+            RetryForTest=attempt=>retries++;
+            int waited=0;
+            WaitForTest=attempt=>{waited++; File.WriteAllText(path,original+"   ");};
+            File.WriteAllText(path,original,new UTF8Encoding(false));
+            plan=PrepareAt(path); retries=0;
+            FaultForTest=attempt=>attempt==1?new IOException("synthetic sharing violation",unchecked((int)0x80070020)):null;
+            string refusal=null; try{Publish(plan);}catch(IOException error){refusal=error.Message;}
+            FaultForTest=null; WaitForTest=null;
+            check(waited==1 && refusal=="concurrent_modification" && retries==1 && File.ReadAllText(path)==original+"   " &&
+                Directory.GetFiles(root).Length==1);
+            // 28: the staged settings rewritten during the wait are not published (stage_changed); the file is left as it was.
+            File.WriteAllText(path,original,new UTF8Encoding(false));
+            plan=PrepareAt(path); retries=0; waited=0;
+            WaitForTest=attempt=>{foreach(var staged in Directory.GetFiles(root,"settings.agentbroker-stage-*.json")){File.WriteAllText(staged,"{\"planted\":true}");waited++;}};
+            FaultForTest=attempt=>attempt==1?new IOException("synthetic sharing violation",unchecked((int)0x80070020)):null;
+            refusal=null; try{Publish(plan);}catch(IOException error){refusal=error.Message;}
+            FaultForTest=null; WaitForTest=null;
+            check(waited==1 && refusal=="stage_changed" && retries==1 && File.ReadAllText(path)==original && Directory.GetFiles(root).Length==1);
+        } finally { RetryForTest=null; FaultForTest=null; WaitForTest=null; hold?.Dispose(); }
         File.Delete(path);
         return checks;
     }
