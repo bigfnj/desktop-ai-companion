@@ -10,7 +10,8 @@ two cases. Some of these assertions live in the host but watch code that compile
 MODULE dll. Rebuilding only the host would have reported SURVIVED while the mutated source
 was never compiled -- which is exactly how the BUG-002 harness produced a clean 0/7. So a
 case names its own csproj and its own artifact, and the artifact's timestamp must have
-ADVANCED before any verdict is believed.
+ADVANCED and its SHA-256 must differ from the baseline build's (round 6) before any verdict
+is believed.
 
 Three channels decide a verdict, not one. A self-test that throws writes `EXC: ...` and
 `RESULT=FAIL` with no FAIL line, and exits 1; until 2026-09-29 this file read only the FAIL
@@ -20,15 +21,18 @@ agree before anything is scored -- on the baseline since F405, and on the FIRED 
 rungs since R-063: a FAIL line under exit 0 and RESULT=PASS is a plumbing fault (a Check()
 whose bool is not folded into ok), printed as one and never counted as a firing, because the
 gate that reads the exit code would stay green on it. A run with no verdict is BROKEN, never
-SURVIVED.
+SURVIVED. Since round 6 (lane T, DECISIONS 98) FIRED also needs the failing labels to be
+exactly the case's own: another failure beside it is COLLATERAL, and so is an EXC or SKIP
+line (grade()).
 
 Every child runs with a private TEMP (one directory per harness run), because the marker
 names are fixed by the flag and the exe writes them under Path.GetTempPath(): two same-user
 runners sharing %TEMP% -- a gate in the main checkout and this harness in a worktree -- could
 grade each other's build (F418). The directory is removed after a clean run and KEPT, named
-on the console, after anything else, with every non-FIRED case's whole report under a
-per-case name (R-060, R-065): the markers used to go with the directory in every outcome,
-so a WRONG verdict survived only as two 140-character console lines.
+on the console, after anything else, with every graded case's whole report under a
+per-case name (R-060, R-065; FIRED cases too since round 6): the markers used to go with the
+directory in every outcome, so a WRONG verdict survived only as two 140-character console
+lines. Every graded case also prints its failing labels and every FAIL/EXC/SKIP/RESULT line.
 
 Restore is byte-exact from a copy read into memory first, never from git.
 
@@ -22439,8 +22443,95 @@ def unhealthy(report, code):
     return "; ".join(problems) if problems else None
 
 
+# Round 6 (lane T, DECISIONS 98, X2c's F audit): FAIL lines that are the CONSEQUENCE of another failure in the same report,
+# never a second guard. ModuleConventionSelfTest.RunModuleSelfTest ends a module's report with this line exactly when the
+# module's own verdict was false, so beside a "[<id>] FAIL: ..." line it is that line's echo; alone, it is a failure in its
+# own right. CoreTests prints one header above the group lines it counts (DesktopAICompanion.CoreTests/Program.cs).
+MODULE_VERDICT_ECHO = "FAIL: the module's own self-test passed"
+CORETESTS_FAILURE_HEADER = re.compile(r"^FAIL: \d+ regression group\(s\)\.$")
+
+
+def failing_labels(report):
+    """The failed assertions a report names, each once and in order, with the two derived lines above removed."""
+    lines = failure_lines(report)
+    module_failed = any(line.startswith("[") and "] " in line for line in lines)
+    labels = []
+    for line in lines:
+        if module_failed and line == MODULE_VERDICT_ECHO:
+            continue
+        if CORETESTS_FAILURE_HEADER.match(line):
+            continue
+        if line not in labels:
+            labels.append(line)
+    return labels
+
+
+def verdict_record(report):
+    """Every FAIL, EXC, SKIP and RESULT line of a report, module-prefixed ones included (round 6, b): printed for every
+    graded case, FIRED too, so a sole-label claim can be read from the run's own output and not from one clipped line."""
+    return _verdict_lines(report, ("FAIL", "EXC", "SKIP:", "RESULT="))
+
+
+def grade(report, code, expect):
+    """(outcome, failing labels) for one mutant's report, strict since round 6 (DECISIONS 98).
+
+    FIRED only when every channel agrees that the case's guard, and nothing else, failed: a nonzero exit, a column-0
+    RESULT=FAIL, no EXC or SKIP line, and failing labels (derived lines removed) that are exactly the expected set, each
+    expected fragment naming exactly one label. `expect` is one fragment, or a tuple of fragments for a documented
+    multi-label owner. Until round 6 the expected label merely had to APPEAR: an unrelated failure beside it, a SKIP beside
+    it, or exit 0 under RESULT=FAIL all scored FIRED (X2c's probe, module-grader-probe.json)."""
+    fragments = (expect,) if isinstance(expect, str) else tuple(expect)
+    labels = failing_labels(report)
+    aborted = aborted_lines(report)
+    green = code == 0 and passed(report)
+    if labels and green:
+        return "WRONG (FAIL line but exit 0 and RESULT=PASS: the gate would stay green)", labels
+    if not labels:
+        if aborted or not green:
+            # No FAIL line, but no clean pass either: the self-test threw, skipped, or exited without a column-0 verdict.
+            # That is not "the check still passed", so it is never SURVIVED; it is a run that proved nothing.
+            return ("BROKEN (no verdict: %s)" % (aborted[0] if aborted else "exit %s, RESULT=PASS %s" % (
+                code, "present" if passed(report) else "absent")))[:120], labels
+        return "SURVIVED", labels
+    owners = dict((fragment, [label for label in labels if fragment in label]) for fragment in fragments)
+    if not any(owners.values()):
+        return "WRONG -- failed elsewhere", labels
+    missing = [fragment for fragment in fragments if not owners[fragment]]
+    if missing:
+        return "WRONG -- expected label(s) absent: %s" % "; ".join(missing), labels
+    extra = [label for label in labels if not any(fragment in label for fragment in fragments)]
+    ambiguous = [fragment for fragment in fragments if len(owners[fragment]) > 1]
+    if extra or ambiguous:
+        return "COLLATERAL (%d other failing label(s), %d ambiguous fragment(s))" % (len(extra), len(ambiguous)), labels
+    if aborted:
+        return "COLLATERAL (EXC/SKIP beside the expected failure: %s)" % aborted[0][:80], labels
+    if code == 0:
+        return "WRONG (expected FAIL line but exit 0: the gate would stay green)", labels
+    if not any(line.startswith("RESULT=FAIL") for line in report.splitlines()):
+        return "BROKEN (expected FAIL line but no column-0 RESULT=FAIL)", labels
+    return "FIRED", labels
+
+
+def artifact_sha256(path):
+    with open(path, "rb") as handle:
+        return hashlib.sha256(handle.read()).hexdigest().upper()
+
+
+def rebuild_problem(artifact, before_mtime, baseline_sha):
+    """Why a mutant build does not prove the mutant reached `artifact`, or None (round 6, c). The timestamp must have
+    advanced AND the SHA-256 must differ from the baseline build's: a timestamp alone is touched by a no-op rebuild, and
+    the artefact a case starts from may be the previous case's mutant, so only the baseline hash is a fixed reference."""
+    if not os.path.isfile(artifact) or os.path.getmtime(artifact) <= before_mtime:
+        return "%s not rebuilt" % os.path.basename(artifact)
+    if baseline_sha is None:
+        return "%s has no baseline SHA-256" % os.path.basename(artifact)
+    if artifact_sha256(artifact) == baseline_sha:
+        return "%s rebuilt with the baseline SHA-256: the mutant did not reach it" % os.path.basename(artifact)
+    return None
+
+
 def keep_report(index, name, report):
-    """A non-FIRED case's WHOLE report under a per-case name (R-060, R-065).
+    """A graded case's WHOLE report under a per-case name (R-060, R-065; every outcome since round 6, FIRED included).
 
     Every case rewrites the same marker file, so keeping RUN_TEMP alone would have preserved only the
     last case's report; this copies each one that needs reading before the next case runs. main() then
@@ -22487,6 +22578,13 @@ def score(plan):
             print("baseline report kept:", keep_report(0, "baseline-" + flag, report))
             return 2
     print("  baseline clean\n")
+    # Round 6 (c): every artefact a selected case rebuilds, hashed once on the clean baseline build. A case's mutant must
+    # change that hash, not merely the timestamp (rebuild_problem).
+    baseline_sha = {}
+    for case in cases:
+        artifact = case[5]
+        if artifact is not None and artifact not in baseline_sha:
+            baseline_sha[artifact] = artifact_sha256(artifact) if os.path.isfile(artifact) else None
 
     fired = 0
     not_run = 0
@@ -22513,6 +22611,7 @@ def score(plan):
             code = None
             verdict = None
             leak = None
+            proof = None
             # The mutant is written INSIDE the try, and the pause after it too (lane feature/modules-fixes, from a review
             # on 2026-10-29): both sat before it, so a Ctrl+C during the 1.1 s pause skipped the restore, and the outer
             # finally then rebuilt the clean tree from the mutated source.
@@ -22523,11 +22622,14 @@ def score(plan):
                     report, code, leak = watched_selftest(flag, marker)
                 else:
                     built, _ = build(csproj)
+                    problem = rebuild_problem(artifact, before, baseline_sha.get(artifact)) if built else None
                     if not built:
                         verdict = "BROKEN (does not compile)"
-                    elif os.path.getmtime(artifact) <= before:
-                        verdict = "BROKEN (%s not rebuilt)" % os.path.basename(artifact)
+                    elif problem is not None:
+                        verdict = "BROKEN (%s)" % problem
                     else:
+                        proof = "%s %s -> %s" % (os.path.basename(artifact), baseline_sha[artifact][:16],
+                                                 artifact_sha256(artifact)[:16])
                         report, code, leak = watched_selftest(flag, marker)
             finally:
                 write(path, base)
@@ -22544,47 +22646,21 @@ def score(plan):
             if report is None:
                 print("  %-52s BROKEN (%s)" % (name, code))
                 continue
-            # NOT startswith("FAIL"). A module's own assertions are re-emitted by
-            # ModuleConventionSelfTest with a '  [<id>] ' prefix, so a real firing reads
-            # '  [blinkingled] FAIL: ...' and never starts with FAIL at all -- which made two correct
-            # cases report WRONG, pointing at the outer 'the module's own self-test passed' instead.
-            # mutate-agentflow.py already carried this scar; this file had not learned it.
-            # Excluding PASS lines is what keeps it honest: an assertion label can contain the word
-            # 'failed' and several do.
-            hit = [l for l in failure_lines(report) if expect in l]
-            aborted = aborted_lines(report)
-            # THE CHANNELS MUST AGREE HERE TOO (R-063). unhealthy() made the BASELINE refuse a report whose
-            # exit code, RESULT= line and FAIL lines disagree; under mutation the same disagreement in the
-            # other direction was invisible: a self-test that writes 'FAIL: ...' and still exits 0 with a
-            # column-0 RESULT=PASS -- a Check() whose bool is not folded into ok -- scored FIRED here while
-            # Invoke-SelfTests.ps1 and CI, which read the exit code, stay green on the very regression the
-            # case claims to cover. So a FAIL line inside a green run is a plumbing fault, printed as one,
-            # and counted as neither a firing nor a WRONG-elsewhere.
-            green = code == 0 and passed(report)
-            detail = []
-            if has_failure(report) and green:
-                outcome = "WRONG (FAIL line but exit 0 and RESULT=PASS: the gate would stay green)"
-                detail = failure_lines(report)[:2]
-            elif hit:
+            # The channels must agree (R-063) and the failing labels must be exactly the case's own (round 6): grade().
+            # Module lines arrive as '  [<id>] FAIL: ...', which failure_lines() reads through the '[<id>] ' prefix; a
+            # label containing the word 'failed' is a PASS line and never counts.
+            outcome, labels = grade(report, code, expect)
+            if outcome == "FIRED":
                 fired += 1
-                outcome = "FIRED"
-                detail = [hit[0]]
-            elif has_failure(report):
-                outcome = "WRONG -- failed elsewhere"
-                detail = failure_lines(report)[:2]
-            elif aborted or not green:
-                # No FAIL line, but no clean pass either: the self-test threw, skipped, or exited
-                # without a column-0 verdict. That is not "the check still passed", so it is never
-                # SURVIVED; it is a run that proved nothing about the assertion.
-                outcome = "BROKEN (no verdict: %s)" % (aborted[0] if aborted else "exit %s, RESULT=PASS %s" % (
-                    code, "present" if passed(report) else "absent"))[:120]
-            else:
-                outcome = "SURVIVED"
             print("  %-52s %s" % (name, outcome))
-            for line in detail:
-                print("        %s" % line[:140])
-            if outcome != "FIRED":
-                keep_report(index, name, report)
+            if proof is not None:
+                print("        rebuilt %s" % proof)
+            print("        failing labels (%d): %s" % (len(labels), " | ".join(labels) if labels else "none"))
+            # Round 6 (b): the whole verdict record of EVERY graded case, FIRED included, on the console; the whole
+            # report goes under a per-case name in RUN_TEMP, kept when the run is not clean (main()).
+            for line in verdict_record(report):
+                print("        | %s" % line)
+            keep_report(index, name, report)
 
     finally:
         # INSIDE a finally (F406). A TimeoutExpired out of build() or selftest(), or a Ctrl+C, used to
@@ -22618,18 +22694,28 @@ def check_patterns(cases):
     # The same case-ID rule make_plan applies to every run (round 2, T2-4; mutation_caseplan.make_plan): a blank ID, or one equal
     # to an earlier ID ignoring case (casefold, round 3), is a broken inventory.
     seen = set()
-    for case in cases:
+    rejected = set()
+    for index, case in enumerate(cases):
         name = case[0] if isinstance(case, (tuple, list)) and case else None
         if not isinstance(name, str) or not name.strip():
             print("  BAD CASE ID  %r" % (name,))
             bad += 1
+            rejected.add(index)
             continue
         identity = name.casefold()
         if identity in seen:
             print("  DUPLICATE CASE ID  %s" % name)
             bad += 1
         seen.add(identity)
-    for case in cases:
+    # Round 5, D14: a case the ID loop rejected, or one too short to name its file and pattern, is counted once and never
+    # indexed again, so the summary line below always prints (it used to end in TypeError or IndexError).
+    for index, case in enumerate(cases):
+        if index in rejected:
+            continue
+        if len(case) < 4:
+            print("  BAD CASE SHAPE  %s (%d fields)" % (case[0], len(case)))
+            bad += 1
+            continue
         name, path, old, new = case[0], case[1], case[2], case[3]
         if not os.path.isfile(path):
             print("  NO FILE  %s (%s)" % (name, path))

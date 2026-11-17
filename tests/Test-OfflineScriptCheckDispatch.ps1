@@ -68,6 +68,11 @@ try {
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Invoke-OfflineScriptChecks.ps1') -Destination (Join-Path $scratch 'tests/Invoke-OfflineScriptChecks.ps1')
     foreach ($check in $checks) {
         $path = Join-Path $scratch $check.Relative
+        # Round 5, D15: only the Python stub compares its arguments with a row's Args; the .ps1 and .mjs stubs check -SelfTest
+        # alone, so Args on such a row would pass without proving the runner forwards it. Refused until those stubs compare.
+        if ($check.ContainsKey('Args') -and -not $path.EndsWith('.py', [StringComparison]::Ordinal)) {
+            throw ('Args is supported for Python checks only: ' + $check.Name)
+        }
         [void][IO.Directory]::CreateDirectory((Split-Path $path -Parent))
         $requiresSelfTest = $check.ContainsKey('SelfTest') -and $check.SelfTest
         if ($path.EndsWith('.py', [StringComparison]::Ordinal)) {
