@@ -36,6 +36,10 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+# Self-test seam (lane T round 8), null outside -SelfTest: called with (record, staged source, backup or $null) in place of
+# nothing, immediately before a host runtime file's replace or move; it may change files as a failing operation would, and a
+# non-null result is thrown as that operation's failure (a Win32 1177 partial replacement, or a failure reported after landing).
+$script:HostRuntimeOperationForSelfTest = $null
 
 function Initialize-InstallerNative {
     if ('AgentBrokerLocalInstallNative' -as [type]) { return }
@@ -554,7 +558,7 @@ function New-HostRuntimePlan([string]$Source, [string]$Destination, [string[]]$N
     }
     $records = [Collections.Generic.List[object]]::new()
     $plan = [pscustomobject]@{ Destination = $Destination; Records = $records; ExpectedVersion = $ExpectedVersion; Stage = ''; New = ''; Previous = '';
-        Changed = [Collections.Generic.List[object]]::new(); Applied = $false; RollbackIncomplete = $false }
+        Changed = [Collections.Generic.List[object]]::new(); InFlight = $null; Applied = $false; RollbackIncomplete = $false }
     try {
         $total = 0L; $oldTotal = 0L
         foreach ($name in $Names) {
@@ -614,6 +618,31 @@ function Stage-HostRuntimePlan($Plan) {
 }
 
 function Restore-HostRuntimePlan($Plan) {
+    # Lane T round 8 (S-009, X1b T-r3 finding 2): the record whose replace or move was in flight when publication failed is
+    # reconciled FIRST, by what exists on disk. A replace always passes its backup, so ReplaceFile's documented outcomes are:
+    # target present and no backup = nothing landed (1175, 1176 with a backup, an error before the rename); target and backup
+    # present = the replace landed (it joins Changed and is rolled back below, content-checked there); target missing with a
+    # backup = a partial replacement (Win32 1177: the old file already renamed to the backup, the new one not placed), put back
+    # from the backup only after the backup's digest matches the original, then verified at the target. A new file's move landed
+    # when its target exists. Any other state throws, which Publish-HostRuntimePlan turns into RollbackIncomplete. Before round 8
+    # the in-flight record was outside Changed and ignored, so a 1177 left a runtime file missing with recovery permitted.
+    $inFlight = $Plan.InFlight
+    if ($null -ne $inFlight) {
+        $targetExists = [IO.File]::Exists($inFlight.Target)
+        if ($inFlight.OldExists) {
+            $inFlightBackup = Assert-ContainedPath (Join-Path $Plan.Previous $inFlight.Name) $Plan.Previous
+            $backupExists = [IO.File]::Exists($inFlightBackup)
+            if ($targetExists -and $backupExists) { $Plan.Changed.Add($inFlight) }
+            elseif (-not $targetExists -and $backupExists) {
+                if ((Get-HostRuntimeFileSnapshot $inFlightBackup).Hash -cne $inFlight.OldHash) {
+                    throw 'An in-flight host runtime file is missing and its backup cannot be verified.'
+                }
+                # A rename keeps the verified bytes; the recovery gate re-verifies every planned file (Test-HostRuntimePlanSettled).
+                [IO.File]::Move($inFlightBackup, $inFlight.Target, $false)
+            } elseif (-not $targetExists) { throw 'An in-flight host runtime file and its backup are both missing.' }
+        } elseif ($targetExists) { $Plan.Changed.Add($inFlight) }
+        $Plan.InFlight = $null
+    }
     for ($index = $Plan.Changed.Count - 1; $index -ge 0; $index--) {
         $record = $Plan.Changed[$index]
         $current = Get-HostRuntimeFileSnapshot $record.Target
@@ -628,6 +657,41 @@ function Restore-HostRuntimePlan($Plan) {
     $Plan.Applied = $false
 }
 
+function Invoke-HostRuntimeOperation($Record, [string]$Source, $Backup) {
+    # The single replace-or-move of one host runtime file. A future bounded retry (S-010, if the owner rules yes) belongs here.
+    if ($null -ne $script:HostRuntimeOperationForSelfTest) {
+        $fault = & $script:HostRuntimeOperationForSelfTest $Record $Source $Backup
+        if ($null -ne $fault) { throw $fault }
+    }
+    if ($Record.OldExists) { [IO.File]::Replace($Source, $Record.Target, $Backup) }
+    else { [IO.File]::Move($Source, $Record.Target, $false) }
+}
+
+# Round 8: true only when every planned record's installed file is verified on disk in ONE consistent state: the new runtime
+# after a verified publication, or the original runtime after a rollback (each original file by its digest, each added file
+# absent). A plan with an unreconciled in-flight record or an incomplete rollback is never settled. Any read failure is false.
+function Test-HostRuntimePlanSettled($Plan) {
+    if ($null -eq $Plan) { return $true }
+    if ($Plan.RollbackIncomplete -or $null -ne $Plan.InFlight) { return $false }
+    try {
+        foreach ($record in $Plan.Records) {
+            if ($Plan.Applied) {
+                if ((Get-HostRuntimeFileSnapshot $record.Target).Hash -cne $record.Hash) { return $false }
+            } elseif ($record.OldExists) {
+                if ((Get-HostRuntimeFileSnapshot $record.Target).Hash -cne $record.OldHash) { return $false }
+            } elseif (Test-Path -LiteralPath $record.Target) { return $false }
+        }
+        return $true
+    } catch { return $false }
+}
+
+# Round 8: the companion is restarted after a failed run only when it is safe to launch, and with a host runtime plan only
+# when that plan is settled (Test-HostRuntimePlanSettled), not merely when no rollback reported itself incomplete.
+function Test-RecoveryLaunchPermitted([bool]$ReadyCompleted, [bool]$CompanionStopped, [bool]$RuntimeLaunchSafe, $RuntimePlan, $Relaunched) {
+    return -not $ReadyCompleted -and $CompanionStopped -and $RuntimeLaunchSafe -and (Test-HostRuntimePlanSettled $RuntimePlan) -and
+        ($null -eq $Relaunched -or $Relaunched.HasExited)
+}
+
 function Publish-HostRuntimePlan($Plan, [int]$FailAfter = -1) {
     # Called only after the retained companion and its exact owned worker have exited.
     foreach ($record in $Plan.Records) { if ($record.Old) { $record.Old.Dispose(); $record.Old = $null } }
@@ -640,13 +704,17 @@ function Publish-HostRuntimePlan($Plan, [int]$FailAfter = -1) {
             $source = Assert-ContainedPath (Join-Path $Plan.New $record.Name) $Plan.New
             Assert-NoReparseComponents $source
             if ((Get-HostRuntimeFileSnapshot $source).Hash -cne $record.Hash) { throw 'A staged host runtime file changed before publication.' }
+            $backup = $null
             if ($record.OldExists) {
                 $backup = Assert-ContainedPath (Join-Path $Plan.Previous $record.Name) $Plan.Previous
                 Assert-NoReparseComponents $backup
                 if (Test-Path -LiteralPath $backup) { throw 'A unique host runtime rollback destination unexpectedly exists.' }
-                [IO.File]::Replace($source, $record.Target, $backup)
-            } else { [IO.File]::Move($source, $record.Target, $false) }
+            }
+            # Round 8: in flight from here until it is in Changed, so a failure inside the operation is reconciled by Restore.
+            $Plan.InFlight = $record
+            Invoke-HostRuntimeOperation $record $source $backup
             $Plan.Changed.Add($record)
+            $Plan.InFlight = $null
             if ($FailAfter -ge 0 -and $Plan.Changed.Count -eq $FailAfter) { throw 'Synthetic host runtime publication failure.' }
         }
         foreach ($record in $Plan.Records) {
@@ -763,6 +831,137 @@ function Test-HostRuntimeTransaction([string]$Parent) {
             [IO.File]::Exists((Join-Path $destination 'added.bin'))) { throw 'Explicit runtime rollback did not restore the original file set.' }
         $checks++
         Close-HostRuntimePlan $plan
+
+        # Lane T round 8 (S-009, X1b T-r3 finding 2): the record in flight when publication fails is reconciled by what is on
+        # disk, and recovery waits for every planned file to verify. Each fixture injects its failure through the operation seam.
+        $readDestination = { param($name) $path = Join-Path $destination $name; if ([IO.File]::Exists($path)) { [IO.File]::ReadAllText($path) } else { '<missing>' } }
+        $allOld = { (& $readDestination 'existing.bin') -ceq 'old-existing.bin' -and (& $readDestination 'last.bin') -ceq 'old-last.bin' -and
+            (& $readDestination 'added.bin') -ceq '<missing>' }
+        $plan = New-HostRuntimePlan $source $destination $names $null; $plans.Add($plan)
+        Stage-HostRuntimePlan $plan
+        $script:HostRuntimeOperationForSelfTest = {
+            param($record, $staged, $backup)
+            # Win32 1177 as documented for ReplaceFile: the replaced file already renamed to the backup, the replacement not placed.
+            if ($record.Name -ceq 'existing.bin') {
+                [IO.File]::Move($record.Target, $backup, $false)
+                return [IO.IOException]::new('synthetic ERROR_UNABLE_TO_MOVE_REPLACEMENT_2 (1177)', -2147023719)
+            }
+            return $null
+        }
+        $raised = $null
+        try { Publish-HostRuntimePlan $plan } catch { $raised = $_.Exception } finally { $script:HostRuntimeOperationForSelfTest = $null }
+        if ($null -eq $raised -or $plan.RollbackIncomplete -or $plan.Applied -or $null -ne $plan.InFlight -or $plan.Changed.Count -ne 0 -or
+            -not (& $allOld) -or -not (Test-HostRuntimePlanSettled $plan)) {
+            throw "INSTALL_ROLLBACK_RECONCILES_PARTIAL_REPLACE: a 1177 partial replacement is put back from its verified backup and the plan settles (raised $($null -ne $raised), rollback incomplete $($plan.RollbackIncomplete), existing.bin $(& $readDestination 'existing.bin'))."
+        }
+        $checks++
+        Close-HostRuntimePlan $plan
+
+        $landedWrong = @()
+        foreach ($landed in @('existing.bin', 'added.bin')) {
+            $plan = New-HostRuntimePlan $source $destination $names $null; $plans.Add($plan)
+            Stage-HostRuntimePlan $plan
+            $landedName = $landed
+            $script:HostRuntimeOperationForSelfTest = {
+                param($record, $staged, $backup)
+                # The operation lands, then its failure is reported (as an I/O error surfacing after the rename would be).
+                if ($record.Name -ceq $landedName) {
+                    if ($record.OldExists) { [IO.File]::Replace($staged, $record.Target, $backup) } else { [IO.File]::Move($staged, $record.Target, $false) }
+                    return [IO.IOException]::new('synthetic failure reported after the operation landed', -2147024891)
+                }
+                return $null
+            }.GetNewClosure()
+            $raised = $null
+            try { Publish-HostRuntimePlan $plan } catch { $raised = $_.Exception } finally { $script:HostRuntimeOperationForSelfTest = $null }
+            if ($null -eq $raised -or $plan.RollbackIncomplete -or $plan.Applied -or $null -ne $plan.InFlight -or -not (& $allOld) -or
+                -not (Test-HostRuntimePlanSettled $plan)) {
+                $landedWrong += "$landed (rollback incomplete $($plan.RollbackIncomplete), existing.bin $(& $readDestination 'existing.bin'), added.bin $(& $readDestination 'added.bin'))"
+            }
+            Close-HostRuntimePlan $plan
+        }
+        if ($landedWrong.Count -ne 0) {
+            throw "INSTALL_ROLLBACK_RECONCILES_LANDED_OPERATION: a replace or move that landed before its failure was reported is rolled back (wrong: $($landedWrong -join '; '))."
+        }
+        $checks++
+
+        # Recovery needs a settled plan, not merely one whose rollback did not report itself incomplete: the state 88f3a9b2 left
+        # behind (target renamed to its backup, nothing in Changed, RollbackIncomplete false) must not permit a launch.
+        $plan = New-HostRuntimePlan $source $destination $names $null; $plans.Add($plan)
+        Stage-HostRuntimePlan $plan
+        $settledBefore = Test-RecoveryLaunchPermitted $false $true $true $plan $null
+        foreach ($record in $plan.Records) { if ($record.Old) { $record.Old.Dispose(); $record.Old = $null } }
+        $unsettledBackup = Join-Path $plan.Previous 'existing.bin'
+        [IO.File]::Move((Join-Path $destination 'existing.bin'), $unsettledBackup, $false)
+        $unsettled = Test-RecoveryLaunchPermitted $false $true $true $plan $null
+        [IO.File]::Move($unsettledBackup, (Join-Path $destination 'existing.bin'), $false)
+        $plan.RollbackIncomplete = $true
+        $incomplete = Test-RecoveryLaunchPermitted $false $true $true $plan $null
+        if (-not $settledBefore -or $unsettled -or $incomplete -or -not (Test-RecoveryLaunchPermitted $false $true $true $null $null) -or
+            (Test-RecoveryLaunchPermitted $true $true $true $null $null)) {
+            throw "INSTALL_RECOVERY_REQUIRES_SETTLED_RUNTIME: recovery launches only when every planned runtime file verifies (settled $settledBefore, missing file $unsettled, rollback incomplete $incomplete)."
+        }
+        $checks++
+        Close-HostRuntimePlan $plan
+
+        # The launch decision in the installer's own finally block is exactly that function: the CONDITION of the if that starts
+        # the recovery companion, read from this script's syntax tree (not the mere presence of a call somewhere).
+        $installerAst = [Management.Automation.Language.Parser]::ParseFile($PSCommandPath, [ref]$null, [ref]$null)
+        $launches = @($installerAst.FindAll({ param($node) $node -is [Management.Automation.Language.CommandAst] -and
+            $node.Extent.Text -ceq "Write-Host 'CompanionRecoveryStarted=True'" }, $true))
+        $gate = "$($launches.Count) recovery launch reports"
+        if ($launches.Count -eq 1) {
+            # The nearest enclosing if, and the clause whose body holds the launch: that clause's condition is the gate.
+            $node = $launches[0].Parent
+            while ($null -ne $node -and $node -isnot [Management.Automation.Language.IfStatementAst]) { $node = $node.Parent }
+            $gate = 'no enclosing if'
+            if ($null -ne $node) {
+                foreach ($clause in $node.Clauses) {
+                    if ($clause.Item2.Extent.StartOffset -le $launches[0].Extent.StartOffset -and $launches[0].Extent.EndOffset -le $clause.Item2.Extent.EndOffset) {
+                        $gate = ($clause.Item1.Extent.Text -replace '\s+', ' ').Trim()
+                    }
+                }
+            }
+        }
+        if ($gate -cne 'Test-RecoveryLaunchPermitted $readyCompleted $companionStopped $runtimeLaunchSafe $runtimePlan $relaunched') {
+            throw "INSTALL_RECOVERY_GATE_WIRED: the one recovery launch is conditioned on Test-RecoveryLaunchPermitted with the run's own state (found: $gate)."
+        }
+        $checks++
+
+        # A partial replacement whose backup cannot be verified, or whose backup is missing too, is NOT put back: the rollback
+        # reports itself incomplete, the unverifiable backup stays where it is, and recovery is refused.
+        $incompleteWrong = @()
+        foreach ($damage in @('tampered', 'missing')) {
+            $plan = New-HostRuntimePlan $source $destination $names $null; $plans.Add($plan)
+            Stage-HostRuntimePlan $plan
+            $damageKind = $damage
+            $aside = Join-Path $root ('aside-' + [guid]::NewGuid().ToString('N') + '.bin')
+            $script:HostRuntimeOperationForSelfTest = {
+                param($record, $staged, $backup)
+                if ($record.Name -ceq 'existing.bin') {
+                    if ($damageKind -ceq 'tampered') { [IO.File]::Move($record.Target, $backup, $false); [IO.File]::WriteAllText($backup, 'tampered-backup') }
+                    else { [IO.File]::Move($record.Target, $aside, $false) }
+                    return [IO.IOException]::new('synthetic ERROR_UNABLE_TO_MOVE_REPLACEMENT_2 (1177)', -2147023719)
+                }
+                return $null
+            }.GetNewClosure()
+            $raised = $null
+            try { Publish-HostRuntimePlan $plan } catch { $raised = $_.Exception } finally { $script:HostRuntimeOperationForSelfTest = $null }
+            $damagedBackup = Join-Path $plan.Previous 'existing.bin'
+            $kept = if ($damage -ceq 'tampered') { [IO.File]::Exists($damagedBackup) -and [IO.File]::ReadAllText($damagedBackup) -ceq 'tampered-backup' } else { $true }
+            if ($null -eq $raised -or -not $plan.RollbackIncomplete -or $plan.Applied -or (Test-HostRuntimePlanSettled $plan) -or -not $kept -or
+                (& $readDestination 'existing.bin') -cne '<missing>' -or (Test-RecoveryLaunchPermitted $false $true $true $plan $null)) {
+                $incompleteWrong += "$damage (rollback incomplete $($plan.RollbackIncomplete), backup kept $kept, existing.bin $(& $readDestination 'existing.bin'))"
+            }
+            # Put the fixture back for the checks that follow.
+            if ([IO.File]::Exists($damagedBackup)) { [IO.File]::Delete($damagedBackup) }
+            if ([IO.File]::Exists($aside)) { [IO.File]::Delete($aside) }
+            if (-not [IO.File]::Exists((Join-Path $destination 'existing.bin'))) { [IO.File]::WriteAllText((Join-Path $destination 'existing.bin'), 'old-existing.bin') }
+            Close-HostRuntimePlan $plan
+        }
+        if ($incompleteWrong.Count -ne 0) {
+            throw "INSTALL_ROLLBACK_UNVERIFIABLE_BACKUP_INCOMPLETE: a partial replacement whose backup is tampered with or missing reports an incomplete rollback, keeps the backup and refuses recovery (wrong: $($incompleteWrong -join '; '))."
+        }
+        $checks++
 
         $sourceLink = Assert-ContainedPath (Join-Path $root 'source-linked.bin') $root
         [AgentBrokerLocalInstallNative]::CreateTestHardLink($sourceLink, (Join-Path $source 'existing.bin'))
@@ -1428,14 +1627,17 @@ try {
     }
     finally {
         # Do not leave the user's companion closed after a marker, swap, or launch error.
-        if (-not $readyCompleted -and $companionStopped -and $runtimeLaunchSafe -and
-            ($null -eq $runtimePlan -or -not $runtimePlan.RollbackIncomplete) -and ($null -eq $relaunched -or $relaunched.HasExited)) {
+        # Round 8: with a host runtime plan, only when every planned file is verified in one consistent state (S-009).
+        if (Test-RecoveryLaunchPermitted $readyCompleted $companionStopped $runtimeLaunchSafe $runtimePlan $relaunched) {
             try {
                 Assert-NoReparseComponents $companionExe
                 $recovery = Start-Process -FilePath $companionExe -WorkingDirectory $installRoot -WindowStyle Hidden -PassThru
                 $recovery.Dispose()
                 Write-Host 'CompanionRecoveryStarted=True'
             } catch { Write-Host 'CompanionRecoveryStarted=False' }
+        } elseif (-not $readyCompleted -and $companionStopped -and -not (Test-HostRuntimePlanSettled $runtimePlan)) {
+            # Said, never silent: the companion stays closed because its runtime files are not verified in one state.
+            Write-Host 'CompanionRecoveryWithheld=HostRuntimeNotVerified'
         }
         if ($relaunched) { $relaunched.Dispose() }
         if ($previousWorker) { $previousWorker.Dispose() }
