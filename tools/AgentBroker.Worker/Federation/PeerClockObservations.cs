@@ -4,7 +4,8 @@ using AgentBroker.Protocol;
 
 namespace AgentBroker.Worker.Federation;
 
-/// <summary>Local advisory observations only. No time here participates in admission, expiry or authorization.</summary>
+/// <summary>Local observations for advisory reporting and peer-directory lease presentation only.
+/// Stored message expiry, admission and authorization never use these offsets.</summary>
 internal sealed class PeerClockObservations(TimeProvider clock, Func<BrokerStore.PeerAuthorization, bool> isAuthorized)
 {
     internal static readonly TimeSpan MaximumRoundTrip = TimeSpan.FromSeconds(2);

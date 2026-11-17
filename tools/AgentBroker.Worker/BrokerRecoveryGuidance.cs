@@ -19,6 +19,8 @@ internal static class BrokerRecoveryGuidance
     internal const string OperationKey = "agentbroker.tool-operation";
     internal static RecoveryGuidance? ForError(string code) => code switch
     {
+        "invalid_scope" => new(code, "list_sessions",
+            "Use scope local for this workstation only or federated for this workstation and explicitly paired brokers. Preserve caller permissions."),
         "session_unavailable" or "sender_unavailable" => new(code, "list_sessions",
             "Refresh your exact native address; a generic mailbox instead re-registers its same clientId and incarnation. Never register or impersonate an old native address."),
         "recipient_unavailable" => new(code, "list_sessions",

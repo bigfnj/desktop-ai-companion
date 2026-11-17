@@ -14,6 +14,9 @@
                  escaped text. Six sends per process: the first is cold, the next five warm.
       wake       wait_for_messages wake latency over the real HTTP MCP endpoint, ten samples per process.
       directory  a federated list_sessions page with N paired loopback brokers of S present sessions each.
+      waiting-mail  ReadWaitingMail at 0/16/4096 pending across 65 sessions, separately with empty or freshly busy waits.
+                 Six calls per process, 500 ms gaps; call zero separate, then median of each process's five paced calls.
+                 Five fresh interleaved processes per build/shape supply the outer median and full-summary comparison.
       tombstone  lane broker-e (N-broker-a-02): six rounds of store.Send then the recipient's acknowledgement, with
                  acknowledged history in the snapshot, tombstones in the journal, or both, plus the journal compaction
                  and a full store.Messages history read. The old bound (4,096 retained) runs on both builds.
@@ -38,7 +41,7 @@ param(
     [Parameter(Mandatory = $true)][string]$WorkRoot,
     [Parameter(Mandatory = $true)][string]$OutputDirectory,
     [ValidateRange(1, 20)][int]$Repetitions = 5,
-    [ValidateSet('all', 'commit', 'wake', 'directory', 'tombstone', 'busy-idle')][string]$Scenario = 'all',
+    [ValidateSet('all', 'commit', 'wake', 'directory', 'tombstone', 'busy-idle', 'waiting-mail')][string]$Scenario = 'all',
     [string]$ControlExecutable,
     [switch]$NoBuild
 )
@@ -109,6 +112,12 @@ if ($Scenario -in @('all', 'tombstone')) {
 if ($Scenario -eq 'busy-idle') {
     foreach ($pending in @(0, 16, 64)) { Add-Configuration @('busy-idle', "$pending", '20') $true }
 }
+# A7 cohorts remain separate; both builds receive identical requested shapes.
+if ($Scenario -in @('all', 'waiting-mail')) {
+    foreach ($cohort in @('pending-only', 'fresh-busy')) {
+        foreach ($pending in @(0, 16, 4096)) { Add-Configuration @('waiting-mail', "$pending", $cohort) $true }
+    }
+}
 $runs = New-Object 'Collections.Generic.List[object]'
 foreach ($configuration in $configurations) {
     $runs.Add([pscustomobject]@{ Arguments = $configuration.Arguments; Build = 'candidate' })
@@ -127,6 +136,7 @@ function Invoke-Sample([object]$Sample, [int]$Repetition, [int]$Order) {
         'directory' { $arguments += @($Configuration[1], $Configuration[2], $runDirectory, $Configuration[3]) }
         'tombstone' { $arguments += @($Configuration[1], $Configuration[2], $Configuration[3], $Configuration[4], $Configuration[5], $runDirectory) }
         'busy-idle' { $arguments += @($Configuration[1], $Configuration[2], $runDirectory) }
+        'waiting-mail' { $arguments += @($Configuration[1], $Configuration[2], $runDirectory) }
     }
     $watch = [Diagnostics.Stopwatch]::StartNew()
     # Windows PowerShell 5.1 turns a native command's stderr line into a terminating error under Stop.
@@ -156,6 +166,111 @@ function Get-Warm([object[]]$Samples, [string]$Property) {
     return @($Samples | ForEach-Object { $_.$Property | Select-Object -Skip 1 } | ForEach-Object { [double]$_ })
 }
 
+# A7 keeps full precision and takes each process's paced median before the outer median.
+function Get-WaitingMailMedian([double[]]$Values) {
+    if ($Values.Count -eq 0) { return $null }
+    $sorted = @($Values | Sort-Object)
+    $middle = [int][math]::Floor($sorted.Count / 2)
+    if ($Values.Count % 2 -eq 1) { return [double]$sorted[$middle] }
+    return ([double]$sorted[$middle - 1] + [double]$sorted[$middle]) / 2.0
+}
+
+function Get-WaitingMailSummary([object[]]$Records, [string]$Build, [int]$Pending, [string]$Cohort,
+    [int]$ExpectedProcesses, [bool]$HasControl) {
+    $issues = New-Object 'Collections.Generic.List[string]'
+    $mine = New-Object 'Collections.Generic.List[object]'
+    $expectedBuilds = @('candidate')
+    if ($HasControl) { $expectedBuilds += 'control' }
+    foreach ($side in $expectedBuilds) {
+        $sideRecords = @($Records | Where-Object { $_.build -eq $side })
+        $repetitions = @($sideRecords | ForEach-Object { [int]$_.repetition } | Sort-Object)
+        if ($sideRecords.Count -ne $ExpectedProcesses -or
+            (($repetitions -join ',') -cne ((0..($ExpectedProcesses - 1)) -join ','))) {
+            $issues.Add("WAITING_PROCESS_INVENTORY: $side")
+        }
+    }
+    $referenceBase64 = $null
+    $referenceSha256 = $null
+    foreach ($record in $Records) {
+        if (-not $record.Contains('result')) {
+            $issues.Add("WAITING_PROCESS_FAILED: $($record.build)/$($record.repetition)")
+            continue
+        }
+        $sample = $record.result
+        $missing = @(@('scenario', 'pending', 'cohort', 'sessions', 'samples', 'gapMilliseconds', 'firstQuerySample',
+            'queryMs', 'summaryUtf8Base64', 'summarySha256ByCall', 'expectedSummarySha256') |
+            Where-Object { $null -eq $sample.PSObject.Properties[$_] })
+        if ($missing.Count -gt 0) {
+            $issues.Add("WAITING_RESULT_SHAPE: $($record.build)/$($record.repetition)")
+            continue
+        }
+        if ($sample.scenario -cne 'waiting-mail' -or $sample.pending -ne $Pending -or $sample.cohort -cne $Cohort -or
+            $sample.sessions -ne 65 -or $sample.samples -ne 6 -or $sample.gapMilliseconds -ne 500 -or
+            $sample.firstQuerySample -ne 0 -or @($sample.queryMs).Count -ne 6 -or @($sample.summarySha256ByCall).Count -ne 6) {
+            $issues.Add("WAITING_RESULT_SHAPE: $($record.build)/$($record.repetition)")
+            continue
+        }
+        $times = @()
+        $timesValid = $true
+        foreach ($rawTime in @($sample.queryMs)) {
+            if ($null -eq $rawTime) { $timesValid = $false; break }
+            try { $value = [double]$rawTime }
+            catch { $timesValid = $false; break }
+            if ([double]::IsNaN($value) -or [double]::IsInfinity($value) -or $value -lt 0) {
+                $timesValid = $false
+                break
+            }
+            $times += $value
+        }
+        if (-not $timesValid) {
+            $issues.Add("WAITING_TIMES_INVALID: $($record.build)/$($record.repetition)")
+            continue
+        }
+        try {
+            $bytes = [Convert]::FromBase64String([string]$sample.summaryUtf8Base64)
+            if ($bytes.Length -eq 0) { throw 'Empty summary bytes.' }
+            $canonicalBase64 = [Convert]::ToBase64String($bytes)
+            $digest = [Security.Cryptography.SHA256]::Create()
+            try { $actualSha256 = ([BitConverter]::ToString($digest.ComputeHash($bytes))).Replace('-', '') }
+            finally { $digest.Dispose() }
+        } catch {
+            $issues.Add("WAITING_SUMMARY_BYTES_INVALID: $($record.build)/$($record.repetition)")
+            continue
+        }
+        $hashesAgree = [string]::Equals([string]$sample.expectedSummarySha256, $actualSha256, [StringComparison]::OrdinalIgnoreCase)
+        foreach ($hash in @($sample.summarySha256ByCall)) {
+            $hashesAgree = $hashesAgree -and [string]::Equals([string]$hash, $actualSha256, [StringComparison]::OrdinalIgnoreCase)
+        }
+        if (-not $hashesAgree) { $issues.Add("WAITING_SUMMARY_HASH_MISMATCH: $($record.build)/$($record.repetition)") }
+        if ($null -eq $referenceBase64) {
+            $referenceBase64 = $canonicalBase64
+            $referenceSha256 = $actualSha256
+        } elseif (-not [string]::Equals($canonicalBase64, $referenceBase64, [StringComparison]::Ordinal)) {
+            $issues.Add("WAITING_SUMMARY_BYTES_DIFFER: $($record.build)/$($record.repetition)")
+        }
+        if ($record.build -eq $Build) {
+            $mine.Add([pscustomobject]@{ cold = [double]$times[0]
+                paced = (Get-WaitingMailMedian ([double[]]$times[1..5])) })
+        }
+    }
+    $cold = Get-WaitingMailMedian @($mine | ForEach-Object { [double]$_.cold })
+    $processMedians = @($mine | ForEach-Object { [double]$_.paced })
+    $paced = Get-WaitingMailMedian ([double[]]$processMedians)
+    $valid = $issues.Count -eq 0 -and $null -ne $referenceBase64 -and $mine.Count -eq $ExpectedProcesses
+    $eligible = $valid -and $HasControl -and $ExpectedProcesses -eq 5
+    $withinTarget = $null
+    if ($eligible -and $Pending -eq 4096) { $withinTarget = [double]$paced -le 5.0 }
+    $comparison = 'candidate-only; control unavailable'
+    $crossBuildEqual = $null
+    if ($HasControl) { $comparison = 'candidate/control and all repetitions'; $crossBuildEqual = $valid }
+    return [ordered]@{ cohort = $Cohort; pending = $Pending; coldQueryMedianMs = $cold
+        processPacedMediansMs = $processMedians; pacedQueryMedianMs = $paced
+        completeSummaryBytesEqual = $valid; summaryComparisonScope = $comparison
+        candidateControlSummaryBytesEqual = $crossBuildEqual; summarySha256 = $referenceSha256
+        acceptanceEligible = $eligible; candidate4096Within5Ms = $(if ($Build -eq 'candidate') { $withinTarget } else { $null })
+        validationFailures = @($issues.ToArray()) }
+}
+
 $all = New-Object 'Collections.Generic.List[object]'
 for ($repetition = 0; $repetition -lt $Repetitions; $repetition++) {
     for ($step = 0; $step -lt $runs.Count; $step++) {
@@ -167,6 +282,7 @@ for ($repetition = 0; $repetition -lt $Repetitions; $repetition++) {
     }
 }
 
+$waitingMailValidationFailed = $false
 $summary = New-Object 'Collections.Generic.List[object]'
 foreach ($run in $runs) {
     $name = $run.Arguments -join ' '
@@ -198,6 +314,12 @@ foreach ($run in $runs) {
                 $row['warmPageMedianMs'] = Get-Median (Get-Warm $samples 'pageMs')
                 $row['warmPageMaxMs'] = [math]::Round(((Get-Warm $samples 'pageMs') | Measure-Object -Maximum).Maximum, 2)
             }
+            'waiting-mail' {
+                $shapeRecords = @($all | Where-Object { $_.configuration -eq $name })
+                $waiting = Get-WaitingMailSummary -Records $shapeRecords -Build $run.Build -Pending ([int]$run.Arguments[1]) -Cohort $run.Arguments[2] -ExpectedProcesses $Repetitions -HasControl ($executables.ContainsKey('control'))
+                foreach ($key in $waiting.Keys) { $row[$key] = $waiting[$key] }
+                if (@($waiting.validationFailures).Count -gt 0) { $waitingMailValidationFailed = $true }
+            }
             'tombstone' {
                 $row['tombstoneStore'] = $samples[0].tombstoneStore
                 $row['listed'] = $samples[0].listed
@@ -227,4 +349,5 @@ foreach ($run in $runs) {
 }
 [IO.File]::WriteAllText((Join-Path $OutputDirectory 'summary.json'), ($summary | ConvertTo-Json -Depth 4) + "`n", $utf8)
 $summary | ForEach-Object { [pscustomobject]$_ } | Format-List | Out-String -Width 160 | Write-Host
+if ($waitingMailValidationFailed) { exit 1 }
 if (@($all | Where-Object { -not $_.Contains('result') }).Count -gt 0) { exit 1 }

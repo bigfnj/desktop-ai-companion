@@ -11,7 +11,7 @@ using System.Text.Json;
 // interleaves configurations across processes. Not a check: it asserts only that each measured operation did what it
 // was timed doing, prints one BENCHMARK line of JSON and deletes everything it created (directories and CNG keys).
 // It measures the current store, runtime and MCP endpoint unmodified; no limit or code path is changed for it.
-internal static class CoordinationBenchmark
+internal static partial class CoordinationBenchmark
 {
     internal static Action<string>? AfterTombstoneSeed;
     internal static Action<IReadOnlyList<WorkerApplication>>? AfterDirectoryRegistration;
@@ -30,6 +30,8 @@ internal static class CoordinationBenchmark
                 "wake" when args.Length == 3 => await WakeAsync(args[1], int.Parse(args[2])),
                 "directory" when args.Length == 5 => await DirectoryAsync(int.Parse(args[1]), int.Parse(args[2]), args[3], int.Parse(args[4])),
                 "busy-idle" when args.Length == 4 => await BusyIdleAsync(int.Parse(args[1]), int.Parse(args[2]), args[3]),
+                "waiting-mail" when args.Length == 4 => WaitingMail(
+                    int.Parse(args[1], System.Globalization.CultureInfo.InvariantCulture), args[2], args[3]),
                 _ => throw new ArgumentException("Unknown benchmark arguments.")
             } : throw new ArgumentException("A benchmark scenario is required.");
             Console.WriteLine("BENCHMARK " + json);

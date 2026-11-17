@@ -51,6 +51,8 @@ class Witness:
 
     @property
     def component(self) -> str:
+        if self.source.startswith("tests/AgentBroker.Core.Tests/"):
+            return "AgentBroker.Core.Tests.dll"
         return "AgentBroker.Worker.Tests.dll" if self.source.startswith("tests/AgentBroker.Worker.Tests/") else "AgentBroker.Core.dll" if self.source.startswith("src/AgentBroker.Core/") else "AgentBroker.Worker.dll"
 
 
@@ -422,7 +424,7 @@ BUSY_MAIL_1105_WITNESSES = (
             'WAITING_BUSY_NOT_BEFORE_DUE'),
     Witness('policy-episode-kept', 'src/AgentBroker.Core/BrokerStore.WaitingMail.cs', 'core', ('--waiting-mail-only',),
             (('if (!busy || !WaitingPolicy(receipt.Message, target)) EndBusy(observation);', 'if (!busy) EndBusy(observation);', 1), ('            if (!WaitingPolicy(receipt.Message, target) && waitingMail.TryGetValue(receipt.Message.Id, out var invalidPolicy))\n                EndBusy(invalidPolicy);\n', '', 1)),
-            'WAITING_RECEIVE_REGAIN_RESTARTS'),
+            'WAITING_DIRECTORY_POLICY_REVOKED_WITHIN_INTERVAL'),
     Witness('directory-unknown-kept', 'src/AgentBroker.Core/BrokerStore.WaitingMail.cs', 'core', ('--waiting-mail-only',),
             (('            if (target.Activity == SessionActivity.Unknown && waitingMail.TryGetValue(receipt.Message.Id, out var unknown) &&\n                (unknown.AdapterBusyTimestamp is not { } adapterAt || !FreshWait(adapterAt))) EndBusy(unknown);\n', '', 1),),
             'WAITING_DIRECTORY_TO_UNKNOWN_RESTARTS'),
@@ -469,8 +471,8 @@ WAITING_MAIL_R4_CORE_WITNESSES = (
     Witness('unknown-code-not-collapsed', 'src/AgentBroker.Core/BrokerStore.WaitingMail.cs', 'core', ('--waiting-mail-only',), (('_ => "other_deferred"', '_ => reason ?? "other_deferred"', 1),), 'WAITING_UNKNOWN_CODE_MAPPED'),
     Witness('expected-admission-epoch-omitted', 'src/AgentBroker.Core/BrokerStore.WaitingMail.cs', 'core', ('--waiting-mail-only',), (('current.AdmissionEpoch == expected.AdmissionEpoch &&', '', 1),), 'WAITING_EXPECTED_EPOCH_ONLY'),
     Witness('first-observed-time-overwritten', 'src/AgentBroker.Core/BrokerStore.WaitingMail.cs', 'core', ('--waiting-mail-only',), (('previous with { LastObservedAtUtc = now,', 'previous with { FirstObservedAtUtc = now, LastObservedAtUtc = now,', 1),), 'WAITING_REASON_FIRST_LAST'),
-    Witness('pending-counted-as-queued', 'src/AgentBroker.Core/BrokerStore.WaitingMail.cs', 'core', ('--waiting-mail-only',), (('messages.Where(receipt => receipt.Status == MessageStatus.Accepted)', 'messages', 1),), 'WAITING_PENDING_DIFFERS_FROM_QUEUED'),
-    Witness('youngest-busy-age-selected', 'src/AgentBroker.Core/BrokerStore.WaitingMail.cs', 'core', ('--waiting-mail-only',), (('elapsed > age', 'elapsed < age', 1),), 'WAITING_OLDEST_BUSY_USES_OLDER_MESSAGE'),
+    Witness('pending-counted-as-queued', 'src/AgentBroker.Core/BrokerStore.WaitingMail.cs', 'core', ('--waiting-mail-only',), (("                if (receipt.Status != MessageStatus.Accepted) continue;\n", "", 1),), 'WAITING_PENDING_DIFFERS_FROM_QUEUED'),
+    Witness('youngest-busy-age-selected', 'src/AgentBroker.Core/BrokerStore.WaitingMail.cs', 'core', ('--waiting-mail-only',), (("                if (count.Age is null || elapsed > count.Age) { count.Age = elapsed; count.Oldest = observation.BusyAt; }\n", "                if (count.Age is null || elapsed < count.Age) { count.Age = elapsed; count.Oldest = observation.BusyAt; }\n", 1),), 'WAITING_OLDEST_BUSY_USES_OLDER_MESSAGE'),
     Witness('read-approval-counted-busy', 'src/AgentBroker.Core/BrokerStore.WaitingMail.cs', 'core', ('--waiting-mail-only',), (('target.Activity == SessionActivity.Busy || target.Activity == SessionActivity.Unknown &&', 'target.Activity != SessionActivity.Idle || target.Activity == SessionActivity.Unknown &&', 1),), 'WAITING_READ_RECHECKS_APPROVAL'),
     Witness('freshness-shortened-to-29', 'src/AgentBroker.Core/BrokerStore.WaitingMail.cs', 'core', ('--waiting-mail-only',), (('ObservationFreshFor = TimeSpan.FromSeconds(30)', 'ObservationFreshFor = TimeSpan.FromSeconds(29)', 1),), 'WAITING_FRESH_UNTIL_THIRTY_SECONDS'),
     Witness('freshness-extended-to-300', 'src/AgentBroker.Core/BrokerStore.WaitingMail.cs', 'core', ('--waiting-mail-only',), (('ObservationFreshFor = TimeSpan.FromSeconds(30)', 'ObservationFreshFor = TimeSpan.FromSeconds(300)', 1),), 'WAITING_FRESH_EXACT_THIRTY_SECONDS_RESTARTS'),
@@ -479,6 +481,305 @@ WAITING_MAIL_R4_CORE_WITNESSES = (
     Witness('busy-clock-borrowed-from-recipient', 'src/AgentBroker.Core/BrokerStore.WaitingMail.cs', 'core', ('--waiting-mail-only',), (('observation.BusyTimestamp ??= timestamp;', 'observation.BusyTimestamp ??= waitingMail.Values.Where(other => other.Source.Recipient == receipt.Message.Recipient && other.BusyTimestamp is not null).Select(other => other.BusyTimestamp!.Value).DefaultIfEmpty(timestamp).Min();', 1),), 'WAITING_NO_RECIPIENT_AGE_BORROW'),
     Witness('waiting-tombstone-dedup-omitted', 'src/AgentBroker.Core/BrokerStore.WaitingMail.cs', 'core', ('--waiting-mail-only',), ((' || tombstones.ContainsKey(id)', '', 1),), 'WAITING_RESTART_DURABLE_DEDUP'),
 )
+
+# D2 round 2: independent Ready, reason-transition, policy and freshness conditions.
+D2_R2_CORE_WITNESSES = (
+    Witness("a7-summary-ready-constant-false", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (('                    count.Ready ??= Ready(targets[index].Address);\n',
+              '                    count.Ready ??= false;\n', 1),), "WAITING_SUMMARY_READY_IS_PER_TARGET"),
+    Witness("a7-summary-ready-shared-across-targets", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (('            var counts = new WaitingMailCounts[targets.Length];\n',
+              '            var counts = new WaitingMailCounts[targets.Length];\n            bool? sharedReady = null;\n', 1),
+             ('                    count.Ready ??= Ready(targets[index].Address);\n',
+              '                    count.Ready ??= sharedReady ??= Ready(targets[index].Address);\n', 1)),
+            "WAITING_SUMMARY_READY_IS_PER_TARGET"),
+    Witness("a8-directory-historical-reason-key-throttled", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (('        bool throttledDirectory = source == "directory" && observation.LatestSource == source &&\n            observation.LatestReason == reason && clock.GetElapsedTime(observation.LastCountedTimestamp, timestamp) is var elapsed &&\n',
+              '        bool throttledDirectory = source == "directory" && observation.Reasons.ContainsKey((reason, source)) &&\n            clock.GetElapsedTime(observation.LastCountedTimestamp, timestamp) is var elapsed &&\n', 1),),
+            "WAITING_DIRECTORY_REASON_CHANGE_RESTARTS_BUSY"),
+    Witness("a8-directory-policy-revocation-rearms-count", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (('                EndBusy(invalidPolicy);\n',
+              '                { EndBusy(invalidPolicy); invalidPolicy.LatestReason = ""; }\n', 1),),
+            "WAITING_DIRECTORY_POLICY_REGAIN_RESTARTS"),
+    Witness("a8-directory-throttled-freshness-not-refreshed", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (('        observation.LastTimestamp = timestamp;\n',
+              '        if (!throttledDirectory) observation.LastTimestamp = timestamp;\n', 1),),
+            "WAITING_DIRECTORY_THROTTLED_REFRESHES_FRESHNESS"),
+)
+
+# D2 round 3: independently falsifiable history, both freshness readers, Ready directions and nullable schema.
+D2_R3_WITNESSES = (
+    Witness("a8-directory-receive-write-policy-ignored", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (('!WaitingPolicy(receipt.Message, target)', '!target.Capabilities.HasFlag(SessionCapabilities.WakeIdle)', 2),),
+            "WAITING_RECEIVE_REGAIN_RESTARTS"),
+    Witness("a8-directory-policy-revocation-discards-history", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (('                EndBusy(invalidPolicy);\n', '                waitingMail.Remove(receipt.Message.Id);\n', 1),),
+            "WAITING_DIRECTORY_POLICY_REGAIN_RESTARTS"),
+    Witness("a8-directory-summary-freshness-uses-count-anchor", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (('bool observed = waitingMail.TryGetValue(receipt.Message.Id, out var observation) && CurrentWait(receipt, observation) && FreshWait(observation.LastTimestamp);',
+              'bool observed = waitingMail.TryGetValue(receipt.Message.Id, out var observation) && CurrentWait(receipt, observation) && FreshWait(observation.LastCountedTimestamp);', 1),),
+            "WAITING_DIRECTORY_THROTTLED_SUMMARY_FRESHNESS"),
+    Witness("a8-directory-observe-freshness-uses-count-anchor", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (('        if (!FreshWait(observation.LastTimestamp)) EndBusy(observation);\n',
+              '        if (!FreshWait(observation.LastCountedTimestamp)) EndBusy(observation);\n', 1),),
+            "WAITING_DIRECTORY_THROTTLED_NEXT_PASS_KEEPS_EPISODE"),
+    Witness("a7-summary-ready-false-latched", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (('            var counts = new WaitingMailCounts[targets.Length];\n',
+              '            var counts = new WaitingMailCounts[targets.Length];\n            bool readySoFar = true;\n', 1),
+             ('                    count.Ready ??= Ready(targets[index].Address);\n',
+              '                    count.Ready ??= readySoFar &= Ready(targets[index].Address);\n', 1)),
+            "WAITING_SUMMARY_READY_IS_PER_TARGET"),
+    Witness("a7-nonbusy-freshness-write-omitted", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (('        observation.LastTimestamp = timestamp;\n',
+              '        if (busy) observation.LastTimestamp = timestamp;\n', 1),),
+            "WAITING_SUMMARY_FRESH_NONBUSY_IS_OBSERVED"),
+    Witness("a7-nonbusy-count-anchor-write-omitted", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (('observation.LastCountedTimestamp = timestamp;', 'if (busy) observation.LastCountedTimestamp = timestamp;', 1),),
+            "WAITING_SUMMARY_FRESH_NONBUSY_IS_OBSERVED"),
+    Witness("waiting-busy-episode-field-setup-control", "tests/AgentBroker.Core.Tests/WaitingMailChecks.cs", "core", ("--waiting-mail-only",),
+            (('new[] { "BusyTimestamp", "BusyAt", "AdapterBusyTimestamp" }',
+              'new[] { "BusyTimestamp", "BusyAt_missing_for_test", "AdapterBusyTimestamp" }', 1),),
+            "WAITING_BUSY_EPISODE_FIELD_SETUP: BusyAt_missing_for_test"),
+    Witness("a10-scope-schema-nullability-omitted", "tools/AgentBroker.Worker/BrokerTools.cs", "worker", ("--instructions-only",),
+            (('SessionAddress? afterAddress = null, string? scope = "federated")',
+              'SessionAddress? afterAddress = null, string scope = "federated")', 1),),
+            "LIST_SESSIONS_SCOPE_SCHEMA: real tools/list publishes optional nullable string scope and its default/local behavior"),
+)
+
+# AgentBroker 1.10.5 D2 A8: metadata throttling must preserve source and busy-policy semantics.
+A8_WAITING_DIRECTORY_WITNESSES = (
+    Witness("a8-directory-interval-1900ms", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("    public static readonly TimeSpan DirectoryObservationInterval = TimeSpan.FromSeconds(2);\n", "    public static readonly TimeSpan DirectoryObservationInterval = TimeSpan.FromMilliseconds(1900);\n", 1),),
+            "WAITING_DIRECTORY_BEFORE_INTERVAL"),
+    Witness("a8-directory-interval-zero", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("    public static readonly TimeSpan DirectoryObservationInterval = TimeSpan.FromSeconds(2);\n", "    public static readonly TimeSpan DirectoryObservationInterval = TimeSpan.Zero;\n", 1),),
+            "WAITING_DIRECTORY_RATE_BOUND"),
+    Witness("a8-directory-reason-change-guard-omitted", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("            observation.LatestReason == reason && clock.GetElapsedTime(observation.LastCountedTimestamp, timestamp) is var elapsed &&\n", "            clock.GetElapsedTime(observation.LastCountedTimestamp, timestamp) is var elapsed &&\n", 1),),
+            "WAITING_DIRECTORY_REASON_CHANGE_ENDS_BUSY"),
+    Witness("a8-directory-negative-elapsed-guard-omitted", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("            elapsed >= TimeSpan.Zero && elapsed < WaitingMailPolicy.DirectoryObservationInterval;\n", "            elapsed < WaitingMailPolicy.DirectoryObservationInterval;\n", 1),),
+            "WAITING_DIRECTORY_NEGATIVE_ELAPSED_REOBSERVED"),
+    Witness("a8-directory-throttled-timestamp-advanced", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("        if (!throttledDirectory)\n", "        if (throttledDirectory) observation.LastCountedTimestamp = timestamp;\n        if (!throttledDirectory)\n", 1),),
+            "WAITING_DIRECTORY_AT_INTERVAL"),
+    Witness("a8-directory-throttled-returns-before-policy", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("        if (!throttledDirectory)\n", "        if (throttledDirectory) return;\n        if (!throttledDirectory)\n", 1),),
+            "WAITING_DIRECTORY_POLICY_REGAIN_RESTARTS"),
+    Witness("a8-adapter-native-busy-throttled", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("        bool throttledDirectory = source == \"directory\" && observation.LatestSource == source &&\n", "        bool throttledDirectory = (source == \"directory\" || source == \"adapter\" && reason == \"native_context_busy\") && observation.LatestSource == source &&\n", 1),),
+            "WAITING_NON_DIRECTORY_NOT_THROTTLED"),
+    Witness("a8-directory-intervening-adapter-not-rearmed", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("        bool throttledDirectory = source == \"directory\" && observation.LatestSource == source &&\n            observation.LatestReason == reason && clock.GetElapsedTime(observation.LastCountedTimestamp, timestamp) is var elapsed &&\n            elapsed >= TimeSpan.Zero && elapsed < WaitingMailPolicy.DirectoryObservationInterval;\n", "        bool throttledDirectory = source == \"directory\" &&\n            (observation.LatestSource == source && observation.LatestReason == reason ||\n                observation.LatestSource == \"adapter\" && observation.Reasons.ContainsKey((reason, source))) &&\n            clock.GetElapsedTime(observation.LastCountedTimestamp, timestamp) is var elapsed &&\n            elapsed >= TimeSpan.Zero && elapsed < WaitingMailPolicy.DirectoryObservationInterval;\n", 1),),
+            "WAITING_DIRECTORY_ADAPTER_INTERLEAVING_REARMS_COUNT"),
+    Witness("a8-runtime-notice-io-mislabels-native-adapter", "tools/AgentBroker.Worker/BrokerRuntime.cs", "worker", ("--waiting-mail-only",),
+            (('                adapterErrors["waiting_mail"] = "waiting_mail_notice_write_failed";\n',
+              '                adapterErrors["waiting_mail"] = "waiting_mail_notice_write_failed";\n                adapterErrors["claude-native"] = "adapter_failed";\n', 1),),
+            "WAITING_RUNTIME_NOTICE_WRITE_FAILURE_ISOLATED_NO_SUBMISSION"),
+)
+
+# D2 A10 author self-review recipes: prior L2/A10 qualification records 36 executions / 34 source variants.
+# See E/lanes/D2/L2-A10-QUALIFICATION.md; catalogue registration alone never qualifies a witness.
+A10_DIRECTORY_SCOPE_WITNESSES = (
+    Witness("a10-null-scope-default-omitted", "tools/AgentBroker.Worker/BrokerTools.cs", "worker", ("--list-sessions-scope-only",),
+            (('        scope ??= "federated";\n', '', 1),),
+            "LIST_SESSIONS_NULL_SCOPE_DEFAULTS_FEDERATED: explicit null scope preserves omitted-scope ordered results and peer fetches"),
+    # The same source variant is also qualified through the authenticated wire group; two executions, one source variant.
+    Witness("a10-null-scope-wire-default-omitted", "tools/AgentBroker.Worker/BrokerTools.cs", "worker", ("--pagination-only",),
+            (('        scope ??= "federated";\n', '', 1),),
+            "LIST_SESSIONS_NULL_SCOPE_WIRE: explicit JSON null scope preserves the omitted-scope first page through authenticated MCP"),
+    Witness("a10-local-return-ignored", "tools/AgentBroker.Worker/BrokerRuntime.cs", "worker", ("--list-sessions-scope-only",),
+            (("            if (!includePeers) return result;\n", "", 1),),
+            "LIST_SESSIONS_LOCAL_SCOPE_EXCLUDES_PEERS: local scope returns within 500 ms without starting the two-second peer fetch"),
+    Witness("a10-local-return-before-busy-mapping", "tools/AgentBroker.Worker/BrokerRuntime.cs", "worker", ("--list-sessions-scope-only",),
+            (("            for (int index = 0; index < result.Count; index++)\n                if (result[index] is { Activity: SessionActivity.Unknown } row && observations.SeenBusy(row.Address))\n                    result[index] = row with { Activity = SessionActivity.Busy };\n            if (!includePeers) return result;\n", "            if (!includePeers) return result;\n            for (int index = 0; index < result.Count; index++)\n                if (result[index] is { Activity: SessionActivity.Unknown } row && observations.SeenBusy(row.Address))\n                    result[index] = row with { Activity = SessionActivity.Busy };\n", 1),),
+            "LIST_SESSIONS_LOCAL_SCOPE_PRESERVES_LOCAL_VIEW: the local caller retains private and Away rows and fresh native Busy presentation without any remote row"),
+    Witness("a10-local-uses-peer-filter", "tools/AgentBroker.Worker/BrokerRuntime.cs", "worker", ("--list-sessions-scope-only",),
+            (("        var result = store.PresentedDirectory(forPeer).ToList();\n", "        var result = store.PresentedDirectory(forPeer || !includePeers).ToList();\n", 1),),
+            "LIST_SESSIONS_LOCAL_SCOPE_PRESERVES_LOCAL_VIEW: the local caller retains private and Away rows and fresh native Busy presentation without any remote row"),
+    Witness("a10-local-pending-metadata-omitted", "tools/AgentBroker.Worker/BrokerTools.cs", "worker", ("--list-sessions-scope-only",),
+            (("                !forPeer && session.Address.BrokerId == runtime.Store.BrokerId ? pendingCounts!.GetValueOrDefault(session.Address) : null,\n", "                forPeer && session.Address.BrokerId == runtime.Store.BrokerId ? pendingCounts!.GetValueOrDefault(session.Address) : null,\n", 1),),
+            "LIST_SESSIONS_LOCAL_SCOPE_LOCAL_METADATA: zero pending counts remain available to the local caller"),
+    Witness("a10-local-cursor-ignored", "tools/AgentBroker.Worker/BrokerTools.cs", "worker", ("--list-sessions-scope-only",),
+            (("        if (afterAddress is not null) Run(() => { afterAddress.Validate(); return true; });\n", "        if (afterAddress is not null) Run(() => { afterAddress.Validate(); return true; });\n        if (scope == \"local\") afterAddress = null;\n", 1),),
+            "LIST_SESSIONS_LOCAL_SCOPE_PAGINATION: a bounded local scan returns all nineteen ordered addresses once across two pages"),
+    Witness("a10-default-local", "tools/AgentBroker.Worker/BrokerTools.cs", "worker", ("--list-sessions-scope-only",),
+            (("SessionAddress? afterAddress = null, string? scope = \"federated\")", "SessionAddress? afterAddress = null, string? scope = \"local\")", 1),),
+            "LIST_SESSIONS_DEFAULT_FEDERATED: omitting scope fetches the paired directory and includes its row"),
+    Witness("a10-federated-injected-clock-ignored", "tools/AgentBroker.Worker/BrokerRuntime.cs", "worker", ("--list-sessions-scope-only",),
+            (("                        var peerNow = Now;\n", "                        var peerNow = DateTimeOffset.UtcNow;\n", 1),),
+            "LIST_SESSIONS_DEFAULT_FEDERATED: omitting scope fetches the paired directory and includes its row"),
+    Witness("a10-federated-private-row-exposed", "tools/AgentBroker.Worker/BrokerRuntime.cs", "worker", ("--list-sessions-scope-only",),
+            (("                            !s.IsPrivate && s.LeaseUntil > peerNow).Take(256).ToArray();\n", "                            s.LeaseUntil > peerNow).Take(256).ToArray();\n", 1),),
+            "LIST_SESSIONS_DEFAULT_FEDERATED: omitting scope fetches the paired directory and includes its row"),
+    Witness("a10-scope-validation-omitted", "tools/AgentBroker.Worker/BrokerTools.cs", "worker", ("--list-sessions-scope-only",),
+            (("        if (scope is not (\"local\" or \"federated\")) throw ToolFailure(\"invalid_scope\");\n", "", 1),),
+            "LIST_SESSIONS_INVALID_SCOPE: exact scope values are required before any directory clock read or peer fetch"),
+    Witness("a10-scope-validation-after-directory", "tools/AgentBroker.Worker/BrokerTools.cs", "worker", ("--list-sessions-scope-only",),
+            (("        if (scope is not (\"local\" or \"federated\")) throw ToolFailure(\"invalid_scope\");\n", "", 1), ("        var sessions = await runtime.DirectoryAsync(forPeer, cancellationToken, includePeers: scope == \"federated\");\n", "        var sessions = await runtime.DirectoryAsync(forPeer, cancellationToken, includePeers: scope == \"federated\");\n        if (scope is not (\"local\" or \"federated\")) throw ToolFailure(\"invalid_scope\");\n", 1),),
+            "LIST_SESSIONS_INVALID_SCOPE: exact scope values are required before any directory clock read or peer fetch"),
+    Witness("a10-scope-case-folded", "tools/AgentBroker.Worker/BrokerTools.cs", "worker", ("--list-sessions-scope-only",),
+            (("        if (scope is not (\"local\" or \"federated\")) throw ToolFailure(\"invalid_scope\");\n", "        if (scope.ToLowerInvariant() is not (\"local\" or \"federated\")) throw ToolFailure(\"invalid_scope\");\n", 1),),
+            "LIST_SESSIONS_INVALID_SCOPE: exact scope values are required before any directory clock read or peer fetch"),
+    Witness("a10-scope-trimmed", "tools/AgentBroker.Worker/BrokerTools.cs", "worker", ("--list-sessions-scope-only",),
+            (("        if (scope is not (\"local\" or \"federated\")) throw ToolFailure(\"invalid_scope\");\n", "        if (scope.Trim() is not (\"local\" or \"federated\")) throw ToolFailure(\"invalid_scope\");\n", 1),),
+            "LIST_SESSIONS_INVALID_SCOPE: exact scope values are required before any directory clock read or peer fetch"),
+    Witness("a10-scope-overrides-peer-authority", "tools/AgentBroker.Worker/BrokerTools.cs", "worker", ("--list-sessions-scope-only",),
+            (("        bool forPeer = Caller != runtime.Store.BrokerId;\n        var sessions = await runtime.DirectoryAsync(forPeer, cancellationToken, includePeers: scope == \"federated\");\n", "        bool forPeer = false;\n        var sessions = await runtime.DirectoryAsync(forPeer, cancellationToken, includePeers: scope == \"federated\");\n", 1),),
+            "LIST_SESSIONS_SCOPE_PEER_PRIVACY: both scopes preserve private-row and local-metadata boundaries and forbid transitive peer fetches"),
+    Witness("a10-directory-caller-cancellation-detached", "tools/AgentBroker.Worker/BrokerRuntime.cs", "worker", ("--list-sessions-scope-only",),
+            (("            using var budget = CancellationTokenSource.CreateLinkedTokenSource(token, WaitStopping);\n", "            using var budget = CancellationTokenSource.CreateLinkedTokenSource(WaitStopping);\n", 1),),
+            "LIST_SESSIONS_SCOPE_CANCELLATION: cancelling a federated listing cancels its already-started peer fetch"),
+    Witness("a10-scope-tool-unpublished", "tools/AgentBroker.Worker/BrokerTools.cs", "worker", ("--instructions-only",),
+            (("[McpServerTool(Name = \"list_sessions\", ReadOnly = true, OpenWorld = false),", "[McpServerTool(Name = \"list_sessions_scope_mutant\", ReadOnly = true, OpenWorld = false),", 1),),
+            "LIST_SESSIONS_SCOPE_SCHEMA: real tools/list publishes optional nullable string scope and its default/local behavior"),
+    Witness("a10-scope-description-omitted", "tools/AgentBroker.Worker/BrokerTools.cs", "worker", ("--instructions-only",),
+            (("local returns this workstation only without fetching peers", "local returns this workstation", 1),),
+            "LIST_SESSIONS_SCOPE_SCHEMA: real tools/list publishes optional nullable string scope and its default/local behavior"),
+    Witness("a10-local-wire-cursor-ignored", "tools/AgentBroker.Worker/BrokerTools.cs", "worker", ("--pagination-only",),
+            (("        if (afterAddress is not null) Run(() => { afterAddress.Validate(); return true; });\n", "        if (afterAddress is not null) Run(() => { afterAddress.Validate(); return true; });\n        if (scope == \"local\") afterAddress = null;\n", 1),),
+            "LIST_SESSIONS_LOCAL_SCOPE_WIRE: explicit local scope traverses every local row once in the existing ordinal order"),
+    Witness("a10-scope-guidance-mapping-omitted", "tools/AgentBroker.Worker/BrokerRecoveryGuidance.cs", "worker", ("--pagination-only",),
+            (("        \"invalid_scope\" => new(code, \"list_sessions\",\n            \"Use scope local for this workstation only or federated for this workstation and explicitly paired brokers. Preserve caller permissions.\"),\n", "", 1),),
+            "LIST_SESSIONS_INVALID_SCOPE_GUIDANCE: real MCP preserves the SDK error and appends exactly one supported-scope recovery hint"),
+    Witness("a10-scope-error-untyped", "tools/AgentBroker.Worker/BrokerTools.cs", "worker", ("--pagination-only",),
+            (("throw ToolFailure(\"invalid_scope\")", "throw new McpException(\"invalid_scope\")", 1),),
+            "LIST_SESSIONS_INVALID_SCOPE_GUIDANCE: real MCP preserves the SDK error and appends exactly one supported-scope recovery hint"),
+)
+
+# AgentBroker 1.10.5 D2 A7: value identity and summary behavior, measured Core healthy count 113.
+# The 32 A7 cases were rebuilt and qualified with sole-exception evidence in E/lanes/D2/a7/mutations-r1; later changed checks are requalified in their own rounds.
+A7_WAITING_READ_WITNESSES = (
+    Witness("a7-identity-address-reference-equality", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("        receipt.AdmissionEpoch == observation.Admission && WaitIdentity.From(receipt.Message) == observation.Source;\n", "        receipt.AdmissionEpoch == observation.Admission && WaitIdentity.From(receipt.Message) == observation.Source && ReferenceEquals(receipt.Message.Sender, observation.Source.Sender) && ReferenceEquals(receipt.Message.Recipient, observation.Source.Recipient);\n", 1),),
+            "WAITING_IDENTITY_EQUAL_VALUES_KEEP_HISTORY"),
+    Witness("a7-identity-text-retained", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("        DateTimeOffset ExpiresAt, int RemainingReplies)\n", "        DateTimeOffset ExpiresAt, int RemainingReplies, string Text)\n", 1), ("        internal static WaitIdentity From(BrokerMessage message) => new(message.Id,\n            message.ConversationId, message.ReplyTo, message.Sender, message.Recipient,\n            message.CreatedAt, message.ExpiresAt, message.RemainingReplies);\n", "        internal static WaitIdentity From(BrokerMessage message) => new(message.Id,\n            message.ConversationId, message.ReplyTo, message.Sender, message.Recipient,\n            message.CreatedAt, message.ExpiresAt, message.RemainingReplies, message.Text);\n", 1),),
+            "WAITING_IDENTITY_TEXT_CHANGE_KEEPS_HISTORY"),
+    Witness("a7-expected-text-ignored", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("                current.Message == expected.Message && waitingMail.TryGetValue(current.Message.Id, out var observation) && CurrentWait(current, observation)\n", "                WaitIdentity.From(current.Message) == WaitIdentity.From(expected.Message) && waitingMail.TryGetValue(current.Message.Id, out var observation) && CurrentWait(current, observation)\n", 1),),
+            "WAITING_EXPECTED_OLD_TEXT_REFUSED"),
+    Witness("a7-actual-admission-omitted", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("        receipt.AdmissionEpoch == observation.Admission && WaitIdentity.From(receipt.Message) == observation.Source;\n", "        WaitIdentity.From(receipt.Message) == observation.Source;\n", 1),),
+            "WAITING_ACTUAL_ADMISSION_CHANGE_INVALIDATES_HISTORY"),
+    Witness("a7-identity-conversation-omitted", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("        internal static WaitIdentity From(BrokerMessage message) => new(message.Id,\n            message.ConversationId, message.ReplyTo, message.Sender, message.Recipient,\n            message.CreatedAt, message.ExpiresAt, message.RemainingReplies);\n", "        internal static WaitIdentity From(BrokerMessage message) => new(message.Id,\n            Guid.Empty, message.ReplyTo, message.Sender, message.Recipient,\n            message.CreatedAt, message.ExpiresAt, message.RemainingReplies);\n", 1),),
+            "WAITING_IDENTITY_CONVERSATION_INVALIDATES_HISTORY"),
+    Witness("a7-identity-reply-to-omitted", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("        internal static WaitIdentity From(BrokerMessage message) => new(message.Id,\n            message.ConversationId, message.ReplyTo, message.Sender, message.Recipient,\n            message.CreatedAt, message.ExpiresAt, message.RemainingReplies);\n", "        internal static WaitIdentity From(BrokerMessage message) => new(message.Id,\n            message.ConversationId, (Guid?)null, message.Sender, message.Recipient,\n            message.CreatedAt, message.ExpiresAt, message.RemainingReplies);\n", 1),),
+            "WAITING_IDENTITY_REPLY_TO_FROM_NULL_INVALIDATES_HISTORY"),
+    Witness("a7-identity-reply-to-value-collapsed", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("        internal static WaitIdentity From(BrokerMessage message) => new(message.Id,\n            message.ConversationId, message.ReplyTo, message.Sender, message.Recipient,\n            message.CreatedAt, message.ExpiresAt, message.RemainingReplies);\n", "        internal static WaitIdentity From(BrokerMessage message) => new(message.Id,\n            message.ConversationId, message.ReplyTo.HasValue ? Guid.Empty : (Guid?)null, message.Sender, message.Recipient,\n            message.CreatedAt, message.ExpiresAt, message.RemainingReplies);\n", 1),),
+            "WAITING_IDENTITY_REPLY_TO_CHANGED_INVALIDATES_HISTORY"),
+    Witness("a7-identity-sender-broker-omitted", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("        internal static WaitIdentity From(BrokerMessage message) => new(message.Id,\n            message.ConversationId, message.ReplyTo, message.Sender, message.Recipient,\n            message.CreatedAt, message.ExpiresAt, message.RemainingReplies);\n", "        internal static WaitIdentity From(BrokerMessage message) => new(message.Id,\n            message.ConversationId, message.ReplyTo, message.Sender with { BrokerId = Guid.Empty }, message.Recipient,\n            message.CreatedAt, message.ExpiresAt, message.RemainingReplies);\n", 1),),
+            "WAITING_IDENTITY_SENDER_BROKER_INVALIDATES_HISTORY"),
+    Witness("a7-identity-sender-session-omitted", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("        internal static WaitIdentity From(BrokerMessage message) => new(message.Id,\n            message.ConversationId, message.ReplyTo, message.Sender, message.Recipient,\n            message.CreatedAt, message.ExpiresAt, message.RemainingReplies);\n", "        internal static WaitIdentity From(BrokerMessage message) => new(message.Id,\n            message.ConversationId, message.ReplyTo, message.Sender with { SessionId = \"\" }, message.Recipient,\n            message.CreatedAt, message.ExpiresAt, message.RemainingReplies);\n", 1),),
+            "WAITING_IDENTITY_SENDER_SESSION_INVALIDATES_HISTORY"),
+    Witness("a7-identity-sender-incarnation-omitted", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("        internal static WaitIdentity From(BrokerMessage message) => new(message.Id,\n            message.ConversationId, message.ReplyTo, message.Sender, message.Recipient,\n            message.CreatedAt, message.ExpiresAt, message.RemainingReplies);\n", "        internal static WaitIdentity From(BrokerMessage message) => new(message.Id,\n            message.ConversationId, message.ReplyTo, message.Sender with { Incarnation = Guid.Empty }, message.Recipient,\n            message.CreatedAt, message.ExpiresAt, message.RemainingReplies);\n", 1),),
+            "WAITING_IDENTITY_SENDER_INCARNATION_INVALIDATES_HISTORY"),
+    Witness("a7-identity-recipient-session-omitted", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("        internal static WaitIdentity From(BrokerMessage message) => new(message.Id,\n            message.ConversationId, message.ReplyTo, message.Sender, message.Recipient,\n            message.CreatedAt, message.ExpiresAt, message.RemainingReplies);\n", "        internal static WaitIdentity From(BrokerMessage message) => new(message.Id,\n            message.ConversationId, message.ReplyTo, message.Sender, message.Recipient with { SessionId = \"\" },\n            message.CreatedAt, message.ExpiresAt, message.RemainingReplies);\n", 1),),
+            "WAITING_IDENTITY_RECIPIENT_SESSION_INVALIDATES_HISTORY"),
+    Witness("a7-identity-recipient-incarnation-omitted", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("        internal static WaitIdentity From(BrokerMessage message) => new(message.Id,\n            message.ConversationId, message.ReplyTo, message.Sender, message.Recipient,\n            message.CreatedAt, message.ExpiresAt, message.RemainingReplies);\n", "        internal static WaitIdentity From(BrokerMessage message) => new(message.Id,\n            message.ConversationId, message.ReplyTo, message.Sender, message.Recipient with { Incarnation = Guid.Empty },\n            message.CreatedAt, message.ExpiresAt, message.RemainingReplies);\n", 1),),
+            "WAITING_IDENTITY_RECIPIENT_INCARNATION_INVALIDATES_HISTORY"),
+    Witness("a7-identity-created-at-omitted", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("        internal static WaitIdentity From(BrokerMessage message) => new(message.Id,\n            message.ConversationId, message.ReplyTo, message.Sender, message.Recipient,\n            message.CreatedAt, message.ExpiresAt, message.RemainingReplies);\n", "        internal static WaitIdentity From(BrokerMessage message) => new(message.Id,\n            message.ConversationId, message.ReplyTo, message.Sender, message.Recipient,\n            default, message.ExpiresAt, message.RemainingReplies);\n", 1),),
+            "WAITING_IDENTITY_CREATED_AT_INVALIDATES_HISTORY"),
+    Witness("a7-identity-expires-at-omitted", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("        internal static WaitIdentity From(BrokerMessage message) => new(message.Id,\n            message.ConversationId, message.ReplyTo, message.Sender, message.Recipient,\n            message.CreatedAt, message.ExpiresAt, message.RemainingReplies);\n", "        internal static WaitIdentity From(BrokerMessage message) => new(message.Id,\n            message.ConversationId, message.ReplyTo, message.Sender, message.Recipient,\n            message.CreatedAt, default, message.RemainingReplies);\n", 1),),
+            "WAITING_IDENTITY_EXPIRES_AT_INVALIDATES_HISTORY"),
+    Witness("a7-identity-replies-omitted", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("        internal static WaitIdentity From(BrokerMessage message) => new(message.Id,\n            message.ConversationId, message.ReplyTo, message.Sender, message.Recipient,\n            message.CreatedAt, message.ExpiresAt, message.RemainingReplies);\n", "        internal static WaitIdentity From(BrokerMessage message) => new(message.Id,\n            message.ConversationId, message.ReplyTo, message.Sender, message.Recipient,\n            message.CreatedAt, message.ExpiresAt, 0);\n", 1),),
+            "WAITING_IDENTITY_REMAINING_REPLIES_INVALIDATES_HISTORY"),
+    Witness("a7-summary-incarnation-collapsed", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("            var indices = new Dictionary<SessionAddress, int>(targets.Length);\n", "            var indices = new Dictionary<string, int>(targets.Length, StringComparer.Ordinal);\n", 1), ("                indices.Add(targets[i].Address, i);\n", "                indices.Add(targets[i].Address.SessionId, i);\n", 1), ("                    !indices.TryGetValue(receipt.Message.Recipient, out int index)) continue;\n", "                    !indices.TryGetValue(receipt.Message.Recipient.SessionId, out int index)) continue;\n", 1),),
+            "WAITING_SUMMARY_RECIPIENT_INCARNATION_IS_EXACT"),
+    Witness("a7-summary-native-sender-routing", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("                    !indices.TryGetValue(receipt.Message.Recipient, out int index)) continue;\n", "                    !indices.TryGetValue(sessions.TryGetValue(receipt.Message.Sender, out var nativeSender) && Native(nativeSender) ? receipt.Message.Sender : receipt.Message.Recipient, out int index)) continue;\n", 1),),
+            "WAITING_SUMMARY_RECIPIENT_NOT_SENDER"),
+    Witness("a7-summary-submitted-omitted", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("                if (!NeedsRecipientReceipt(receipt, now) || receipt.Message.Recipient.BrokerId != state.BrokerId ||\n", "                if (receipt.Status == MessageStatus.Submitted || !NeedsRecipientReceipt(receipt, now) || receipt.Message.Recipient.BrokerId != state.BrokerId ||\n", 1),),
+            "WAITING_SUMMARY_MIXED_STATES_AND_EXPIRY"),
+    Witness("a7-summary-held-included", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("                if (!NeedsRecipientReceipt(receipt, now) || receipt.Message.Recipient.BrokerId != state.BrokerId ||\n", "                if (!(NeedsRecipientReceipt(receipt, now) || receipt.Status == MessageStatus.Held && receipt.Message.ExpiresAt > now) || receipt.Message.Recipient.BrokerId != state.BrokerId ||\n", 1),),
+            "WAITING_SUMMARY_MIXED_STATES_AND_EXPIRY"),
+    Witness("a7-summary-expiry-delayed", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("                if (!NeedsRecipientReceipt(receipt, now) || receipt.Message.Recipient.BrokerId != state.BrokerId ||\n", "                if (!NeedsRecipientReceipt(receipt, now - TimeSpan.FromTicks(2)) || receipt.Message.Recipient.BrokerId != state.BrokerId ||\n", 1),),
+            "WAITING_SUMMARY_MIXED_STATES_AND_EXPIRY"),
+    Witness("a7-summary-nonbusy-unobserved", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("                    if (!count.Ready.Value || isBusy) { count.Blocked++; if (!observed) count.Unobserved++; }\n", "                    if (!count.Ready.Value || isBusy) { count.Blocked++; if (!isBusy) count.Unobserved++; }\n", 1),),
+            "WAITING_SUMMARY_FRESH_NONBUSY_IS_OBSERVED"),
+    Witness("a7-summary-oldest-tie-overwritten", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("                if (count.Age is null || elapsed > count.Age) { count.Age = elapsed; count.Oldest = observation.BusyAt; }\n", "                if (count.Age is null || elapsed >= count.Age) { count.Age = elapsed; count.Oldest = observation.BusyAt; }\n", 1),),
+            "WAITING_SUMMARY_OLDEST_AGE_TIE_KEEPS_FIRST"),
+    Witness("a7-summary-oldest-by-utc", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("                if (count.Age is null || elapsed > count.Age) { count.Age = elapsed; count.Oldest = observation.BusyAt; }\n", "                if (count.Oldest is null || observation.BusyAt < count.Oldest) { count.Age = elapsed; count.Oldest = observation.BusyAt; }\n", 1),),
+            "WAITING_SUMMARY_OLDEST_USES_MONOTONIC_AGE"),
+)
+
+# D2 A7: real benchmark fixtures and the complete-summary guard.
+def waiting_benchmark_fields(pending: int, cohort: str, samples: int) -> str:
+    maximum = 64 if pending == 4096 else 1 if pending == 16 else 0
+    observed_messages = pending if cohort == "fresh-busy" else 0
+    return (f"scenario=waiting-mail, pending={pending}, cohort={cohort}, sessions=65, recipients=64, "
+            f"maximumPerRecipient={maximum}, observedMessages={observed_messages}, samples={samples}, gapMilliseconds=500, "
+            "firstQuerySample=0, queryTimes=6 finiteNonnegative=True, hashes=6 allMatch=True, expectedHashMatches=True, summarySessions=65")
+
+
+def waiting_benchmark_shape_label(pending: int, cohort: str) -> str:
+    return (f"BENCHMARK_WAITING_{pending}_{cohort.replace('-', '_').upper()}: expected exit=0, " +
+            waiting_benchmark_fields(pending, cohort, 6) + "; observed exit=0, " +
+            waiting_benchmark_fields(pending, cohort, 5))
+
+
+A7_BENCHMARK_WAITING_WITNESSES = (
+    Witness("a7-benchmark-waiting-shape-0-pending-only", "tests/AgentBroker.Worker.Tests/CoordinationBenchmark.WaitingMail.cs", "worker", ("--benchmark-validation-only",),
+            (("                samples, gapMilliseconds, firstQuerySample = 0,\n", "                samples = samples - (pending == 0 && cohort == \"pending-only\" ? 1 : 0), gapMilliseconds, firstQuerySample = 0,\n", 1),),
+            waiting_benchmark_shape_label(0, "pending-only")),
+    Witness("a7-benchmark-waiting-shape-16-pending-only", "tests/AgentBroker.Worker.Tests/CoordinationBenchmark.WaitingMail.cs", "worker", ("--benchmark-validation-only",),
+            (("                samples, gapMilliseconds, firstQuerySample = 0,\n", "                samples = samples - (pending == 16 && cohort == \"pending-only\" ? 1 : 0), gapMilliseconds, firstQuerySample = 0,\n", 1),),
+            waiting_benchmark_shape_label(16, "pending-only")),
+    Witness("a7-benchmark-waiting-shape-4096-pending-only", "tests/AgentBroker.Worker.Tests/CoordinationBenchmark.WaitingMail.cs", "worker", ("--benchmark-validation-only",),
+            (("                samples, gapMilliseconds, firstQuerySample = 0,\n", "                samples = samples - (pending == 4096 && cohort == \"pending-only\" ? 1 : 0), gapMilliseconds, firstQuerySample = 0,\n", 1),),
+            waiting_benchmark_shape_label(4096, "pending-only")),
+    Witness("a7-benchmark-waiting-shape-0-fresh-busy", "tests/AgentBroker.Worker.Tests/CoordinationBenchmark.WaitingMail.cs", "worker", ("--benchmark-validation-only",),
+            (("                samples, gapMilliseconds, firstQuerySample = 0,\n", "                samples = samples - (pending == 0 && cohort == \"fresh-busy\" ? 1 : 0), gapMilliseconds, firstQuerySample = 0,\n", 1),),
+            waiting_benchmark_shape_label(0, "fresh-busy")),
+    Witness("a7-benchmark-waiting-shape-16-fresh-busy", "tests/AgentBroker.Worker.Tests/CoordinationBenchmark.WaitingMail.cs", "worker", ("--benchmark-validation-only",),
+            (("                samples, gapMilliseconds, firstQuerySample = 0,\n", "                samples = samples - (pending == 16 && cohort == \"fresh-busy\" ? 1 : 0), gapMilliseconds, firstQuerySample = 0,\n", 1),),
+            waiting_benchmark_shape_label(16, "fresh-busy")),
+    Witness("a7-benchmark-waiting-shape-4096-fresh-busy", "tests/AgentBroker.Worker.Tests/CoordinationBenchmark.WaitingMail.cs", "worker", ("--benchmark-validation-only",),
+            (("                samples, gapMilliseconds, firstQuerySample = 0,\n", "                samples = samples - (pending == 4096 && cohort == \"fresh-busy\" ? 1 : 0), gapMilliseconds, firstQuerySample = 0,\n", 1),),
+            waiting_benchmark_shape_label(4096, "fresh-busy")),
+    Witness("a7-benchmark-waiting-summary-guard-omitted", "tests/AgentBroker.Worker.Tests/CoordinationBenchmark.WaitingMail.cs", "worker", ("--benchmark-validation-only",),
+            (("                if (!actualBytes.AsSpan().SequenceEqual(expectedBytes))\n", "                if (!actualBytes.AsSpan().SequenceEqual(expectedBytes) && pending < 0)\n", 1),),
+            "BENCHMARK_WAITING_COUNTS_GUARD: fresh-busy pending=16 with one missing seeded message expects exit=1, "
+            "BENCHMARK-FAILED=True, summaryMismatch=True; observed exit=0, BENCHMARK-FAILED=False, summaryMismatch=False"),
+)
+
+D2_R2_WORKER_DIAGNOSTIC_WITNESSES = (
+    Witness("a8-runtime-write-loop-reflection-precondition", "tests/AgentBroker.Worker.Tests/WaitingMailToolChecks.cs", "worker", ("--waiting-mail-only",),
+            (('GetField("adapterErrors", System.Reflection.BindingFlags.Instance |\n',
+              'GetField("adapterErrors_missing_for_test", System.Reflection.BindingFlags.Instance |\n', 1),),
+            "WAITING_RUNTIME_WRITE_FAILURE_LOOP_REFLECTION_PRECONDITION: BrokerRuntime.adapterErrors resolves to the expected dictionary before the runtime starts."),
+    Witness("a8-runtime-write-loop-first-discovery-precondition", "tests/AgentBroker.Worker.Tests/WaitingMailToolChecks.cs", "worker", ("--waiting-mail-only",),
+            (('bool firstDiscoveryCompleted = await UntilAsync(() => adapter.Discoveries == 1 &&\n',
+              'bool firstDiscoveryCompleted = await UntilAsync(() => adapter.Discoveries == -1 &&\n', 1),),
+            "WAITING_RUNTIME_WRITE_FAILURE_LOOP_FIRST_DISCOVERY_PRECONDITION: the first discovery clears the seeded adapter error before the notice fault is armed."),
+    Witness("a8-runtime-write-loop-notice-precondition", "tests/AgentBroker.Worker.Tests/WaitingMailToolChecks.cs", "worker", ("--waiting-mail-only",),
+            (('        string fault = Path.Combine(fixture.Root, "store", "broker-state.json.next");\n        long failedBefore = fixture.Store.CommitTimings().Failed;\n        bool ownsFault = false;\n',
+              '        string fault = Path.Combine(fixture.Root, "store", "broker-state.json.unused-for-test");\n        long failedBefore = fixture.Store.CommitTimings().Failed;\n        bool ownsFault = false;\n', 1),),
+            "WAITING_RUNTIME_WRITE_FAILURE_LOOP_NOTICE_PRECONDITION: the real delivery loop reaches the armed write fault and records its waiting-mail error within the fixture deadline."),
+    Witness("a8-runtime-write-loop-discovery-barrier-precondition", "tests/AgentBroker.Worker.Tests/WaitingMailToolChecks.cs", "worker", ("--waiting-mail-only",),
+            (('            check(observedFailure,\n                "WAITING_RUNTIME_WRITE_FAILURE_LOOP_NOTICE_PRECONDITION: the real delivery loop reaches the armed write fault and records its waiting-mail error within the fixture deadline.");\n',
+              '            check(observedFailure,\n                "WAITING_RUNTIME_WRITE_FAILURE_LOOP_NOTICE_PRECONDITION: the real delivery loop reaches the armed write fault and records its waiting-mail error within the fixture deadline.");\n            await adapter.DiscoverAsync(fixture.Store.BrokerId, stop.Token);\n', 1),),
+            "WAITING_RUNTIME_WRITE_FAILURE_LOOP_DISCOVERY_BARRIER_PRECONDITION: the adapter completes exactly one discovery so later discovery cannot clear the injected error."),
+)
+
 
 WAITING_MAIL_R4_WORKER_WITNESSES = (
     Witness('waiting-runtime-admission-omitted', 'tools/AgentBroker.Worker/BrokerRuntime.cs', 'worker', ('--waiting-mail-only',), (('AdmitWaitingMailPass();', '', 1),), 'WAITING_RUNTIME_LOOP_ADMITS_AT_DUE'),
@@ -523,6 +824,65 @@ F18_V3_PROSPECTIVE_WITNESSES = (
     Witness('card-get-message-receipt-waits-description-omitted', 'tools/AgentBroker.Worker/BrokerTools.cs', 'worker', ('--instructions-only',), (('     Description("Look up a message receipt involving your authenticated broker. Once its deadline passes, an Accepted or Held message reads as Expired, and a Submitted one as Uncertain, at once. Once a message sent from this workstation is Delivered or Refused its receipt keeps the status, addresses and times without its text (textBytes null). The text is left out unless includeText is true; textBytes is its UTF-8 length and readAt the broker\'s time of reading. A delivered receipt does not establish that the agent completed the requested work. To wait for a receipt instead of polling, use wait_for_receipt. Local-only waits may include observed reasons, source, firstAt, lastAt and count; this process-local metadata resets on worker restart and proves neither delivery nor progress.")]', '     Description("Look up a message receipt involving your authenticated broker. Once its deadline passes, an Accepted or Held message reads as Expired, and a Submitted one as Uncertain, at once. Once a message sent from this workstation is Delivered or Refused its receipt keeps the status, addresses and times without its text (textBytes null). The text is left out unless includeText is true; textBytes is its UTF-8 length and readAt the broker\'s time of reading. A delivered receipt does not establish that the agent completed the requested work. To wait for a receipt instead of polling, use wait_for_receipt.")]', 1),), 'CARD_LOCAL_WAITS_DESCRIPTIONS: tools/list describes local observed wait reasons, source, first/last times and counts, restart reset and no delivery or progress claim'),
 )
 
+
+# D2 L2 peer-directory lease presentation. Source-only registration; root must retain rebuilt qualification.
+# Exact first/sole labels below follow the directory-shape group's unchanged assertion order.
+# WITNESS (positive/dominated): DIRECTORY_PEER_CLOCK_OFFSET_KEPT_AHEAD and DIRECTORY_PEER_CLOCK_ZERO_OFFSET.
+# WITNESS (null offset, direct observation-policy coverage elsewhere): UNUSABLE_IGNORED_not_checked,
+# UNUSABLE_IGNORED_missing_date, UNUSABLE_IGNORED_invalid_date, UNUSABLE_IGNORED_local_clock_changed,
+# UNUSABLE_IGNORED_transport_unavailable (all with DIRECTORY_PEER_CLOCK_ prefix).
+# Private/transitive aspects remain WITNESS of the earlier DIRECTORY_SHAPE_RUNTIME_FILTERING guard.
+# The composed --directory-shape-only group measured 45; see E/lanes/D2/checks/l2-a10-r2/workerdirectoryshape.stdout.log.
+L2_PEER_DIRECTORY_WITNESSES = (
+    Witness("l2-directory-real-clock", "tools/AgentBroker.Worker/BrokerRuntime.cs", "worker", ("--directory-shape-only",),
+            (("                        var peerNow = Now;\n", "                        var peerNow = DateTimeOffset.UtcNow;\n", 1),),
+            "DIRECTORY_PEER_CLOCK_INJECTED_NOW"),
+    Witness("l2-directory-offset-not-applied", "tools/AgentBroker.Worker/BrokerRuntime.cs", "worker", ("--directory-shape-only",),
+            (("                            try { peerNow += TimeSpan.FromSeconds(offset); }\n", "                            try { _ = offset; }\n", 1),),
+            "DIRECTORY_PEER_CLOCK_OFFSET_KEPT_BEHIND"),
+    Witness("l2-directory-offset-sign-reversed", "tools/AgentBroker.Worker/BrokerRuntime.cs", "worker", ("--directory-shape-only",),
+            (("                            try { peerNow += TimeSpan.FromSeconds(offset); }\n", "                            try { peerNow -= TimeSpan.FromSeconds(offset); }\n", 1),),
+            "DIRECTORY_PEER_CLOCK_OFFSET_KEPT_BEHIND"),
+    Witness("l2-directory-positive-offset-not-applied", "tools/AgentBroker.Worker/BrokerRuntime.cs", "worker", ("--directory-shape-only",),
+            (("                            try { peerNow += TimeSpan.FromSeconds(offset); }\n", "                            try { peerNow += TimeSpan.FromSeconds(Math.Min(offset, 0)); }\n", 1),),
+            "DIRECTORY_PEER_CLOCK_EXPIRED_DROPPED_AHEAD"),
+    Witness("l2-directory-exact-expiry-kept", "tools/AgentBroker.Worker/BrokerRuntime.cs", "worker", ("--directory-shape-only",),
+            (("s.LeaseUntil > peerNow", "s.LeaseUntil >= peerNow", 1),),
+            "DIRECTORY_PEER_CLOCK_EXPIRED_DROPPED_BEHIND"),
+    Witness("l2-directory-warning-required", "tools/AgentBroker.Worker/BrokerRuntime.cs", "worker", ("--directory-shape-only",),
+            (("{ State: \"observed\", OffsetSeconds: { } offset }", "{ State: \"observed\", Warning: true, OffsetSeconds: { } offset }", 1),),
+            "DIRECTORY_PEER_CLOCK_MEASURED_WITHOUT_WARNING"),
+    Witness("l2-directory-overflow-fallback-omitted", "tools/AgentBroker.Worker/BrokerRuntime.cs", "worker", ("--directory-shape-only",),
+            (("                            catch (OverflowException) { }\n", "", 1),),
+            "DIRECTORY_PEER_CLOCK_UNREPRESENTABLE_OFFSET_IGNORED"),
+    Witness("l2-directory-argument-fallback-omitted", "tools/AgentBroker.Worker/BrokerRuntime.cs", "worker", ("--directory-shape-only",),
+            (("                            catch (ArgumentException) { } // An unusable/out-of-range offset contributes no adjustment.\n", "", 1),),
+            "DIRECTORY_PEER_CLOCK_NAN_OFFSET_IGNORED"),
+    Witness("l2-directory-date-range-fallback-omitted", "tools/AgentBroker.Worker/BrokerRuntime.cs", "worker", ("--directory-shape-only",),
+            (("                            catch (ArgumentException) { } // An unusable/out-of-range offset contributes no adjustment.\n", "                            catch (ArgumentException error) when (error is not ArgumentOutOfRangeException) { } // An unusable/out-of-range offset contributes no adjustment.\n", 1),),
+            "DIRECTORY_PEER_CLOCK_DATE_RANGE_OFFSET_IGNORED"),
+    Witness("l2-directory-freshness-bound-exclusive", "tools/AgentBroker.Worker/Federation/PeerClockObservations.cs", "worker", ("--directory-shape-only",),
+            (("age > MaximumAge ? \"stale\" : sample.View.State", "age >= MaximumAge ? \"stale\" : sample.View.State", 1),),
+            "DIRECTORY_PEER_CLOCK_FRESH_AT_FIVE_MINUTES"),
+    Witness("l2-directory-rtt-bound-exclusive", "tools/AgentBroker.Worker/Federation/PeerClockObservations.cs", "worker", ("--directory-shape-only",),
+            (("roundTrip > MaximumRoundTrip ? \"high_latency\" : \"observed\"", "roundTrip >= MaximumRoundTrip ? \"high_latency\" : \"observed\"", 1),),
+            "DIRECTORY_PEER_CLOCK_MEASURED_AT_TWO_SECONDS"),
+    Witness("l2-directory-usable-state-omitted", "tools/AgentBroker.Worker/BrokerRuntime.cs", "worker", ("--directory-shape-only",),
+            (("{ State: \"observed\", OffsetSeconds: { } offset }", "{ OffsetSeconds: { } offset }", 1),),
+            "DIRECTORY_PEER_CLOCK_UNUSABLE_IGNORED_high_latency"),
+    Witness("l2-directory-stale-offset-applied", "tools/AgentBroker.Worker/BrokerRuntime.cs", "worker", ("--directory-shape-only",),
+            (("{ State: \"observed\", OffsetSeconds: { } offset }", "{ State: \"observed\" or \"stale\", OffsetSeconds: { } offset }", 1),),
+            "DIRECTORY_PEER_CLOCK_UNUSABLE_IGNORED_stale"),
+    Witness("l2-directory-wrong-peer-clock", "tools/AgentBroker.Worker/BrokerRuntime.cs", "worker", ("--directory-shape-only",),
+            (("federation.ClockObservations.FirstOrDefault(view => view.BrokerId == peer.BrokerId)", "federation.ClockObservations.FirstOrDefault()", 1),),
+            "DIRECTORY_PEER_CLOCK_OTHER_PEER_IGNORED"),
+    Witness("l2-directory-views-before-response", "tools/AgentBroker.Worker/BrokerRuntime.cs", "worker", ("--directory-shape-only",),
+            (("                        var remote = await federation.GetDirectoryAsync(peer, peerToken).WaitAsync(peerToken);\n", "                        var peerClockViews = federation.ClockObservations;\n                        var remote = await federation.GetDirectoryAsync(peer, peerToken).WaitAsync(peerToken);\n", 1), ("federation.ClockObservations.FirstOrDefault(view => view.BrokerId == peer.BrokerId)", "peerClockViews.FirstOrDefault(view => view.BrokerId == peer.BrokerId)", 1),),
+            "DIRECTORY_PEER_CLOCK_READ_AFTER_RESPONSE"),
+    Witness("l2-directory-local-now-before-response", "tools/AgentBroker.Worker/BrokerRuntime.cs", "worker", ("--directory-shape-only",),
+            (("                        var peerNow = Now;\n", "", 1), ("                        var remote = await federation.GetDirectoryAsync(peer, peerToken).WaitAsync(peerToken);\n", "                        var peerNow = Now;\n                        var remote = await federation.GetDirectoryAsync(peer, peerToken).WaitAsync(peerToken);\n", 1),),
+            "DIRECTORY_PEER_CLOCK_LOCAL_NOW_AFTER_RESPONSE"),
+)
 
 WITNESSES = (
     Witness("hygiene-late-held-allowed", STORE, "core", ("--hygiene-only",), ((X1_GUARD, "", 1),),
@@ -652,7 +1012,7 @@ WITNESSES = (
     Witness("store-late-accepted-allowed", STORE, "core", ("--hygiene-only",),
             (('            if (previous.Status == MessageStatus.Accepted && previous.Message.ExpiresAt <= Now) Fail("message_expired");', "            _ = previous;", 1),),
             "LATE_ACCEPTED_EXPIRED: a never-submitted message past its deadline refuses Delivered as message_expired and reads Expired"),
-) + LOCAL_OUTPUT_WITNESSES + REPLY_RECEIPT_WITNESSES + CARD_1105_WITNESSES + BUSY_MAIL_1105_WITNESSES + RUNTIME_REPLY_1105_WITNESSES + WAITING_MAIL_R4_CORE_WITNESSES + WAITING_MAIL_R4_WORKER_WITNESSES + NONIO_CR4_4_WITNESSES + F18_V3_PROSPECTIVE_WITNESSES + (
+) + LOCAL_OUTPUT_WITNESSES + REPLY_RECEIPT_WITNESSES + CARD_1105_WITNESSES + BUSY_MAIL_1105_WITNESSES + RUNTIME_REPLY_1105_WITNESSES + WAITING_MAIL_R4_CORE_WITNESSES + D2_R2_CORE_WITNESSES + D2_R3_WITNESSES + A8_WAITING_DIRECTORY_WITNESSES + A10_DIRECTORY_SCOPE_WITNESSES + A7_WAITING_READ_WITNESSES + A7_BENCHMARK_WAITING_WITNESSES + D2_R2_WORKER_DIAGNOSTIC_WITNESSES + WAITING_MAIL_R4_WORKER_WITNESSES + NONIO_CR4_4_WITNESSES + F18_V3_PROSPECTIVE_WITNESSES + L2_PEER_DIRECTORY_WITNESSES + (
     # Compiled inbox watcher: actual48 FIRED at 88887E0E; focused healthy97 at A8ADD4AF.
     Witness('watch-budget-required', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('Required("--max-seconds")', 'values.GetValueOrDefault("--max-seconds", "7200")', 1),), 'WATCH_BUDGET_REQUIRED: no implicit short deadline or unbounded watch is selected'),
     Witness('watch-budget-positive', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('parsed > 0 && parsed <= maximum', 'parsed >= 0 && parsed <= maximum', 1),), 'WATCH_BUDGET_INPUT: only a positive caller-selected duration up to one year is accepted'),
@@ -753,10 +1113,22 @@ PROOF_FIELDS = {
 # Composed r4 waiting groups measured Core 83/Worker 25 (C5159C80), then Worker 26 (662A432D).
 # Final guidance focused smoke measured instructions 22 and channel 37 (FC427CCD).
 # Compiled watcher focused smoke measured 97 (88887E0E); final-review additions require a new measurement.
-EXPECTED_COUNTS = {("core", ("--waiting-mail-only",)): 83, ("worker", ("--waiting-mail-only",)): 26,
+# D2 A8 measured Core 92 / Worker 26: E/lanes/D2/checks/a8-r1/{corewaiting,workerwaiting}.stdout.log.
+# D2 A7 measured Core 113: E/lanes/D2/checks/a7-r1/corewaiting.stdout.log; Worker stays at measured A8 26.
+# D2 A7 real benchmark validation measured 12: E/lanes/D2/checks/a7-r1/workerbenchvalidation.stdout.log.
+# D2 A8 follow-up measured 114/27: E/lanes/D2/checks/a8-followup-r1/{corewaiting,workerwaiting}.stdout.log.
+# D2 round 2 measured focused receipts under E/lanes/D2/r2/checks (2026-11-14):
+# Core waiting 116, Worker waiting 31, scope 11 and authenticated pagination 37.
+# D2 round 3 measured Core waiting 118 before re-pinning: E/lanes/D2/r3/checks/r3-first-core-measure-waiting-20261117T120451288Z-f3fca3ba.stdout.log.
+EXPECTED_COUNTS = {("core", ("--waiting-mail-only",)): 118, ("worker", ("--waiting-mail-only",)): 31,
+                   # L2 measured45: E/lanes/D2/checks/l2-a10-r2/workerdirectoryshape.stdout.log.
+                   ("worker", ("--directory-shape-only",)): 45,
+                   ("worker", ("--benchmark-validation-only",)): 12,
                    ("worker", ("--compact-receipts-only",)): 24, ("core", ("--reply-receipt-only",)): 43, ("core", ("--hygiene-only",)): 13, ("core", ("--peer-receipt-only",)): 22,
                    ("core", ("--commit-timing-only",)): 9, ("worker", ("--receipt-wait-only",)): 24,
-                   ("worker", ("--instructions-only",)): 22, ("worker", ("--recovery-guidance-only",)): 38,
+                   # A10 re-pinned 11/23/37: E/lanes/D2/r2/checks focused scope/instructions/pagination receipts; 10/23/36 is historical.
+                   ("worker", ("--list-sessions-scope-only",)): 11, ("worker", ("--pagination-only",)): 37,
+                   ("worker", ("--instructions-only",)): 23, ("worker", ("--recovery-guidance-only",)): 38,
                    ("worker", ("--first-contact-only",)): 43,
                    ("worker", ("--directory-stop-core-only",)): 3, ("worker", ("--directory-host-stop-only",)): 3,
                    ("worker", ("--directory-stop-only",)): 6, ("worker", ("--reply-only",)): 21,

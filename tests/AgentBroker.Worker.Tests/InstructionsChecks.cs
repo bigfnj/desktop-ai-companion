@@ -121,6 +121,18 @@ internal static class InstructionsChecks
                 schema.GetProperty("properties").EnumerateObject().Select(property => property.Name).Order(StringComparer.Ordinal).ToArray(),
                 schema.TryGetProperty("required", out var required)
                     ? required.EnumerateArray().Select(name => name.GetString()!).Order(StringComparer.Ordinal).ToArray() : []);
+            bool hasDirectorySchema = tools.TryGetValue("list_sessions", out var directorySchema);
+            var directoryShape = hasDirectorySchema ? Shape(directorySchema) :
+                (Properties: Array.Empty<string>(), Required: Array.Empty<string>());
+            check(hasDirectorySchema && directoryShape.Properties.SequenceEqual(new[] { "afterAddress", "limit", "scope" }) &&
+                directoryShape.Required.Length == 0 &&
+                directorySchema.GetProperty("properties").GetProperty("scope").TryGetProperty("type", out var scopeType) &&
+                scopeType.ValueKind == JsonValueKind.Array &&
+                scopeType.EnumerateArray().Select(type => type.GetString()!).Order(StringComparer.Ordinal)
+                    .SequenceEqual(new[] { "null", "string" }) &&
+                descriptions["list_sessions"].Contains("scope defaults to federated", StringComparison.Ordinal) &&
+                descriptions["list_sessions"].Contains("local returns this workstation only without fetching peers", StringComparison.Ordinal),
+                "LIST_SESSIONS_SCOPE_SCHEMA: real tools/list publishes optional nullable string scope and its default/local behavior");
             var send = Shape(tools["send"]);
             var messages = Shape(tools["wait_for_messages"]);
             var replyShape = Shape(tools["wait_for_reply"]);

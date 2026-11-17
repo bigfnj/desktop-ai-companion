@@ -19,12 +19,13 @@ internal sealed class ToolFixture : IAsyncDisposable
     // A real clock (TimeProvider.System) instead of the manual one, for checks that a wait wakes at a real deadline.
     // Adapters and a caller resolver are for the whoami checks; every other check runs with neither.
     internal ToolFixture(string name, BrokerLimits? limits = null, TimeProvider? clock = null,
-        IReadOnlyList<ILocalAgentAdapter>? adapters = null, ICallerProcessResolver? callers = null)
+        IReadOnlyList<ILocalAgentAdapter>? adapters = null, ICallerProcessResolver? callers = null,
+        IPeerFederation? federation = null)
     {
         scratch = OwnedScratch.Create(name);
         Root = scratch.Root;
         Store = new BrokerStore(Path.Combine(Root, "store"), limits, clock ?? Clock);
-        Runtime = new BrokerRuntime(Store, new NoPeers(), adapters ?? [], new SessionPreferences(Root), clock ?? Clock, callers);
+        Runtime = new BrokerRuntime(Store, federation ?? new NoPeers(), adapters ?? [], new SessionPreferences(Root), clock ?? Clock, callers);
         Context.Items["agentbroker.identity"] = Store.BrokerId;
         Tools = new BrokerTools(Runtime, new FixedHttpContextAccessor { HttpContext = Context });
     }

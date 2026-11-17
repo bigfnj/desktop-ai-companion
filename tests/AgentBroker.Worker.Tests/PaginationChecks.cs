@@ -112,6 +112,61 @@ internal static class PaginationChecks
                 directoryPage = await bridge.ArrayAsync("list_sessions", new { afterAddress = current[^1] });
             }
             check(addresses.SequenceEqual(expected), "directory keyset traversal returns each live address once with ordinal session ordering");
+            var nullScopeCall = await bridge.RpcAsync("tools/call", new { name = "list_sessions", arguments = new { scope = (string?)null } });
+            bool nullScopeDefault = false;
+            if (nullScopeCall.TryGetProperty("result", out var nullResult) &&
+                (!nullResult.TryGetProperty("isError", out var nullError) || nullError.ValueKind == JsonValueKind.False) &&
+                nullResult.TryGetProperty("content", out var nullContent) && nullContent.ValueKind == JsonValueKind.Array &&
+                nullContent.GetArrayLength() > 0 && nullContent[0].GetProperty("type").GetString() == "text")
+            {
+                using var nullPage = JsonDocument.Parse(nullContent[0].GetProperty("text").GetString()!);
+                nullScopeDefault = nullPage.RootElement.ValueKind == JsonValueKind.Array &&
+                    nullPage.RootElement.EnumerateArray().Select(item => item.GetProperty("address").Deserialize<SessionAddress>(WebJson)!)
+                        .SequenceEqual(expected.Take(16));
+            }
+            check(nullScopeDefault,
+                "LIST_SESSIONS_NULL_SCOPE_WIRE: explicit JSON null scope preserves the omitted-scope first page through authenticated MCP");
+            // Bind scope through the authenticated stdio/MCP stack, keeping the same full-address cursor semantics.
+            var localAddresses = new List<SessionAddress>();
+            var localSeen = new HashSet<SessionAddress>();
+            SessionAddress? localCursor = null;
+            bool localProgress = true;
+            int localPages = 0;
+            while (true)
+            {
+                var localPage = await bridge.ArrayAsync("list_sessions", new { scope = "local", afterAddress = localCursor });
+                var current = localPage.EnumerateArray().Select(item => item.GetProperty("address").Deserialize<SessionAddress>(WebJson)!).ToArray();
+                if (++localPages > (expected.Length + 15) / 16 + 1 || current.Length > 16 || !current.All(localSeen.Add))
+                { localProgress = false; break; }
+                localAddresses.AddRange(current);
+                if (current.Length < 16) break;
+                localCursor = current[^1];
+            }
+            check(localProgress && localPages > 1 && localAddresses.SequenceEqual(expected),
+                "LIST_SESSIONS_LOCAL_SCOPE_WIRE: explicit local scope traverses every local row once in the existing ordinal order");
+
+            var invalidScope = await bridge.RpcAsync("tools/call", new { name = "list_sessions", arguments = new { scope = "unsupported" } });
+            bool scopeGuidance = false;
+            if (invalidScope.TryGetProperty("result", out var scopeResult) &&
+                scopeResult.TryGetProperty("isError", out var scopeError) && scopeError.ValueKind == JsonValueKind.True &&
+                scopeResult.TryGetProperty("content", out var scopeContent) && scopeContent.ValueKind == JsonValueKind.Array &&
+                scopeContent.GetArrayLength() == 2 &&
+                scopeContent[0].GetProperty("type").GetString() == "text" &&
+                scopeContent[0].GetProperty("text").GetString() == "An error occurred invoking 'list_sessions': invalid_scope" &&
+                scopeContent[1].GetProperty("type").GetString() == "text")
+            {
+                using var advisory = JsonDocument.Parse(scopeContent[1].GetProperty("text").GetString()!);
+                var root = advisory.RootElement;
+                var guidance = root.GetProperty("guidance");
+                string advice = guidance.GetProperty("advice").GetString()!;
+                scopeGuidance = root.GetProperty("kind").GetString() == "agentbroker.recovery_guidance" &&
+                    guidance.GetProperty("code").GetString() == "invalid_scope" &&
+                    guidance.GetProperty("nextTool").GetString() == "list_sessions" &&
+                    guidance.GetProperty("operation").GetString() == "list_sessions" &&
+                    advice.Contains("local", StringComparison.Ordinal) && advice.Contains("federated", StringComparison.Ordinal);
+            }
+            check(scopeGuidance,
+                "LIST_SESSIONS_INVALID_SCOPE_GUIDANCE: real MCP preserves the SDK error and appends exactly one supported-scope recovery hint");
             var beforeIncarnation = await bridge.ArrayAsync("list_sessions", new { afterAddress = expected[0] with { Incarnation = MessageId(99) }, limit = 1 });
             var afterIncarnation = await bridge.ArrayAsync("list_sessions", new { afterAddress = expected[0] with { Incarnation = MessageId(101) }, limit = 1 });
             check(beforeIncarnation[0].GetProperty("address").Deserialize<SessionAddress>(WebJson) == expected[0] &&

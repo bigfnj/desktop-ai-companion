@@ -156,7 +156,11 @@ def mutation_artifact(source: str) -> str:
 # 788 -> 801 (2026-11-10, shipping cadence, measured): RuntimeLifecycleChecks gains 13 checks before the cut-off.
 # The complete seven-harness run measured Worker 2021 and 3718 total; the existing-suite subset marker was 801.
 # 2026-11-12, 1.10.5 G2: Worker 2234, seven-harness total 4057; the same full run reports existing subset 976.
-EXISTING_COUNTS = {"worker": 976, "desktop": 157}
+# 2026-11-14, D2 round 2: --existing-tests-only measured 986 (exit 0, 150.638 s), before pinning.
+# Evidence: E/lanes/D2/r2/checks/worker-existing-measured-20261114T105100028Z-6f80d159.stdout.log,
+# SHA256 53A58005EB6265895347FF5D850EB94BEF0464D81685EECBBAF5DA3ADD616B40; reported to the lead first.
+# The +10 comprises seven benchmark diagnostics and three pagination assertions before the cut-off.
+EXISTING_COUNTS = {"worker": 986, "desktop": 157}
 FOCUSED_COUNTS = {"worker": 92, "desktop": 23}  # desktop 15 -> 23: installed-version image-mismatch witnesses and layout controls
 CLAUDE_SCENARIOS = ("early-reject", "unsupported-version", "hash-mismatch", "mixed", "recovery", "bounded-snapshot")
 
