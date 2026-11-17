@@ -137,6 +137,25 @@ public sealed partial class AgentBrokerModule
             module.McpNow = () => now;
             check(expiredQuiet && !Quiet(), "INBOUND_OFFER_SIGNAL: an expired incoming offer raises no signal");
 
+            // Round 6 (U-m17, DECISIONS 111): the PANE's Pairing row in the three non-incoming states. The checks above read the
+            // Pairing helper, as DECISIONS 78 allows for incoming offers; here no incoming offer waits, so what the owner sees is
+            // read from pane.Load() and must equal the helper's non-empty text. A row blanked or replaced for an outgoing request,
+            // an offer approved here or an expired incoming offer fails this label.
+            string PaneRow() { string shown = pane.Load()["pairingStatus"]; return shown == module.PairingDisplayText() ? shown : ""; }
+            Apply(empty with { PairingOffers = [offerC with { LocalApproved = false }] });
+            string outgoingRow = PaneRow();
+            Apply(empty with { PairingOffers = [offerA with { LocalApproved = true }] });
+            string approvedRow = PaneRow();
+            Apply(empty with { PairingOffers = [offerA] });
+            module.McpNow = () => now.AddMinutes(3);
+            string expiredRow = PaneRow();
+            module.McpNow = () => now;
+            check(outgoingRow.StartsWith("Your pairing request to Charlie (", StringComparison.Ordinal) &&
+                outgoingRow.Contains(PairingScope, StringComparison.Ordinal) &&
+                approvedRow.StartsWith("Approved here; waiting for Same name (", StringComparison.Ordinal) &&
+                expiredRow.StartsWith("No paired brokers.", StringComparison.Ordinal),
+                "PAIRING_ROW_NON_INCOMING: the pane's Pairing row shows the Pairing text for an outgoing request, an offer approved here and an expired incoming offer");
+
             // The live Pairing row is in the notified set: a new requester reaches an open pane without a rebuild.
             int infoChanges = 0;
             pane.InfoChanged += () => infoChanges++;

@@ -133,6 +133,7 @@ public sealed partial class AgentBrokerModule
                 "CLIPBOARD_PAIRING_PREVIEW_NO_ECHO_OWN_REFUSED_UI_THREAD: a first press reads the synthetic clipboard on the captured UI thread");
             check(PairingRequestCount(f.Control) == 0 && !f.Pair.ReloadPaneAfter &&
                 f.Module.invitationArm is { } arm && arm.Peer == f.Peer && arm.Deadline == f.Now + InvitationConfirmWindow &&
+                arm.Generation == f.Module.generation &&
                 preview.Contains(BrokerRowName(f.Peer), StringComparison.Ordinal) && preview.Contains("192.0.2.31:7433", StringComparison.Ordinal) &&
                 preview.Contains("within " + InvitationConfirmWindow.TotalSeconds.ToString("0", System.Globalization.CultureInfo.InvariantCulture) + " seconds", StringComparison.Ordinal),
                 "CLIPBOARD_PAIRING_PREVIEW_NO_ECHO_OWN_REFUSED_PREVIEW_ONLY: a first press arms exactly the displayed identity and configured window without sending or reloading");
@@ -142,13 +143,30 @@ public sealed partial class AgentBrokerModule
         });
         Scenario(f =>
         {
-            f.Arm();
+            // Round 6 (U-6): the owner's flow, from a REAL first press (preview), so the arm the confirm compares is the one the
+            // product recorded, not the synthetic Arm().
+            string preview = f.Press();
             f.Now = f.Now.AddSeconds(30);
             string confirmed = f.Press();
-            check(PairingRequestCount(f.Control) == 1 && f.Control.Requests.LastOrDefault() is { Operation: "pair-request" } request &&
+            check(preview.Contains("No request has been sent.", StringComparison.Ordinal) &&
+                PairingRequestCount(f.Control) == 1 && f.Control.Requests.LastOrDefault() is { Operation: "pair-request" } request &&
                 request.Peer == f.Peer && f.Pair.ReloadPaneAfter && f.Module.invitationArm is null &&
                 confirmed.Contains("both", StringComparison.OrdinalIgnoreCase),
                 "CLIPBOARD_PAIRING_PREVIEW_NO_ECHO_OWN_REFUSED_WINDOW_30_ACCEPTS: a matching second press exactly thirty seconds after arming requests the same peer");
+        });
+        Scenario(f =>
+        {
+            // Round 6 (U-7): the Brokers card's OWN two invitation buttons, taken by label from the list the pane shows, bound to
+            // the right handlers: Copy writes once and never reads; Pair reads once, never writes, and only previews.
+            int writes = 0;
+            f.Module.writeInvitationClipboard = _ => writes++;
+            PaneAction[] cardActions = f.Pane.Lists!.Single().Actions.ToArray();
+            string copied = f.Press(cardActions.Single(action => action.Label == CopyInvitationLabel));
+            bool copyBound = writes == 1 && f.Reads == 0 && copied.StartsWith("Public broker invitation copied.", StringComparison.Ordinal);
+            string preview = f.Press(cardActions.Single(action => action.Label == PairCopiedInvitationLabel));
+            check(copyBound && f.Reads == 1 && writes == 1 && PairingRequestCount(f.Control) == 0 &&
+                preview.StartsWith("Invitation from ", StringComparison.Ordinal) && preview.Contains("No request has been sent.", StringComparison.Ordinal),
+                "BROKERS_INVITATION_BINDING: the Brokers card's Copy button writes without reading and its Pair button reads and previews without writing");
         });
         Scenario(f =>
         {

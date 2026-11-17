@@ -215,17 +215,42 @@ public sealed partial class AgentBrokerModule
             result.StartsWith("Public broker invitation copied.", StringComparison.Ordinal) && PairingRequestCount(f.Control) == 0,
             "INVITATION_COPY_UI_THREAD: the actual Copy factory/handler dispatches its synthetic writer to UI and preserves public legacy JSON");
 
-        // Calling on the captured UI context isolates fallback wording from the dispatch guard.
-        // A synthetic writer exception follows the same fallback as a timed-out queued write.
+        // Both fallback inputs (DECISIONS 111, U-m25). A definite failure: calling on the captured UI context isolates the
+        // fallback wording from the dispatch guard, and the synthetic writer throws, so the copy definitely failed and the
+        // result must not say it may still complete.
         using var failure = new ClipboardPairingFixture(dispatcher);
         int failedWrites = 0;
         failure.Module.writeInvitationClipboard = _ => { failedWrites++; throw new InvalidOperationException("synthetic clipboard failure"); };
         PaneAction failedCopy = failure.Module.BrokerAction(CopyInvitationLabel, _ => failure.Module.CopyInvitationAsync());
         string failedResult = failedCopy.InvokeAsync().GetAwaiter().GetResult();
+        // The uncertain input: called off the UI thread while the UI thread is blocked, so the posted write is still queued
+        // when the 2-second wait ends. The result keeps DECISIONS 67's wording verbatim, and draining the UI afterwards runs
+        // the queued write, which is exactly why that wording says it may still complete.
+        using var queued = new ClipboardPairingFixture(dispatcher);
+        int queuedWrites = 0;
+        queued.Module.writeInvitationClipboard = _ => queuedWrites++;
+        PaneAction queuedCopy = queued.Module.BrokerAction(CopyInvitationLabel, _ => queued.Module.CopyInvitationAsync());
+        string queuedResult = Task.Run(() => queuedCopy.InvokeAsync()).GetAwaiter().GetResult();
+        int writesBeforeDrain = queuedWrites;
+        dispatcher.Drain();
+        // A POSTED writer that throws (Clipboard.SetText failing on the UI thread for an off-thread press), pumped as the UI
+        // would run it: the write ran and failed, so this is a definite failure too and must not say it may still complete.
+        using var posted = new ClipboardPairingFixture(dispatcher);
+        int postedWrites = 0;
+        posted.Module.writeInvitationClipboard = _ => { postedWrites++; throw new InvalidOperationException("synthetic posted clipboard failure"); };
+        PaneAction postedCopy = posted.Module.BrokerAction(CopyInvitationLabel, _ => posted.Module.CopyInvitationAsync());
+        Task<string> postedTask = Task.Run(() => postedCopy.InvokeAsync());
+        Pump(() => postedTask.IsCompleted, dispatcher);
+        string postedResult = postedTask.GetAwaiter().GetResult();
         check(failedWrites == 1 && failedResult ==
+            "Clipboard copy failed. Discovery remains available in the Brokers list." &&
+            !failedResult.Contains("may still complete", StringComparison.Ordinal) && PairingRequestCount(failure.Control) == 0 &&
+            writesBeforeDrain == 0 && queuedResult ==
             "Clipboard copy did not finish; it may still complete. Discovery remains available in the Brokers list." &&
-            PairingRequestCount(failure.Control) == 0,
-            "INVITATION_COPY_PENDING_RESULT: Copy failure reports that queued clipboard work may still finish and keeps discovery available");
+            queuedWrites == 1 && PairingRequestCount(queued.Control) == 0 &&
+            postedWrites == 1 && postedResult == "Clipboard copy failed. Discovery remains available in the Brokers list." &&
+            PairingRequestCount(posted.Control) == 0,
+            "INVITATION_COPY_PENDING_RESULT: only a write still queued after the wait says it may still complete; a definite failure says it failed; both keep discovery available");
     }
 
     private static void RunPairingAvailabilityChecks(Action<bool, string> check, TestDispatcher dispatcher)

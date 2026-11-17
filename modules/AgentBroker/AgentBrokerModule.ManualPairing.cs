@@ -10,6 +10,9 @@ public sealed partial class AgentBrokerModule
 {
     private static readonly TimeSpan InvitationConfirmWindow = TimeSpan.FromSeconds(30);
     private const string InvitationCopyPendingResult = "Clipboard copy did not finish; it may still complete. Discovery remains available in the Brokers list.";
+    // Only a write still queued on the UI thread may complete later. A definite failure (no UI context, a writer or Post that
+    // threw, an invitation that could not be built) says so instead (DECISIONS 67 as amended by DECISIONS 111, U-m25).
+    private const string InvitationCopyFailedResult = "Clipboard copy failed. Discovery remains available in the Brokers list.";
     private (PeerView Peer, DateTimeOffset Deadline, int Generation, Guid BrokerId)? invitationArm;
     private Func<string> readInvitationClipboard = static () => System.Windows.Forms.Clipboard.GetText();
     private Action<string> writeInvitationClipboard = static text => System.Windows.Forms.Clipboard.SetText(text);
@@ -22,16 +25,20 @@ public sealed partial class AgentBrokerModule
         try
         {
             var invitation = new PeerView(view.BrokerId, view.Name, view.LanEndpoint, view.CertificateSha256);
-            if (!await WriteInvitationClipboardAsync(JsonSerializer.Serialize(invitation, ControlProtocol.Json)))
-                return InvitationCopyPendingResult;
+            bool? written = await WriteInvitationClipboardAsync(JsonSerializer.Serialize(invitation, ControlProtocol.Json));
+            if (written is null) return InvitationCopyPendingResult;
+            if (written == false) return InvitationCopyFailedResult;
             return "Public broker invitation copied. On the other workstation, use Pair from copied invitation in Brokers and confirm its preview, then compare pairing codes. This contains no private key or access token.";
         }
-        catch (Exception) { return InvitationCopyPendingResult; }
+        catch (Exception) { return InvitationCopyFailedResult; }
     }
 
-    private async Task<bool> WriteInvitationClipboardAsync(string text)
+    // true: written. false: definitely not written. null: the write is still queued on the UI thread after 2 seconds (or the
+    // module is stopping) and may yet run, the one uncertain outcome.
+    private async Task<bool?> WriteInvitationClipboardAsync(string text)
     {
         if (ui is null) return false;
+        Task<bool>? queued = null;
         try
         {
             if (ReferenceEquals(SynchronizationContext.Current, ui)) { writeInvitationClipboard(text); return true; }
@@ -41,7 +48,15 @@ public sealed partial class AgentBrokerModule
                 try { writeInvitationClipboard(text); copied.TrySetResult(true); }
                 catch (Exception error) { copied.TrySetException(error); }
             }, null);
-            return await copied.Task.WaitAsync(TimeSpan.FromSeconds(2), run?.Token ?? CancellationToken.None);
+            queued = copied.Task;
+            return await queued.WaitAsync(TimeSpan.FromSeconds(2), run?.Token ?? CancellationToken.None);
+        }
+        // Decided from the queued write's own state, read after the wait ended: a write that lands between the timeout and
+        // this filter reports what happened, never a failure it did not have (pre-build review of U-m25).
+        catch (Exception) when (queued is not null)
+        {
+            if (queued.IsCompletedSuccessfully) return true;
+            return queued.IsCompleted ? false : (bool?)null;
         }
         catch (Exception) { return false; }
     }

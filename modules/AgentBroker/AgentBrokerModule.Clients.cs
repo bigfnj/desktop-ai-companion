@@ -286,7 +286,8 @@ public sealed partial class AgentBrokerModule
             else yield return new ClientState(null, "\u26A0 " + description, NoAction: IsNoActionClientNote(adapter, note.Text));
         }
         // Report only (lane broker-163, N-agentbroker-code-owner-provenance-01): whose engine holds each Codex row's thread.
-        if (client == "codex" && EngineBindingLine() is { } engine) yield return engine;
+        // It asks for nothing ("Nothing is refused on it."), so it folds like a no-action note (DECISIONS 107, U-3).
+        if (client == "codex" && EngineBindingLine() is { } engine) yield return new ClientState(null, engine, NoAction: true);
 
         if (clientSetupResults.TryGetValue(client, out string? result)) yield return "Last setup action: " + result;
     }
@@ -368,7 +369,11 @@ public sealed partial class AgentBrokerModule
         if (snapshot is null || snapshot.AdapterErrors.ContainsKey(adapter)) return new("wake", line);
         if (!wake) return new("wake off", line, NoAction: true);
         var native = snapshot.Sessions.Where(session => session?.Adapter == adapter).ToArray();
-        return new("wake " + Count(native.Count(session => session.CanWake)) + "/" + Count(native.Length), line);
+        string token = "wake " + Count(native.Count(session => session.CanWake)) + "/" + Count(native.Length);
+        // With wake on and no session discovered yet there is nothing for the owner to do: a session is discovered when one
+        // runs. It folds like the unwakeable case and the folded header still names it ("wake 0/0"); adapter or discovery
+        // errors stay actionable above (DECISIONS 107, U-q1).
+        return native.Length == 0 ? new(token, line, NoAction: true) : new(token, line);
     }
 
     private string NativeLine(string client)

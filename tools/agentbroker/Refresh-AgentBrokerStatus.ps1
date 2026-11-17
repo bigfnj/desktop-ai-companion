@@ -46,9 +46,14 @@ function Convert-KnownStatus([string]$Status, [string]$Native, [string]$Traffic,
     }
 }
 function Get-PaneIdentityLabels { return @('Enable AgentBroker', 'Local port', 'Pairing') }
-function Assert-AgentBrokerPaneIdentity([scriptblock]$CountMatches) {
+# Lane U round 6 (U-1): the host names each editor after its label (BuildEditorRow), so an untyped search sees 'Enable
+# AgentBroker' and 'Local port' twice (label and editor). Identity counts the Text label only, as Get-StatusRowText reads it.
+# $FindVisible takes (label, control type name) and returns the visible matches; the live finder and the self-test's pane
+# model both go through this one function, so the Text filter is under the self-test.
+function Get-PaneIdentityCount([scriptblock]$FindVisible, [string]$Label) { return @(& $FindVisible $Label 'Text').Count }
+function Assert-AgentBrokerPaneIdentity([scriptblock]$FindVisible) {
     foreach ($label in @(Get-PaneIdentityLabels)) {
-        if ((& $CountMatches $label) -ne 1) {
+        if ((Get-PaneIdentityCount $FindVisible $label) -ne 1) {
             throw 'STATUS_PANE_IDENTITY: the visible settings content does not uniquely identify the AgentBroker pane.'
         }
     }
@@ -84,14 +89,38 @@ if ($SelfTest) {
         throw 'STATUS_NATIVE_ROW_HEALTHY: a visible exact no-error status is known healthy evidence.'
     }
     $checks++
-    $identityCounts = @{ 'Enable AgentBroker' = 1; 'Local port' = 1; 'Pairing' = 1; 'Native delivery' = 0; 'Native adapters' = 0 }
-    Assert-AgentBrokerPaneIdentity { param($label) if ($identityCounts.ContainsKey($label)) { $identityCounts[$label] } else { 0 } }
+    # Round 6 (U-m10): each identity label is a Label literal of the module's schema, so a renamed pane row fails here and not
+    # only at the live smoke step. Read from the source beside this tool; a missing source is a failure, never a skip.
+    $moduleSource = Join-Path $PSScriptRoot '..\..\modules\AgentBroker\AgentBrokerModule.cs'
+    if (-not (Test-Path -LiteralPath $moduleSource)) { throw 'STATUS_PANE_LABELS_IN_SCHEMA: the module source is not beside this tool.' }
+    $moduleText = [IO.File]::ReadAllText($moduleSource)
+    foreach ($label in @(Get-PaneIdentityLabels)) {
+        if (([regex]::Matches($moduleText, [regex]::Escape('Label = "' + $label + '"'))).Count -ne 1) {
+            throw ('STATUS_PANE_LABELS_IN_SCHEMA: ' + $label + ' is not exactly one Label in the module schema.')
+        }
+    }
     $checks++
-    $identityCounts = @{ 'Enable AgentBroker' = 1; 'Local port' = 1; 'Native delivery' = 1; 'Native adapters' = 1 }
+    # The pane as UI Automation sees it (U-1): an editor row is its Text label plus an editor named after it; an info row is
+    # its Text label and a value named by its text. Untyped, 'Enable AgentBroker' and 'Local port' match twice.
+    $paneModel = @{ 'Enable AgentBroker' = @('Text', 'CheckBox'); 'Local port' = @('Text', 'Edit'); 'Pairing' = @('Text'); 'Native adapters' = @('Text') }
+    $finder = { param($label, $type)
+        if (-not $paneModel.ContainsKey($label)) { return @() }
+        return @($paneModel[$label] | Where-Object { $null -eq $type -or $_ -ceq $type })
+    }
+    Assert-AgentBrokerPaneIdentity $finder
+    $checks++
+    $paneModel = @{ 'Enable AgentBroker' = @('Text', 'CheckBox'); 'Local port' = @('Text', 'Edit'); 'Native delivery' = @('Text'); 'Native adapters' = @('Text') }
     $identityRefused = $false
-    try { Assert-AgentBrokerPaneIdentity { param($label) if ($identityCounts.ContainsKey($label)) { $identityCounts[$label] } else { 0 } } }
+    try { Assert-AgentBrokerPaneIdentity $finder }
     catch { if (-not $_.Exception.Message.StartsWith('STATUS_PANE_IDENTITY:', [StringComparison]::Ordinal)) { throw }; $identityRefused = $true }
     if (-not $identityRefused) { throw 'STATUS_PANE_IDENTITY_RETIRED: the retired labels must not identify this pane.' }
+    $checks++
+    # Round 6 (U-m10): uniqueness. Two visible AgentBroker panes (a Pairing label twice) do not identify one pane.
+    $paneModel = @{ 'Enable AgentBroker' = @('Text', 'CheckBox'); 'Local port' = @('Text', 'Edit'); 'Pairing' = @('Text', 'Text') }
+    $identityRefused = $false
+    try { Assert-AgentBrokerPaneIdentity $finder }
+    catch { if (-not $_.Exception.Message.StartsWith('STATUS_PANE_IDENTITY:', [StringComparison]::Ordinal)) { throw }; $identityRefused = $true }
+    if (-not $identityRefused) { throw 'STATUS_PANE_IDENTITY_UNIQUE: a label seen twice as Text must not identify one pane.' }
     $checks++
     $visibleRows = @{ 'Status' = 'Running. 2 sessions, 1 paired brokers. MCP ready.'; 'MCP client traffic' = '' }
     $state = Read-KnownRows {
@@ -217,7 +246,9 @@ try {
         ([System.Windows.Automation.ControlType]::Window) ([System.Windows.Automation.TreeScope]::Children))
     if ($windows.Count -ne 1) { throw 'The supplied process has no unique visible settings window.' }
     $window = $windows[0]
-    Assert-AgentBrokerPaneIdentity { param($label) @(Get-VisibleMatches $window $label).Count }
+    Assert-AgentBrokerPaneIdentity { param($label, $type)
+        $controlType = if ($type -ceq 'Text') { [System.Windows.Automation.ControlType]::Text } else { $null }
+        @(Get-VisibleMatches $window $label $controlType) }
     $buttons = @(Get-VisibleMatches $window 'Refresh status' ([System.Windows.Automation.ControlType]::Button))
     if ($buttons.Count -ne 1 -or -not $buttons[0].Current.IsEnabled) {
         throw 'The AgentBroker refresh button is not uniquely visible and enabled.'
