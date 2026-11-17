@@ -107,7 +107,9 @@ public sealed class AttachmentPolicy
             if (!AtomicFile.TryWriteAllText(path, JsonSerializer.Serialize(new Document(1, next), Protocol.ControlProtocol.Json), null))
                 throw new IOException("Attachment policy could not be persisted.");
         }
-        catch (IOException) { Dirty = true; throw; }
+        // Round 5 (DECISIONS 96, item 14): only a change already in force in memory (a removal, or the retry of one) is left
+        // Dirty; a failed allow changed nothing, so it is reported as a failure and not as an unsaved change.
+        catch (IOException) { if (ReferenceEquals(entries, next)) Dirty = true; throw; }
         entries = next;
         Unreadable = false;
         Dirty = false;

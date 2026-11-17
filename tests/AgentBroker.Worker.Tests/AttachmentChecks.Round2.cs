@@ -26,6 +26,7 @@ internal static partial class AttachmentChecks
         await SenderBoundAsync(check);
         await ForwardOffLoopAsync(check);
         await RoundTwoBAsync(check);
+        await RoundFiveAsync(check);
     }
 
     // F-2: Stage released its gate before the store recorded the message; a sweep in that window must not take the staging.
@@ -153,6 +154,25 @@ internal static partial class AttachmentChecks
             inFlight.Reserve(busyPeer, Guid.NewGuid(), 1500) == ReserveResult.Defer &&
             inFlight.Reserve(Guid.NewGuid(), Guid.NewGuid(), 1500) == ReserveResult.Reserved,
             "ATTACHMENT_PER_PEER_IN_FLIGHT_CAP: one broker's in-flight share defers its next pull; another broker's still starts");
+
+        // Round 5 (DECISIONS 96, item 6): the admitted cap counts what will be admitted, not only what is. The pool and the
+        // in-flight share are wide here, so only the per-broker admitted cap can defer: admittedPeer holds 5000 of its 6000.
+        var pending = new AttachmentStore(data, quota.Store, true, clock,
+            new AttachmentLimits(QuarantineBytes: 1_000_000, PerPeerAdmittedBytes: 6000, PerPeerInFlightBytes: 1_000_000));
+        Guid firstPull = Guid.NewGuid(), secondPull = Guid.NewGuid();
+        bool firstReserved = pending.Reserve(admittedPeer, firstPull, 600) == ReserveResult.Reserved;
+        bool concurrentDefers = pending.Reserve(admittedPeer, secondPull, 600) == ReserveResult.Defer;
+        bool otherStarts = pending.Reserve(Guid.NewGuid(), Guid.NewGuid(), 600) == ReserveResult.Reserved;
+        pending.Release(admittedPeer, firstPull);
+        bool afterRelease = pending.Reserve(admittedPeer, secondPull, 600) == ReserveResult.Reserved;
+        pending.Release(admittedPeer, secondPull);
+        // A verified folder of that broker that is not admitted yet (no reservation, no receipt) counts the same way.
+        Folder(admittedPeer, Guid.NewGuid(), 600);
+        var withOrphan = new AttachmentStore(data, quota.Store, true, clock,
+            new AttachmentLimits(QuarantineBytes: 1_000_000, PerPeerAdmittedBytes: 6000, PerPeerInFlightBytes: 1_000_000));
+        bool orphanDefers = withOrphan.Reserve(admittedPeer, Guid.NewGuid(), 600) == ReserveResult.Defer;
+        check(firstReserved && concurrentDefers && otherStarts && afterRelease && orphanDefers,
+            "ATTACHMENT_PER_PEER_CAP_COUNTS_PENDING: one broker's running pulls and its folders not yet admitted count against its admitted cap, so a concurrent pull defers instead of passing it; another broker's still starts");
     }
 
     // F-9: a SUBST drive letter over a plain folder is another spelling of the same file; the opened handle's final path

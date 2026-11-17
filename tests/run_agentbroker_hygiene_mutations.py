@@ -1114,7 +1114,9 @@ ATTACHMENT_R2_WITNESSES = (
               "                index < 0 || index >= envelope!.Attachments.Count + 1) return Results.NotFound();", 1),),
             "ATTACHMENT_GET_INDEX: a file request for an index the envelope does not have is 404 (the same message's index 0 is served)"),
     Witness("attachment-r2-get-manifest", ATTACHMENT_STORE, "network", ATTACHMENT_GROUP,
-            (("        if (ReadManifest(messageId) != text) return OutgoingState.Missing;", "        if (ReadManifest(messageId) is null) return OutgoingState.Missing;", 1),),
+            # Retargeted in round 5 (item 9 rewrote the line; the comparison it breaks is unchanged).
+            (("        if (manifest != text) return manifest is null && ManifestBusy(messageId) ? OutgoingState.Busy : OutgoingState.Missing;",
+              "        if (manifest is null) return manifest is null && ManifestBusy(messageId) ? OutgoingState.Busy : OutgoingState.Missing;", 1),),
             "ATTACHMENT_GET_MANIFEST: a staging whose manifest no longer matches the message text is 404"),
     Witness("attachment-r2-get-length", ATTACHMENT_STORE, "network", ATTACHMENT_GROUP,
             (("            if (RandomAccess.GetLength(handle) == entry.Bytes) return OutgoingState.Ready;",
@@ -1372,6 +1374,44 @@ ATTACHMENT_R2B_WITNESSES = (
             "ATTACHMENT_SENDER_BOUND_NOT_EARLY: with the sender's own bound live, a slow but serving recipient within its shares is admitted end to end, nine minutes after the first deferral"),
 )
 
+# ---- lane F round 5 (DECISIONS 96): code defects the round-4 doc-claims audit confirmed (lanes/F/round4/CLASSIFICATION.md) ----
+R5_PENDING_CAP = "            if (admittedPeer + reservedPeer + orphanPeer + bytes > Limits.PerPeerAdmittedBytes) return ReserveResult.Defer;\n"
+ATTACHMENT_R5_WITNESSES = (
+    # Item 6: a broker's running pulls and its folders not yet admitted count against its admitted cap.
+    Witness("attachment-r5-pending-cap", ATTACHMENT_STORE, "worker", ATTACHMENT_GROUP,
+            ((R5_PENDING_CAP, "", 1),),
+            "ATTACHMENT_PER_PEER_CAP_COUNTS_PENDING: one broker's running pulls and its folders not yet admitted count against its admitted cap, so a concurrent pull defers instead of passing it; another broker's still starts"),
+    Witness("attachment-r5-pending-cap-orphan", ATTACHMENT_STORE, "worker", ATTACHMENT_GROUP,
+            ((R5_PENDING_CAP, R5_PENDING_CAP.replace(" + orphanPeer", ""), 1),),
+            "ATTACHMENT_PER_PEER_CAP_COUNTS_PENDING: one broker's running pulls and its folders not yet admitted count against its admitted cap, so a concurrent pull defers instead of passing it; another broker's still starts"),
+    # Item 1: one file another program holds open no longer keeps its siblings and the manifest.
+    Witness("attachment-r5-delete-stops-at-locked", ATTACHMENT_STORE, "worker", ATTACHMENT_GROUP,
+            (("            catch (Exception error) when (error is IOException or UnauthorizedAccessException) { } // the next file still goes",
+              "            catch (Exception error) when (error is IOException or UnauthorizedAccessException) { break; } // the next file still goes", 1),),
+            "ATTACHMENT_SWEEP_LOCKED_FILE_ALONE: a received file another program holds open stays alone: the sweep deletes its siblings and the manifest now, and the file once it is released"),
+    # Item 8: a first deferral whose stamp could not be stored is kept in memory.
+    Witness("attachment-r5-unstored-stamp-forgotten", ATTACHMENT_STORE, "worker", ATTACHMENT_GROUP,
+            (("                unstoredFetchPending[messageId] = stamp;\n", "", 1),),
+            "ATTACHMENT_SENDER_BOUND_WITHOUT_STAMP: a sender that cannot store its first-deferral stamp still refuses at its 10-minute bound (not at 9 min, at 11 min)"),
+    # Item 9: a manifest held open by another program is busy, not missing.
+    Witness("attachment-r5-busy-manifest-missing", ATTACHMENT_STORE, "worker", ATTACHMENT_GROUP,
+            (("ManifestBusy(messageId) ? OutgoingState.Busy : OutgoingState.Missing;", "ManifestBusy(messageId) ? OutgoingState.Missing : OutgoingState.Missing;", 1),),
+            "ATTACHMENT_BUSY_MANIFEST_DEFERS: a staged manifest another program holds open answers busy (a deferral), not the 404 that ends the message; a missing manifest is still a 404"),
+    # Item 14: a failed allow is not an unsaved change in force.
+    Witness("attachment-r5-failed-allow-dirty", ATTACHMENT_POLICY, "worker", ATTACHMENT_GROUP,
+            (("        catch (IOException) { if (ReferenceEquals(entries, next)) Dirty = true; throw; }", "        catch (IOException) { Dirty = true; throw; }", 1),),
+            "ATTACHMENT_FAILED_ALLOW_NOT_UNSAVED: an allow whose save failed is a failure, not an unsaved change in force; a removal whose save failed is still denied at once and reported unsaved"),
+    # Item 15: the recount counts stored attachments only, in the inbox and in the outbox.
+    Witness("attachment-r5-recount-inbox-temporaries", ATTACHMENT_STORE, "worker", ATTACHMENT_GROUP,
+            (("                foreach (var file in SafeFiles(folder)) if (IsStoredFileName(file.Name)) { bytes += file.Length; files++; }",
+              "                foreach (var file in SafeFiles(folder)) if (file.Name != ManifestName) { bytes += file.Length; files++; }", 1),),
+            "ATTACHMENT_RECOUNT_STORED_FILES_ONLY: the quarantine and the outbox count stored attachments only: a LocalOutputFile temporary beside them is neither a received file nor quota bytes"),
+    Witness("attachment-r5-recount-outbox-temporaries", ATTACHMENT_STORE, "worker", ATTACHMENT_GROUP,
+            (("            foreach (var file in SafeFiles(folder)) if (IsStoredFileName(file.Name)) outbox += file.Length;",
+              "            foreach (var file in SafeFiles(folder)) if (file.Name is not (ManifestName or FetchPendingName)) outbox += file.Length;", 1),),
+            "ATTACHMENT_RECOUNT_STORED_FILES_ONLY: the quarantine and the outbox count stored attachments only: a LocalOutputFile temporary beside them is neither a received file nor quota bytes"),
+)
+
 WITNESSES = (
     Witness("hygiene-late-held-allowed", STORE, "core", ("--hygiene-only",), ((X1_GUARD, "", 1),),
             "LATE_HELD_REFUSED: a local Held after the deadline is refused message_expired and the record stays Uncertain"),
@@ -1565,7 +1605,7 @@ WITNESSES = (
 
     Witness('watch-cleanup-exists-omitted', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('if (File.Exists(lockPath)) cleanup = "failed";', '', 1),), 'WATCH_CLEANUP_DELETE_PENDING: a visible delete-pending lock reports cleanup failed without changing the mail exit code'),
 
-) + ATTACHMENT_WITNESSES + ATTACHMENT_R2_WITNESSES + ATTACHMENT_R2B_WITNESSES
+) + ATTACHMENT_WITNESSES + ATTACHMENT_R2_WITNESSES + ATTACHMENT_R2B_WITNESSES + ATTACHMENT_R5_WITNESSES
 
 
 def sha256(data: bytes) -> str:
@@ -1634,9 +1674,10 @@ EXPECTED_COUNTS = {("core", ("--waiting-mail-only",)): 118, ("worker", ("--waiti
                    # 1.10.5 lane F, measured on the lane's healthy focused runs (2026-11-14): Core 64, Worker 23, Network 17;
                    # round 2 (003-F-round2.md) re-measured Core 64, Worker 44, Network 42; round 2b (audit fixes) Core 64,
                    # Worker 57 (51 plus five checks after the check-coverage audit and ATTACHMENT_SOURCE_ZONE_WITH_BYTES,
-                   # F round 3, DECISIONS 79), Network 59 (Network 57 plus
+                   # F round 3, DECISIONS 79; 63 after F round 5, DECISIONS 96: six checks for items 1, 6, 8, 9, 14 and 15,
+                   # measured), Network 59 (Network 57 plus
                    # ATTACHMENT_SENDER_BOUND_NOT_EARLY, DECISIONS 64, and ATTACHMENT_PREVALIDATED_TRANSIT, the fifth F-19 guard).
-                   ("core", ("--attachments-only",)): 64, ("worker", ("--attachments-only",)): 57,
+                   ("core", ("--attachments-only",)): 64, ("worker", ("--attachments-only",)): 63,
                    ("network", ("--attachments-only",)): 59}
 CORE_SUMMARIES = {("--waiting-mail-only",): "AgentBroker waiting-mail smoke", ("--reply-receipt-only",): "AgentBroker reply receipt smoke", ("--hygiene-only",): "AgentBroker hygiene smoke", ("--peer-receipt-only",): "AgentBroker peer receipt smoke",
                   ("--commit-timing-only",): "AgentBroker commit timing smoke",

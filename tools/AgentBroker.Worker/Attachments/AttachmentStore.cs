@@ -215,6 +215,16 @@ public sealed class AttachmentStore
             AttachmentEnvelope.TryParse(manifest.Envelope, out _) == AttachmentParse.Valid ? manifest.Envelope : null;
     }
 
+    // True when the staged manifest exists as a plain file but opening it for reading fails now (a sharing violation or an
+    // ACL hold); a missing or corrupt manifest is not busy.
+    private bool ManifestBusy(Guid messageId)
+    {
+        string path = Path.Combine(OutboxFolder(messageId), ManifestName);
+        if (!File.Exists(path)) return false;
+        try { using var probe = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete); return false; }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { return File.Exists(path); }
+    }
+
     private static T? ReadJson<T>(string path) where T : class
     {
         try
@@ -232,7 +242,10 @@ public sealed class AttachmentStore
     internal OutgoingState OpenOutgoing(Guid messageId, string text, AttachmentEntry entry, out SafeFileHandle? handle)
     {
         handle = null;
-        if (ReadManifest(messageId) != text) return OutgoingState.Missing;
+        string? manifest = ReadManifest(messageId);
+        // Round 5 (DECISIONS 96, item 9): a manifest that exists but cannot be opened now (another program holds it) is Busy,
+        // a deferral, not the definite 404 that ends the message attachment_unavailable.
+        if (manifest != text) return manifest is null && ManifestBusy(messageId) ? OutgoingState.Busy : OutgoingState.Missing;
         string path = Path.Combine(OutboxFolder(messageId), AttachmentEnvelope.StoredFileName(entry));
         if (!File.Exists(path)) return OutgoingState.Missing;
         try
@@ -259,23 +272,33 @@ public sealed class AttachmentStore
     // so it survives a worker restart. Null when nothing is staged (no bound can be kept for a message this broker did not stage).
     // A stamp in the future (the wall clock moved back) is not trusted: it is rewritten to now, so the bound starts again
     // from the corrected clock instead of never expiring (lead's ruling on F-7).
+    // Round 5 (DECISIONS 96, item 8): a first deferral whose stamp could not be stored is kept here for this worker's lifetime,
+    // so the sender's bound still runs; it is written to disk as soon as a save succeeds. Guarded by stagingGate.
+    private readonly Dictionary<Guid, DateTimeOffset> unstoredFetchPending = new();
+
     internal DateTimeOffset? MarkFetchPending(Guid messageId)
     {
         string folder = OutboxFolder(messageId);
         string path = Path.Combine(folder, FetchPendingName);
         lock (stagingGate)
         {
-            if (!Directory.Exists(folder)) return null;
+            if (!Directory.Exists(folder)) { unstoredFetchPending.Remove(messageId); return null; }
             var now = clock.GetUtcNow();
             if (ReadStamp(path) is { } first && first <= now) return first;
+            var stamp = unstoredFetchPending.TryGetValue(messageId, out var kept) && kept <= now ? kept : now;
             try
             {
                 if (File.Exists(path)) File.Delete(path);
-                LocalOutputFile.Save(path, System.Text.Encoding.ASCII.GetBytes(now.UtcTicks.ToString(CultureInfo.InvariantCulture)));
+                LocalOutputFile.Save(path, System.Text.Encoding.ASCII.GetBytes(stamp.UtcTicks.ToString(CultureInfo.InvariantCulture)));
             }
             catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException)
-            { return ReadStamp(path) is { } stored && stored <= now ? stored : now; }
-            return now;
+            {
+                if (ReadStamp(path) is { } stored && stored <= now) return stored;
+                unstoredFetchPending[messageId] = stamp;
+                return stamp;
+            }
+            unstoredFetchPending.Remove(messageId);
+            return stamp;
         }
     }
 
@@ -347,6 +370,10 @@ public sealed class AttachmentStore
             // Round 2b (M4): a broker's finished but never-admitted folders count toward its own share with its running pulls,
             // so it cannot keep the pool full of unadmitted bytes for every other broker.
             if (reservedPeer + orphanPeer + bytes > Limits.PerPeerInFlightBytes) return ReserveResult.Defer;
+            // Round 5 (DECISIONS 96, item 6): the admitted cap above counts admitted bytes only, and admission does not check
+            // again. This broker's running pulls and its verified folders not yet admitted become admitted bytes, so they count
+            // too; while they hold the room the pull defers (they finish or are swept soon) instead of passing the cap.
+            if (admittedPeer + reservedPeer + orphanPeer + bytes > Limits.PerPeerAdmittedBytes) return ReserveResult.Defer;
             reservations[key] = bytes;
             return ReserveResult.Reserved;
         }
@@ -527,15 +554,22 @@ public sealed class AttachmentStore
     }
 
     // The plain files directly in one owned GUID folder, then the folder if that left it empty. Never recursive.
+    // Round 5 (DECISIONS 96, item 1): each file is deleted on its own, so one that another program holds open stays alone
+    // until it can be deleted; its siblings and the manifest (which holds the message text) still go now.
     private static void DeleteFolder(string folder)
     {
+        FileInfo[] files;
         try
         {
             if (!Directory.Exists(folder) || (File.GetAttributes(folder) & FileAttributes.ReparsePoint) != 0) return;
-            foreach (var file in new DirectoryInfo(folder).GetFiles())
-                if ((file.Attributes & FileAttributes.ReparsePoint) == 0) file.Delete();
+            files = new DirectoryInfo(folder).GetFiles();
         }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { TryDeleteEmpty(folder); return; }
+        foreach (var file in files)
+        {
+            try { if ((file.Attributes & FileAttributes.ReparsePoint) == 0) file.Delete(); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException) { } // the next file still goes
+        }
         TryDeleteEmpty(folder);
     }
 
@@ -570,14 +604,19 @@ public sealed class AttachmentStore
             foreach (var (messageId, folder) in GuidFolders(brokerFolder.FullName))
             {
                 long bytes = 0;
-                foreach (var file in SafeFiles(folder)) if (file.Name != ManifestName) { bytes += file.Length; files++; }
+                foreach (var file in SafeFiles(folder)) if (IsStoredFileName(file.Name)) { bytes += file.Length; files++; }
                 folders[(senderBroker, messageId)] = bytes;
                 if (AdmittedHere(senderBroker, messageId)) admitted.Add((senderBroker, messageId));
             }
         foreach (var (_, folder) in GuidFolders(OutboxRoot))
-            foreach (var file in SafeFiles(folder)) if (file.Name is not (ManifestName or FetchPendingName)) outbox += file.Length;
+            foreach (var file in SafeFiles(folder)) if (IsStoredFileName(file.Name)) outbox += file.Length;
         lock (gate) { inboxFolderBytes = folders; admittedFolders = admitted; inboxFiles = files; outboxBytes = outbox; }
     }
+
+    // Round 5 (DECISIONS 96, item 15): only a stored attachment, "<index>-<name>" as AttachmentEnvelope.StoredFileName writes
+    // it, counts as a received file or as quota bytes; the manifest, the stamp and LocalOutputFile's temporary beside them do not.
+    internal static bool IsStoredFileName(string name) =>
+        name.Length > 2 && name[0] is >= '0' and <= '3' && name[1] == '-' && AttachmentEnvelope.ValidName(name[2..]);
 
     private static IEnumerable<FileInfo> SafeFiles(DirectoryInfo folder)
     {
