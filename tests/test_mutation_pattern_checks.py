@@ -217,6 +217,21 @@ class GuardsModuleGrade(ScratchCase):
         stamp = path.stat().st_mtime
         return str(path), stamp - age
 
+    def test_GUARDS_REBUILD_APPHOST_NEVER_PROOF(self):
+        # Round 9 (DECISIONS 121): the framework-dependent host's build re-touches its apphost .exe with IDENTICAL bytes and
+        # changes only the .dll beside it. The rebuild proof refuses the .exe for exactly that reason (bytes unchanged though
+        # its mtime advanced) and accepts the .dll: why host cases name the .dll and --check-patterns refuses an .exe artefact.
+        exe = self.source("Host.exe", b"apphost bytes")
+        dll = self.source("Host.dll", b"code before the mutant")
+        baseline = {path: self.guards.artifact_sha256(str(path)) for path in (exe, dll)}
+        before = {path: path.stat().st_mtime - 10 for path in (exe, dll)}
+        exe.write_bytes(b"apphost bytes")
+        dll.write_bytes(b"code after the mutant")
+        problem = self.guards.rebuild_problem(str(exe), before[exe], baseline[exe])
+        self.assertIsNotNone(problem)
+        self.assertIn("Host.exe rebuilt with the baseline SHA-256", problem)
+        self.assertIsNone(self.guards.rebuild_problem(str(dll), before[dll], baseline[dll]))
+
     def test_GUARDS_REBUILD_SAME_SHA_BROKEN(self):
         path, before = self.artifact(b"baseline bytes", 10)
         problem = self.guards.rebuild_problem(path, before, self.guards.artifact_sha256(path))
