@@ -22510,18 +22510,28 @@ def check_patterns(cases):
     # The same case-ID rule make_plan applies to every run (round 2, T2-4; mutation_caseplan.make_plan): a blank ID, or one equal
     # to an earlier ID ignoring case (casefold, round 3), is a broken inventory.
     seen = set()
-    for case in cases:
+    rejected = set()
+    for index, case in enumerate(cases):
         name = case[0] if isinstance(case, (tuple, list)) and case else None
         if not isinstance(name, str) or not name.strip():
             print("  BAD CASE ID  %r" % (name,))
             bad += 1
+            rejected.add(index)
             continue
         identity = name.casefold()
         if identity in seen:
             print("  DUPLICATE CASE ID  %s" % name)
             bad += 1
         seen.add(identity)
-    for case in cases:
+    # Round 5, D14: a case the ID loop rejected, or one too short to name its file and pattern, is counted once and never
+    # indexed again, so the summary line below always prints (it used to end in TypeError or IndexError).
+    for index, case in enumerate(cases):
+        if index in rejected:
+            continue
+        if len(case) < 4:
+            print("  BAD CASE SHAPE  %s (%d fields)" % (case[0], len(case)))
+            bad += 1
+            continue
         name, path, old, new = case[0], case[1], case[2], case[3]
         if not os.path.isfile(path):
             print("  NO FILE  %s (%s)" % (name, path))

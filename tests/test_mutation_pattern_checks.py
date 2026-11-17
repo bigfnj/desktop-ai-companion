@@ -84,6 +84,15 @@ class GuardsPatternCheck(ScratchCase):
         self.assertEqual(out.count("BAD CASE ID"), 2, out)
         self.assertNotIn("DUPLICATE CASE ID", out)
 
+    def test_GUARDS_PATTERN_MALFORMED_CASE_SUMMARY_PRINTS(self):
+        # Round 5, D14: a case that is not a sequence and one too short to name its file are each counted, and the summary
+        # still prints; both used to end in a traceback before it.
+        code, out = self.check_cases([None, ("only-name",)])
+        self.assertEqual(code, 1, out)
+        self.assertIn("BAD CASE ID  None", out)
+        self.assertIn("BAD CASE SHAPE  only-name (1 fields)", out)
+        self.assertIn("2 cases, 2 not matching exactly once.", out)
+
     def test_GUARDS_PATTERN_ZERO_MATCH_FAILS(self):
         code, out = self.check(self.source("a.cs", b"alpha\n"), b"beta\n")
         self.assertEqual(code, 1)

@@ -106,11 +106,44 @@ if ($repin7Exit -ne 0 -or $repin7Summary.Count -ne 1 -or @($repin7Output | Where
 }
 $repin7Checks = [int]([regex]::Match([string]$repin7Summary[0], '^PASS: ([0-9]+)').Groups[1].Value)
 # The installed-tree compare (AgentBroker 1.10.5 marathon, lane T, C4). It supports Windows PowerShell 5.1 and 7, so its
-# fixture checks run in a child of each; it reads and writes only its own temporary fixture folder. The 1.10.5 entries map
-# has no Directory field, and a filter on Directory -eq $false compared zero rows and passed: TREE_COMPARE_MISSING_DIRECTORY_IS_FILE
-# and TREE_COMPARE_VACUOUS_REFUSED guard that, and every guard line named below must be present in both children.
+# fixture checks run in a child of each. It writes only its own temporary fixture folder, and reads that folder plus the
+# committed samples under tools/agentbroker/tree-compare-samples; it also starts fsutil.exe and children of itself on that
+# folder. The 1.10.5 entries map has no Directory field, and a filter on Directory -eq $false compared zero rows and passed:
+# TREE_COMPARE_MISSING_DIRECTORY_IS_FILE and TREE_COMPARE_VACUOUS_REFUSED guard that, and every guard line named below must be
+# present in both children.
 $treeCompare = Join-Path $repoRoot 'tools\agentbroker\Compare-AgentBrokerTree.ps1'
 $treeChecks = @{}
+$treeSkipped = @{}
+# Round 5 (C4): the fixture count is pinned per edition, so a fixture deleted or renamed out of the self-test fails here even
+# when its name is not required below. Update the constant with every fixture added or removed. Only the labels listed as
+# skippable may print SKIP instead of running (the case-sensitivity fixture, when fsutil cannot set the flag on the volume);
+# a SKIP counts toward the pin, is reported as a DEGRADED run here and in the final summary, and is never passed in silence.
+$treeFixtureCount = 34
+$treeSkippable = @('TREE_COMPARE_CASE_SENSITIVE_SECOND_SPELLING_EXTRA')
+function Get-TreeFixtureCountProblems([object[]]$Output, [int]$Expected, [string[]]$Skippable) {
+    $summary = @($Output | Where-Object { "$_" -cmatch '^PASS: ([1-9][0-9]*) tree compare fixture checks$' })
+    $passed = -1
+    if ($summary.Count -eq 1) { $passed = [int]([regex]::Match([string]$summary[0], '^PASS: ([0-9]+)').Groups[1].Value) }
+    $skips = @($Output | Where-Object { "$_" -cmatch '^SKIP: ' })
+    foreach ($skip in $skips) {
+        $label = [regex]::Match([string]$skip, '^SKIP: ([A-Z0-9_]+) \(.+\)$').Groups[1].Value
+        if ($label.Length -eq 0 -or $Skippable -cnotcontains $label) { "skip not allowed or without its reason: $skip" }
+    }
+    if ($passed + $skips.Count -ne $Expected) { "$passed passed + $($skips.Count) skipped, expected $Expected" }
+}
+# The count rule is judged on four synthetic receipts first, on every run: the full count, a listed skip with its reason, a
+# fixture missing in silence, and a skip of a label that is not listed.
+$countSummary = "PASS: $treeFixtureCount tree compare fixture checks"
+$countShort = "PASS: $($treeFixtureCount - 1) tree compare fixture checks"
+$countSkip = "SKIP: $($treeSkippable[0]) (synthetic reason)"
+$countHealthy = @(Get-TreeFixtureCountProblems @($countSummary) $treeFixtureCount $treeSkippable)
+$countDegraded = @(Get-TreeFixtureCountProblems @($countSkip, $countShort) $treeFixtureCount $treeSkippable)
+$countSilent = @(Get-TreeFixtureCountProblems @($countShort) $treeFixtureCount $treeSkippable)
+$countUnlisted = @(Get-TreeFixtureCountProblems @('SKIP: TREE_COMPARE_BYTES_MISMATCH_FAILS (synthetic reason)', $countShort) $treeFixtureCount $treeSkippable)
+if ($countHealthy.Count -ne 0 -or $countDegraded.Count -ne 0 -or $countSilent.Count -ne 1 -or $countUnlisted.Count -ne 1) {
+    throw "AgentBroker tree compare fixture-count rule failed its synthetic receipts: full [$($countHealthy -join '; ')], listed skip [$($countDegraded -join '; ')], silent loss [$($countSilent -join '; ')], unlisted skip [$($countUnlisted -join '; ')]."
+}
+Write-Host "PASS: the tree compare fixture-count rule refuses a fixture lost in silence ($($countSilent -join '; ')) and an unlisted skip"
 # Round 2: a stray file below the root (nested extra) and relative arguments judged at the PowerShell location are
 # required by name too: each was a clean MATCH for the wrong tree before its fix.
 $treeGuardNames = @('PASS: TREE_COMPARE_MISSING_DIRECTORY_IS_FILE', 'PASS: TREE_COMPARE_VACUOUS_REFUSED',
@@ -140,10 +173,19 @@ foreach ($edition in @(@{ Name = 'Windows PowerShell'; Exe = 'powershell.exe'; A
     foreach ($line in $treeOutput) { Write-Host $line }
     $treeSummary = @($treeOutput | Where-Object { "$_" -match '^PASS: ([1-9][0-9]*) tree compare fixture checks$' })
     $treeGuardProblems = @(Get-TreeGuardNameProblems $treeOutput $treeGuardNames)
-    if ($treeExit -ne 0 -or $treeSummary.Count -ne 1 -or $treeGuardProblems.Count -gt 0 -or @($treeOutput | Where-Object { "$_" -match '^(FAIL:|RESULT=FAIL)' }).Count -gt 0) {
-        throw "AgentBroker tree compare self-test under $($edition.Name) failed: tools/agentbroker/Compare-AgentBrokerTree.ps1 -SelfTest (exit $treeExit; guard lines missing or repeated: $($treeGuardProblems -join '; '))."
+    $treeCountProblems = @(Get-TreeFixtureCountProblems $treeOutput $treeFixtureCount $treeSkippable)
+    if ($treeExit -ne 0 -or $treeSummary.Count -ne 1 -or $treeGuardProblems.Count -gt 0 -or $treeCountProblems.Count -gt 0 -or
+        @($treeOutput | Where-Object { "$_" -match '^(FAIL:|RESULT=FAIL)' }).Count -gt 0) {
+        throw "AgentBroker tree compare self-test under $($edition.Name) failed: tools/agentbroker/Compare-AgentBrokerTree.ps1 -SelfTest (exit $treeExit; guard lines missing or repeated: $($treeGuardProblems -join '; '); fixture count: $($treeCountProblems -join '; '))."
     }
     $treeChecks[$edition.Name] = [int]([regex]::Match([string]$treeSummary[0], '^PASS: ([0-9]+)').Groups[1].Value)
+    $treeSkipLines = @($treeOutput | Where-Object { "$_" -cmatch '^SKIP: ' })
+    $treeSkipped[$edition.Name] = $treeSkipLines.Count
+    foreach ($skip in $treeSkipLines) { Write-Host "DEGRADED: tree compare under $($edition.Name) did not run a fixture: $skip" }
+}
+$treeDegraded = ''
+if ($treeSkipped['Windows PowerShell'] + $treeSkipped['PowerShell 7'] -gt 0) {
+    $treeDegraded = " DEGRADED: tree compare skipped $($treeSkipped['Windows PowerShell']) fixture(s) (PowerShell 7: $($treeSkipped['PowerShell 7'])); see the DEGRADED lines above."
 }
 # The scheduled re-pin check's local runner (lane broker-pins): its selection, binding and de-duplication rules, and the
 # workflow file's contract (two permissions, SHA-pinned actions, never a merge). PowerShell 7 only; offline.
@@ -216,4 +258,4 @@ foreach ($harness in $harnesses) {
     catch { $failures.Add($harness.Name + ': ' + $_.Exception.Message) }
 }
 if ($failures.Count -gt 0) { throw ('AgentBroker checks failed: ' + ($failures -join '; ')) }
-Write-Host ("AgentBroker deterministic harnesses PASS: $($harnesses.Count) harnesses, $assertions assertions; Claude connection helper $connectChecks checks; collaboration helper $collaborationChecks checks (process: $collaborationProcessChecks); re-pin helper $repinChecks checks (PowerShell 7: $repin7Checks); tree compare $($treeChecks['Windows PowerShell']) checks (PowerShell 7: $($treeChecks['PowerShell 7'])); scheduled re-pin check $repinCheckChecks checks.")
+Write-Host ("AgentBroker deterministic harnesses PASS: $($harnesses.Count) harnesses, $assertions assertions; Claude connection helper $connectChecks checks; collaboration helper $collaborationChecks checks (process: $collaborationProcessChecks); re-pin helper $repinChecks checks (PowerShell 7: $repin7Checks); tree compare $($treeChecks['Windows PowerShell']) checks (PowerShell 7: $($treeChecks['PowerShell 7'])); scheduled re-pin check $repinCheckChecks checks.$treeDegraded")

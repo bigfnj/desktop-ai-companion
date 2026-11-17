@@ -50,15 +50,17 @@ internal static class CoordinationBenchmark
     //
     // Lane T round 2. T2-17: the seeded messages live SeededLifetimeMinutes (store.Send takes MINUTES, TimeSpan.FromMinutes in
     // BrokerStore.Send), and the window is capped far inside that, so the "still Accepted" postcondition can fail only for a
-    // real delivery or refusal, never for expiry. T2-12: a window of at least 3 s spans A8's 2 s directory observation interval
-    // (loops every 500 ms), so with messages waiting, fewer observations than messages means the window measured nothing for
-    // some of them: that is an error, not a rate of 0/s.
+    // real delivery or refusal, never for expiry: the 120 s maximum is inside the 60-minute lifetime (round 5, D4/D10: the
+    // clause that restated this against `seconds` could never decide, so it was dropped). T2-12: a window of at least 3 s spans
+    // D2's A8 directory observation interval (A8 is not in this tree; the floor is sized for its 2 s interval), so with messages
+    // waiting, fewer observations than messages means the window measured nothing for some of them: that is an error, not a
+    // rate of 0/s.
     private const int SeededLifetimeMinutes = 60, MinimumIdleSeconds = 3, MaximumIdleSeconds = 120;
 
     private static async Task<string> BusyIdleAsync(int pending, int seconds, string root)
     {
         if (pending is < 0 or > 4096) throw new ArgumentOutOfRangeException(nameof(pending));
-        if (seconds < MinimumIdleSeconds || seconds > MaximumIdleSeconds || seconds >= SeededLifetimeMinutes * 60)
+        if (seconds < MinimumIdleSeconds || seconds > MaximumIdleSeconds)
             throw new ArgumentOutOfRangeException(nameof(seconds), "busy-idle windows are " + MinimumIdleSeconds + ".." + MaximumIdleSeconds +
                 " s, inside the seeded messages' " + SeededLifetimeMinutes + "-minute lifetime.");
         string directory = NewDirectory(root, "");
