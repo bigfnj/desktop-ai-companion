@@ -22736,7 +22736,8 @@ def check_patterns(cases):
         # projects is a framework-dependent apphost whose bytes never change, so rebuild_problem would grade the case
         # BROKEN on every run; it is refused here, before any run, like a pattern that matches nothing.
         if len(case) >= 6 and isinstance(case[5], str) and case[5].lower().endswith(".exe"):
-            print("  APPHOST ARTEFACT  %s (%s): name the assembly that carries the code" % (name, os.path.basename(case[5])))
+            print("  APPHOST ARTEFACT  %s (%s): name the assembly that carries the code (a self-contained single-file host would"
+                  " need this rule changed, since its .exe does carry the code)" % (name, os.path.basename(case[5])))
             bad += 1
     print("%d cases, %d not matching exactly once." % (len(cases), bad))
     return 1 if bad else 0
