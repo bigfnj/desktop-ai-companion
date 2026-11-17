@@ -56,6 +56,10 @@ public sealed partial class PeerFederation
     // Test seam (round 2b), null in production: runs inside the admission gate after the F-1 recheck and before the allow
     // check and store.Accept, so a check can put a sweep or an allow removal exactly there.
     internal Action? BeforeAdmission { get; set; }
+    // Test seam (round 6, DECISIONS 119), null in production: runs once right before GetOrStartPull, after RequireOneText, so a
+    // check can hold one forward there while a forward of the same message ID with another text passes RequireOneText too
+    // (S-019, item 17). Nothing else can pause a forward in that window.
+    internal Action? BeforePullLookup { get; set; }
     // Test seam (T-11), null in production: wraps the handler of the client that fetches files, so a check can count body
     // bytes independently of this class's own counter.
     internal Func<HttpMessageHandler, HttpMessageHandler>? AttachmentHandler { get; set; }
@@ -141,10 +145,11 @@ public sealed partial class PeerFederation
         // only before the FIRST pull for this message. Once one ran, the final store.Accept decides, so a lease flicker during
         // the deferral's re-forwards cannot refuse a message whose recipient is back by the time its files are ready.
         if (!PullStarted(key)) RequireAdmissible(caller, message);
+        BeforePullLookup?.Invoke();
         var state = GetOrStartPull(peer!, message, envelope!, textSha256, attachments);
-        if (state is null) throw Defer(key);
+        if (state is null) return Defer(key, message, caller);
         try { await state.Task.WaitAsync(AttachmentInlineWait, TimeProvider.System, c.RequestAborted); }
-        catch (TimeoutException) { throw Defer(key); }
+        catch (TimeoutException) { return Defer(key, message, caller); }
         switch (state.Task.Result)
         {
             case PullOutcome.Verified:
@@ -159,8 +164,12 @@ public sealed partial class PeerFederation
                 {
                     present = envelope!.Attachments.All(entry => attachments.HasVerified(caller, message.Id, entry));
                     BeforeAdmission?.Invoke();
-                    allowed = attachments.Policy.Allows(store.Peers().SingleOrDefault(candidate => candidate.BrokerId == caller));
-                    if (present && allowed)
+                    // Round 6 (S-018, item 10): another forward of this message may have admitted it while this one waited for
+                    // the gate. The R0 test again, before the allow check: the store's idempotent path answers this forward
+                    // too, so an allow withdrawn since that admission can neither refuse it nor delete its files.
+                    bool known = store.FindReceipt(message.Id) is not null;
+                    allowed = known || attachments.Policy.Allows(store.Peers().SingleOrDefault(candidate => candidate.BrokerId == caller));
+                    if (known || present && allowed)
                     {
                         try { admitted = store.Accept(message, caller); }
                         catch (BrokerException)
@@ -170,18 +179,18 @@ public sealed partial class PeerFederation
                         }
                     }
                 }
+                if (admitted is not null)
+                {
+                    Finish(key, state, attachments);
+                    return Results.Json(admitted, Json);
+                }
                 if (!allowed)
                 {
                     Abandon(key, attachments);
                     throw new BrokerException(AttachmentCodes.RefusedByPolicy, "This broker no longer accepts attachments from that broker.");
                 }
-                if (!present)
-                {
-                    Drop(key, state, attachments);
-                    throw Defer(key);
-                }
-                Finish(key, state, attachments);
-                return Results.Json(admitted, Json);
+                Drop(key, state, attachments);
+                return Defer(key, message, caller);
             case PullOutcome.Mismatch:
                 Abandon(key, attachments);
                 throw new BrokerException(AttachmentCodes.Mismatch, "An attachment did not match its declared size or SHA-256.");
@@ -201,7 +210,7 @@ public sealed partial class PeerFederation
             default:
                 // Transient: the next forward starts a fresh pull (verified files are kept), within the deferral bound.
                 Drop(key, state, attachments);
-                throw Defer(key);
+                return Defer(key, message, caller);
         }
     }
 
@@ -234,15 +243,18 @@ public sealed partial class PeerFederation
         }
     }
 
-    // A deferral; or once the bound has passed since this message's first ACTUAL pull, the final refusal (D-3, F-21).
-    private BrokerException Defer((Guid Peer, Guid Message) key)
+    // A deferral; or once the bound has passed since this message's first ACTUAL pull, the final refusal (D-3, F-21). Round 6
+    // (S-017, item 5): unless another forward of this message admitted it while this one waited for the admission gate in
+    // Abandon; then its folder stays and the store's idempotent path answers this forward too (the R0 test; after a revoke
+    // the store answers unpaired_peer instead, and the folder still stays).
+    private IResult Defer((Guid Peer, Guid Message) key, BrokerMessage message, Guid caller)
     {
         long? first;
         lock (attachmentGate) first = firstPull.TryGetValue(key, out long started) ? started : null;
         if (first is null || clock.GetElapsedTime(first.Value) < AttachmentDeferralBound)
-            return new BrokerException(AttachmentCodes.FetchPending, "The attachments are still being fetched; retry later.");
-        if (Attachments is { } attachments) Abandon(key, attachments);
-        return new BrokerException(AttachmentCodes.FetchFailed, "The attachments could not be fetched in time.");
+            throw new BrokerException(AttachmentCodes.FetchPending, "The attachments are still being fetched; retry later.");
+        if (Attachments is { } attachments && Abandon(key, attachments)) return Results.Json(store.Accept(message, caller), Json);
+        throw new BrokerException(AttachmentCodes.FetchFailed, "The attachments could not be fetched in time.");
     }
 
     private PullState? GetOrStartPull(PeerTrust peer, BrokerMessage message, AttachmentEnvelopeData envelope, string textSha256,
@@ -254,7 +266,14 @@ public sealed partial class PeerFederation
         {
             // F-8 / F-1: stale states go BEFORE any lookup, so a cached outcome can never outlive what it described.
             CleanupPulls(attachments);
-            if (pulls.TryGetValue(key, out var existing)) return existing;
+            if (pulls.TryGetValue(key, out var existing))
+            {
+                // Round 6 (S-019, item 17): the text is bound to the pull under this gate. A forward with another text that
+                // passed RequireOneText before this pull was registered is refused here while the pull's state is held.
+                if (existing.TextSha256 != textSha256)
+                    throw new BrokerException(AttachmentCodes.EnvelopeInvalid, "A different text was sent under a message ID whose attachments are pending.");
+                return existing;
+            }
             int running = pulls.Values.Count(pull => !pull.Task.IsCompleted);
             int runningForPeer = pulls.Values.Count(pull => pull.Peer == peer.BrokerId && !pull.Task.IsCompleted);
             if (pulls.Count >= limits.MaximumPullStates || running >= limits.MaximumPulls || runningForPeer >= limits.MaximumPullsPerPeer)
@@ -330,13 +349,14 @@ public sealed partial class PeerFederation
         DisposeWhenDone(state);
     }
 
-    // A definite refusal: the pull is cancelled and its folder deleted (which ends its reservation).
-    private void Abandon((Guid Peer, Guid Message) key, AttachmentStore attachments)
+    // A definite refusal: the pull is cancelled and its folder deleted (which ends its reservation). Round 6 (S-017): true when
+    // the folder was kept instead because another forward of the message admitted it (AttachmentStore.DeleteInbox).
+    private bool Abandon((Guid Peer, Guid Message) key, AttachmentStore attachments)
     {
         PullState? state;
         lock (attachmentGate) { pulls.Remove(key, out state); firstPull.Remove(key); }
         if (state is not null) { state.Cancel.Cancel(); DisposeWhenDone(state); }
-        attachments.DeleteInbox(key.Peer, key.Message);
+        return attachments.DeleteInbox(key.Peer, key.Message);
     }
 
     // F-8: the linked source is disposed only once its pull has finished using it.

@@ -90,6 +90,18 @@ public sealed class AttachmentStore
     // staged write (T-7: a source rewritten there must not change the staged copy).
     internal Func<Exception?>? PublishFault { get; set; }
     internal Action? BeforeStageWrite { get; set; }
+    // Round 6 test seams, null in production: a hook inside a received file's publication, after its temporary is written and
+    // before the rename (S-017, item 11: a check runs a deletion there), and a fault thrown at the start of a recount (S-013a:
+    // the recount after a received file that no longer hashes keeps its fault inside HasVerified).
+    internal Action? BeforePublishFile { get; set; }
+    internal Func<Exception?>? RecountFault { get; set; }
+    // Round 6 (S-017, item 11): a publication into a received folder and every deletion of that folder hold the folder's gate,
+    // so a deletion never lands between the manifest check and the file's rename (which left a file without its manifest).
+    // Striped: two folders may share a gate, which only serializes them, and nothing holds two of these at once. Lock order:
+    // AdmissionGate, then a folder gate, then gate; a folder gate's holder never waits for AdmissionGate.
+    private readonly object[] folderGates = Enumerable.Range(0, 64).Select(_ => new object()).ToArray();
+    private object FolderGate(Guid senderBroker, Guid messageId) =>
+        folderGates[(int)((uint)HashCode.Combine(senderBroker, messageId) % (uint)folderGates.Length)];
     // T-8: monotonic counts of files and bytes this store published into quarantine.
     internal long PublishedFiles => Interlocked.Read(ref publishedFiles);
     internal long PublishedBytes => Interlocked.Read(ref publishedBytes);
@@ -133,8 +145,9 @@ public sealed class AttachmentStore
         "admitted), but skips a received folder while a pull for it is running. The sweep deletes each file on its own: one\r\n" +
         "that another program holds open stays until it can be deleted, and the other files in its folder still go.\r\n" +
         "Anything else the sweep cannot read or delete can stay longer, and nothing is deleted while the broker is stopped.\r\n" +
-        "Files can also go sooner, for example when a pull ends in a refusal, and rare races can delete files early or\r\n" +
-        "leave a received file without its manifest. Copy anything you want to keep.\r\n";
+        "If this attachments folder is itself a junction or other reparse point, nothing in it is swept until it is a plain\r\n" +
+        "folder again.\r\n" +
+        "Files can also go sooner, for example when a pull ends in a refusal. Copy anything you want to keep.\r\n";
 
     private void WriteReadme()
     {
@@ -371,7 +384,9 @@ public sealed class AttachmentStore
             foreach (var (folder, size) in inboxFolderBytes)
             {
                 if (admittedFolders.Contains(folder)) { admitted += size; if (folder.Peer == senderBroker) admittedPeer += size; }
-                else if (!reservations.ContainsKey(folder)) { orphan += size; if (folder.Peer == senderBroker) orphanPeer += size; }
+                // Round 6 (S-020, F-X1C-Q1): this message's own verified files, kept from an earlier partial pull, are part of
+                // the bytes it reserves now, so they are not counted again as unadmitted data; other messages' still are.
+                else if (folder != key && !reservations.ContainsKey(folder)) { orphan += size; if (folder.Peer == senderBroker) orphanPeer += size; }
             }
             long reserved = reservations.Values.Sum();
             long reservedPeer = reservations.Where(pair => pair.Key.Peer == senderBroker).Sum(pair => pair.Value);
@@ -416,19 +431,25 @@ public sealed class AttachmentStore
     {
         if (PublishFault?.Invoke() is { } fault) throw fault;
         string folder = InboxFolder(senderBroker, messageId);
-        Directory.CreateDirectory(folder);
-        string manifest = Path.Combine(folder, ManifestName);
-        if (!File.Exists(manifest))
-            LocalOutputFile.Save(manifest, JsonSerializer.SerializeToUtf8Bytes(new InboxManifest(1, messageId, senderBroker, envelope),
-                Protocol.ControlProtocol.Json));
-        LocalOutputFile.Save(Path.Combine(folder, AttachmentEnvelope.StoredFileName(entry)), bytes, zoneIdentifier: InternetZone);
-        Interlocked.Increment(ref publishedFiles);
-        Interlocked.Add(ref publishedBytes, bytes.LongLength);
-        QuarantineUnavailable = false;
-        lock (gate)
+        // Round 6 (S-017, item 11): from the manifest check to the count, under the folder's gate (DeleteInbox and the sweep's
+        // deletion take it too), so a deletion never lands between the manifest check and the file's rename.
+        lock (FolderGate(senderBroker, messageId))
         {
-            inboxFolderBytes[(senderBroker, messageId)] = inboxFolderBytes.GetValueOrDefault((senderBroker, messageId)) + bytes.LongLength;
-            inboxFiles++;
+            Directory.CreateDirectory(folder);
+            string manifest = Path.Combine(folder, ManifestName);
+            if (!File.Exists(manifest))
+                LocalOutputFile.Save(manifest, JsonSerializer.SerializeToUtf8Bytes(new InboxManifest(1, messageId, senderBroker, envelope),
+                    Protocol.ControlProtocol.Json));
+            LocalOutputFile.Save(Path.Combine(folder, AttachmentEnvelope.StoredFileName(entry)), bytes, beforePublish: BeforePublishFile,
+                zoneIdentifier: InternetZone);
+            Interlocked.Increment(ref publishedFiles);
+            Interlocked.Add(ref publishedBytes, bytes.LongLength);
+            QuarantineUnavailable = false;
+            lock (gate)
+            {
+                inboxFolderBytes[(senderBroker, messageId)] = inboxFolderBytes.GetValueOrDefault((senderBroker, messageId)) + bytes.LongLength;
+                inboxFiles++;
+            }
         }
     }
 
@@ -451,11 +472,22 @@ public sealed class AttachmentStore
         store.FindReceiptWithText(messageId) is { } receipt && receipt.Message.Sender.BrokerId == senderBroker &&
         AttachmentEnvelope.TryParse(receipt.Message.Text, out _) == AttachmentParse.Valid;
 
-    internal void DeleteInbox(Guid senderBroker, Guid messageId)
+    // A definite refusal's deletion of a received folder. Round 6 (S-017, items 5 and 11): it holds the admission gate, so it
+    // never lands between the Verified branch's recheck and its admission, and the folder's gate, so it never lands inside a
+    // publication. It keeps the folder of a message admitted here from that broker (the sweep's own rule): another forward of
+    // the message admitted it while this one waited for the gate. True when the folder was kept for that reason.
+    internal bool DeleteInbox(Guid senderBroker, Guid messageId)
     {
-        DeleteFolder(InboxFolder(senderBroker, messageId));
+        lock (AdmissionGate)
+        {
+            if (AdmittedHere(senderBroker, messageId)) return true;
+            // Round 6 (item 18, DECISIONS 122): never through an attachments root that is itself a reparse point, as the sweep.
+            if (!RootIsReparsePoint())
+                lock (FolderGate(senderBroker, messageId)) DeleteFolder(InboxFolder(senderBroker, messageId));
+        }
         Release(senderBroker, messageId);
         Recount();
+        return false;
     }
 
     // ---- fetch_attachment ----
@@ -512,6 +544,9 @@ public sealed class AttachmentStore
     {
         // Round 2b: an allow removal whose save failed is retried here until it holds on disk too.
         Policy.RetryIfDirty();
+        // Round 6 (item 18, DECISIONS 120): an attachments root that is itself a reparse point is never walked, or the sweep
+        // would delete aged folders in whatever tree it points to. GuidFolders refuses one at outbox or inbox, a level down.
+        if (RootIsReparsePoint()) return;
         var now = clock.GetUtcNow();
         foreach (var (messageId, folder) in GuidFolders(OutboxRoot))
         {
@@ -535,12 +570,19 @@ public sealed class AttachmentStore
                     // A received folder stays while its message is admitted (the recipient may still fetch after
                     // acknowledging), up to 48 h; any other folder is an unadmitted pull and goes after the orphan grace.
                     if (!admitted && age > OrphanGrace || age > Retention)
-                        DeleteFolder(folder.FullName);
+                        lock (FolderGate(senderBroker, messageId)) DeleteFolder(folder.FullName);
                 }
             }
             TryDeleteEmpty(brokerFolder.FullName);
         }
         Recount();
+    }
+
+    // True when Root exists and is a reparse point (a read of its attributes that fails after the existence check counts as one).
+    private bool RootIsReparsePoint()
+    {
+        try { return Directory.Exists(Root) && (File.GetAttributes(Root) & FileAttributes.ReparsePoint) != 0; }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { return true; }
     }
 
     private static TimeSpan Age(DirectoryInfo folder, DateTimeOffset now)
@@ -607,6 +649,7 @@ public sealed class AttachmentStore
 
     private void Recount()
     {
+        if (RecountFault?.Invoke() is { } fault) throw fault;
         var folders = new Dictionary<(Guid Peer, Guid Message), long>();
         var admitted = new HashSet<(Guid Peer, Guid Message)>();
         long outbox = 0;

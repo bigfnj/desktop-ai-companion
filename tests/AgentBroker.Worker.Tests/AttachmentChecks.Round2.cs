@@ -27,6 +27,7 @@ internal static partial class AttachmentChecks
         await ForwardOffLoopAsync(check);
         await RoundTwoBAsync(check);
         await RoundFiveAsync(check);
+        await RoundSixAsync(check);
     }
 
     // F-2: Stage released its gate before the store recorded the message; a sweep in that window must not take the staging.

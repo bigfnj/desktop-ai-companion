@@ -1031,7 +1031,9 @@ ATTACHMENT_R2_WITNESSES = (
             (("                if (outboxBytes + total > Limits.OutboxBytes)", "                if (outboxBytes + total > Limits.OutboxBytes * 1000)", 1),),
             "ATTACHMENT_OUTBOX_QUOTA: a send that would pass the outbox quota is refused attachment_outbox_full and stages nothing"),
     Witness("attachment-r2-quota-recount", ATTACHMENT_STORE, "worker", ATTACHMENT_GROUP,
-            (("                else if (!reservations.ContainsKey(folder)) { orphan += size;", "                else if (!reservations.ContainsKey(folder)) { orphan += 0;", 1),),
+            # Round 6 (S-020) added the message's own folder to the orphan test; the mutant still drops the orphan bytes.
+            (("                else if (folder != key && !reservations.ContainsKey(folder)) { orphan += size;",
+              "                else if (folder != key && !reservations.ContainsKey(folder)) { orphan += 0;", 1),),
             "ATTACHMENT_QUOTA_RECOUNT: a restarted store counts the folders on disk, an unadmitted orphan included, and defers a pull that does not fit beside them"),
     Witness("attachment-r2-pressure-defers", ATTACHMENT_STORE, "worker", ATTACHMENT_GROUP,
             ((RESERVE_DEFER + "\n                return ReserveResult.Defer;", RESERVE_DEFER + "\n                return ReserveResult.RefuseFull;", 1),),
@@ -1133,8 +1135,11 @@ ATTACHMENT_R2_WITNESSES = (
             (("        Attachments?.Policy.Remove(brokerId);\n        lock (gate) { foreach (var item in pending.Values.Where(p => p.Offer.Peer.BrokerId == brokerId).ToArray()) { Remember(item); pending.Remove(item.Offer.RequestId); } store.RevokePeer(brokerId); }\n",
               "        lock (gate) { foreach (var item in pending.Values.Where(p => p.Offer.Peer.BrokerId == brokerId).ToArray()) { Remember(item); pending.Remove(item.Offer.RequestId); } store.RevokePeer(brokerId); }\n        Attachments?.Policy.Remove(brokerId);\n", 1),),
             "ATTACHMENT_REVOKE_POLICY_FIRST: a revoke whose allow removal fails leaves the broker paired, and the owner's retry revokes it"),
+    # Round 6 (S-019): GetOrStartPull's text binding refuses the same swap while the pull's state is held, so the mutant drops
+    # that check too; on its own it would leave the swap refused and fail a later check instead.
     Witness("attachment-r2-envelope-swap", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
-            (("        lock (attachmentGate) held = pulls.TryGetValue(key, out var state) ? state.TextSha256 : null;", "        lock (attachmentGate) held = null;", 1),),
+            (("        lock (attachmentGate) held = pulls.TryGetValue(key, out var state) ? state.TextSha256 : null;", "        lock (attachmentGate) held = null;", 1),
+             ("                if (existing.TextSha256 != textSha256)\n                    throw new BrokerException(AttachmentCodes.EnvelopeInvalid, \"A different text was sent under a message ID whose attachments are pending.\");\n", "", 1)),
             "ATTACHMENT_ONE_ENVELOPE_PER_ID: a second submission of the same message ID with a different envelope during its pull is refused attachment_envelope_invalid; the original is admitted"),
     Witness("attachment-r2-busy-is-missing", ATTACHMENT_STORE, "network", ATTACHMENT_GROUP,
             (("            return File.Exists(path) ? OutgoingState.Busy : OutgoingState.Missing;", "            return OutgoingState.Missing;", 1),),
@@ -1172,7 +1177,7 @@ ATTACHMENT_R2_WITNESSES = (
             "ATTACHMENT_MISMATCH_REFUSED: a file that does not hash to its declared value is refused and nothing is kept"),
     Witness("attachment-r2-transient-refuses", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
             (("                // Transient: the next forward starts a fresh pull (verified files are kept), within the deferral bound.\n"
-              "                Drop(key, state, attachments);\n                throw Defer(key);\n",
+              "                Drop(key, state, attachments);\n                return Defer(key, message, caller);\n",
               "                // Transient: the next forward starts a fresh pull (verified files are kept), within the deferral bound.\n"
               "                Abandon(key, attachments);\n                throw new BrokerException(AttachmentCodes.Unavailable, \"Synthetic mutant.\");\n", 1),),
             "ATTACHMENT_FETCH_FAILED_DEFERS_THEN_SUCCEEDS: the deferred message reaches Submitted on a later forward (not reached within 40 s)"),
@@ -1181,7 +1186,8 @@ ATTACHMENT_R2_WITNESSES = (
             "ATTACHMENT_INVALID_ENVELOPE_REFUSED: an allowed sender's five-entry envelope is refused attachment_envelope_invalid; an unallowed sender's is refused by policy first"),
     # DECISIONS 49 (F-4 as ruled) and F-25.
     Witness("attachment-r2-manifest-record", ATTACHMENT_STORE, "network", ATTACHMENT_GROUP,
-            (("        if (!File.Exists(manifest))\n            LocalOutputFile.Save(manifest, JsonSerializer.SerializeToUtf8Bytes(new InboxManifest(1, messageId, senderBroker, envelope),\n                Protocol.ControlProtocol.Json));\n", "", 1),),
+            # Round 6: the publication runs inside the folder's gate, one level deeper.
+            (("            if (!File.Exists(manifest))\n                LocalOutputFile.Save(manifest, JsonSerializer.SerializeToUtf8Bytes(new InboxManifest(1, messageId, senderBroker, envelope),\n                    Protocol.ControlProtocol.Json));\n", "", 1),),
             "ATTACHMENT_INBOX_MANIFEST_RECORD: a received folder keeps a manifest naming its message, its sender broker and its exact envelope"),
     Witness("attachment-r2-paired-text", STORE, "network", ATTACHMENT_GROUP,
             (("        receipt.Message.Sender.BrokerId == state.BrokerId;", "        receipt.Message.Sender.BrokerId != Guid.Empty;", 1),),
@@ -1275,14 +1281,19 @@ ATTACHMENT_R2B_WITNESSES = (
     Witness('attachment-r2b-retry-body', 'tools/AgentBroker.Worker/Attachments/AttachmentPolicy.cs', 'worker', ATTACHMENT_GROUP,
             (('            try { Write(entries); }', '            try { }', 1),),
             'ATTACHMENT_POLICY_SAVE_RETRIED: an allow removal whose save failed is shown as not saved and is saved by the next sweep, so a restart keeps it removed'),
+    # Round 6 (S-019): as attachment-r2-envelope-swap, the GetOrStartPull text binding goes with the one-text check.
     Witness('attachment-r2b-one-text-first', 'tools/AgentBroker.Worker/Federation/PeerFederation.Attachments.cs', 'network', ATTACHMENT_GROUP,
-            (('        if (attachments is not null) RequireOneText(key, textSha256, attachments);\n', '', 1),),
+            (('        if (attachments is not null) RequireOneText(key, textSha256, attachments);\n', '', 1),
+             ("                if (existing.TextSha256 != textSha256)\n                    throw new BrokerException(AttachmentCodes.EnvelopeInvalid, \"A different text was sent under a message ID whose attachments are pending.\");\n", "", 1)),
             'ATTACHMENT_ONE_ENVELOPE_PER_ID: a second submission of the same message ID with a different envelope during its pull is refused attachment_envelope_invalid; the original is admitted'),
     Witness('attachment-r2b-allow-abandon', 'tools/AgentBroker.Worker/Federation/PeerFederation.Attachments.cs', 'network', ATTACHMENT_GROUP,
             (('                if (!allowed)\n                {\n                    Abandon(key, attachments);\n                    throw new BrokerException(AttachmentCodes.RefusedByPolicy, "This broker no longer accepts attachments from that broker.");\n                }\n', '', 1),),
             'ATTACHMENT_ALLOW_STOPPED_BEFORE_ADMISSION: an allow withdrawn after the files arrived but before admission refuses the message and keeps nothing'),
     Witness('attachment-r2b-stale-defer', 'tools/AgentBroker.Worker/Federation/PeerFederation.Attachments.cs', 'network', ATTACHMENT_GROUP,
-            (('                if (!present)\n                {\n                    Drop(key, state, attachments);\n                    throw Defer(key);\n                }\n', '', 1),),
+            # Round 6 moved the stale branch to the end of the Verified case. The mutant now drops the recheck from the admission
+            # condition, so a stale Verified admits without its file (the old mutant returned a null receipt); the same label
+            # catches it.
+            (('                    if (known || present && allowed)\n', '                    if (known || allowed)\n', 1),),
             'ATTACHMENT_STALE_VERIFIED_REPULLS: a verified pull whose files were removed before admission pulls again; the message is never admitted without its files'),
     Witness('attachment-r2b-linked-count', 'tools/AgentBroker.Worker/Federation/PeerFederation.Attachments.cs', 'network', ATTACHMENT_GROUP,
             (('            Interlocked.Increment(ref AttachmentLinkedSourcesLive);\n', '', 1),),
@@ -1307,8 +1318,11 @@ ATTACHMENT_R2B_WITNESSES = (
             (("                lock (attachments.AdmissionGate)\n", "                lock (new object())\n", 1),),
             "ATTACHMENT_SWEEP_WAITS_FOR_ADMISSION: a sweep that starts between the recheck and the admission waits for it, and the admitted message keeps its file"),
     Witness("attachment-r2b-cleanup-before-lookup", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
-            (("            CleanupPulls(attachments);\n            if (pulls.TryGetValue(key, out var existing)) return existing;\n",
-              "            if (pulls.TryGetValue(key, out var existing)) return existing;\n            CleanupPulls(attachments);\n", 1),),
+            # Round 6 made the lookup a block (the text binding), so the cleanup moves to just after it: lookup first, as before.
+            (("            CleanupPulls(attachments);\n            if (pulls.TryGetValue(key, out var existing))\n",
+              "            if (pulls.TryGetValue(key, out var existing))\n", 1),
+             ("            int running = pulls.Values.Count(pull => !pull.Task.IsCompleted);\n",
+              "            CleanupPulls(attachments);\n            int running = pulls.Values.Count(pull => !pull.Task.IsCompleted);\n", 1)),
             # The swept scenario moves the clock past the deferral bound, so it is the first check that depends on this order.
             "ATTACHMENT_SWEPT_PULL_STARTS_AFRESH: after the sweep removes an unadmitted verified folder, the next forward pulls afresh and admits with the file present"),
     Witness("attachment-r2b-revoke-before-publish", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
@@ -1319,7 +1333,8 @@ ATTACHMENT_R2B_WITNESSES = (
             (("        if (!attachments.Policy.Allows(store.Peers().SingleOrDefault(candidate => candidate.BrokerId == peer.BrokerId))) return PullOutcome.Revoked;\n", "", 1),),
             "ATTACHMENT_ALLOW_STOPPED_MID_PULL: an allow the owner withdraws during the pull publishes nothing more and answers attachments_refused_by_policy"),
     Witness("attachment-r2b-allow-before-admission", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
-            (("                    allowed = attachments.Policy.Allows(store.Peers().SingleOrDefault(candidate => candidate.BrokerId == caller));",
+            # Round 6: the allow check now follows the R0 test (known || ...); the mutant still drops the allow check.
+            (("                    allowed = known || attachments.Policy.Allows(store.Peers().SingleOrDefault(candidate => candidate.BrokerId == caller));",
               "                    allowed = true;", 1),),
             "ATTACHMENT_ALLOW_STOPPED_BEFORE_ADMISSION: an allow withdrawn after the files arrived but before admission refuses the message and keeps nothing"),
     Witness("attachment-r2b-defer-mapping", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
@@ -1410,6 +1425,82 @@ ATTACHMENT_R5_WITNESSES = (
             (("            foreach (var file in SafeFiles(folder)) if (IsStoredFileName(file.Name)) outbox += file.Length;",
               "            foreach (var file in SafeFiles(folder)) if (file.Name is not (ManifestName or FetchPendingName)) outbox += file.Length;", 1),),
             "ATTACHMENT_RECOUNT_STORED_FILES_ONLY: the quarantine and the outbox count stored attachments only: a LocalOutputFile temporary beside them is neither a received file nor quota bytes"),
+)
+
+# ---- lane F round 6 (DECISIONS 116, 119): the races S-017 (items 5 and 11), S-018 (item 10) and S-019 (item 17) fixed in
+# 1.10.5, and the defense-in-depth lines S-013a and S-013b. Each recipe reverts one guard. ----
+R6_DELETE_WAITS = "ATTACHMENT_DELETE_WAITS_FOR_PUBLICATION: a received folder's deletion that lands inside a publication waits for it, then deletes the folder, and neither waits forever"
+R6_RECOUNT = "ATTACHMENT_MISMATCH_RECOUNT_FAULT_STAYS: an IO fault in the recount after a received file that no longer hashes stays inside HasVerified: the file is deleted and the answer is not verified"
+R6_ABANDON_WAITS = "ATTACHMENT_ABANDON_WAITS_FOR_ADMISSION: a forward that passes the 10-minute bound while another forward of the same message is being admitted waits for that admission, keeps its files and answers the admitted receipt"
+ATTACHMENT_R6_WITNESSES = (
+    # Item 11: the publication holds the folder's gate from the manifest check to the count.
+    Witness("attachment-r6-publish-folder-gate", ATTACHMENT_STORE, "worker", ATTACHMENT_GROUP,
+            (("        lock (FolderGate(senderBroker, messageId))\n        {\n            Directory.CreateDirectory(folder);\n",
+              "        {\n            Directory.CreateDirectory(folder);\n", 1),),
+            R6_DELETE_WAITS),
+    # Item 11: a refusal's deletion takes the folder's gate too.
+    Witness("attachment-r6-delete-folder-gate", ATTACHMENT_STORE, "worker", ATTACHMENT_GROUP,
+            (("                lock (FolderGate(senderBroker, messageId)) DeleteFolder(InboxFolder(senderBroker, messageId));\n",
+              "                DeleteFolder(InboxFolder(senderBroker, messageId));\n", 1),),
+            R6_DELETE_WAITS),
+    # Item 11, the sweep's side: the sweep's deletion takes the folder's gate too.
+    Witness("attachment-r6-sweep-folder-gate", ATTACHMENT_STORE, "worker", ATTACHMENT_GROUP,
+            (("                        lock (FolderGate(senderBroker, messageId)) DeleteFolder(folder.FullName);\n",
+              "                        DeleteFolder(folder.FullName);\n", 1),),
+            "ATTACHMENT_SWEEP_WAITS_FOR_PUBLICATION: a sweep that reaches a received folder while a file is being published into it waits for the publication, then deletes the folder, and neither waits forever"),
+    # The folder gate's no-deadlock check (DECISIONS 116): a publication that waits for the admission gate while it holds the
+    # folder's gate deadlocks with a deletion (admission gate, then folder gate); the check's bound must report it.
+    Witness("attachment-r6-publish-gate-inversion", ATTACHMENT_STORE, "worker", ATTACHMENT_GROUP,
+            (("            lock (gate)\n            {\n                inboxFolderBytes[(senderBroker, messageId)] =",
+              "            lock (AdmissionGate) lock (gate)\n            {\n                inboxFolderBytes[(senderBroker, messageId)] =", 1),),
+            R6_DELETE_WAITS),
+    # S-013a: the recount after a mismatching file keeps its IO fault, by the call and by the filter.
+    Witness("attachment-r6-recount-fault-escapes", ATTACHMENT_STORE, "worker", ATTACHMENT_GROUP,
+            (("        DeleteExact([path], null);\n        TryRecount();\n", "        DeleteExact([path], null);\n        Recount();\n", 1),),
+            R6_RECOUNT),
+    Witness("attachment-r6-recount-filter", ATTACHMENT_STORE, "worker", ATTACHMENT_GROUP,
+            (("        try { Recount(); }\n        catch (Exception error) when (error is IOException or UnauthorizedAccessException or BrokerException) { }\n",
+              "        try { Recount(); }\n        catch (Exception error) when (error is UnauthorizedAccessException or BrokerException) { }\n", 1),),
+            R6_RECOUNT),
+    # Item 5: a refusal's deletion holds the admission gate, keeps an admitted folder, and the Defer path answers its receipt.
+    Witness("attachment-r6-abandon-admission-gate", ATTACHMENT_STORE, "network", ATTACHMENT_GROUP,
+            (("    internal bool DeleteInbox(Guid senderBroker, Guid messageId)\n    {\n        lock (AdmissionGate)\n        {\n",
+              "    internal bool DeleteInbox(Guid senderBroker, Guid messageId)\n    {\n        {\n", 1),),
+            R6_ABANDON_WAITS),
+    Witness("attachment-r6-abandon-keeps-admitted", ATTACHMENT_STORE, "network", ATTACHMENT_GROUP,
+            (("            if (AdmittedHere(senderBroker, messageId)) return true;\n", "            if (AdmittedHere(Guid.Empty, messageId)) return true;\n", 1),),
+            R6_ABANDON_WAITS),
+    Witness("attachment-r6-defer-answers-receipt", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (("        if (Attachments is { } attachments && Abandon(key, attachments)) return Results.Json(store.Accept(message, caller), Json);\n",
+              "        if (Attachments is { } attachments) Abandon(key, attachments);\n", 1),),
+            R6_ABANDON_WAITS),
+    # Item 10: the R0 test again inside the admission gate, before the allow check.
+    Witness("attachment-r6-r0-before-allow", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (("                    bool known = store.FindReceipt(message.Id) is not null;\n", "                    bool known = false;\n", 1),),
+            "ATTACHMENT_ALLOW_RACE_KEEPS_ADMITTED: an allow withdrawn after one forward admitted a message and before another forward of it reaches its allow check: the other forward answers the admitted receipt and the files stay"),
+    # Item 17: the text bound to the pull in GetOrStartPull (DECISIONS 119: fires every run through the BeforePullLookup seam).
+    Witness("attachment-r6-text-bound", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (("                if (existing.TextSha256 != textSha256)\n                    throw new BrokerException(AttachmentCodes.EnvelopeInvalid, \"A different text was sent under a message ID whose attachments are pending.\");\n", "", 1),),
+            "ATTACHMENT_ONE_TEXT_RACE_BOUND_TO_PULL: a second text under a message ID that passed the one-text check before the first text's pull was registered is refused attachment_envelope_invalid by that pull; the admitted text is the manifest's envelope"),
+    # Item 18 (DECISIONS 120): the sweep never walks an attachments root that is itself a reparse point.
+    Witness("attachment-r6-sweep-root-itself", ATTACHMENT_STORE, "worker", ATTACHMENT_GROUP,
+            (("        if (RootIsReparsePoint()) return;\n", "", 1),),
+            "ATTACHMENT_SWEEP_ROOT_ITSELF_JUNCTION: an attachments root that is itself a junction is never walked, so the sweep deletes nothing in the tree it points to"),
+    # Item 18 (DECISIONS 122): a refusal's deletion (DeleteInbox, behind Abandon) never goes through that root either; the
+    # sweep's guard stays in place, so only this path's guard is removed.
+    Witness("attachment-r6-abandon-root-itself", ATTACHMENT_STORE, "worker", ATTACHMENT_GROUP,
+            (("            if (!RootIsReparsePoint())\n                lock (FolderGate(senderBroker, messageId)) DeleteFolder(InboxFolder(senderBroker, messageId));\n",
+              "            lock (FolderGate(senderBroker, messageId)) DeleteFolder(InboxFolder(senderBroker, messageId));\n", 1),),
+            "ATTACHMENT_ABANDON_ROOT_ITSELF_JUNCTION: a refusal's deletion of a received folder never goes through an attachments root that is itself a junction"),
+    # S-020 (F-X1C-Q1, DECISIONS 123): a message's own kept files are not counted again as unadmitted data on its retry.
+    Witness("attachment-r6-partial-own-once", ATTACHMENT_STORE, "worker", ATTACHMENT_GROUP,
+            (("                else if (folder != key && !reservations.ContainsKey(folder)) { orphan += size; if (folder.Peer == senderBroker) orphanPeer += size; }\n",
+              "                else if (!reservations.ContainsKey(folder)) { orphan += size; if (folder.Peer == senderBroker) orphanPeer += size; }\n", 1),),
+            "ATTACHMENT_PARTIAL_RETRY_COUNTS_OWN_BYTES_ONCE: a retry of the same message after a partial pull counts its kept files once on the per-peer admitted, pool and in-flight bounds, while another message still counts them"),
+    # S-013b: Drop releases only its own state's reservation.
+    Witness("attachment-r6-drop-own", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (("            own = !pulls.TryGetValue(key, out var current) || ReferenceEquals(current, state);\n", "            own = true;\n", 1),),
+            "ATTACHMENT_DROP_KEEPS_NEWER_RESERVATION: a forward's Drop after a newer forward replaced its pull state ends neither that pull's state nor its reservation"),
 )
 
 WITNESSES = (
@@ -1605,7 +1696,7 @@ WITNESSES = (
 
     Witness('watch-cleanup-exists-omitted', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('if (File.Exists(lockPath)) cleanup = "failed";', '', 1),), 'WATCH_CLEANUP_DELETE_PENDING: a visible delete-pending lock reports cleanup failed without changing the mail exit code'),
 
-) + ATTACHMENT_WITNESSES + ATTACHMENT_R2_WITNESSES + ATTACHMENT_R2B_WITNESSES + ATTACHMENT_R5_WITNESSES
+) + ATTACHMENT_WITNESSES + ATTACHMENT_R2_WITNESSES + ATTACHMENT_R2B_WITNESSES + ATTACHMENT_R5_WITNESSES + ATTACHMENT_R6_WITNESSES
 
 
 def sha256(data: bytes) -> str:
@@ -1677,8 +1768,11 @@ EXPECTED_COUNTS = {("core", ("--waiting-mail-only",)): 118, ("worker", ("--waiti
                    # F round 3, DECISIONS 79; 63 after F round 5, DECISIONS 96: six checks for items 1, 6, 8, 9, 14 and 15,
                    # measured), Network 59 (Network 57 plus
                    # ATTACHMENT_SENDER_BOUND_NOT_EARLY, DECISIONS 64, and ATTACHMENT_PREVALIDATED_TRANSIT, the fifth F-19 guard).
-                   ("core", ("--attachments-only",)): 64, ("worker", ("--attachments-only",)): 63,
-                   ("network", ("--attachments-only",)): 59}
+                   # F round 6 (DECISIONS 116, 120, 122, 123): Worker 69 (six checks: items 11, S-013a and S-020, the sweep's
+                   # folder gate, item 18 for the sweep and for DeleteInbox), Network 63 (four checks: items 5, 10, 17 and
+                   # S-013b); derived from the added check() calls, measured by the campaign-6 baselines.
+                   ("core", ("--attachments-only",)): 64, ("worker", ("--attachments-only",)): 69,
+                   ("network", ("--attachments-only",)): 63}
 CORE_SUMMARIES = {("--waiting-mail-only",): "AgentBroker waiting-mail smoke", ("--reply-receipt-only",): "AgentBroker reply receipt smoke", ("--hygiene-only",): "AgentBroker hygiene smoke", ("--peer-receipt-only",): "AgentBroker peer receipt smoke",
                   ("--commit-timing-only",): "AgentBroker commit timing smoke",
                   ("--uncertain-notices-only",): "AgentBroker uncertainty notice smoke",

@@ -201,7 +201,9 @@ DesktopAICompanion sends data only when a network feature is used:
   files once their message's record ends or their folder is more than 48 hours old by the computer's clock, whichever
   is first, and a sent copy once its message is marked Refused or Expired. Each file is deleted on its own, so a file
   the check cannot delete then, such as one another program has locked, stays until a later check can delete it.
-  While the broker is stopped nothing is deleted until it starts again. Turning the switch on or off
+  If the `attachments` folder itself is a junction or other reparse point, the check deletes nothing in it until it
+  is a plain folder again. While the broker is stopped nothing is deleted until it starts again.
+  Turning the switch on or off
   takes effect in the broker when it next starts; saving stops a broker the module started, but not one it found
   already running. The switch does not change which brokers you allowed, so turning it back on restores them, unless
   one was paired again meanwhile or the saved allow list is gone or unreadable. While the pane has the running broker's
