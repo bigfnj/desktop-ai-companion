@@ -6,7 +6,7 @@ namespace DesktopAICompanion.AgentBroker;
 // PANE-PAIR (1.10.5, N-broker-pane-pairing-01): pairing in the pane, through the existing ListCard ABI (no host change,
 // MinHostVersion stays 1.6.1). The list is the view the owner last rendered, not a live view: the host re-reads a ListCard
 // only when the pane is built, so "Refresh brokers" and every mutating action ask for a pane reload, while the live Pairing
-// and Status rows say when something new is waiting. Each action acts on exactly one ticked row and checks that row's
+// row and tray label say when something new is waiting. Each action acts on exactly one ticked row and checks that row's
 // rendered binding against the current snapshot before it sends anything, so a stale row never acts on a different peer,
 // certificate, request or code. The tray menus keep sending the same control requests.
 public sealed partial class AgentBrokerModule
@@ -34,6 +34,8 @@ public sealed partial class AgentBrokerModule
     private readonly HashSet<string> tickedBrokerRows = new(StringComparer.Ordinal);
     private (string RowId, DateTimeOffset Deadline)? revokeArm;
     private bool brokerActionRunning;
+    private const string CopyInvitationLabel = "Copy my invitation";
+    private const string PairCopiedInvitationLabel = "Pair from copied invitation";
 
     private ListCard BuildBrokerCard() => new()
     {
@@ -48,7 +50,9 @@ public sealed partial class AgentBrokerModule
             BrokerAction(RequestPairingLabel, RequestPairingFromListAsync),
             BrokerAction(ApprovePairingLabel, ApprovePairingFromListAsync),
             BrokerAction(CancelPairingLabel, CancelPairingFromListAsync),
-            BrokerAction(RevokeSharingLabel, RevokeFromListAsync)
+            BrokerAction(RevokeSharingLabel, RevokeFromListAsync),
+            BrokerAction(CopyInvitationLabel, _ => CopyInvitationAsync()),
+            BrokerAction(PairCopiedInvitationLabel, PairCopiedInvitationAsync)
         ]
     };
 
@@ -67,7 +71,7 @@ public sealed partial class AgentBrokerModule
 
     private static string SafeBrokerName(PeerView peer)
     {
-        string name = Safe(peer.Name, 48);
+        string name = Safe(StripDisplayIdentity(peer.Name), 48);
         return string.IsNullOrWhiteSpace(name) ? "Broker" : name;
     }
 
@@ -101,8 +105,12 @@ public sealed partial class AgentBrokerModule
 
     private static string PairedDetail(PeerView peer, BrokerSnapshot view)
     {
-        string endpoint = Uri.TryCreate(peer.Endpoint, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps &&
-            uri.UserInfo.Length == 0 ? Safe(uri.Authority, 80) : "endpoint unavailable";
+        string endpoint = "endpoint unavailable";
+        if (Uri.TryCreate(peer.Endpoint, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps && uri.UserInfo.Length == 0)
+        {
+            try { endpoint = Safe(InvitationPreviewAuthority(peer), 80); }
+            catch (UriFormatException) { }
+        }
         return view.PeerClocks?.FirstOrDefault(clock => clock.BrokerId == peer.BrokerId)?.Warning == true
             ? endpoint + ", check clocks" : endpoint;
     }
@@ -143,6 +151,7 @@ public sealed partial class AgentBrokerModule
     private IReadOnlyList<ListItem> LoadBrokerItems()
     {
         revokeArm = null;
+        invitationArm = null;
         if (brokerCard is not null) brokerCard.EmptyHint = BrokerListUnreadable;
         BrokerSnapshot? view = shutDown || !settings.Enabled ? null : snapshot;
         List<BrokerRow> rows = view is null ? [] : BrokerRows(view);
@@ -169,6 +178,7 @@ public sealed partial class AgentBrokerModule
         renderedBrokerRows = new Dictionary<string, BrokerRow>(StringComparer.Ordinal);
         tickedBrokerRows.Clear();
         revokeArm = null;
+        invitationArm = null;
     }
 
     private string? BrokerActionUnavailable() =>
@@ -193,6 +203,7 @@ public sealed partial class AgentBrokerModule
     private async Task<string> RunBrokerActionAsync(PaneAction pressed, Func<PaneAction, Task<string>> action)
     {
         pressed.ReloadPaneAfter = false;
+        if (pressed.Label != PairCopiedInvitationLabel) invitationArm = null;
         if (brokerActionRunning) return "Another broker action is still running. Wait for its result, then try again.";
         brokerActionRunning = true;
         try { return await action(pressed); }

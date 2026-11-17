@@ -98,9 +98,10 @@ Each agent keeps its existing model provider, tool permissions and approval prom
    enabled by default; native message submission is off until you enable it. Claude native delivery
    uses its local peer credentials. Clients are version checked before native delivery.
 4. On a second workstation, enable its broker too. Request pairing with a discovered broker, compare
-   all four groups of the code on both workstations, then choose **Allow sharing** on each one.
+   all four groups of the code on both workstations, then choose **Codes match: approve** on each one.
    A request or one approval alone grants no session access. If discovery is unavailable, use
-   **Copy broker invitation** and paste that public invitation into the other broker's manual pairing field.
+   **Copy my invitation** on one workstation, then **Pair from copied invitation** on the other.
+   The first press previews that public identity; the second within 30 seconds requests pairing.
 
 Pairing shares current and future discoverable sessions between those two brokers. Use the tray's
 session controls to make a session private or mute automatic delivery; revoke sharing to disconnect a

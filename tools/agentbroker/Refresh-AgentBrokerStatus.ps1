@@ -21,7 +21,13 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 function Convert-KnownStatus([string]$Status, [string]$Native, [string]$Traffic,
-    [int]$RefreshSuccessCount = 0, [int]$RefreshUnavailableCount = 0) {
+    [int]$RefreshSuccessCount = 0, [int]$RefreshUnavailableCount = 0, [bool]$NativeObserved = $true) {
+    $nativeObservation = if (-not $NativeObserved) { 'not-observed' }
+        elseif ($Native -ceq 'No worker status yet.') { 'visible-worker-status-unavailable' }
+        elseif ($Native -ceq 'No adapter errors reported.') { 'visible-no-adapter-errors' }
+        elseif ($Native -cmatch '^(?:claude-native|codex-native): ') { 'visible-adapter-errors' }
+        else { 'visible-unrecognized' }
+    $nativeKnown = $NativeObserved -and $nativeObservation -cne 'visible-unrecognized'
     return [pscustomobject]@{
         Starting = $Status -ceq 'Starting'
         Running = $Status -cmatch '^Running\. [0-9]+ sessions, [0-9]+ paired brokers\.(?: MCP |$)'
@@ -31,11 +37,30 @@ function Convert-KnownStatus([string]$Status, [string]$Native, [string]$Traffic,
         McpReady = $Status.Contains('. MCP ready.')
         ClaudeMcpSeen = $Traffic -cmatch 'Claude client: seen (?:just now|[0-9]+ (?:min|h|days) ago)'
         CodexMcpSeen = $Traffic -cmatch 'Codex client: seen (?:just now|[0-9]+ (?:min|h|days) ago)'
-        NativeStatusMissing = $Native -ceq 'No worker status yet.'
-        NoAdapterErrors = $Native -ceq 'No adapter errors reported.'
+        NativeRowObserved = $NativeObserved
+        NativeObservation = $nativeObservation
+        NativeStatusMissing = if ($nativeKnown) { $Native -ceq 'No worker status yet.' } else { $null }
+        NoAdapterErrors = if ($nativeKnown) { $Native -ceq 'No adapter errors reported.' } else { $null }
         RefreshSuccessCount = $RefreshSuccessCount
         RefreshUnavailableCount = $RefreshUnavailableCount
     }
+}
+function Get-PaneIdentityLabels { return @('Enable AgentBroker', 'Local port', 'Pairing') }
+function Assert-AgentBrokerPaneIdentity([scriptblock]$CountMatches) {
+    foreach ($label in @(Get-PaneIdentityLabels)) {
+        if ((& $CountMatches $label) -ne 1) {
+            throw 'STATUS_PANE_IDENTITY: the visible settings content does not uniquely identify the AgentBroker pane.'
+        }
+    }
+}
+function Read-KnownRows([scriptblock]$ReadRow, [scriptblock]$CountText) {
+    $status = & $ReadRow 'Status' $false
+    # Clients may be folded. Absence of this optional row is an observation limit, not a healthy result.
+    $native = & $ReadRow 'Native adapters' $true
+    $traffic = & $ReadRow 'MCP client traffic' $false
+    $success = & $CountText 'Status refreshed.'
+    $unavailable = & $CountText 'The broker is unavailable. Try again after it reconnects.'
+    return Convert-KnownStatus $status $native $traffic $success $unavailable ($null -ne $native)
 }
 if ($SelfTest) {
     $checks = 0
@@ -51,6 +76,65 @@ if ($SelfTest) {
         'Claude client: not seen. Codex client: not seen.'
     if ($state.ClaudeMcpSeen -or $state.CodexMcpSeen -or -not $state.NativeStatusMissing) {
         throw 'STATUS_TRAFFIC_NOT_STATUS: unrelated status text or unseen clients must not count as traffic.'
+    }
+    $checks++
+    $state = Convert-KnownStatus 'Running. 2 sessions, 1 paired brokers. MCP ready.' 'No adapter errors reported.' ''
+    if (-not $state.NativeRowObserved -or $state.NativeObservation -cne 'visible-no-adapter-errors' -or
+        $state.NativeStatusMissing -ne $false -or $state.NoAdapterErrors -ne $true) {
+        throw 'STATUS_NATIVE_ROW_HEALTHY: a visible exact no-error status is known healthy evidence.'
+    }
+    $checks++
+    $identityCounts = @{ 'Enable AgentBroker' = 1; 'Local port' = 1; 'Pairing' = 1; 'Native delivery' = 0; 'Native adapters' = 0 }
+    Assert-AgentBrokerPaneIdentity { param($label) if ($identityCounts.ContainsKey($label)) { $identityCounts[$label] } else { 0 } }
+    $checks++
+    $identityCounts = @{ 'Enable AgentBroker' = 1; 'Local port' = 1; 'Native delivery' = 1; 'Native adapters' = 1 }
+    $identityRefused = $false
+    try { Assert-AgentBrokerPaneIdentity { param($label) if ($identityCounts.ContainsKey($label)) { $identityCounts[$label] } else { 0 } } }
+    catch { if (-not $_.Exception.Message.StartsWith('STATUS_PANE_IDENTITY:', [StringComparison]::Ordinal)) { throw }; $identityRefused = $true }
+    if (-not $identityRefused) { throw 'STATUS_PANE_IDENTITY_RETIRED: the retired labels must not identify this pane.' }
+    $checks++
+    $visibleRows = @{ 'Status' = 'Running. 2 sessions, 1 paired brokers. MCP ready.'; 'MCP client traffic' = '' }
+    $state = Read-KnownRows {
+        param($label, $optional)
+        if ($visibleRows.ContainsKey($label)) { return $visibleRows[$label] }
+        if (-not $optional) { throw 'STATUS_NATIVE_ROW_HIDDEN: a required status row was unavailable.' }
+        return $null
+    } { param($text) 0 }
+    if ($state.NativeRowObserved -or $state.NativeObservation -cne 'not-observed' -or
+        $null -ne $state.NativeStatusMissing -or $null -ne $state.NoAdapterErrors) {
+        throw 'STATUS_NATIVE_ROW_HIDDEN: a folded Clients row is unobserved, never healthy or worker-missing evidence.'
+    }
+    $checks++
+    foreach ($required in @('Status', 'MCP client traffic')) {
+        $visibleRows = @{ 'Status' = 'Running. 2 sessions, 1 paired brokers. MCP ready.'; 'MCP client traffic' = '' }
+        $visibleRows.Remove($required)
+        $requiredRefused = $false
+        try {
+            $null = Read-KnownRows {
+                param($label, $optional)
+                if ($visibleRows.ContainsKey($label)) { return $visibleRows[$label] }
+                if (-not $optional) { throw ('Required row missing: ' + $label) }
+                return $null
+            } { param($text) 0 }
+        }
+        catch {
+            if ($_.Exception.Message -cne ('Required row missing: ' + $required)) { throw }
+            $requiredRefused = $true
+        }
+        if (-not $requiredRefused) {
+            $label = if ($required -ceq 'Status') { 'STATUS_REQUIRED_STATUS_ROW' } else { 'STATUS_REQUIRED_TRAFFIC_ROW' }
+            throw ($label + ': the pinned status row must remain required.')
+        }
+        $checks++
+    }
+    $state = Convert-KnownStatus 'Running. 2 sessions, 1 paired brokers. MCP ready.' 'unexpected native text' ''
+    if (-not $state.NativeRowObserved -or $state.NativeObservation -cne 'visible-unrecognized' -or $null -ne $state.NoAdapterErrors) {
+        throw 'STATUS_NATIVE_ROW_UNKNOWN: an unrecognized visible row is not healthy evidence.'
+    }
+    $checks++
+    $state = Convert-KnownStatus 'Running. 2 sessions, 1 paired brokers. MCP ready.' 'claude-native: synthetic_adapter_error' ''
+    if ($state.NativeObservation -cne 'visible-adapter-errors' -or $state.NoAdapterErrors -ne $false) {
+        throw 'STATUS_NATIVE_ROW_ERROR: a visible adapter error must remain a known error.'
     }
     $checks++
     $state = Convert-KnownStatus 'Disabled' 'No adapter errors reported.' 'Claude: seen just now. Codex: seen just now.'
@@ -85,8 +169,9 @@ function Get-VisibleMatches($Parent, [string]$Name, $ControlType = $null,
     return @($matches | Where-Object { -not $_.Current.IsOffscreen })
 }
 
-function Get-StatusRowText($Window, [string]$Label) {
+function Get-StatusRowText($Window, [string]$Label, [switch]$Optional) {
     $labels = @(Get-VisibleMatches $Window $Label ([System.Windows.Automation.ControlType]::Text))
+    if ($Optional -and $labels.Count -eq 0) { return $null }
     if ($labels.Count -ne 1) { throw 'A source-identified status label was not unique and visible.' }
     # BuildEditorRow adds the label followed immediately by the display-only TextBlock.
     # Require same-process, same-row geometry before reading that one sibling's name.
@@ -106,19 +191,17 @@ function Get-StatusRowText($Window, [string]$Label) {
 }
 
 function Get-KnownStatus($Window) {
-    $status = Get-StatusRowText $Window 'Status'
-    $native = Get-StatusRowText $Window 'Native adapters'
-    $traffic = Get-StatusRowText $Window 'MCP client traffic'
-    $success = @(Get-VisibleMatches $Window 'Status refreshed.' ([System.Windows.Automation.ControlType]::Text)).Count
-    $unavailable = @(Get-VisibleMatches $Window 'The broker is unavailable. Try again after it reconnects.' ([System.Windows.Automation.ControlType]::Text)).Count
-    return Convert-KnownStatus $status $native $traffic $success $unavailable
+    return Read-KnownRows { param($label, $optional) Get-StatusRowText $Window $label -Optional:$optional } `
+        { param($text) @(Get-VisibleMatches $Window $text ([System.Windows.Automation.ControlType]::Text)).Count }
 }
 
 function Write-KnownStatus([string]$Prefix, $State) {
     foreach ($name in @('Starting', 'Running', 'Standby', 'Disabled', 'McpStatusPresent', 'McpReady',
-                        'ClaudeMcpSeen', 'CodexMcpSeen', 'NativeStatusMissing', 'NoAdapterErrors',
+                        'ClaudeMcpSeen', 'CodexMcpSeen', 'NativeRowObserved', 'NativeObservation', 'NativeStatusMissing', 'NoAdapterErrors',
                         'RefreshSuccessCount', 'RefreshUnavailableCount')) {
-        Write-Output ($Prefix + $name + '=' + $State.$name)
+        $value = $State.$name
+        if ($null -eq $value) { $value = 'not-observed' }
+        Write-Output ($Prefix + $name + '=' + $value)
     }
 }
 
@@ -134,11 +217,7 @@ try {
         ([System.Windows.Automation.ControlType]::Window) ([System.Windows.Automation.TreeScope]::Children))
     if ($windows.Count -ne 1) { throw 'The supplied process has no unique visible settings window.' }
     $window = $windows[0]
-    foreach ($label in @('Enable AgentBroker', 'Native adapters', 'Native delivery', 'Local port')) {
-        if (@(Get-VisibleMatches $window $label).Count -ne 1) {
-            throw 'The visible settings content does not uniquely identify the AgentBroker pane.'
-        }
-    }
+    Assert-AgentBrokerPaneIdentity { param($label) @(Get-VisibleMatches $window $label).Count }
     $buttons = @(Get-VisibleMatches $window 'Refresh status' ([System.Windows.Automation.ControlType]::Button))
     if ($buttons.Count -ne 1 -or -not $buttons[0].Current.IsEnabled) {
         throw 'The AgentBroker refresh button is not uniquely visible and enabled.'

@@ -31,6 +31,7 @@ public sealed partial class AgentBrokerModule
             RunOnboardingChecks(Check, dispatcher);
             RunClientSetupChecks(Check, dispatcher);
             RunClientRouteChecks(Check);
+            RunClientsSummaryChecks(Check);
             RunDesktopChatChecks(Check, dispatcher);
             RunPeerClockChecks(Check);
             RunPaneTextChecks(Check, dispatcher);
@@ -76,15 +77,13 @@ public sealed partial class AgentBrokerModule
             int tolerantFlag = start.ArgumentList.IndexOf("--codex-update-tolerant-delivery");
             Check(defaults["codexUpdateTolerantDelivery"] == "true" && tolerantFlag >= 0 && start.ArgumentList[tolerantFlag + 1] == "true",
                 "update-tolerant Codex delivery defaults on and reaches the default worker launch");
-            // N-agentbroker-client-reconnect-01 (1.6.0): the Client connection text says how a session started while the
-            // broker was down gets its tools back.
-            Check(defaults["clientSetup"].EndsWith(AgentBrokerModule.ReconnectAdvice, StringComparison.Ordinal) &&
-                AgentBrokerModule.ReconnectAdvice.Contains("(Claude Code: /mcp)", StringComparison.Ordinal) &&
-                AgentBrokerModule.ReconnectAdvice.Contains("restart the session", StringComparison.Ordinal),
-                "the Client connection text says a session started while the broker was down needs its MCP reconnected (/mcp) or a restart");
-            Check(defaults["nativePrivacy"].Contains("(on by default)", StringComparison.Ordinal) &&
-                !defaults["nativePrivacy"].Contains("off by default", StringComparison.Ordinal),
-                "the pane says updated Codex builds are woken by default, and how to turn that off");
+            string compiledGuide = System.Text.Encoding.UTF8.GetString(GuideBytes() ?? []);
+            Check(!defaults.ContainsKey("clientSetup") && !pane.Schema.Any(field => field.Id == "clientSetup") &&
+                compiledGuide.Contains("<p>A session that started while the broker was down, including during a companion restart, has no broker tools until you reconnect its MCP server (Claude Code: <code>/mcp</code>) or restart the session.</p>", StringComparison.Ordinal),
+                "the guide keeps MCP reconnect advice for a session started while the broker was down without a duplicate pane row");
+            Check(pane.Schema.SingleOrDefault(field => field.Id == "codexUpdateTolerantDelivery") is { Kind: SettingKind.Bool } codexSwitch &&
+                codexSwitch.Label.Contains("publisher verified", StringComparison.Ordinal),
+                "the pane keeps the publisher-verified Codex switch disclosure");
             var strictStart = new ProcessStartInfo("synthetic.exe");
             WorkerSupervisor.AddArguments(strictStart, launch with { Settings = launch.Settings with { CodexUpdateTolerantDelivery = false } });
             Check(!strictStart.ArgumentList.Contains("--codex-update-tolerant-delivery"),
@@ -104,9 +103,9 @@ public sealed partial class AgentBrokerModule
             Check(pane.Schema.SingleOrDefault(field => field.Id == "claudeUpdateTolerantDelivery") is { Kind: SettingKind.Bool, Group: "Coding agents",
                     EnabledWhen: "claudePeerCredentials=true" } claudeSwitch && claudeSwitch.Label.StartsWith("Also wake updated Claude builds", StringComparison.Ordinal),
                 "the pane offers \"Also wake updated Claude builds\" beside the Codex switch, enabled only while Claude wake is on");
-            Check(defaults["nativePrivacy"].Contains("For Claude, \"Also wake updated Claude builds\" (on by default)", StringComparison.Ordinal) &&
-                !defaults["nativePrivacy"].Contains("requires an exactly verified client version", StringComparison.Ordinal),
-                "the pane says updated Claude builds are woken by default, and how to turn that off");
+            Check(pane.Schema.SingleOrDefault(field => field.Id == "claudeUpdateTolerantDelivery") is { Kind: SettingKind.Bool } verifiedClaudeSwitch &&
+                verifiedClaudeSwitch.Label.Contains("publisher verified", StringComparison.Ordinal),
+                "the pane keeps the publisher-verified Claude switch disclosure");
 
             var peer = new PeerView(Guid.NewGuid(), "Peer&\nName" + new string('P', 70), "https://example.invalid:7433", new string('A', 64));
             var session = new SessionView("synthetic-session", Guid.NewGuid(), "Synthetic", "codex", "Unknown", false, false, false, false);
@@ -124,9 +123,9 @@ public sealed partial class AgentBrokerModule
             Check(host.Asks.Count == 0 && control.Requests.Count == requestsBeforeOffer,
                 "NO_OFFER_POPUP: an incoming pairing offer raises no question and sends no control request by itself");
             Check(pane.Load()["pairingStatus"].StartsWith("Pairing request waiting from ", StringComparison.Ordinal) &&
-                pane.Load()["status"].Contains("Pairing request waiting; see Pairing.", StringComparison.Ordinal) &&
+                !pane.Load()["status"].Contains("Pairing request waiting", StringComparison.Ordinal) &&
                 host.TrayItems.Single().DynamicText?.Invoke() == TrayRootWaitingLabel,
-                "INBOUND_OFFER_SIGNAL: an incoming offer shows in Pairing, Status and the tray root label");
+                "INBOUND_OFFER_SIGNAL: an incoming offer shows in Pairing and the tray without repeating Status");
             ListCard brokers = pane.Lists!.Single();
             var unpairedPeer = peer with { BrokerId = Guid.NewGuid(), CertificateSha256 = new string('C', 64) };
             var unpairedOffer = offer with { RequestId = Guid.NewGuid(), Peer = unpairedPeer };
@@ -153,8 +152,18 @@ public sealed partial class AgentBrokerModule
             Check(host.Asks.Count == asked && host.TrayItems.Single().BuildChildren().Single(t =>
                 t.Label.Contains(comparisonCode, StringComparison.Ordinal)).BuildChildren().First().Label.StartsWith("Waiting", StringComparison.Ordinal),
                 "local confirmation waits for authenticated remote approval without another consent prompt");
-            Check(host.TrayItems.Single().DynamicText?.Invoke() == "AgentBroker" &&
-                !pane.Load()["status"].Contains("Pairing request waiting", StringComparison.Ordinal),
+            module.ApplyStatus(new(true, false, "standby", view with { PairingOffers = [] }));
+            var stoppedSignal = new AgentBrokerModule(new PaneControl(), new StatusSupervisor(view))
+            {
+                settings = launch.Settings with { Enabled = true }, snapshot = view with { PairingOffers = [offer] }
+            };
+            bool signalBeforeShutdown = stoppedSignal.TrayRootLabel() == TrayRootWaitingLabel;
+            stoppedSignal.Shutdown();
+            // Keep a late synthetic snapshot to exercise the tray's own shutdown guard, independently of ApplyStatus.
+            stoppedSignal.snapshot = view with { PairingOffers = [offer] };
+            Check(module.TrayRootLabel() == "AgentBroker" &&
+                !pane.Load()["status"].Contains("Pairing request waiting", StringComparison.Ordinal) &&
+                signalBeforeShutdown && stoppedSignal.TrayRootLabel() == "AgentBroker",
                 "INBOUND_OFFER_SIGNAL: the signal clears once no incoming offer waits");
 
             // The discovery card is gone (its checks move to NO_DISCOVERY_POPUP in AgentBrokerPaneBrokerChecks.cs).
@@ -184,7 +193,8 @@ public sealed partial class AgentBrokerModule
             Check(!pane.Load()["status"].Contains("delivery notice", StringComparison.Ordinal),
                 "WITNESS: a snapshot with nothing dropped says nothing about notices");
 
-            Check(pane.Load()["manualPeer"] == "", "broker invitation is not persisted");
+            Check(!pane.Load().ContainsKey("manualPeer") && !pane.Schema.Any(field => field.Id == "manualPeer"),
+                "the copied broker invitation has no persisted field or text box in the pane");
             Check(module.PairInvitationAsync(new Dictionary<string, string> { ["manualPeer"] = "{" }).GetAwaiter().GetResult()
                 .Contains("invalid", StringComparison.Ordinal), "malformed manual invitation is rejected before networking");
             var manualPeer = peer with { BrokerId = Guid.NewGuid() };

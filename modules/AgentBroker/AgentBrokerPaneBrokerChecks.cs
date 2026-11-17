@@ -66,10 +66,12 @@ public sealed partial class AgentBrokerModule
             OptionsPane pane = host.OptionsPanes.Single();
             ListCard card = pane.Lists!.Single();
 
+            // This checks values installed by Init, not references to contract members in compiled code.
+            // CardEnabledWhen belongs to host 1.4.0; PaneAction.EnabledWhen and VisibleWhen need newer hosts.
             check(module.Info.MinHostVersion == "1.6.1" && pane.Lists.Count == 1 && card.DeferChanges == false &&
                 pane.Actions.Concat(card.Actions).All(action => string.IsNullOrEmpty(action.EnabledWhen)) &&
-                pane.Schema.All(field => string.IsNullOrEmpty(field.VisibleWhen)),
-                "PANE_ABI_FLOOR: the Brokers list needs no host newer than 1.6.1 (no PaneAction EnabledWhen, no VisibleWhen)");
+                pane.Schema.All(field => string.IsNullOrEmpty(field.VisibleWhen) && string.IsNullOrEmpty(field.CardEnabledWhen)),
+                "PANE_ABI_FLOOR: Init installs no PaneAction EnabledWhen, VisibleWhen or CardEnabledWhen condition on the 1.6.1 pane");
             check(new[] { PairedGroup, DiscoveredGroup, AwaitingGroup }.Order(StringComparer.OrdinalIgnoreCase).First() == AwaitingGroup,
                 "BROKER_AWAITING_SORTS_FIRST: the host's ordinal group sort puts Awaiting approval above Discovered and Paired");
 
@@ -102,7 +104,7 @@ public sealed partial class AgentBrokerModule
             // leads with the warning sign, because the hint never fits on the row after a name.
             Apply(empty with { Paired = [b], PairingOffers = [offerA with { RequestId = Guid.NewGuid(), Peer = bOtherCert }] });
             ListItem impostor = card.LoadItems().Single(row => row.Group == AwaitingGroup);
-            string impostorText = pane.Load()["pairingStatus"];
+            string impostorText = module.PairingDisplayText();
             check(impostor.Label == "\u26A0 Same name, " + CertificateDiffersHint && impostor.Detail == codeA &&
                 impostorText.Contains(", " + CertificateDiffersHint + ")", StringComparison.Ordinal) &&
                 impostorText.Contains("cannot complete while that pairing is saved", StringComparison.Ordinal),
@@ -110,9 +112,9 @@ public sealed partial class AgentBrokerModule
 
             // The sharing scope is on screen before any press, on both workstations: incoming and outgoing offers alike.
             Apply(empty with { PairingOffers = [offerA] });
-            string incomingText = pane.Load()["pairingStatus"];
+            string incomingText = module.PairingDisplayText();
             Apply(empty with { PairingOffers = [offerC with { LocalApproved = false }] });
-            string outgoingText = pane.Load()["pairingStatus"];
+            string outgoingText = module.PairingDisplayText();
             check(incomingText.Contains(PairingScope, StringComparison.Ordinal) && incomingText.Contains("until ", StringComparison.Ordinal) &&
                 outgoingText.Contains(PairingScope, StringComparison.Ordinal) && outgoingText.StartsWith("Your pairing request to Charlie (", StringComparison.Ordinal),
                 "SCOPE_BEFORE_DECISION: the Pairing row states who, until when and the sharing scope while an incoming or outgoing offer waits");
@@ -122,9 +124,9 @@ public sealed partial class AgentBrokerModule
             bool Quiet()
             {
                 var values = pane.Load();
-                return host.TrayItems.Single().DynamicText?.Invoke() == "AgentBroker" &&
+                return module.TrayRootLabel() == "AgentBroker" &&
                     !values["status"].Contains("Pairing request waiting", StringComparison.Ordinal) &&
-                    !values["pairingStatus"].Contains("Pairing request waiting", StringComparison.Ordinal);
+                    !module.PairingDisplayText().Contains("Pairing request waiting", StringComparison.Ordinal);
             }
             check(Quiet(), "INBOUND_OFFER_SIGNAL: an outgoing request raises no incoming signal");
             Apply(empty with { PairingOffers = [offerA with { LocalApproved = true }] });
@@ -139,7 +141,7 @@ public sealed partial class AgentBrokerModule
             int infoChanges = 0;
             pane.InfoChanged += () => infoChanges++;
             Apply(empty with { PairingOffers = [offerA with { RequestId = Guid.NewGuid(), Peer = c }] });
-            check(infoChanges > 0 && pane.Load()["pairingStatus"].StartsWith("Pairing request waiting from Charlie (", StringComparison.Ordinal),
+            check(infoChanges > 0 && module.PairingDisplayText().StartsWith("Pairing request waiting from Charlie (", StringComparison.Ordinal),
                 "BROKER_SUMMARY_LIVE: an offer from another broker replacing the waiting one notifies the open pane");
 
             // Request pairing sends the exact discovered record, certificate pin included.

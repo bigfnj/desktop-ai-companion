@@ -131,9 +131,11 @@ public sealed partial class AgentBrokerModule
     // PANE-TEXT (1.10.5): one state per line of evidence. Token names the state in the pane's summary line; Action is a short
     // pane-only next step for a warning whose tray line has no room for one. A plain string converts to a state with no
     // token, which notes, the engine report and the last setup result use.
-    private readonly record struct ClientState(string? Token, string Line, string? Action = null)
+    private readonly record struct ClientState(string? Token, string Line, string? Action = null, bool NoAction = false)
     {
         internal bool Ok => Line.StartsWith('\u2713');
+        internal bool NeedsAttention => !NoAction && (Token is not null ? !Ok :
+            Line.StartsWith('\u26A0') || Line.StartsWith('\u2717'));
         public static implicit operator ClientState(string line) => new(null, line);
     }
 
@@ -148,6 +150,53 @@ public sealed partial class AgentBrokerModule
         var lines = new List<string> { ClientName(client) + ": " + ClientHeadline(client) + (tokens.Length == 0 ? "" : " " + tokens) };
         lines.AddRange(states.Where(state => !state.Ok).Select(state => state.Action is null ? state.Line : state.Line + " " + state.Action));
         return string.Join("\n", lines);
+    }
+
+    private bool ClientsAreHealthy()
+    {
+        if (snapshot is null || snapshot.AdapterErrors.Count != 0 ||
+            ClientNotes().Any(note => note.Adapter is not ("claude-native" or "codex-native"))) return false;
+        return new[] { "claude", "codex" }.All(client => !ClientNeedsAttention(client));
+    }
+
+    private bool ClientNeedsAttention(string client)
+    {
+        ClientState[] states = ClientStates(client).ToArray();
+        string adapter = client == "claude" ? "claude-native" : "codex-native";
+        // The pane bounds note rendering. A truncated list remains attention even when its visible notes need no action.
+        return !states.Any(state => state.Token is not null) || states.Any(state => state.NeedsAttention) ||
+            ClientNotes().Count(note => note.Adapter == adapter) > 8;
+    }
+
+    private IEnumerable<(string Adapter, string Text)> ClientNotes()
+    {
+        if (snapshot?.AdapterNotes is not { } notes) yield break;
+        foreach (var pair in notes)
+        {
+            string[] parts = pair.Value.Split(ControlProtocol.NoteSeparator, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 0) yield return (pair.Key, "");
+            foreach (string text in parts) yield return (pair.Key, text);
+        }
+    }
+
+    // Codes are compared before StripCode or display truncation. Unrecognized codes need attention.
+    private static bool IsNoActionClientNote(string adapter, string note)
+    {
+        int separator = note.IndexOf(": ", StringComparison.Ordinal);
+        string code = separator < 0 ? "" : note[..separator];
+        return (adapter == "claude-native" && code == "claude_update_tolerant_delivery") ||
+            (adapter == "codex-native" && code == "codex_update_tolerant_delivery");
+    }
+
+    private string ClientsSummaryText()
+    {
+        string[] clients = ["claude", "codex"];
+        int ok = clients.Count(client => !ClientNeedsAttention(client));
+        int notes = ClientNotes().Count();
+        int off = (!settings.ClaudeDiscovery || !settings.ClaudePeerCredentials ? 1 : 0) +
+            (!settings.CodexDiscovery || !settings.CodexPeerMessages ? 1 : 0);
+        return Count(ok) + " OK, " + Count(notes) + (notes == 1 ? " note" : " notes") +
+            (off == 0 ? "" : ", " + Count(off) + " off");
     }
 
     private IEnumerable<string> ClientStateLines(string client, bool wrapTrayNotes = false) =>
@@ -227,14 +276,15 @@ public sealed partial class AgentBrokerModule
         yield return NativeState(client);
         // A note about some sessions (lane broker-163: elevated Claude Code sessions), beside the healthy line, not instead.
         // The pane keeps each note whole within the worker's description bound; the tray uses bounded continuation items.
-        if (snapshot?.AdapterNotes is { } notes && notes.TryGetValue(client == "claude" ? "claude-native" : "codex-native", out string? joined))
-            foreach (string note in joined.Split(ControlProtocol.NoteSeparator, StringSplitOptions.RemoveEmptyEntries).Take(8))
-            {
-                string description = Safe(StripCode(note), 320);
-                if (wrapTrayNotes)
-                    foreach (string part in TrayNoteLines(description)) yield return part;
-                else yield return "\u26A0 " + description;
-            }
+        string adapter = client == "claude" ? "claude-native" : "codex-native";
+        foreach (var note in ClientNotes().Where(note => note.Adapter == adapter).Take(8))
+        {
+            string description = Safe(StripCode(note.Text), 320);
+            if (wrapTrayNotes)
+                foreach (string part in TrayNoteLines(description))
+                    yield return new ClientState(null, part, NoAction: IsNoActionClientNote(adapter, note.Text));
+            else yield return new ClientState(null, "\u26A0 " + description, NoAction: IsNoActionClientNote(adapter, note.Text));
+        }
         // Report only (lane broker-163, N-agentbroker-code-owner-provenance-01): whose engine holds each Codex row's thread.
         if (client == "codex" && EngineBindingLine() is { } engine) yield return engine;
 
@@ -263,7 +313,7 @@ public sealed partial class AgentBrokerModule
         _ => "an unrecognized state"
     };
 
-    // Pane only: the short reconnect step (ReconnectAdvice in full sits in Client connection).
+    // Pane only: the short reconnect step; the guide carries the full client connection instructions.
     internal static string ReconnectAction(string client) => client == "claude"
         ? "To reconnect, use /mcp or restart the session." : "To reconnect, restart the session.";
 
@@ -314,9 +364,9 @@ public sealed partial class AgentBrokerModule
         bool discovery = claude ? settings.ClaudeDiscovery : settings.CodexDiscovery;
         bool wake = claude ? settings.ClaudePeerCredentials : settings.CodexPeerMessages;
         string adapter = claude ? "claude-native" : "codex-native";
-        if (!discovery) return new("discovery off", line);
+        if (!discovery) return new("discovery off", line, NoAction: true);
         if (snapshot is null || snapshot.AdapterErrors.ContainsKey(adapter)) return new("wake", line);
-        if (!wake) return new("wake off", line);
+        if (!wake) return new("wake off", line, NoAction: true);
         var native = snapshot.Sessions.Where(session => session?.Adapter == adapter).ToArray();
         return new("wake " + Count(native.Count(session => session.CanWake)) + "/" + Count(native.Length), line);
     }

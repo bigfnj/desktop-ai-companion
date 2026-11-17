@@ -212,28 +212,28 @@ public sealed partial class AgentBrokerModule
             check(!pane.Load()["codexClient"].Contains("Engine binding", StringComparison.Ordinal),
                 "ENGINE_BINDING_LINE_ABSENT: with no observation reported there is no engine line");
             // Review finding 5: an elevated Claude Code session is a note beside the healthy sessions' line, not an adapter error.
+            // One pane-rendering invariant owns these four scenarios. Every original condition is evaluated at its
+            // original snapshot; the exact failed-fixture signature identifies which client/mode a mutant broke.
+            var paneNoteRendering = new List<(string Fixture, bool Passed)>();
             const string elevated = "1 Claude Code session is elevated or another user's and cannot be woken; use register_agent or run unelevated.";
             module.ApplyStatus(new(true, true, "running", view with { AdapterNotes = new Dictionary<string, string> { ["claude-native"] = "claude_session_elevated: " + elevated } }));
             string noted = pane.Load()["claudeClient"];
-            check(noted.Contains("Native wake off: 1 open Claude session", StringComparison.Ordinal) && noted.Contains("\n\u26A0 " + elevated, StringComparison.Ordinal) &&
+            paneNoteRendering.Add(("claude-single", noted.Contains("Native wake off: 1 open Claude session", StringComparison.Ordinal) && noted.Contains("\n\u26A0 " + elevated, StringComparison.Ordinal) &&
                 !noted.Contains("\u2717 Native", StringComparison.Ordinal) && !pane.Load()["codexClient"].Contains("elevated", StringComparison.Ordinal) &&
-                pane.Load()["nativeStatus"].Contains("Notes: claude-native: claude_session_elevated", StringComparison.Ordinal),
-                "ELEVATED_NOTE_LINE: the elevated count is its own line beside the healthy Claude line, whole, and a note in Native adapters");
+                module.NativeStatusText() == "No adapter errors reported."));
             // Review of d9c2967, item 3: the plural at the 32-process bound keeps its final period.
             const string many = "32 Claude Code sessions are elevated or another user's and cannot be woken; use register_agent or run unelevated.";
             module.ApplyStatus(new(true, true, "running", view with { AdapterNotes = new Dictionary<string, string> { ["claude-native"] = "claude_session_elevated: " + many } }));
-            check(pane.Load()["claudeClient"].Contains("\n\u26A0 " + many, StringComparison.Ordinal),
-                "ELEVATED_NOTE_PLURAL_WHOLE: the plural note at the 32-session bound is shown whole, final period included");
+            paneNoteRendering.Add(("claude-plural", pane.Load()["claudeClient"].Contains("\n\u26A0 " + many, StringComparison.Ordinal)));
             // Lane claude-update-tolerant: two notes for one adapter used to share one 116-character cut and garble each other.
             const string tolerant = "Claude Code 2.1.314 is not a reviewed build; it is woken because Windows verified Anthropic's signature.";
             module.ApplyStatus(new(true, true, "running", view with { AdapterNotes = new Dictionary<string, string> { ["claude-native"] =
                 "claude_session_elevated: " + many + ControlProtocol.NoteSeparator + "claude_update_tolerant_delivery: " + tolerant } }));
             string both = pane.Load()["claudeClient"];
-            check(both.Contains("\n⚠ " + many + "\n⚠ " + tolerant, StringComparison.Ordinal) &&
-                !both.Contains("claude_update_tolerant_delivery", StringComparison.Ordinal),
-                "NOTES_EACH_WHOLE: two notes for one adapter are each shown whole, on a line of their own");
-            check(pane.Load()["nativeStatus"].Contains(many + "; claude_update_tolerant_delivery: " + tolerant, StringComparison.Ordinal),
-                "NOTES_NATIVE_STATUS_SEPARATED: Native adapters lists both notes, each whole and separated");
+            paneNoteRendering.Add(("claude-combined", both.Contains("\n⚠ " + many + "\n⚠ " + tolerant, StringComparison.Ordinal) &&
+                !both.Contains("claude_update_tolerant_delivery", StringComparison.Ordinal)));
+            check(pane.Load()["nativeStatus"] == "No adapter errors reported.",
+                "NOTES_NATIVE_STATUS_SEPARATED: Native adapters reports errors without repeating the separate whole client notes");
             const string codexTolerant = "Known unreviewed builds: Codex VS Code extension 26.1021.22027; VS Code router 1.144.0. " +
                 "Eligible sessions use Windows-verified publisher signatures.";
             const string codexOtherNote = "A separate Codex session note remains on its own line.";
@@ -242,13 +242,16 @@ public sealed partial class AgentBrokerModule
                     codexTolerant + ControlProtocol.NoteSeparator + "codex_synthetic_note: " + codexOtherNote } }));
             string codexNoted = pane.Load()["codexClient"];
             string[] codexNoteLines = codexNoted.Split('\n');
-            check(codexNoteLines.Contains("\u26A0 " + codexTolerant) && codexNoteLines.Contains("\u26A0 " + codexOtherNote) &&
+            paneNoteRendering.Add(("codex-combined", codexNoteLines.Contains("\u26A0 " + codexTolerant) && codexNoteLines.Contains("\u26A0 " + codexOtherNote) &&
                 codexNoted.Contains("Native wake off: 1 open Codex session", StringComparison.Ordinal) &&
                 !codexNoted.Contains("\u2717 Native", StringComparison.Ordinal) &&
                 !codexNoted.Contains("codex_update_tolerant_delivery", StringComparison.Ordinal) &&
                 !pane.Load()["claudeClient"].Contains("Known unreviewed builds", StringComparison.Ordinal) &&
-                pane.Load()["nativeStatus"].Contains(codexTolerant + "; codex_synthetic_note: " + codexOtherNote, StringComparison.Ordinal),
-                "CODEX_TOLERANT_NOTE_LINE: a combined Codex build note and a second note are whole on separate lines beside the healthy native line");
+                module.NativeStatusText() == "No adapter errors reported."));
+            string[] failedPaneNoteFixtures = paneNoteRendering.Where(fixture => !fixture.Passed).Select(fixture => fixture.Fixture).ToArray();
+            check(failedPaneNoteFixtures.Length == 0,
+                "CLIENT_NOTE_PANE_RENDERING[" + string.Join(",", failedPaneNoteFixtures) +
+                "]: each client's singular, plural and combined pane notes stay whole on separate lines without cross-client leakage");
             string[] codexTrayNotes = host.TrayItems.Single().BuildChildren()
                 .Single(item => item.Label.StartsWith("Codex: ", StringComparison.Ordinal)).BuildChildren()
                 .Select(item => item.Label).ToArray();
@@ -360,7 +363,7 @@ public sealed partial class AgentBrokerModule
             }
             string text = Show(null);
             check(text.StartsWith("Network category: not reported by this worker.", StringComparison.Ordinal) &&
-                text.Contains("Private networks", StringComparison.Ordinal),
+                text.Contains("Allow LAN access can add a Private-network rule with administrator approval.", StringComparison.Ordinal),
                 "lan profile: an older worker without a reading says so and keeps the setup guidance");
             text = Show(new("public", "configured", 2, now, null));
             check(text.Contains("Network category: Public on the interface carrying this broker's LAN address.", StringComparison.Ordinal) &&

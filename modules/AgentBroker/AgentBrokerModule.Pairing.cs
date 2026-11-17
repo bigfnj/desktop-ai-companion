@@ -30,9 +30,12 @@ public sealed partial class AgentBrokerModule
     {
         PeerView[] paired = snapshot?.Paired.Where(peer => PairingIdentity(peer) is not null).ToArray() ?? [];
         if (paired.Length == 0) return "";
-        string names = string.Join(", ", paired.OrderBy(peer => Safe(peer.Name, 48), StringComparer.OrdinalIgnoreCase)
+        string names = string.Join(", ", paired.OrderBy(SafeBrokerName, StringComparer.OrdinalIgnoreCase)
             .ThenBy(peer => peer.BrokerId).Take(4).Select(peer =>
-            string.IsNullOrWhiteSpace(Safe(peer.Name, 48)) ? "broker " + peer.BrokerId.ToString("N")[..8] : Safe(peer.Name, 48)));
+            {
+                string name = Safe(StripDisplayIdentity(peer.Name), 48);
+                return string.IsNullOrWhiteSpace(name) ? "broker " + peer.BrokerId.ToString("N")[..8] : name;
+            }));
         if (paired.Length > 4) names += " and " + (paired.Length - 4) + " more";
         return "Paired with " + names + ". Trust is saved on this PC; current reachability is not verified.";
     }
@@ -40,34 +43,36 @@ public sealed partial class AgentBrokerModule
     private string PairingDisplayText()
     {
         string paired = PairedTrustSummary();
-        string text = paired.Length != 0 ? paired + (pairingStatus.Length == 0 ? "" : " " + pairingStatus)
-            : pairingStatus.Length != 0 ? pairingStatus : "No pairing attempt yet.";
+        string text;
+        if (snapshot is null)
+        {
+            text = settings.Enabled ? "Paired broker status is unavailable. Wait for the worker or refresh status."
+                : "Enable AgentBroker to view paired brokers.";
+            if (pairingStatus.Length != 0) text += " " + pairingStatus;
+        }
+        else text = paired.Length != 0 ? paired + (pairingStatus.Length == 0 ? "" : " " + pairingStatus)
+            : pairingStatus.Length != 0 ? pairingStatus : "No paired brokers. Pairing saves trust after both workstations approve.";
+        string health = PairingHealthText();
+        if (health.Length != 0) text += " " + health;
         // PANE-POPUP (1.10.5): a waiting offer leads the live Pairing row instead of raising a question.
         string offers = PendingOfferText();
         return offers.Length == 0 ? text : paired.Length == 0 && pairingStatus.Length == 0 ? offers : offers + " " + text;
     }
 
-    private string PairedBrokersDisplay()
+    private string PairingHealthText()
     {
-        if (snapshot is null) return settings.Enabled
-            ? "Paired broker status is unavailable. Wait for the worker or refresh status."
-            : "Enable AgentBroker to view paired brokers.";
-        if (snapshot.Paired.Length == 0) return "No paired brokers. Pairing saves trust after both workstations approve.";
-        string Name(PeerView peer)
+        if (snapshot is null) return "";
+        var lines = new List<string>();
+        foreach (var peer in snapshot.Paired.OrderBy(SafeBrokerName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(peer => peer.BrokerId).Take(BrokerGroupLimit))
         {
-            string name = Safe(peer.Name, 80);
-            return string.IsNullOrWhiteSpace(name) ? "Broker " + peer.BrokerId.ToString("N")[..8] : name;
+            PeerClockView? clock = snapshot.PeerClocks?.FirstOrDefault(value => value.BrokerId == peer.BrokerId);
+            if (clock is null || clock.Warning || clock.State != "observed")
+                lines.Add(BrokerRowName(peer) + ": " + PeerClockText(clock));
         }
-        string Endpoint(PeerView peer) => Uri.TryCreate(peer.Endpoint, UriKind.Absolute, out var endpoint) &&
-            endpoint.Scheme == Uri.UriSchemeHttps && endpoint.UserInfo.Length == 0 && endpoint.Query.Length == 0 &&
-            endpoint.Fragment.Length == 0 && endpoint.AbsolutePath == "/"
-                ? Safe(endpoint.AbsoluteUri, 512) : "endpoint unavailable";
-        IEnumerable<string> lines = snapshot.Paired.OrderBy(Name, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(peer => peer.BrokerId).ThenBy(peer => peer.CertificateSha256, StringComparer.OrdinalIgnoreCase)
-            .Take(32).Select(peer => Name(peer) + " | " + Endpoint(peer) + "\n  " +
-                PeerClockText(snapshot.PeerClocks?.FirstOrDefault(clock => clock.BrokerId == peer.BrokerId)));
-        string result = "Saved trust on this PC; current reachability is unknown.\n" + string.Join("\n", lines);
-        return snapshot.Paired.Length > 32 ? result + "\nShowing 32 of " + snapshot.Paired.Length + " saved brokers." : result;
+        if (snapshot.Paired.Length > BrokerGroupLimit)
+            lines.Add("Showing " + BrokerGroupLimit + " of " + snapshot.Paired.Length + " saved brokers.");
+        return string.Join(" ", lines);
     }
 
     private void ResetPairingStatus()
@@ -93,9 +98,9 @@ public sealed partial class AgentBrokerModule
         NotifyInfoChanged();
     }
 
-    // BSM-4 (1.10.5): the passive waiting-mail suffix follows the incoming pairing text and precedes pairing errors and dropped
-    // notices; it replaces none of them.
-    private string DisplayedStatus() => status + (settings.Enabled ? " " + McpDisplay().Summary : "") + IncomingOfferStatus() +
+    // The passive waiting-mail suffix precedes pairing errors and dropped notices. Incoming offers appear in Pairing and
+    // on the tray root, so Status does not repeat that signal.
+    private string DisplayedStatus() => status + (settings.Enabled ? " " + McpDisplay().Summary : "") +
         WaitingMailStatusSignal(WaitingMailSignalSessions()) +
         (pairingFailed ? " " + pairingStatus : "") + (settings.Enabled ? NoticeDropText(snapshot?.DroppedNotices) : "");
 
@@ -158,7 +163,7 @@ public sealed partial class AgentBrokerModule
             ? "Pairing requested. Compare the complete code on both workstations, then approve on both. The request alone does not share sessions."
             : snapshot?.PairingOffers.Any(offer => offer.RequestId == request.Id) == true
                 ? "This workstation sent its confirmation. Both workstations must approve the same complete code; check pending or paired brokers for current state."
-                : "Confirmation received. Check Paired brokers for the completed connection.", false, peer, clearFailure: true);
+                : "Confirmation received. Check Paired in the Brokers list for the completed connection.", false, peer, clearFailure: true);
     }
 
     private static string PairingFailureText(string code) => code switch

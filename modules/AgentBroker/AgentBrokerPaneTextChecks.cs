@@ -33,7 +33,10 @@ public sealed partial class AgentBrokerModule
             var values = pane.Load();
             string[] tooLong = PaneTextRows.Where(id => !values.TryGetValue(id, out string? text) || text.Length == 0 ||
                 text.Length > 280 || Sentences(text) > 2 || !pane.Schema.Any(field => field.Id == id && field.Kind == SettingKind.Info)).ToArray();
-            check(PaneTextRows.Length == 6 && tooLong.Length == 0,
+            // Removal contracts have dedicated owners: BROKERS_ONE_CARD, lifetime help and WORDING_DELIVERY_STATES.
+            // This check owns text length and sentence count, so restoring a removed row does not masquerade as length failure.
+            check(PaneTextRows.SequenceEqual(new[] { "claudeWakeConsent", "desktopChatHelp" }, StringComparer.Ordinal) &&
+                tooLong.Length == 0,
                 "PANE_TEXT_SHORT: each static explanation row is at most two sentences and 280 characters" +
                 (tooLong.Length == 0 ? "" : " (over: " + string.Join(", ", tooLong) + ")"));
 
@@ -125,6 +128,9 @@ public sealed partial class AgentBrokerModule
             !guide.Contains(" src=", StringComparison.OrdinalIgnoreCase),
             "GUIDE_EMBEDDED: the module assembly carries one self-contained HTML guide with every section the pane points to" +
             (missing.Length == 0 ? "" : " (missing: " + string.Join(", ", missing) + ")"));
+
+        RunGuideRecipeChecks(check, guide);
+        RunGuideContractChecks(check, guide);
 
         string root = Path.Combine(Path.GetTempPath(), "agentbroker-guide-synthetic-" + Guid.NewGuid().ToString("N"));
         string storage = Path.Combine(root, "storage"), linked = Path.Combine(root, "linked"), outside = Path.Combine(root, "outside");

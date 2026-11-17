@@ -70,8 +70,9 @@ public sealed partial class AgentBrokerModule
                 pane.Load()["agentInboxes"].Contains("1 native, 1 MCP", StringComparison.Ordinal) &&
                 pane.Load()["agentInboxes"].Contains("MCP labels (self-reported): \"Codex collaboration\"", StringComparison.Ordinal),
                 "MCP status: generic Codex inbox is visible independently of its harness client implementation name");
+            // The guide's Clients table explains client traffic versus inbox ownership and self-reported labels.
+            // Full B1 removes that repeated static footer; the live row must still refuse false attribution and health.
             check(pane.Load()["mcpStatus"].Contains("Codex client: not seen", StringComparison.Ordinal) &&
-                pane.Load()["mcpStatus"].Contains("not participating agents", StringComparison.Ordinal) &&
                 pane.Load()["mcpStatus"].Contains("Live connection health is not verified", StringComparison.Ordinal) &&
                 !pane.Load()["status"].Contains("Codex client", StringComparison.Ordinal),
                 "MCP status: a self-reported Codex label cannot manufacture Codex client traffic or verified connection health");

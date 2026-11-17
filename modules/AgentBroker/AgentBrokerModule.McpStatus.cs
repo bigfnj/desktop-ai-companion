@@ -68,7 +68,7 @@ public sealed partial class AgentBrokerModule
             : view.LastToolsListUtc > now.AddSeconds(5) ? "Tool-list activity time unknown."
             : "Tool list served " + Age(view.LastToolsListUtc.Value, now) + ".";
         return ("MCP ready.",
-            $"{claude}; {codex}; {other}. {tools} Last seen records client-implementation traffic, not participating agents. Live connection health is not verified.");
+            $"{claude}; {codex}; {other}. {tools} Live connection health is not verified.");
     }
 
     private static string Age(DateTimeOffset seen, DateTimeOffset now)

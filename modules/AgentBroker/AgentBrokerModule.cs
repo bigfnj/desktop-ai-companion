@@ -14,6 +14,7 @@ public sealed partial class AgentBrokerModule : IModule
     private IHost? host;
     private IModuleSettings? settingsStore;
     private OptionsPane? optionsPane;
+    private SettingField? clientsBand;
     // The live Info values last notified, in InfoValues order. An array rather than a fixed tuple so that a new live Info
     // row is one more entry in InfoValues, compared the same way (lane P, 1.10.5).
     private string[]? notifiedInfo;
@@ -249,24 +250,24 @@ public sealed partial class AgentBrokerModule : IModule
         Schema =
         [
             new() { Id = "status", Label = "Status", Kind = SettingKind.Info, Group = "AgentBroker", FullWidth = true, PinTop = true },
-            new() { Id = "pairedBrokers", Label = "Paired brokers", Kind = SettingKind.Info, Group = "AgentBroker", FullWidth = true },
-            new() { Id = "agentInboxes", Label = "Agent inboxes", Kind = SettingKind.Info, Group = "AgentBroker", FullWidth = true },
-            new() { Id = "waitingMail", Label = "Waiting mail", Kind = SettingKind.Info, Group = "AgentBroker", FullWidth = true },
-            new() { Id = "mcpStatus", Label = "MCP client traffic", Kind = SettingKind.Info, Group = "AgentBroker", FullWidth = true },
-            new() { Id = "approvalPrompts", Label = "Visible Codex approval prompts", Kind = SettingKind.Info, Group = "AgentBroker", FullWidth = true },
+            new() { Id = "pairingStatus", Label = "Pairing", Kind = SettingKind.Info, Group = "AgentBroker" },
+            new() { Id = "clientsSummary", Label = "Clients", Kind = SettingKind.Info, Group = "AgentBroker" },
+            new() { Id = "agentInboxes", Label = "Agent inboxes", Kind = SettingKind.Info, Group = "AgentBroker" },
+            new() { Id = "waitingMail", Label = "Waiting mail", Kind = SettingKind.Info, Group = "AgentBroker" },
+            new() { Id = "mcpStatus", Label = "MCP client traffic", Kind = SettingKind.Info, Group = "AgentBroker" },
+            new() { Id = "approvalPrompts", Label = "Visible Codex approval prompts", Kind = SettingKind.Info, Group = "AgentBroker" },
             new() { Id = "enabled", Label = "Enable AgentBroker", Kind = SettingKind.Bool, Group = "AgentBroker" },
+            clientsBand = new() { Id = "claudeClient", Label = "Claude Code (CLI and VS Code)", Kind = SettingKind.Info,
+                Group = "Clients", FullWidth = true, Collapsible = true },
+            new() { Id = "codexClient", Label = "Codex", Kind = SettingKind.Info, Group = "Clients" },
+            new() { Id = "nativeStatus", Label = "Native adapters", Kind = SettingKind.Info, Group = "Clients" },
             new() { Id = "name", Label = "Broker name", Kind = SettingKind.Text, Group = "Connections" },
             new() { Id = "loopbackPort", Label = "Local port", Kind = SettingKind.Int, Min = 1, Max = 65535, Group = "Connections" },
             new() { Id = "messageLifetimeHours", Label = "Default message delivery window (hours)", Kind = SettingKind.Int, Min = 1, Max = 24, Group = "Connections" },
-            new() { Id = "messageLifetimeHelp", Label = "Delivery deadlines", Kind = SettingKind.Info, Group = "Connections", FullWidth = true },
             new() { Id = "noAuthLoopback", Label = "Allow local connections without a token", Kind = SettingKind.Bool, Group = "Connections" },
             new() { Id = "enableLan", Label = "Enable LAN discovery and pairing", Kind = SettingKind.Bool, Group = "Connections" },
             new() { Id = "lanPort", Label = "LAN port", Kind = SettingKind.Int, Min = 1, Max = 65535, Group = "Connections", EnabledWhen = "enableLan=true" },
-            new() { Id = "lanAccess", Label = "LAN firewall access", Kind = SettingKind.Info, Group = "Connections", FullWidth = true },
-            new() { Id = "sharing", Label = "Sharing", Kind = SettingKind.Info, Group = "Connections" },
-            new() { Id = "pairingStatus", Label = "Pairing", Kind = SettingKind.Info, Group = "Connections" },
-            new() { Id = "manualPeer", Label = "Broker invitation (optional)", Kind = SettingKind.Text, Group = "Pair by invitation", FullWidth = true,
-                Collapsible = true, StartCollapsed = true },
+            new() { Id = "lanAccess", Label = "LAN firewall access", Kind = SettingKind.Info, Group = "Connections" },
             new() { Id = "codexDiscovery", Label = "Discover open Codex sessions", Kind = SettingKind.Bool, Group = "Coding agents" },
             new() { Id = "additionalCodexHome", Label = "Additional Codex home to observe", Kind = SettingKind.FolderPath,
                 Group = "Coding agents", EmptyHint = "Optional; the default Codex home is already observed", EnabledWhen = "codexDiscovery=true" },
@@ -278,13 +279,8 @@ public sealed partial class AgentBrokerModule : IModule
                 Group = "Coding agents", EnabledWhen = "codexPeerMessages=true" },
             new() { Id = "claudeUpdateTolerantDelivery", Label = "Also wake updated Claude builds (publisher verified)", Kind = SettingKind.Bool,
                 Group = "Coding agents", EnabledWhen = "claudePeerCredentials=true" },
-            new() { Id = "nativePrivacy", Label = "Native delivery", Kind = SettingKind.Info, Group = "Coding agents" },
-            new() { Id = "clientSetup", Label = "Client connection", Kind = SettingKind.Info, Group = "Coding agents" },
-            new() { Id = "claudeClient", Label = "Claude Code (CLI and VS Code)", Kind = SettingKind.Info, Group = "Coding agents", FullWidth = true },
-            new() { Id = "codexClient", Label = "Codex", Kind = SettingKind.Info, Group = "Coding agents", FullWidth = true },
-            new() { Id = "nativeStatus", Label = "Native adapters", Kind = SettingKind.Info, Group = "Coding agents" },
             new() { Id = "desktopChatHelp", Label = "Open an existing chat", Kind = SettingKind.Info,
-                Group = "Reopen a Codex desktop chat", FullWidth = true },
+                Group = "Reopen a Codex desktop chat", Collapsible = true, StartCollapsed = true },
             new() { Id = "desktopChatOrigin", Label = "Original app", Kind = SettingKind.Enum,
                 Options = [DesktopChatOriginPrompt, DesktopChatOrigin, DesktopChatVsCodeOrigin], Group = "Reopen a Codex desktop chat" },
             new() { Id = "desktopChatThreadId", Label = "Thread ID from the chat link", Kind = SettingKind.Text,
@@ -295,43 +291,34 @@ public sealed partial class AgentBrokerModule : IModule
         Actions = [new PaneAction { Label = "Refresh status", Group = "AgentBroker", ReloadPaneAfter = true,
             InvokeAsync = RefreshStatusAsync },
             new PaneAction { Label = GuideActionLabel, Group = "AgentBroker", InvokeAsync = OpenGuideAsync },
-            new PaneAction { Label = "Check client setup", Group = "Coding agents", ReloadPaneAfter = true, InvokeAsync = () => CheckClientSetupAsync() },
-            new PaneAction { Label = "Connect Codex MCP", Group = "Coding agents", ReloadPaneAfter = true, InvokeAsync = () => ConnectAndCheckAsync("codex") },
-            new PaneAction { Label = "Connect Claude MCP", Group = "Coding agents", ReloadPaneAfter = true, InvokeAsync = () => ConnectAndCheckAsync("claude") },
+            new PaneAction { Label = "Check client setup", Group = "Clients", ReloadPaneAfter = true, InvokeAsync = () => CheckClientSetupAsync() },
+            new PaneAction { Label = "Connect Codex MCP", Group = "Clients", ReloadPaneAfter = true, InvokeAsync = () => ConnectAndCheckAsync("codex") },
+            new PaneAction { Label = "Connect Claude MCP", Group = "Clients", ReloadPaneAfter = true, InvokeAsync = () => ConnectAndCheckAsync("claude") },
             new PaneAction { Label = "Open existing desktop chat", Group = "Reopen a Codex desktop chat",
                 InvokeWithPendingAsync = OpenCodexDesktopChatAsync },
-            new PaneAction { Label = "Allow LAN access", Group = "Connections", ReloadPaneAfter = true, InvokeAsync = AllowLanAccessAsync },
-            new PaneAction { Label = "Copy broker invitation", Group = "Pair by invitation", InvokeAsync = CopyInvitationAsync },
-            new PaneAction { Label = "Pair from invitation", Group = "Pair by invitation", InvokeWithPendingAsync = PairInvitationAsync }]
+            new PaneAction { Label = "Allow LAN access", Group = "Connections", ReloadPaneAfter = true, InvokeAsync = AllowLanAccessAsync }]
     };
 
     private IReadOnlyDictionary<string, string> LoadOptions()
     {
+        // The host loads values before reading the schema on each open; Init has no client observations yet.
+        if (clientsBand is not null) clientsBand.StartCollapsed = ClientsAreHealthy();
         var values = settings.Values();
         values["status"] = DisplayedStatus();
         values["approvalPrompts"] = ApprovalPromptText();
         values["mcpStatus"] = McpDisplay().Detail;
         values["agentInboxes"] = AgentInboxDisplay().Detail;
         values["waitingMail"] = WaitingMailText();
-        // FU-1 (1.10.5): reading never acknowledges, and Held is not Delivered (Codex b7a31d8e's wording).
-        values["messageLifetimeHelp"] = "Default for new replies and sends using ttlMinutes 0; explicit message deadlines stay unchanged. Delivered remains Delivered after its original delivery deadline; reading alone does not acknowledge; Held keeps the text without extending its deadline.";
         values["pairingStatus"] = PairingDisplayText();
-        values["pairedBrokers"] = PairedBrokersDisplay();
+        values["clientsSummary"] = ClientsSummaryText();
         values["lanAccess"] = LanAccessText();
-        values["sharing"] = "Pair brokers in the Brokers list or from the tray; pairing shares current and future sessions. Mark a session private to hide it or mute it to stop peer messages; LAN connections always authenticate.";
-        values["manualPeer"] = "";
         // PANE-TEXT (1.10.5): each static explanation is at most two sentences (PaneTextRows); the full text is in the guide.
-        // The defaults stay literal, "(on by default)" after each switch name with how to turn it off, and the consent for
-        // Claude wake-up sits in its own row directly under its switch, never only in the guide.
-        values["nativePrivacy"] = "For Claude, \"Also wake updated Claude builds\" (on by default) accepts Anthropic-signed builds. For Codex, \"Also wake updated Codex builds\" (on by default) accepts OpenAI-signed builds that pass the native checks; turn either off to wake exactly verified builds only.";
+        // Publisher verification stays in the switch labels; credential consent stays directly under Claude wake-up.
         values["claudeWakeConsent"] = ClaudeWakeConsent;
-        // N-agentbroker-client-reconnect-01: a session that started while the worker was down (every companion restart
-        // stops and starts it) keeps no broker tools, and neither client retries by itself.
-        values["clientSetup"] = "Connect MCP once per client for receipt and reply tools. " + ReconnectAdvice;
         values["nativeStatus"] = NativeStatusText();
         values["claudeClient"] = ClientDisplay("claude");
         values["codexClient"] = ClientDisplay("codex");
-        values["desktopChatHelp"] = "Choose the chat's original app and enter its thread ID from the chat link to ask the desktop app to open that chat. Sending broker messages remains a separate action.";
+        values["desktopChatHelp"] = "Choose the original app and enter the chat's thread ID from its link to ask the desktop app to open it.";
         values["desktopChatOrigin"] = DesktopChatOriginPrompt;
         values["desktopChatThreadId"] = "";
         return values;
@@ -339,15 +326,22 @@ public sealed partial class AgentBrokerModule : IModule
 
     internal const string ClaudeWakeConsent = "Claude wake-up uses sensitive local peer credentials. Agent permission controls still apply.";
     // The static explanation rows PANE_TEXT_SHORT holds to two sentences and 280 characters.
-    internal static readonly string[] PaneTextRows = ["nativePrivacy", "claudeWakeConsent", "clientSetup", "sharing", "messageLifetimeHelp", "desktopChatHelp"];
-    internal const string ReconnectAdvice = "A session that started while the broker was down, including during a companion restart, has no broker tools until you reconnect its MCP server (Claude Code: /mcp) or restart the session.";
+    internal static readonly string[] PaneTextRows = ["claudeWakeConsent", "desktopChatHelp"];
 
-    private string NativeStatusText() => snapshot is null ? "No worker status yet." : (snapshot.AdapterErrors.Count == 0
-        ? "No adapter errors reported."
-        : string.Join("; ", snapshot.AdapterErrors.Select(x => Safe(x.Key, 32) + ": " + Safe(x.Value, 512)).Take(8))) +
-        // Notes about some sessions (lane broker-163), after the errors and never counted as one.
-        (snapshot.AdapterNotes is { Count: > 0 } notes ? " Notes: " + string.Join("; ", notes.Select(x => Safe(x.Key, 32) + ": " +
-            Safe(x.Value.Replace(ControlProtocol.NoteSeparator.ToString(), "; ", StringComparison.Ordinal), 512)).Take(8)) : "");
+    private string NativeStatusText()
+    {
+        if (snapshot is null) return "No worker status yet.";
+        string errors = snapshot.AdapterErrors.Count == 0 ? "No adapter errors reported."
+            : string.Join("; ", snapshot.AdapterErrors.Select(x => Safe(x.Key, 32) + ": " + Safe(x.Value, 512)).Take(8));
+        // Known adapters have their own client lines. Other adapters still need a visible explanation for an open band.
+        var unassigned = ClientNotes().Where(note => note.Adapter is not ("claude-native" or "codex-native")).ToArray();
+        if (unassigned.Length == 0) return errors;
+        string notes = string.Join("; ", unassigned.Take(8).Select(note => "Adapter note " +
+            System.Text.Json.JsonSerializer.Serialize(note.Adapter.Length <= 32 ? note.Adapter : note.Adapter[..32] + "...") +
+            ": " + Safe(StripCode(note.Text), 320)));
+        return errors + " Notes: " + notes + (unassigned.Length <= 8 ? "" : " (" + Count(unassigned.Length - 8) +
+            (unassigned.Length == 9 ? " more adapter note)" : " more adapter notes)"));
+    }
 
     private void SetStatus(string value)
     {
@@ -358,8 +352,8 @@ public sealed partial class AgentBrokerModule : IModule
     // Every Info value the pane reloads live. Order is fixed; equality is ordinal per entry, as the tuple's was.
     private string[] InfoValues() =>
     [
-        DisplayedStatus(), NativeStatusText(), PairingDisplayText(), McpDisplay().Detail, AgentInboxDisplay().Detail, LanAccessText(),
-        PairedBrokersDisplay(), ClientDisplay("claude"), ClientDisplay("codex"), ApprovalPromptText(), WaitingMailText()
+        DisplayedStatus(), NativeStatusText(), PairingDisplayText(), ClientsSummaryText(), McpDisplay().Detail, AgentInboxDisplay().Detail, LanAccessText(),
+        ClientDisplay("claude"), ClientDisplay("codex"), ApprovalPromptText(), WaitingMailText()
     ];
 
     private void NotifyInfoChanged()
@@ -533,7 +527,7 @@ public sealed partial class AgentBrokerModule : IModule
                 _ => "Worker status unavailable. Retrying automatically."
             });
         // PANE-POPUP (1.10.5): no question is raised here for a discovered broker or a pairing offer. Discovered brokers
-        // and offers show in the Brokers list, an incoming offer also in Pairing, Status and the tray root, and only an
+        // and offers show in the Brokers list, an incoming offer also in Pairing and the tray root, and only an
         // explicit press on one row or tray item sends pair-request, pair-approve or pair-reject.
         if (snapshot is null) return true;
         ReconcilePairingStatus();
@@ -560,12 +554,12 @@ public sealed partial class AgentBrokerModule : IModule
         BrokerSnapshot? view = snapshot;
         if (view is null) return items;
         foreach (var offer in view.PairingOffers.Take(32))
-            items.Add(new() { Label = "Pairing code " + Safe(offer.VerificationCode, 35) + " for " + Safe(offer.Peer.Name, 20),
+            items.Add(new() { Label = "Pairing code " + Safe(offer.VerificationCode, 35) + " for " + Safe(StripDisplayIdentity(offer.Peer.Name), 20),
                 BuildChildren = () => [new TrayItem { Label = offer.LocalApproved ? "Waiting for the other broker; retry confirmation" : "Codes match; allow sharing",
                     Click = () => _ = SendAsync(new("pair-approve", offer.RequestId)) },
                     new TrayItem { Label = "Cancel pairing", Click = () => _ = SendAsync(new("pair-reject", offer.RequestId)) }] });
         items.Add(new() { Label = "Pair a broker", BuildChildren = () => view.Discovered.Take(32).Select(peer => new TrayItem
-            { Label = Safe(peer.Name, 60), Click = () => _ = SendAsync(new("pair-request", Peer: peer)) }).ToArray() });
+            { Label = Safe(StripDisplayIdentity(peer.Name), 60), Click = () => _ = SendAsync(new("pair-request", Peer: peer)) }).ToArray() });
         // No revoke in the tray (owner decision 2026-11-12, D10): removing a pairing is a deliberate action, the pane's two-press
         // Revoke sharing. The paired summary line above still names the paired brokers.
         items.Add(new() { Label = "Sessions", BuildChildren = () => view.Sessions.Take(256).Select(session => new TrayItem
