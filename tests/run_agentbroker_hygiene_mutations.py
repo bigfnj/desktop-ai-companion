@@ -1293,7 +1293,7 @@ ATTACHMENT_R2B_WITNESSES = (
             # Round 6 moved the stale branch to the end of the Verified case. The mutant now drops the recheck from the admission
             # condition, so a stale Verified admits without its file (the old mutant returned a null receipt); the same label
             # catches it.
-            (('                    if (known || present && allowed)\n', '                    if (known || allowed)\n', 1),),
+            (('                    if (known || present && allowed && !otherText)\n', '                    if (known || allowed && !otherText)\n', 1),),
             'ATTACHMENT_STALE_VERIFIED_REPULLS: a verified pull whose files were removed before admission pulls again; the message is never admitted without its files'),
     Witness('attachment-r2b-linked-count', 'tools/AgentBroker.Worker/Federation/PeerFederation.Attachments.cs', 'network', ATTACHMENT_GROUP,
             (('            Interlocked.Increment(ref AttachmentLinkedSourcesLive);\n', '', 1),),
@@ -1503,6 +1503,14 @@ ATTACHMENT_R6_WITNESSES = (
             "ATTACHMENT_DROP_KEEPS_NEWER_RESERVATION: a forward's Drop after a newer forward replaced its pull state ends neither that pull's state nor its reservation"),
 )
 
+# ---- lane F round 7 (DECISIONS 127): the S-019 residue; the admitted text is bound to the received folder's manifest. ----
+ATTACHMENT_R7_WITNESSES = (
+    Witness("attachment-r7-manifest-text", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (("                    otherText = !known && attachments.ReceivedEnvelopeSha256(caller, message.Id) is { } recorded && recorded != textSha256;\n",
+              "                    otherText = false;\n", 1),),
+            "ATTACHMENT_ONE_TEXT_BOUND_TO_MANIFEST: a second text that passed the one-text check before the first text's manifest existed is refused attachment_envelope_invalid at admission once the first pull's state is gone; the admitted text is the manifest's envelope"),
+)
+
 WITNESSES = (
     Witness("hygiene-late-held-allowed", STORE, "core", ("--hygiene-only",), ((X1_GUARD, "", 1),),
             "LATE_HELD_REFUSED: a local Held after the deadline is refused message_expired and the record stays Uncertain"),
@@ -1696,7 +1704,7 @@ WITNESSES = (
 
     Witness('watch-cleanup-exists-omitted', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('if (File.Exists(lockPath)) cleanup = "failed";', '', 1),), 'WATCH_CLEANUP_DELETE_PENDING: a visible delete-pending lock reports cleanup failed without changing the mail exit code'),
 
-) + ATTACHMENT_WITNESSES + ATTACHMENT_R2_WITNESSES + ATTACHMENT_R2B_WITNESSES + ATTACHMENT_R5_WITNESSES + ATTACHMENT_R6_WITNESSES
+) + ATTACHMENT_WITNESSES + ATTACHMENT_R2_WITNESSES + ATTACHMENT_R2B_WITNESSES + ATTACHMENT_R5_WITNESSES + ATTACHMENT_R6_WITNESSES + ATTACHMENT_R7_WITNESSES
 
 
 def sha256(data: bytes) -> str:
@@ -1770,9 +1778,11 @@ EXPECTED_COUNTS = {("core", ("--waiting-mail-only",)): 118, ("worker", ("--waiti
                    # ATTACHMENT_SENDER_BOUND_NOT_EARLY, DECISIONS 64, and ATTACHMENT_PREVALIDATED_TRANSIT, the fifth F-19 guard).
                    # F round 6 (DECISIONS 116, 120, 122, 123): Worker 69 (six checks: items 11, S-013a and S-020, the sweep's
                    # folder gate, item 18 for the sweep and for DeleteInbox), Network 63 (four checks: items 5, 10, 17 and
-                   # S-013b); derived from the added check() calls, measured by the campaign-6 baselines.
+                   # S-013b); measured 69 and 63 by the campaign-6 baselines (lanes/F/round6). F round 7 (DECISIONS 127):
+                   # Network 64 (ATTACHMENT_ONE_TEXT_BOUND_TO_MANIFEST), derived from the added check() call, to be measured
+                   # by the rebase campaign's baseline.
                    ("core", ("--attachments-only",)): 64, ("worker", ("--attachments-only",)): 69,
-                   ("network", ("--attachments-only",)): 63}
+                   ("network", ("--attachments-only",)): 64}
 CORE_SUMMARIES = {("--waiting-mail-only",): "AgentBroker waiting-mail smoke", ("--reply-receipt-only",): "AgentBroker reply receipt smoke", ("--hygiene-only",): "AgentBroker hygiene smoke", ("--peer-receipt-only",): "AgentBroker peer receipt smoke",
                   ("--commit-timing-only",): "AgentBroker commit timing smoke",
                   ("--uncertain-notices-only",): "AgentBroker uncertainty notice smoke",

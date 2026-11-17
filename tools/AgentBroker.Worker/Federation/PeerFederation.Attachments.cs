@@ -159,7 +159,7 @@ public sealed partial class PeerFederation
                 // takes for each received folder too, so nothing can delete the files between the recheck and the admission;
                 // and an allow the owner withdrew during the pull refuses the message here.
                 MessageReceipt? admitted = null;
-                bool present, allowed;
+                bool present, allowed, otherText;
                 lock (attachments.AdmissionGate)
                 {
                     present = envelope!.Attachments.All(entry => attachments.HasVerified(caller, message.Id, entry));
@@ -169,7 +169,11 @@ public sealed partial class PeerFederation
                     // too, so an allow withdrawn since that admission can neither refuse it nor delete its files.
                     bool known = store.FindReceipt(message.Id) is not null;
                     allowed = known || attachments.Policy.Allows(store.Peers().SingleOrDefault(candidate => candidate.BrokerId == caller));
-                    if (known || present && allowed)
+                    // Round 7 (S-019 residue, DECISIONS 127): the admitted text is the envelope the folder's manifest records. A
+                    // text that passed RequireOneText before the first text's pull or manifest existed, and got here after that
+                    // pull's state was dropped or cleaned up, meets the first text's manifest now and is refused.
+                    otherText = !known && attachments.ReceivedEnvelopeSha256(caller, message.Id) is { } recorded && recorded != textSha256;
+                    if (known || present && allowed && !otherText)
                     {
                         try { admitted = store.Accept(message, caller); }
                         catch (BrokerException)
@@ -190,6 +194,9 @@ public sealed partial class PeerFederation
                     throw new BrokerException(AttachmentCodes.RefusedByPolicy, "This broker no longer accepts attachments from that broker.");
                 }
                 Drop(key, state, attachments);
+                // Round 7: the folder and its files belong to the first text, so nothing is deleted; this forward's state goes.
+                if (otherText)
+                    throw new BrokerException(AttachmentCodes.EnvelopeInvalid, "A different text was sent under a message ID whose attachments are held.");
                 return Defer(key, message, caller);
             case PullOutcome.Mismatch:
                 Abandon(key, attachments);

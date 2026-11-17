@@ -33,6 +33,7 @@ internal static partial class AttachmentFederationChecks
         await InvalidEnvelopeAsync(scratch, identity, check);
         await RoundTwoBAsync(scratch, identity, check);
         await RoundSixAsync(scratch, identity, check);
+        await RoundSevenAsync(scratch, identity, check);
     }
 
     private const string Admitted = "admitted";
