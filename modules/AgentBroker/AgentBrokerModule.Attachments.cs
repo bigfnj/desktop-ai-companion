@@ -31,6 +31,7 @@ public sealed partial class AgentBrokerModule
     internal const string AttachmentsWaitingText = "On in settings, waiting for the broker to restart with attachments.";
     internal const string AttachmentsStillOnText = "Off in settings, but the running broker still sends files and accepts them from allowed brokers until it restarts.";
     internal const string AttachmentsUnsavedText = "On, but a change to the allow list is not saved yet. The broker retries every minute; a restart before then would bring back the old list.";
+    internal const string AttachmentsUnsavedOffText = "Off in the running broker, and a change to the allow list is not saved yet. The broker retries every minute; a restart before then would bring back the old list.";
     internal const string AttachmentsWaitingRefusal = "Attachments are on in settings, but the broker has not restarted with them yet. Press Refresh brokers in a moment.";
 
     // At most two sentences and 280 characters (ATTACHMENTS_INFO_ROW_TEXT), like every static pane explanation. Round 2
@@ -41,6 +42,9 @@ public sealed partial class AgentBrokerModule
         const string caps = "Up to 4 files, 8 MiB each, 16 MiB per message";
         var view = snapshot?.Attachments;
         bool running = view?.Enabled == true;
+        // Round 5 (DECISIONS 96, item 3): the worker reports an unsaved allow-list removal whatever its switch (a removal works
+        // with attachments off, DECISIONS 41), so the row says so before the off, still-on, waiting and quarantine texts.
+        if (view?.PolicyUnsaved == true) return view.Enabled ? AttachmentsUnsavedText : AttachmentsUnsavedOffText;
         if (!settings.AttachmentsEnabled && !running)
             return "Off. When on, an agent can send up to 4 files (8 MiB each, 16 MiB per message) to a paired broker that allows them under Brokers; received files are checked, quarantined and marked as downloaded from the internet.";
         if (!settings.AttachmentsEnabled) return AttachmentsStillOnText;
@@ -49,8 +53,6 @@ public sealed partial class AgentBrokerModule
         // F-6: the worker could not store a received file (its data folder is not plain local NTFS, or access is denied).
         if (view?.QuarantineUnavailable == true)
             return "On, but received files cannot be stored here: the broker's data folder is not plain local NTFS, or access to it is denied, so files sent here are refused. " + caps + ".";
-        // Round 2b: an allow removal is in force but its save failed; the worker retries it every minute.
-        if (view?.PolicyUnsaved == true) return AttachmentsUnsavedText;
         if (view?.PolicyUnreadable == true)
             return "On, but the allow list could not be read, so no broker may send files here until you allow one under Brokers. " + caps + "; received files are quarantined and marked as downloaded from the internet.";
         int allowed = view?.AllowedBrokers.Length ?? 0;
@@ -208,6 +210,17 @@ public sealed partial class AgentBrokerModule
             module.ApplyStatus(new(true, false, "standby", onView));
             check(unsaved == AttachmentsUnsavedText && unsaved.Length <= 280,
                 "ATTACHMENTS_INFO_ROW_UNSAVED: an allow-list change the broker could not save yet is shown as not saved, with what a restart would do");
+            // Round 5 (DECISIONS 96, item 3): a removal made with attachments off can fail to save too; the row says so while
+            // the running broker is off, with the switch off and while only the setting is on.
+            var unsavedOffView = view with { Attachments = new AttachmentsView(false, [], 0, 0, null, false) with { PolicyUnsaved = true } };
+            module.settings = module.settings with { AttachmentsEnabled = false };
+            module.ApplyStatus(new(true, false, "standby", unsavedOffView));
+            string unsavedOff = module.AttachmentsText();
+            module.settings = module.settings with { AttachmentsEnabled = true };
+            string unsavedWaiting = module.AttachmentsText();
+            module.ApplyStatus(new(true, false, "standby", onView));
+            check(unsavedOff == AttachmentsUnsavedOffText && unsavedWaiting == AttachmentsUnsavedOffText && unsavedOff.Length <= 280,
+                "ATTACHMENTS_INFO_ROW_UNSAVED_WHILE_OFF: an allow-list removal the broker could not save is shown as not saved while the running broker is off, with the switch off or only the setting on");
             int notified = 0;
             Action counter = () => notified++;
             pane.InfoChanged += counter;
@@ -228,8 +241,7 @@ public sealed partial class AgentBrokerModule
             check(pane.Actions.Single(action => action.Label == ShowAttachmentsLabel).RevealsPath && revealOff == "\u2717 " + AttachmentsOffRefusal &&
                 missing == "\u2717 The attachments folder appears once the broker has restarted with attachments on. Press Refresh status." &&
                 revealed == readme,
-                "ATTACHMENTS_REVEAL_FILE: the action reveals the README file inside the module's storage, and says exactly why when it cannot");
-        }
+                "ATTACHMENTS_REVEAL_FILE: the action reveals the README file inside the module's storage, and says exactly why when it cannot");        }
         finally
         {
             module.Shutdown(); Pump(() => module.pending.IsCompleted, dispatcher);

@@ -15073,7 +15073,9 @@ CASES = (
     ('broker-pane: attachments: the allow action takes a Discovered row',
      os.path.join(REPO, "modules", "AgentBroker", "AgentBrokerModule.Attachments.cs"),
      b'        if (TickedBrokerRow(PairedGroup, out string refusal) is not { } row) return refusal;\n',
-     b'        if (TickedBrokerRow(DiscoveredGroup, out string refusal) is not { } row) return refusal;\n',
+     # Narrowed in lane F round 5 (DECISIONS 102/105): a Paired press still resolves, so only a Discovered-only tick is acted
+     # on (the broad Discovered-only lookup also broke STALE_PAIRING, SWITCH_OFF and WAITING through the shared path).
+     b'        if ((TickedBrokerRow(PairedGroup, out string refusal) ?? TickedBrokerRow(DiscoveredGroup, out _)) is not { } row) return refusal;\n',
      AGENTBROKER_CSPROJ, AGENTBROKER_DLL,
      "--module-selftest=agentbroker", "dp-module-agentbroker-selftest.txt",
      'ATTACHMENTS_ALLOW_ACTION_ONE_PAIRED_ROW'),
@@ -15102,7 +15104,9 @@ CASES = (
     ('broker-pane: attachments: allowing works with the switch off',
      os.path.join(REPO, "modules", "AgentBroker", "AgentBrokerModule.Attachments.cs"),
      b'        if (allow && (!settings.AttachmentsEnabled || snapshot.Attachments is not { Enabled: true }))\n            return settings.AttachmentsEnabled ? AttachmentsWaitingRefusal : AttachmentsOffRefusal;\n',
-     b'',
+     # Narrowed in lane F round 5 (DECISIONS 102/105): the guard refuses only in the waiting state, so only the switch-off
+     # refusal is lost (deleting the whole guard also broke ALLOW_ACTION_WAITING, which has its own sole killer).
+     b'        if (allow && (settings.AttachmentsEnabled && snapshot.Attachments is not { Enabled: true }))\n            return settings.AttachmentsEnabled ? AttachmentsWaitingRefusal : AttachmentsOffRefusal;\n',
      AGENTBROKER_CSPROJ, AGENTBROKER_DLL,
      "--module-selftest=agentbroker", "dp-module-agentbroker-selftest.txt",
      'ATTACHMENTS_ALLOW_ACTION_SWITCH_OFF'),
@@ -15141,13 +15145,22 @@ CASES = (
      AGENTBROKER_CSPROJ, AGENTBROKER_DLL,
      "--module-selftest=agentbroker", "dp-module-agentbroker-selftest.txt",
      'ATTACHMENTS_REVEAL_FILE'),
+    # Retargeted in lane F round 5 (DECISIONS 96, item 3): the unsaved check moved ahead of the off, still-on, waiting and
+    # quarantine texts; this mutant ignores it while the running broker is on, the next one while it is off.
     ('broker-pane: attachments: the row ignores an unsaved allow list',
      os.path.join(REPO, "modules", "AgentBroker", "AgentBrokerModule.Attachments.cs"),
-     b'        if (view?.PolicyUnsaved == true) return AttachmentsUnsavedText;\n',
-     b'',
+     b'        if (view?.PolicyUnsaved == true) return view.Enabled ? AttachmentsUnsavedText : AttachmentsUnsavedOffText;\n',
+     b'        if (view?.PolicyUnsaved == true && !view.Enabled) return AttachmentsUnsavedOffText;\n',
      AGENTBROKER_CSPROJ, AGENTBROKER_DLL,
      "--module-selftest=agentbroker", "dp-module-agentbroker-selftest.txt",
      'ATTACHMENTS_INFO_ROW_UNSAVED'),
+    ('broker-pane: attachments: the off row ignores an unsaved allow list',
+     os.path.join(REPO, "modules", "AgentBroker", "AgentBrokerModule.Attachments.cs"),
+     b'        if (view?.PolicyUnsaved == true) return view.Enabled ? AttachmentsUnsavedText : AttachmentsUnsavedOffText;\n',
+     b'        if (view?.PolicyUnsaved == true && view.Enabled) return AttachmentsUnsavedText;\n',
+     AGENTBROKER_CSPROJ, AGENTBROKER_DLL,
+     "--module-selftest=agentbroker", "dp-module-agentbroker-selftest.txt",
+     'ATTACHMENTS_INFO_ROW_UNSAVED_WHILE_OFF'),
     ('broker-pane: attachments: the waiting refusal says the switch is off',
      os.path.join(REPO, "modules", "AgentBroker", "AgentBrokerModule.Attachments.cs"),
      b'            return settings.AttachmentsEnabled ? AttachmentsWaitingRefusal : AttachmentsOffRefusal;\n',
