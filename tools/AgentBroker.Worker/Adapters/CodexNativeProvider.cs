@@ -430,6 +430,10 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
             throw;
         }
         if (submitted.Outcome == DesktopSubmissionOutcome.Uncertain) await RetireOwnerConnectionAsync();
+        // A pre-frame deferral whose request failed closed the connection; one that no request failed on (a cancelled gate
+        // wait, or the final token check after a successful rediscovery) did not. A connection a request failed on is never
+        // reused, and one no request failed on is (N-broker-native-confirmation-01; the 1.6.1 register rule).
+        else if (submitted.Outcome == DesktopSubmissionOutcome.DeferredNotSubmitted && submitted.ConnectionClosed) await RetireOwnerConnectionAsync();
         return submitted;
     }
 

@@ -36,6 +36,7 @@ BrokerSession Session(BrokerStore store, string id, bool isPrivate = false) => n
 BrokerMessage Message(BrokerSession from, BrokerSession to) => new(Guid.NewGuid(), Guid.NewGuid(), null,
     from.Address, to.Address, "A harmless synthetic test message.", clock.GetUtcNow(), clock.GetUtcNow().AddMinutes(30));
 
+bool reportedFailure = false;
 try
 {
     if (args.SequenceEqual(["--waiting-mail-only"]))
@@ -268,8 +269,14 @@ try
     Console.WriteLine($"AgentBroker core smoke and regression: {passed} assertions passed.");
     return 0;
 }
-catch (Exception e) { Console.Error.WriteLine(e); return 1; }
-finally { Directory.Delete(root, recursive: true); }
+catch (Exception e) { reportedFailure = true; Console.Error.WriteLine(e); return 1; }
+finally
+{
+    // A cleanup error never replaces a failure already reported (a mutant can leave a scratch file open, as the lane N
+    // events-writer-held witness does); after a run that passed, it still fails the run.
+    try { Directory.Delete(root, recursive: true); }
+    catch (Exception cleanup) when (reportedFailure) { Console.Error.WriteLine("CORE_SCRATCH_CLEANUP_DEFERRED: " + cleanup.GetType().Name); }
+}
 
 void AuditDurableState()
 {

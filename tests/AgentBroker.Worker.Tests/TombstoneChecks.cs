@@ -54,7 +54,10 @@ internal static class TombstoneChecks
         var acknowledged = fixture.Tools.AcknowledgeMessage(delivered, recipient.Address, MessageStatus.Delivered);
         fixture.Tools.AcknowledgeMessage(refused, recipient.Address, MessageStatus.Refused);
         check(!FilesContain(store, deliveredText) && !FilesContain(store, refusedText) &&
-            File.Exists(Path.Combine(store, "broker-tombstones.jsonl")) && FilesContain(store, delivered.ToString("D")),
+            // The ID is read from the tombstone journal itself (1.10.6, X1d 033): broker-events.jsonl in the same folder may name
+            // a message ID too, so a scan of every store file would not prove the tombstone.
+            File.Exists(Path.Combine(store, "broker-tombstones.jsonl")) &&
+            File.ReadAllText(Path.Combine(store, "broker-tombstones.jsonl")).Contains(delivered.ToString("D"), StringComparison.Ordinal),
             "a Delivered or Refused acknowledgement removes the text from every store file and keeps a tombstone by ID");
         check(acknowledged.Status == MessageStatus.Delivered && acknowledged.Message.Text.Length == 0 && acknowledged.Message.Id == delivered,
             "acknowledge_message answers with what the store keeps: the Delivered status and an empty text");

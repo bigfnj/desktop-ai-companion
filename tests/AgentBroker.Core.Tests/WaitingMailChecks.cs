@@ -254,6 +254,21 @@ internal static class WaitingMailChecks
             Check(f.Store.ReadMessageWait(receipt) is { LatestReason: "other_deferred", LatestSource: "adapter" } history &&
                 history.Waits is [{ Reason: "other_deferred", Source: "adapter", Count: 2 }], "WAITING_UNKNOWN_CODE_MAPPED");
         }
+        // N-broker-native-confirmation-01: the Codex pre-frame rediscovery deferral keeps its own name in the sender's wait
+        // history, so its retries are visible and counted rather than folded into other_deferred.
+        using (var f = new Fixture(Path.Combine(root, "waiting-rediscovery-code"), adapter: "codex-native"))
+        {
+            f.Target = f.Target with { Activity = SessionActivity.Unknown, Capabilities = f.Target.Capabilities | SessionCapabilities.NativeIdleGuard }; f.Renew();
+            var receipt = f.Accept();
+            for (int i = 0; i < 2; i++)
+            {
+                var claim = f.Store.BeginDeliveryClaim() ?? throw new InvalidOperationException("WAIT_REASON_REDISCOVERY_CLAIM_SETUP");
+                if (!f.Store.TryReleaseUnsubmittedClaim(claim, "native_owner_rediscovery_unavailable", out _))
+                    throw new InvalidOperationException("WAIT_REASON_REDISCOVERY_RELEASE_SETUP");
+            }
+            Check(f.Store.ReadMessageWait(receipt) is { LatestReason: "native_owner_rediscovery_unavailable", LatestSource: "adapter" } history &&
+                history.Waits is [{ Reason: "native_owner_rediscovery_unavailable", Source: "adapter", Count: 2 }], "WAIT_REASON_REDISCOVERY");
+        }
         using (var f = new Fixture(Path.Combine(root, "waiting-write")))
         {
             f.Accept(); f.Tick(TimeSpan.Zero);

@@ -2,6 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 
 namespace AgentBroker.Core;
@@ -56,6 +57,16 @@ public sealed partial class BrokerStore : IDisposable
     // of the drop: the commit that drops a notice is the one that prunes its source, which can free the very slot that
     // kept it out. Trimmed to the owed set after each written commit, so it is bounded by owed.
     private readonly Dictionary<Guid, string> owedRefusal = new();
+    // AgentBroker 1.10.6, N-broker-native-confirmation-01 (B1, DECISIONS 15 and 17): an owed advisory whose source went
+    // Uncertain for a native adapter cause (InGrace) is admitted only UncertainAdvisoryGrace after it became owed in this
+    // process, measured on the monotonic clock, never by comparing wall-clock instants; settled by then, it is withheld
+    // (cancelled, with an advisory_withheld event). Notice ID -> TimeProvider timestamp, process-local: seeded from the
+    // published owed set when the store opens, staged by a commit and published with owed only after its write. A missing
+    // timer is seeded where it is found and is not due, so it can delay an advisory by one grace but never strand it.
+    internal static readonly TimeSpan UncertainAdvisoryGrace = TimeSpan.FromSeconds(120);
+    private Dictionary<Guid, long> advisoryEligible = new();
+    // The report-only broker-events.jsonl beside broker-state.json, written only after a commit succeeds (BrokerEventLog).
+    private readonly BrokerEventLog events;
     // A tombstone line stays far below this: two 160-character session IDs at six escaped bytes a character, plus
     // fixed-size fields. A longer line is corruption, never a record.
     private const int MaximumJournalLineBytes = 4096;
@@ -114,6 +125,7 @@ public sealed partial class BrokerStore : IDisposable
         System.IO.Directory.CreateDirectory(directory);
         path = Path.Combine(directory, "broker-state.json");
         tombstonePath = Path.Combine(directory, "broker-tombstones.jsonl");
+        events = new BrokerEventLog(directory);
         ownership = new FileStream(Path.Combine(directory, "broker-owner.lock"),
             FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
         try
@@ -140,6 +152,11 @@ public sealed partial class BrokerStore : IDisposable
             // it), so the first delivery pass dropped the same advisory a second time (post-push audit of e398eba2, 1.10.1).
             owed = RebuildOwed();
             if (!existed || upgraded || !recovered.SequenceEqual(state.Messages)) Commit(state with { Messages = recovered });
+            // B1: every owed native-cause advisory rebuilt from the durable records becomes eligible again now, so a restart
+            // grants it at most one more grace. Seeded whether or not the recovery commit above ran: a clean reopen over an
+            // already-Uncertain source commits nothing (X1d N-D5, design v5 addendum).
+            long opened = this.clock.GetTimestamp();
+            foreach (var (id, source) in owed) if (InGrace(source)) advisoryEligible.TryAdd(id, opened);
             // An inbox cursor belongs to this store opening. Retained full records already preserve acceptance order.
             (inboxSequences, inboxHighWater) = PrepareInboxSequences(state.Messages);
         }
@@ -1005,7 +1022,7 @@ public sealed partial class BrokerStore : IDisposable
     private void CommitCore(State next)
     {
         BeginCommitStage(NoticesStage);
-        (next, var owing, var dropped) = WithSenderNotices(next);
+        (next, var owing, var dropped, var timers, var withheld) = WithSenderNotices(next);
         // A Delivered or Refused message this broker sent leaves the snapshot as a tombstone. The tombstone is appended
         // durably FIRST: a crash between the two writes leaves the message in both files, the snapshot wins at load,
         // and the worst outcome is an acknowledgement the recipient repeats. The other order could lose both.
@@ -1030,9 +1047,14 @@ public sealed partial class BrokerStore : IDisposable
             PruneWaitingMail();
             (inboxSequences, inboxHighWater) = inbox;
             if (owing is not null) owed = owing;
+            if (timers is not null) advisoryEligible = timers;
+            foreach (var id in advisoryEligible.Keys.Where(id => !owed.ContainsKey(id)).ToArray()) advisoryEligible.Remove(id);
             if (dropped is not null) noticeDrops = dropped;
             foreach (var id in owedRefusal.Keys.Where(id => !owed.ContainsKey(id)).ToArray()) owedRefusal.Remove(id);
             foreach (var tombstone in added) AddTombstone(tombstone);
+            // Report-only, and only now that the snapshot is written: a withheld advisory is recorded for a committed
+            // settlement only (X1d's durable-withholding condition). Append never throws.
+            if (withheld is not null) foreach (var line in withheld) events.Append(line);
             // Continuations run asynchronously, so completing under gate never runs a waiter here.
             SignalChange();
         }
@@ -1085,16 +1107,26 @@ public sealed partial class BrokerStore : IDisposable
     // commit's write has succeeded. A notice never begets a notice: its sender can never register.
     // A notice dropped that way is counted, by why the admission check refused it at that moment, in DroppedNotices,
     // which Status shows (N-agentbroker-notice-loss-signal-01); the third value is the new counts, or null when none.
-    private (State Next, Dictionary<Guid, MessageReceipt>? Owed, NoticeDrops? Dropped) WithSenderNotices(State next)
+    // Since 1.10.6 (B1) it also returns the staged advisory timers and the advisory_withheld event lines; both, like the owed
+    // set, are published by CommitCore only after the snapshot write succeeds, so a failed commit starts, cancels and records
+    // nothing.
+    private (State Next, Dictionary<Guid, MessageReceipt>? Owed, NoticeDrops? Dropped, Dictionary<Guid, long>? Timers,
+        List<JsonObject>? Withheld) WithSenderNotices(State next)
     {
         var open = state.Messages.Where(r => r.Status is not (MessageStatus.Delivered or MessageStatus.Refused or MessageStatus.Expired))
             .ToDictionary(r => r.Message.Id, r => r.Status);
         Dictionary<Guid, MessageReceipt>? owing = null;
+        Dictionary<Guid, long>? timers = null;
+        long stamp = clock.GetTimestamp();
         foreach (var ended in next.Messages.Where(r => r.Status is (MessageStatus.Expired or MessageStatus.Refused or MessageStatus.Uncertain) &&
             open.TryGetValue(r.Message.Id, out var previous) && (r.Status != MessageStatus.Uncertain || previous != MessageStatus.Uncertain) &&
             r.Message.Sender.BrokerId == state.BrokerId && r.Message.Sender.SessionId != NoticeSessionId))
-            (owing ??= new(owed)).TryAdd(SenderNoticeId(ended), Source(ended));
-        if ((owing ?? owed).Count == 0) return (next, owing, null);
+        {
+            var id = SenderNoticeId(ended);
+            // A native-cause advisory that first becomes owed here gets this commit's timestamp, staged with the owed set.
+            if ((owing ??= new(owed)).TryAdd(id, Source(ended)) && InGrace(ended)) (timers ??= new(advisoryEligible))[id] = stamp;
+        }
+        if ((owing ?? owed).Count == 0) return (next, owing, null, timers, null);
         owing ??= new(owed);
         // Counts are taken once per pass, so senders that are still away cost one scan and never delay one that is back.
         // Room is what this commit will leave: records keeping their text against MaximumMessages, and every record (those
@@ -1111,6 +1143,7 @@ public sealed partial class BrokerStore : IDisposable
             .ToDictionary(receipt => SenderNoticeId(receipt));
         List<MessageReceipt>? messages = null;
         NoticeDrops? dropped = null;
+        List<JsonObject>? withheld = null;
         foreach (var (id, source) in owing.OrderBy(p => p.Value.UpdatedAt).ToArray())
         {
             if (ids.Contains(id) || tombstones.ContainsKey(id)) { owing.Remove(id); continue; }
@@ -1130,7 +1163,14 @@ public sealed partial class BrokerStore : IDisposable
                 };
                 continue;
             }
-            if (source.Status == MessageStatus.Uncertain && !uncertainSources.ContainsKey(id)) { owing.Remove(id); continue; }
+            if (source.Status == MessageStatus.Uncertain && !uncertainSources.ContainsKey(id))
+            {
+                owing.Remove(id);
+                (withheld ??= []).Add(WithheldEvent(source, next.Messages));
+                continue;
+            }
+            // B1: not yet due, a native-cause advisory stays owed with no refusal recorded (it is not refused, only early).
+            if (InGrace(source) && !Due(timers ??= new(advisoryEligible), id, source, stamp)) continue;
             if (Refusal(owner, withText, records, pending) is { } refused) { owedRefusal[id] = refused; continue; }
             // Always the maximum lifetime, never the configurable default: a source lives at most that long plus RecordGrace,
             // so the notice's record or tombstone outlives every source it could be rebuilt from, and is never recreated.
@@ -1141,7 +1181,40 @@ public sealed partial class BrokerStore : IDisposable
             pending[owner] = pending.GetValueOrDefault(owner) + 1;
             owing.Remove(id);
         }
-        return (messages is null ? next : next with { Messages = messages }, owing, dropped);
+        return (messages is null ? next : next with { Messages = messages }, owing, dropped, timers, withheld);
+    }
+
+    // B1 scope (DECISIONS 15 condition 1): an Uncertain source whose reason a native adapter gave. Restart, deadline, peer and
+    // runtime causes keep their immediate advisory (DESIGN-REGISTER 1.10.0: restart-interrupted submissions stay included).
+    private static bool InGrace(MessageReceipt source) =>
+        source.Status == MessageStatus.Uncertain && source.Reason is { } reason && reason.StartsWith("native_", StringComparison.Ordinal);
+
+    // The one due decision, shared by WithSenderNotices and OwedReady (X1d N-D1): elapsed monotonic time since the advisory
+    // became owed in this process. A timer found missing is seeded now and is not due in this call.
+    private bool Due(Dictionary<Guid, long> timers, Guid id, MessageReceipt source, long stamp)
+    {
+        if (!timers.TryGetValue(id, out long since)) { timers[id] = stamp; return false; }
+        return clock.GetElapsedTime(since, stamp) >= UncertainAdvisoryGrace;
+    }
+
+    // The report-only record of an advisory cancelled because its source left Uncertain before admission (DECISIONS 15
+    // condition 2): routing, statuses, reasons and times, never the text. The receipt itself keeps no history (schema 1).
+    private JsonObject WithheldEvent(MessageReceipt source, List<MessageReceipt> current)
+    {
+        var settled = current.FirstOrDefault(r => r.Message.Id == source.Message.Id && r.Message.CreatedAt == source.Message.CreatedAt);
+        var recipient = source.Message.Recipient;
+        return new JsonObject
+        {
+            ["event"] = "advisory_withheld",
+            ["messageId"] = source.Message.Id.ToString("D"),
+            ["recipient"] = recipient.BrokerId.ToString("D") + "/" + recipient.SessionId + "/" + recipient.Incarnation.ToString("D"),
+            ["uncertainAt"] = source.UpdatedAt.ToString("O"),
+            ["uncertainReason"] = source.Reason,
+            ["settled"] = settled?.Status.ToString(),
+            ["settledAt"] = settled?.UpdatedAt.ToString("O"),
+            ["settledReason"] = settled?.Reason,
+            ["eventAt"] = Now.ToString("O"),
+        };
     }
 
     // Every retained Expired or Uncertain record, or Refused tombstone, a local session sent whose notice exists in neither
@@ -1188,8 +1261,11 @@ public sealed partial class BrokerStore : IDisposable
         PruneTombstones();
         int withText = current.Count(r => !Tombstoned(r)), records = current.Count + tombstones.Count;
         var pending = PendingByRecipient(current);
-        return owed.Values.Any(source => source.Message.ExpiresAt + RecordGrace <= Now ||
-            Admissible(source.Message.Sender, withText, records, pending));
+        // B1: the same due decision as WithSenderNotices, so a pass inside the grace writes nothing for that advisory (its
+        // timer, if missing, is seeded here: process-local state, never written).
+        long stamp = clock.GetTimestamp();
+        return owed.Any(pair => pair.Value.Message.ExpiresAt + RecordGrace <= Now ||
+            (!InGrace(pair.Value) || Due(advisoryEligible, pair.Key, pair.Value, stamp)) && Admissible(pair.Value.Message.Sender, withText, records, pending));
     }
 
     // A notice is held to the text bound every message is, or the snapshot would not load again. At the default 16 KiB a

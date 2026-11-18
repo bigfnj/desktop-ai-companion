@@ -1071,6 +1071,44 @@ WITNESSES = (
         "            options.EnableClaudeUpdateTolerantDelivery));",
         "        if (options.EnableClaudeNativeDiscovery) adapters.Add(new ClaudeNativeAdapter(options.EnableClaudePeerCredentials));",
     ),)),
+    # 1.10.6 lane N round 1 (N-broker-native-confirmation-01): the library's typed pre-frame deferral. The scenarios run after
+    # the desktop --existing-tests-only cut-off (DiscoveryTimeoutChecks), so the existing pin stays 157 and each mutant must
+    # leave the existing suite passing. The worker half is in run_agentbroker_hygiene_mutations.py (NATIVE_R1_WITNESSES).
+    Witness("native-r1-preframe-rediscovery-raises", "desktopadapter", "desktop", ("--discovery-timeout-case", "preframe-rediscovery"),
+            "DiscoveryTimeoutChecks.cs", ((
+        "            try { current = await DiscoverCoreAsync(binding.ConversationId, binding.OwnerClientId, token); }\n"
+        "            catch (Exception error) when (externalPeer && error is OperationCanceledException or IOException)\n"
+        "            {\n"
+        "                return PreFrameDeferral(error is IOException ? \"rediscovery_io\"\n"
+        "                    : token.IsCancellationRequested ? \"attempt_cancelled\" : \"rediscovery_timeout\");\n"
+        "            }\n",
+        "            current = await DiscoverCoreAsync(binding.ConversationId, binding.OwnerClientId, token);\n",
+    ),), failure_check="DiscoveryTimeoutChecks.cs: CODEX_PREFRAME_REDISCOVERY_DEFERS: a timed-out owner rediscovery defers with nothing written and its closed connection named"),
+    Witness("native-r1-preframe-reservation-early", "desktopadapter", "desktop", ("--discovery-timeout-case", "preframe-token"),
+            "DiscoveryTimeoutChecks.cs", ((
+        "            if (externalPeer && token.IsCancellationRequested) return PreFrameDeferral(\"attempt_cancelled\");\n"
+        "            token.ThrowIfCancellationRequested();\n"
+        "            var uncertain = new DesktopSubmissionResult(DesktopSubmissionOutcome.Uncertain, ErrorCode: \"submission_unconfirmed\");\n"
+        "            // Reserve before the first write. A partial write or lost response is never retried automatically.\n"
+        "            receipts.Add(messageId, (binding.ConversationId, digest, uncertain));\n",
+        "            var uncertain = new DesktopSubmissionResult(DesktopSubmissionOutcome.Uncertain, ErrorCode: \"submission_unconfirmed\");\n"
+        "            // Reserve before the first write. A partial write or lost response is never retried automatically.\n"
+        "            receipts.Add(messageId, (binding.ConversationId, digest, uncertain));\n"
+        "            if (externalPeer && token.IsCancellationRequested) return PreFrameDeferral(\"attempt_cancelled\");\n"
+        "            token.ThrowIfCancellationRequested();\n",
+    ),), failure_check="DiscoveryTimeoutChecks.cs: CODEX_PREFRAME_TOKEN_DEFERS_OPEN: a pre-frame deferral reserves no message ID, so the same-ID retry submits once"),
+    Witness("native-r1-plaintext-preframe-defers", "desktopadapter", "desktop", ("--discovery-timeout-case", "plaintext-preframe"),
+            "DiscoveryTimeoutChecks.cs", ((
+        "            catch (Exception error) when (externalPeer && error is OperationCanceledException or IOException)\n",
+        "            catch (Exception error) when (error is OperationCanceledException or IOException)\n",
+    ),), failure_check="DiscoveryTimeoutChecks.cs: CODEX_PLAINTEXT_PREFRAME_UNCHANGED: the plaintext path keeps raising a timed-out rediscovery and never defers"),
+    # Deliberately NOT a witness here: the post-write timeout. Any mutant that lets it enter the pre-frame retry branch also
+    # breaks the EXISTING desktop checks "timeout never treated as safe to resend." and "timeout retry returns original
+    # uncertain receipt." (Program.cs, both paths, before the --existing-tests-only cut-off), and this runner can grade a
+    # desktop named overlap only after the desktop suite prints PASS lines, has unique labels per path and reports RESULT=FAIL
+    # (it does none of these today). Lane N round 1 grades that mutant with its own retained-output driver instead, which
+    # runs only the focused one-check case (marathon-1106 evidence: lanes/N/r01/killers/postframe_timeout_killer.py;
+    # CODEX_POSTFRAME_TIMEOUT_STAYS_UNCERTAIN in DiscoveryTimeoutChecks.cs is its label).
 )
 
 

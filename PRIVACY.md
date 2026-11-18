@@ -356,6 +356,13 @@ drive-relative, and current-drive-rooted overrides are rejected or ignored. Data
 - since Reminder 1.3.0, once you sign in on its Zoom card, the Zoom sign-in: Zoom's refresh token and your Zoom
   app's client ID, DPAPI-encrypted for your Windows user, in the Reminder module's folder as `zoom-signin.dpapi`.
   **Sign out of Zoom** deletes it.
+- since AgentBroker 1.10.6, a small report-only events file, `broker-events.jsonl`, in the broker's store folder
+  beside its message state. It records when the broker held back an uncertainty advisory because the message
+  was settled first. Each line holds an event name, the message ID, the recipient's address, statuses, reasons
+  and times, and sometimes a count of earlier lines that could not be written; never the message text. The
+  broker writes it and never reads it. Each file is capped at 1 MiB and rotated once to
+  `broker-events.1.jsonl`, so the two take at most about 2 MiB. Writing it is best-effort, so it can miss
+  events but never invents one. It never leaves this computer and goes when the broker's data folder is removed.
 
 Questions by the clock (app 1.6.0) keep nothing on disk: the tray's "No answer" list is held in memory
 for the session and is gone when the app closes. The question card is excluded from screen capture, so

@@ -84,6 +84,27 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
     // How long a row whose check cannot complete keeps Receive (see DiscoverAsync). Past it the row is listed without
     // capabilities and its queue refuses as it did before 1.6.1.
     internal static readonly TimeSpan VerificationPendingBound = TimeSpan.FromMinutes(5);
+    // Consecutive pre-frame deferrals (see PreFrameOutcome), per message lifetime and exact recipient; read and written only
+    // under deliveryGate. An entry ends at the bound, at a provider answer that restarts the count (ResetsPreFrameCount),
+    // after PreFrameDeferralRetention without an update (monotonic), or by eviction at PreFrameDeferralCapacity (least
+    // recently updated first). Per adapter instance: a worker restart starts every message at zero.
+    private readonly record struct PreFrameKey(Guid MessageId, DateTimeOffset CreatedAt, SessionAddress Recipient);
+    private static PreFrameKey KeyOf(BrokerMessage message) => new(message.Id, message.CreatedAt, message.Recipient);
+    // What restarts a message's pre-frame count (design v3 section A's list, amended in lane N round 1 for the provider's own
+    // deferrals): an answer that reached the owner or settled the attempt, namely accepted, rejected, uncertain, the owner's
+    // busy deferral, or owner_unavailable from the rediscovery. The provider's own deferrals that write nothing
+    // (native_not_submitted when the token ran out in the fresh profile hash, native_verification_unavailable, and
+    // native_receipt_capacity_reconnect, the library's receipt-capacity refusal before its rediscovery) neither count nor
+    // reset, like adapter-level deferrals, so an attempt budget spent sometimes in the hash and sometimes in the rediscovery
+    // still reaches the bound.
+    private static bool ResetsPreFrameCount(DesktopSubmissionResult result) =>
+        result.Outcome != DesktopSubmissionOutcome.DeferredNotSubmitted || result.ErrorCode is "native_context_busy" or "owner_unavailable";
+    private readonly Dictionary<PreFrameKey, (int Count, long At)> preFrameDeferrals = [];
+    internal const int PreFrameDeferralBound = 3;
+    internal const int PreFrameDeferralCapacity = 4096;
+    internal static readonly TimeSpan PreFrameDeferralRetention = TimeSpan.FromMinutes(10);
+    // For the checks: how many messages currently hold a pre-frame count.
+    internal int PreFrameDeferralEntries { get { deliveryGate.Wait(); try { return preFrameDeferrals.Count; } finally { deliveryGate.Release(); } } }
     private int skippedLastPass;
     private int staleLastPass, missingLastPass, invalidLastPass;
     private volatile bool disposed;
@@ -331,6 +352,9 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
             try
             {
                 var result = await deliveryProvider.SubmitAsync(current, message.Id, formatted, token);
+                if (result.Outcome == DesktopSubmissionOutcome.DeferredNotSubmitted && result.ErrorCode is "rediscovery_timeout" or "attempt_cancelled" or "rediscovery_io")
+                    return Observed(PreFrameOutcome(message, result.ErrorCode!), observed);
+                if (ResetsPreFrameCount(result)) preFrameDeferrals.Remove(KeyOf(message));
                 return Observed(result.Outcome switch
                 {
                     DesktopSubmissionOutcome.Accepted => new(AdapterAdmission.Submitted, "native_admission_unconfirmed"),
@@ -413,11 +437,45 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
     private static Dictionary<Guid, CodexEngineBindingVerdict> Failed(IEnumerable<Guid> threads) =>
         threads.Distinct().ToDictionary(thread => thread, _ => new CodexEngineBindingVerdict(false, "query_failed"));
 
+    // The library proved no model input was written (only discovery control frames may have been): owner rediscovery ran
+    // out of its own time (rediscovery_timeout), the attempt's
+    // token ran out first (attempt_cancelled), or the rediscovery request failed on I/O (N-broker-native-confirmation-01).
+    // Such a message defers PreFrameDeferralBound consecutive times; the next consecutive pre-frame result (the fourth)
+    // settles Uncertain with the stage named, as every one did before 1.10.6. The bound counts attempts, not time: each
+    // attempt has the 20 s token, but reconnect adoption runs outside it. Bounded, because a failure that recurs on every
+    // attempt (an attempt budget spent on reconnect adoption, the first lookup, the profile hash and this lookup) would
+    // otherwise hold the sender's later messages to this row (per-pair order) and the one delivery gate until the message
+    // expires. Uncertain, not Refused: the recipient may have pulled the message from its inbox meanwhile, and its own receipt
+    // still settles it. The count belongs to one message lifetime (ID and CreatedAt) to one exact recipient incarnation.
+    private AdapterResult PreFrameOutcome(BrokerMessage message, string code)
+    {
+        long now = clock.GetTimestamp();
+        foreach (var stale in preFrameDeferrals.Where(pair => clock.GetElapsedTime(pair.Value.At, now) > PreFrameDeferralRetention)
+            .Select(pair => pair.Key).ToArray())
+            preFrameDeferrals.Remove(stale);
+        var key = KeyOf(message);
+        int count = (preFrameDeferrals.TryGetValue(key, out var seen) ? seen.Count : 0) + 1;
+        if (count <= PreFrameDeferralBound)
+        {
+            if (!preFrameDeferrals.ContainsKey(key) && preFrameDeferrals.Count >= PreFrameDeferralCapacity)
+                preFrameDeferrals.Remove(preFrameDeferrals.MinBy(pair => pair.Value.At).Key);
+            preFrameDeferrals[key] = (count, now);
+            return Deferred("native_owner_rediscovery_unavailable");
+        }
+        preFrameDeferrals.Remove(key);
+        return new(AdapterAdmission.Uncertain, code switch
+        {
+            "rediscovery_timeout" => "native_uncertain_rediscovery_timeout",
+            "rediscovery_io" => "native_uncertain_raised_io",
+            _ => "native_uncertain_raised_cancelled",
+        });
+    }
+
     // An exception out of the library's submission, recorded with its cause (A-broker-08): all of them carried the one
-    // generic native_submission_uncertain, the reason N-agentbroker-uncertain-parked-01 cannot diagnose. Still Uncertain and
-    // never retried: the library raises these before its turn frame today (DesktopAdapter.SubmitCoreAsync answers every
-    // failure after it with a result instead), but ICodexOwnerConnection.SubmitAsync promises no such thing, so deferring
-    // them would rest on library internals; that needs a typed "nothing was written" signal from the library first.
+    // generic native_submission_uncertain, the reason N-agentbroker-uncertain-parked-01 cannot diagnose. Since 1.10.6 the
+    // library answers a cancellation or I/O failure before its turn frame with the typed pre-frame deferral above instead
+    // (PreFrameOutcome). What still raises here (a coded library fault, or an exception the library did not type) stays
+    // Uncertain and is never retried: ICodexOwnerConnection.SubmitAsync promises no "nothing was written" boundary for it.
     private static string RaisedReason(Exception error) => error switch
     {
         DesktopAdapterException { Code: { Length: > 0 and <= 48 } code } when code.All(c => c is >= 'a' and <= 'z' or >= '0' and <= '9' or '_')
