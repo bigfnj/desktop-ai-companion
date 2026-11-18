@@ -42,7 +42,7 @@ public sealed partial class AgentBrokerModule : IModule
     {
         Id = "agentbroker",
         Name = "AgentBroker",
-        Version = "1.10.5",  // Reply settlement, waiting-mail observations, compiled inbox watching and clearer pairing controls.
+        Version = "1.10.6",  // Reply settlement, waiting-mail observations, compiled inbox watching and clearer pairing controls.
                              // 1.10.4: slow native discovery consumes its refresh interval instead of adding a second full pause.
                              // 1.10.3: --mcp-call encodes and bounds the whole query before connecting, so depth-limit requests travel.
                              // 1.10.2: request values decoded before dispatch, output checks before dispatch, live endpoint display.
