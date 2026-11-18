@@ -23664,6 +23664,106 @@ def rebuild_problem(artifact, before_mtime, baseline_sha):
     return None
 
 
+# The whole-run stop of a switch restore (marathon-1106 lane G round 1), printed at column 0 once per artefact or project at fault.
+TARGET_NOT_RESTORED = "THE SWITCHED-AWAY TARGET WAS NOT RESTORED -- %s: %s"
+# Lane G v4 (DECISIONS 65; X3's V3-X3-01): the baseline stop for a declared owned tree that no switch restore could prove, printed
+# at column 0 once per tree or folder at fault before any case runs; score() then returns 2, as for a baseline that is not green.
+OWNED_TREE_UNPROVEN = "THE OWNED TREE CANNOT BE PROVEN -- %s: %s"
+
+# Design v3 (lane G round 1; X3's G-DESIGN-01, DECISIONS 12): outputs a target's build writes that a later case can load but no
+# case tuple names, proven file by file at the switch restore beside the named artefacts. The published AgentBroker worker tree
+# (Publish-AgentBrokerWorker.ps1:25-33, 133-139) is hashed and loaded whole by Test-ModuleSelfTests.ps1:197-219 and
+# ModuleConventionSelfTest.cs:291-303, and all 339 AgentBroker cases name only AgentBroker.dll.
+OWNED_TREES = {AGENTBROKER_CSPROJ: (os.path.join(BIN, "modules", "agentbroker", "worker"),)}
+
+
+def os_error_text(error):
+    """'<type>: <reason>' for an OSError, for a stop line."""
+    return "%s: %s" % (type(error).__name__, error.strerror or error)
+
+
+def owned_tree_files(csproj):
+    """(files, problems) for the csproj's OWNED_TREES roots: every file now under them, sorted, and (path, reason) for each root
+    or folder the walk could not list, a missing root included (lane G v4; X3's V3-X3-01). Without onerror, os.walk skips a
+    folder it cannot list in silence, so a tree read in part looked like a smaller tree."""
+    files, problems = [], []
+
+    def refused(error):
+        problems.append((error.filename or "an owned tree folder", os_error_text(error)))
+
+    for root in OWNED_TREES.get(csproj, ()):
+        for current, _, names in os.walk(root, onerror=refused):
+            files.extend(os.path.join(current, name) for name in names)
+    return sorted(files), problems
+
+
+def worktree_head():
+    """The worktree's HEAD, or why it could not be read. Every artefact embeds it through SourceRevisionId, so a restore that
+    rebuilds to other bytes after HEAD moved says so rather than reading as a build that is not deterministic."""
+    try:
+        proc = run_text(["git", "-C", REPO, "rev-parse", "HEAD"], capture_output=True, timeout=60)
+    except Exception as error:
+        return "unreadable (%s)" % type(error).__name__
+    head = (proc.stdout or "").strip()
+    return head[:12] if proc.returncode == 0 and head else "unreadable (git exit %s)" % proc.returncode
+
+
+def restore_switched_target(csproj, baseline, head, after):
+    """(log lines, stop lines, build seconds) for one switch restore (marathon-1106 lane G round 1; 1105 DECISIONS 150).
+
+    `csproj` is rebuilt from the restored sources, then EVERY artefact in `baseline` (path -> its SHA-256 on the clean baseline
+    build, None when that build had none) must hash to it. Any stop line is a whole-run stop. The log lines print at eight spaces
+    and carry no verdict word, so neither the shard controller's row reader nor a case-row reader can take one for a case."""
+    name = os.path.basename(csproj)
+    started = time.monotonic()
+    try:
+        built, out = build(csproj)
+    except Exception as error:
+        return [], [TARGET_NOT_RESTORED % (name, "the rebuild raised %s: %s" % (
+            type(error).__name__, " ".join(str(error).split())[:200]))], time.monotonic() - started
+    seconds = time.monotonic() - started
+    if not built:
+        return (["        | " + line for line in (out or "")[-800:].splitlines()],
+                [TARGET_NOT_RESTORED % (name, "the rebuild did not compile")], seconds)
+    # Design v3: files under the csproj's OWNED_TREES are in `baseline` too (score()); they are counted, not named, in the log,
+    # and a file there that the baseline did not have is recorded, not a stop (no source mutant adds an output file, and a
+    # runtime-written file must not stop a correct run).
+    roots = tuple(os.path.normcase(root) + os.sep for root in OWNED_TREES.get(csproj, ()))
+    matched, tree_matched, stops = [], 0, []
+    for artifact in sorted(baseline):
+        clean = baseline[artifact]
+        if not os.path.isfile(artifact):
+            stops.append(TARGET_NOT_RESTORED % (artifact, "the artefact is missing after the rebuild"))
+        elif clean is None:
+            stops.append(TARGET_NOT_RESTORED % (artifact, "it has no baseline SHA-256"))
+        else:
+            try:
+                now = artifact_sha256(artifact)
+            except OSError as error:
+                # Lane G v4 (the lead's N15): a file held open without read sharing, or removed after the check above.
+                stops.append(TARGET_NOT_RESTORED % (artifact, "it could not be read (%s)" % os_error_text(error)))
+                continue
+            if now != clean:
+                moved = worktree_head()
+                stops.append(TARGET_NOT_RESTORED % (artifact, "it rebuilt to %s, not the baseline %s%s" % (
+                    now[:16], clean[:16], "" if moved == head else " (HEAD moved from %s to %s)" % (head, moved))))
+            elif any(os.path.normcase(artifact).startswith(root) for root in roots):
+                tree_matched += 1
+            else:
+                matched.append("%s %s" % (os.path.basename(artifact), now[:16]))
+    parts = [", ".join(matched) + " match the baseline"] if matched else []
+    if roots:
+        tree, problems = owned_tree_files(csproj)
+        stops.extend(TARGET_NOT_RESTORED % (path, "the owned tree could not be listed (%s)" % reason) for path, reason in problems)
+        added = [path for path in tree if path not in baseline]
+        parts.append("owned tree: %d file(s) match the baseline%s" % (tree_matched, "; %d file(s) not in the baseline tree, "
+                     "recorded, not a stop: %s" % (len(added), ", ".join(os.path.basename(p) for p in added[:5])) if added else ""))
+    log = ["        switch restore of %s after a mutant of %s: rebuilt in %.1f s; %s" % (
+        name, os.path.basename(after) if after else "its sources", seconds,
+        "; ".join(parts) if parts else "nothing matched the baseline")]
+    return log, stops, seconds
+
+
 def keep_report(index, name, report):
     """A graded case's WHOLE report under a per-case name (R-060, R-065; every outcome since round 6, FIRED included).
 
@@ -23719,12 +23819,43 @@ def score(plan):
         artifact = case[5]
         if artifact is not None and artifact not in baseline_sha:
             baseline_sha[artifact] = artifact_sha256(artifact) if os.path.isfile(artifact) else None
+    # Marathon-1106 lane G round 1 (N-P4-cross-artifact-mutant-carryover-01; 1105 DECISIONS 150, X1d's 010): a case builds only
+    # its own csproj, so its artefacts kept the mutant after the source was restored, and the next case for ANOTHER target loaded
+    # them (P4 phase 1: index 532 graded COLLATERAL with 510's Host label, and 31 Host rows after it carried 532's). Here, for
+    # every csproj a selected case builds, every artefact ANY case names under it (the Host's Contracts copy, the ModuleKit copies),
+    # hashed on the clean baseline build with HEAD beside them: the switch restore in the loop must bring each back to these.
+    # Design v3 adds every file under the target's OWNED_TREES (the AgentBroker worker tree) beside the named artefacts. v4
+    # (DECISIONS 65): each declared tree's count is printed, and a tree the walk could not list in full, or one with no file at
+    # all, stops the run here, before any case: a tree is declared because later cases load it, and the switch restore can
+    # prove only the files the baseline holds.
+    restore_sha = {}
+    tree_stops = []
+    for target in sorted(set(case[4] for case in cases if case[4] is not None)):
+        tree, problems = owned_tree_files(target)
+        tree_stops.extend(OWNED_TREE_UNPROVEN % (path, "it could not be listed at baseline (%s)" % reason)
+                          for path, reason in problems)
+        owned = set(c[5] for c in CASES if c[4] == target and c[5] is not None) | set(tree)
+        restore_sha[target] = dict((path, artifact_sha256(path) if os.path.isfile(path) else None) for path in sorted(owned))
+        for root in OWNED_TREES.get(target, ()):
+            count = len([path for path in tree if os.path.normcase(path).startswith(os.path.normcase(root) + os.sep)])
+            print("owned tree of %s: %d file(s) hashed at baseline under %s" % (os.path.basename(target), count, root))
+            if count == 0:
+                tree_stops.append(OWNED_TREE_UNPROVEN % (root, "no file under it at baseline, so no switch restore could prove it"))
+    for line in tree_stops:
+        print(line)
+    if tree_stops:
+        return 2
+    restore_head = worktree_head() if restore_sha else None
 
     fired = 0
     not_run = 0
     leaked = None
     withheld = real_input_withheld(os.environ)
     rebuilt = True
+    dirty = None
+    switches = 0
+    switch_seconds = 0.0
+    restore_stopped = False
     try:
         for index, (name, path, old, new, csproj, artifact, flag, marker, expect) in zip(plan.indices, cases):
             if withheld and name in NEEDS_REAL_INPUT:
@@ -23737,6 +23868,26 @@ def score(plan):
             if base.count(old_v) != 1:
                 print("  %-52s NO-OP (pattern matched %d times)" % (name, base.count(old_v)))
                 continue
+            # The switch restore. dirty is the csproj the last built case compiled, set after its build whether or not that
+            # compiled (a failed compile can leave a partial artefact). When this case's csproj differs (a csproj-None case
+            # included), the dirty one is rebuilt from the restored sources and every artefact of it must hash to the baseline,
+            # BEFORE this case's mutant is written: AiBrain and Remembrance both compile CLI_RUNNER, and adjacent cases mutate it
+            # alike, so a restore after the write would compile this case's mutant. The same csproj needs none: this case's own
+            # build recompiles what the last one changed. A sibling's clean bytes are proven at the next switch, not here,
+            # because a mutant in shared source can rightly change a sibling (a ModuleKit const is inlined into CoreTests.dll).
+            if dirty is not None and dirty[0] != csproj:
+                restore_log, restore_stops, seconds = restore_switched_target(dirty[0], restore_sha[dirty[0]], restore_head,
+                                                                              dirty[1])
+                switches += 1
+                switch_seconds += seconds
+                for line in restore_log:
+                    print(line)
+                if restore_stops:
+                    for line in restore_stops:
+                        print(line)
+                    restore_stopped = True
+                    break
+                dirty = None
             # A case with no csproj (the TEMPLATE flag) is rebuilt by the script it runs, which scaffolds a
             # fresh module from the mutated template and asserts the DLL exists; there is no artefact here
             # whose timestamp could stand for that.
@@ -23756,6 +23907,7 @@ def score(plan):
                     report, code, leak = watched_selftest(flag, marker)
                 else:
                     built, _ = build(csproj)
+                    dirty = (csproj, artifact)
                     problem = rebuild_problem(artifact, before, baseline_sha.get(artifact)) if built else None
                     if not built:
                         verdict = "BROKEN (does not compile)"
@@ -23808,6 +23960,9 @@ def score(plan):
         if not rebuilt:
             print("THE CLEAN REBUILD FAILED -- build\\ may still hold a mutant artefact:")
             print(rebuild_output[-800:])
+    print("switch restores: %d rebuild(s) of a switched-away target, %.1f s in all" % (switches, switch_seconds))
+    if restore_stopped:
+        return 2
     if leaked is not None:
         print("STOPPED after the case %r: the real Documents\\Remembrance changed while it ran (above), so no further case "
               "was run" % leaked)
