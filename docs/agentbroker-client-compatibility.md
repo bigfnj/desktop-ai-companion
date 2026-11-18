@@ -87,9 +87,16 @@ with `codexPeerMessages`; turned off, delivery is the strict mode, exact pins on
 
 These stay exactly as in strict mode: recipient binding, recipient-native admission
 with `inheritThreadSettings:true` and no permission, model or workspace fields,
-immutable deduplicated message IDs, `DeferredNotSubmitted` only for the exact typed
-busy error from the correct owner, `Uncertain` for every other failure after entering
-submission, and paired-broker identity. Tolerant rows carry the same capabilities as
+immutable deduplicated message IDs, `DeferredNotSubmitted` only for typed no-input results
+(the exact typed busy error from the correct owner; on the external-peer path an owner
+missing at the pre-submit rediscovery and, since 1.10.6, the pre-frame results: a cancelled
+connection-gate wait, a cancelled, timed-out or I/O-failed pre-submit rediscovery, or the
+attempt token found spent at the final check, all before any message ID is reserved or turn
+request written; the worker allows three pre-frame results in a row per message and settles
+the fourth `Uncertain`, while the busy error or a missing owner restarts that count),
+`Uncertain` for every other failure once the message ID is reserved (except the router's `no-client-found` answer to
+the start-turn request, a final `Rejected` that the worker settles `Refused` `native_admission_refused`), and
+paired-broker identity. Tolerant rows carry the same capabilities as
 exact rows, including `NativeIdleGuard`, because the submission path and its runtime
 checks are the same code.
 
@@ -591,7 +598,7 @@ This proves idle wake through the first package's original desktop owner for use
 
 `SubmitExternalPeerAsync` uses one strictly typed Responses `message` with role `user` and `input_text`. Its fixed controller instructions identify the content as external agent input and preserve the recipient's existing instructions and approvals. The complete external content is quoted in JSON together with its message ID. The same labeled content is included in the ordinary GUI prompt so the person can inspect what was submitted. No account, tool, widget, developer/system role, or permission metadata is fabricated. The [official app-server documentation](https://developers.openai.com/codex/app-server/) describes loaded-thread `thread/inject_items`; the public protocol `ResponseItem::Message` schema accepts this typed shape.
 
-The current pinned owner checks nonempty response items against idle before creating its pending GUI record and rechecks immediately before injection. Its exact `App context must wait until the current turn finishes` error proves that neither injection nor turn dispatch occurred. Only that error from the correct request/owner permits `DeferredNotSubmitted` and bounded same-ID backoff. Every other native error, partial write, timeout, owner mismatch or unconfirmed response stays `Uncertain`. A second-check race can briefly create and roll back a local pending GUI record.
+The current pinned owner checks nonempty response items against idle before creating its pending GUI record and rechecks immediately before injection. Its exact `App context must wait until the current turn finishes` error proves that neither injection nor turn dispatch occurred. Only that error from the correct request/owner permits `DeferredNotSubmitted` and bounded same-ID backoff once the turn request is written. Before it, the external-peer path also returns `DeferredNotSubmitted` when the owner is missing at the pre-submit rediscovery and, since AgentBroker 1.10.6, when the connection-gate wait is cancelled, the pre-submit owner rediscovery is cancelled, times out or fails on I/O, or the attempt token is found spent at the final check: no message ID is reserved and only discovery control frames were written (the owner query and any `client-discovery-response` replies), never model input. The worker allows three of the 1.10.6 pre-frame deferrals in a row per message and settles the fourth such result `Uncertain`; a missing owner, like the busy error, restarts that count. A `no-client-found` answer to the start-turn request is a final `Rejected`. Every other native error, partial write, timeout, owner mismatch or unconfirmed response stays `Uncertain`. A second-check race can briefly create and roll back a local pending GUI record.
 
 This capability is named `NativeIdleGuard`, not atomic admission. The owner marks the pending GUI turn in progress so ordinary GUI submissions follow their normal queue behavior. Its public start-operation observer does not provide an engine-wide asynchronous lock, and the core `inject_response_items` implementation does not itself reject active turns. Independent engine goals or API input can race after the final check. The adapter makes no stronger global ordering guarantee. Past interruption is not inferred from idle; explicitly observed interruption is preserved, and module mute/private controls govern future peer messages.
 

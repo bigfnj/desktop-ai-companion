@@ -6,9 +6,15 @@ accesses live registry metadata, or invokes a credential reader.
 
 Codex directory observations resolve the exact owner on a persistent version-pinned native connection.
 Broker incarnation hashes the native server PID/creation time and conversation ID (`codex-thread-v2`; the owner client ID left it on 2026-10-29, so a view taking ownership keeps the address while each submission still targets the owner rediscovered for that attempt);
-the native adapter's ephemeral connection-binding UUID is never used as durable identity. Typed native
-busy admission alone yields `DeferredNotSubmitted`. Generic failures after entering model submission
-remain uncertain. Native acceptance remains `Submitted` until a separate exact recipient receipt.
+the native adapter's ephemeral connection-binding UUID is never used as durable identity. Only typed
+no-input results yield `DeferredNotSubmitted`: native busy admission, an owner missing at rediscovery, a fresh check
+that could not complete (`native_verification_unavailable`), the attempt token found spent after the provider's fresh
+profile check (`native_not_submitted`), the library's receipt-capacity refusal (`native_receipt_capacity_reconnect`),
+and since 1.10.6 the library's pre-frame deferral (a cancelled connection-gate wait, a cancelled, timed-out or
+I/O-failed pre-submit owner rediscovery, or the attempt token found spent at the final check), which the adapter
+allows three times in a row per message before the fourth settles `Uncertain` (`CodexNativeAdapter.PreFrameOutcome`).
+The busy error and a missing owner restart that count; the three provider deferrals neither count toward it nor restart
+it (`CodexNativeAdapter.ResetsPreFrameCount`). Generic failures after the message ID is reserved remain uncertain. Native acceptance remains `Submitted` until a separate exact recipient receipt.
 
 Codex delivery needs the `codexPeerMessages` opt-in. In strict mode (the worker's own default, and the module's when
 "Also wake updated Codex builds" is off), `CodexNativeProvider.Authorize`

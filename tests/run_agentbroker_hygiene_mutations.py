@@ -1511,6 +1511,139 @@ ATTACHMENT_R7_WITNESSES = (
             "ATTACHMENT_ONE_TEXT_BOUND_TO_MANIFEST: a second text that passed the one-text check before the first text's manifest existed is refused attachment_envelope_invalid at admission once the first pull's state is gone; the admitted text is the manifest's envelope"),
 )
 
+# ---- 1.10.6 lane N round 1 (N-broker-native-confirmation-01): the Codex typed pre-frame deferral in the worker. ----
+# CodexPreFrameChecks.cs stops at its first failure, so each mutant must fail exactly its own label. The library half
+# (DiscoveryTimeoutChecks.cs) has its witnesses in run_agentbroker_pin_diagnostic_mutations.py (desktop family).
+CODEX_ADAPTER = "tools/AgentBroker.Worker/Adapters/CodexNativeAdapter.cs"
+CODEX_PROVIDER = "tools/AgentBroker.Worker/Adapters/CodexNativeProvider.cs"
+PREFRAME_GROUP = ("--codex-preframe-only",)
+NATIVE_R1_WITNESSES = (
+    Witness("native-r1-preframe-reason-merged", CODEX_ADAPTER, "worker", PREFRAME_GROUP,
+            (('            return Deferred("native_owner_rediscovery_unavailable");\n',
+              '            return Deferred("native_owner_unavailable");\n', 1),),
+            "CODEX_ADAPTER_REDISCOVERY_DEFERS: pre-frame rediscovery results one to three defer under their own reason"),
+    Witness("native-r1-preframe-bound-removed", CODEX_ADAPTER, "worker", PREFRAME_GROUP,
+            (("        if (count <= PreFrameDeferralBound)\n", "        if (count <= PreFrameDeferralBound * 1000)\n", 1),),
+            "CODEX_REDISCOVERY_BOUND: the fourth consecutive pre-frame result of one message settles Uncertain with the stage named"),
+    Witness("native-r1-preframe-io-stage-merged", CODEX_ADAPTER, "worker", PREFRAME_GROUP,
+            (('            "rediscovery_io" => "native_uncertain_raised_io",\n',
+              '            "rediscovery_io" => "native_uncertain_raised_cancelled",\n', 1),),
+            "CODEX_REDISCOVERY_STAGE_MAP: at the fourth result a spent attempt token reads native_uncertain_raised_cancelled and a rediscovery I/O failure native_uncertain_raised_io"),
+    Witness("native-r1-preframe-count-not-reset", CODEX_ADAPTER, "worker", PREFRAME_GROUP,
+            (("                if (ResetsPreFrameCount(result)) preFrameDeferrals.Remove(KeyOf(message));\n", "", 1),),
+            "CODEX_REDISCOVERY_RESET: another provider answer restarts the count, while adapter-level and pre-library provider deferrals neither count nor reset"),
+    Witness("native-r1-preframe-reset-always", CODEX_ADAPTER, "worker", PREFRAME_GROUP,
+            (('        result.Outcome != DesktopSubmissionOutcome.DeferredNotSubmitted || result.ErrorCode is "native_context_busy" or "owner_unavailable";\n',
+              "        true;\n", 1),),
+            "CODEX_REDISCOVERY_RESET: another provider answer restarts the count, while adapter-level and pre-library provider deferrals neither count nor reset"),
+    Witness("native-r1-preframe-lifetime-ignored", CODEX_ADAPTER, "worker", PREFRAME_GROUP,
+            (("    private static PreFrameKey KeyOf(BrokerMessage message) => new(message.Id, message.CreatedAt, message.Recipient);\n",
+              "    private static PreFrameKey KeyOf(BrokerMessage message) => new(message.Id, default, message.Recipient);\n", 1),),
+            "CODEX_REDISCOVERY_IDENTITY: the same UUID in a new lifetime, or to another recipient incarnation, starts at zero and leaves the original count alone"),
+    Witness("native-r1-preframe-recipient-ignored", CODEX_ADAPTER, "worker", PREFRAME_GROUP,
+            (("    private static PreFrameKey KeyOf(BrokerMessage message) => new(message.Id, message.CreatedAt, message.Recipient);\n",
+              "    private static PreFrameKey KeyOf(BrokerMessage message) => new(message.Id, message.CreatedAt, default!);\n", 1),),
+            "CODEX_REDISCOVERY_IDENTITY: the same UUID in a new lifetime, or to another recipient incarnation, starts at zero and leaves the original count alone"),
+    Witness("native-r1-preframe-prune-removed", CODEX_ADAPTER, "worker", PREFRAME_GROUP,
+            (("clock.GetElapsedTime(pair.Value.At, now) > PreFrameDeferralRetention)",
+              "clock.GetElapsedTime(pair.Value.At, now) > PreFrameDeferralRetention * 1000)", 1),),
+            "CODEX_REDISCOVERY_PRUNED: a count not updated for ten monotonic minutes is pruned and the next pre-frame result starts at zero"),
+    Witness("native-r1-preframe-cap-removed", CODEX_ADAPTER, "worker", PREFRAME_GROUP,
+            (("                preFrameDeferrals.Remove(preFrameDeferrals.MinBy(pair => pair.Value.At).Key);\n", "                _ = 0;\n", 1),),
+            "CODEX_REDISCOVERY_BOUNDED_STORAGE: one more distinct message than the cap leaves exactly the cap of pre-frame counts"),
+    Witness("native-r1-preframe-map-static", CODEX_ADAPTER, "worker", PREFRAME_GROUP,
+            (("    private readonly Dictionary<PreFrameKey, (int Count, long At)> preFrameDeferrals = [];\n",
+              "    private static readonly Dictionary<PreFrameKey, (int Count, long At)> preFrameDeferrals = [];\n", 1),),
+            "CODEX_REDISCOVERY_RESTART: a new adapter instance (a worker restart) starts every message at zero"),
+    Witness("native-r1-preframe-retire-always", CODEX_PROVIDER, "worker", PREFRAME_GROUP,
+            ((" && submitted.ConnectionClosed) await RetireOwnerConnectionAsync();", ") await RetireOwnerConnectionAsync();", 1),),
+            "CODEX_REDISCOVERY_RETIRE_ONLY_CLOSED: a pre-frame deferral keeps an open owner connection and retires a closed one"),
+    Witness("native-r1-rediscovery-wait-reason-collapsed", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (('"native_owner_unavailable" or "native_owner_rediscovery_unavailable" or ', '"native_owner_unavailable" or ', 1),),
+            "WAIT_REASON_REDISCOVERY"),
+)
+
+# ---- 1.10.6 lane N round 1 B1: the native-cause advisory grace and the advisory_withheld events (UncertainNoticeChecks.Grace).
+# The Grace checks run before every older notice check and the file stops at its first failure, so each mutant reports at
+# its own label. Mutants keep every field and local read (TreatWarningsAsErrors).
+EVENTS = "src/AgentBroker.Core/BrokerEventLog.cs"
+NOTICE_GROUP = ("--uncertain-notices-only",)
+DUE_RETURN = "        return clock.GetElapsedTime(since, stamp) >= UncertainAdvisoryGrace;\n"
+NATIVE_R1_GRACE_WITNESSES = (
+    Witness("native-r1-grace-time-removed", STORE, "core", NOTICE_GROUP, ((DUE_RETURN, "        return true;\n", 1),),
+            "UNCERTAIN_NOTICE_GRACE_SETTLE_BEFORE: a native-cause source the recipient settles at grace minus one second sends no advisory"),
+    Witness("native-r1-grace-boundary-late", STORE, "core", NOTICE_GROUP,
+            ((DUE_RETURN, "        return clock.GetElapsedTime(since, stamp) > UncertainAdvisoryGrace;\n", 1),),
+            "UNCERTAIN_NOTICE_GRACE_NEVER_SETTLES: with no other write, an unsettled native-cause advisory is admitted at exactly the grace, not a second before"),
+    Witness("native-r1-grace-admitted-withdrawn", STORE, "core", NOTICE_GROUP,
+            (("            // The answer is what the store now holds: for a Delivered or Refused message this broker sent, a tombstone.\n"
+              "            messages[index] = next; Commit(state with { Messages = messages }); return Stored(messageId, null, out _)!;\n",
+              "            // The answer is what the store now holds: for a Delivered or Refused message this broker sent, a tombstone.\n"
+              "            messages[index] = next; messages.RemoveAll(r => r.Message.Id == SenderNoticeId(previous)); Commit(state with { Messages = messages }); return Stored(messageId, null, out _)!;\n", 1),),
+            "UNCERTAIN_NOTICE_GRACE_SETTLE_AFTER: an advisory admitted at the grace stays historical when the recipient settles a second later"),
+    Witness("native-r1-grace-scope-widened", STORE, "core", NOTICE_GROUP,
+            (("        source.Status == MessageStatus.Uncertain && source.Reason is { } reason && reason.StartsWith(\"native_\", StringComparison.Ordinal);\n",
+              "        source.Status == MessageStatus.Uncertain;\n", 1),),
+            "UNCERTAIN_NOTICE_GRACE_RESTART_CAUSE_IMMEDIATE: a restart_during_submission advisory is admitted at once, outside the grace"),
+    Witness("native-r1-grace-wall-clock", STORE, "core", NOTICE_GROUP,
+            ((DUE_RETURN, "        return Now >= source.UpdatedAt + UncertainAdvisoryGrace;\n", 1),),
+            "UNCERTAIN_NOTICE_GRACE_WALL_ROLLBACK: repeated partial wall-clock rollbacks inside the window still admit the advisory at exactly 120 monotonic seconds"),
+    Witness("native-r1-grace-prestart-arm", STORE, "core", NOTICE_GROUP,
+            ((DUE_RETURN, "        return clock.GetElapsedTime(since, stamp) >= UncertainAdvisoryGrace || Now < source.UpdatedAt;\n", 1),),
+            "UNCERTAIN_NOTICE_GRACE_PRESTART: a wall clock set before the Uncertain time neither admits the advisory early nor holds it past 120 monotonic seconds"),
+    # X1d N-D5 / N-T1 (DECISIONS 25): only the constructor's open-time seed removed. Fixture B (no due check before 119 s) then
+    # gets its timer from the seed-where-missing path at 119 s and is not due at 120 s.
+    Witness("native-r1-grace-open-seed-removed", STORE, "core", NOTICE_GROUP,
+            (("            foreach (var (id, source) in owed) if (InGrace(source)) advisoryEligible.TryAdd(id, opened);\n",
+              "            _ = opened;\n", 1),),
+            "UNCERTAIN_NOTICE_GRACE_RESTART_REELIGIBLE: after a clean reopen the retained advisory is admitted 120 monotonic seconds after the open, neither at once nor never"),
+    Witness("native-r1-grace-restart-due-at-once", STORE, "core", NOTICE_GROUP,
+            (("advisoryEligible.TryAdd(id, opened);", "advisoryEligible.TryAdd(id, opened - this.clock.TimestampFrequency * 1000);", 1),),
+            "UNCERTAIN_NOTICE_GRACE_RESTART_REELIGIBLE: after a clean reopen the retained advisory is admitted 120 monotonic seconds after the open, neither at once nor never"),
+    Witness("native-r1-grace-owedready-ungated", STORE, "core", NOTICE_GROUP,
+            (("            (!InGrace(pair.Value) || Due(advisoryEligible, pair.Key, pair.Value, stamp)) && Admissible(", "            Admissible(", 1),),
+            "UNCERTAIN_NOTICE_GRACE_NO_CHURN: delivery passes inside the grace write nothing for a not-yet-due advisory"),
+    Witness("native-r1-grace-event-before-write", STORE, "core", NOTICE_GROUP,
+            (("                (withheld ??= []).Add(WithheldEvent(source, next.Messages));\n",
+              "                events.Append(WithheldEvent(source, next.Messages));\n", 1),),
+            "UNCERTAIN_NOTICE_GRACE_FAILED_SETTLEMENT: a settlement whose snapshot write fails leaves the source Uncertain, the advisory owed and nothing recorded; the retry withholds it"),
+    Witness("native-r1-grace-refused-cancelled", STORE, "core", NOTICE_GROUP,
+            (("            if (Refusal(owner, withText, records, pending) is { } refused) { owedRefusal[id] = refused; continue; }\n",
+              "            if (Refusal(owner, withText, records, pending) is { } refused) { owedRefusal[id] = refused; if (InGrace(source)) owing.Remove(id); continue; }\n", 1),),
+            "UNCERTAIN_NOTICE_GRACE_SENDER_AWAY: a due advisory whose sender is away or has no queue room stays owed and is admitted when the sender returns or has room"),
+    Witness("native-r1-grace-due-before-retention", STORE, "core", NOTICE_GROUP,
+            (("            // B1: not yet due, a native-cause advisory stays owed with no refusal recorded (it is not refused, only early).\n"
+              "            if (InGrace(source) && !Due(timers ??= new(advisoryEligible), id, source, stamp)) continue;\n", "", 1),
+             ("            // A notice is sent only while its source is retained, so it never arrives after its evidence has gone.\n",
+              "            if (InGrace(source) && !Due(timers ??= new(advisoryEligible), id, source, stamp)) continue;\n"
+              "            // A notice is sent only while its source is retained, so it never arrives after its evidence has gone.\n", 1)),
+            "UNCERTAIN_NOTICE_GRACE_RETENTION_COUNTED: a native-cause advisory whose source retention ends inside the grace is dropped and counted, not hidden"),
+    Witness("native-r1-grace-timer-published-early", STORE, "core", NOTICE_GROUP,
+            (("            if ((owing ??= new(owed)).TryAdd(id, Source(ended)) && InGrace(ended)) (timers ??= new(advisoryEligible))[id] = stamp;\n",
+              "            if ((owing ??= new(owed)).TryAdd(id, Source(ended)) && InGrace(ended)) advisoryEligible.TryAdd(id, stamp);\n", 1),),
+            "UNCERTAIN_NOTICE_GRACE_TIMER_STAGED: the grace starts at the commit that succeeds, never at a failed attempt"),
+    Witness("native-r1-events-not-written", STORE, "core", NOTICE_GROUP,
+            (("            if (withheld is not null) foreach (var line in withheld) events.Append(line);\n", "", 1),),
+            "UNCERTAIN_NOTICE_WITHHELD_EVENT: a withheld advisory leaves one advisory_withheld line naming the message, recipient, Uncertain step and settlement"),
+    # X1d 033 / DECISIONS 24: a writer that keeps its handle open (a store-file scan would then throw on the open log).
+    Witness("native-r1-events-writer-held", EVENTS, "core", NOTICE_GROUP,
+            (("    private long lost;\n", "    private long lost;\n    private FileStream? held;\n", 1),
+             ("            using (var stream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.Read)) stream.Write(bytes);\n",
+              "            held ??= new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.Read); held.Write(bytes); held.Flush();\n", 1)),
+            "UNCERTAIN_NOTICE_EVENTS_CLOSED_APPEND: once an append returns, a scan of the store files can read broker-events.jsonl: the store holds no write handle on it"),
+    Witness("native-r1-events-rotation-removed", EVENTS, "core", NOTICE_GROUP,
+            (("            if (existing.Exists && existing.Length + bytes.Length > MaximumBytes) File.Move(path, rotated, overwrite: true);\n",
+              "            if (existing.Exists && existing.Length + bytes.Length > MaximumBytes) _ = rotated;\n", 1),),
+            "UNCERTAIN_NOTICE_EVENTS_ROTATION: at the 1 MiB cap the events file rotates once to broker-events.1.jsonl, replacing the older one"),
+    Witness("native-r1-events-lost-dropped", EVENTS, "core", NOTICE_GROUP,
+            (("            if (lost > 0) line[\"eventsLost\"] = lost;\n", "", 1),),
+            "UNCERTAIN_NOTICE_EVENTS_WRITE_FAILURE: a failed event write leaves the settlement committed and is counted into the next line as eventsLost"),
+    Witness("native-r1-events-text-included", STORE, "core", NOTICE_GROUP,
+            (("            [\"messageId\"] = source.Message.Id.ToString(\"D\"),\n",
+              "            [\"messageId\"] = source.Message.Id.ToString(\"D\"), [\"text\"] = settled?.Message.Text,\n", 1),),
+            "UNCERTAIN_NOTICE_EVENTS_NO_TEXT: neither the current nor the rotated events file holds message text, while both name their messages"),
+)
+
 WITNESSES = (
     Witness("hygiene-late-held-allowed", STORE, "core", ("--hygiene-only",), ((X1_GUARD, "", 1),),
             "LATE_HELD_REFUSED: a local Held after the deadline is refused message_expired and the record stays Uncertain"),
@@ -1704,7 +1837,7 @@ WITNESSES = (
 
     Witness('watch-cleanup-exists-omitted', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('if (File.Exists(lockPath)) cleanup = "failed";', '', 1),), 'WATCH_CLEANUP_DELETE_PENDING: a visible delete-pending lock reports cleanup failed without changing the mail exit code'),
 
-) + ATTACHMENT_WITNESSES + ATTACHMENT_R2_WITNESSES + ATTACHMENT_R2B_WITNESSES + ATTACHMENT_R5_WITNESSES + ATTACHMENT_R6_WITNESSES + ATTACHMENT_R7_WITNESSES
+) + ATTACHMENT_WITNESSES + ATTACHMENT_R2_WITNESSES + ATTACHMENT_R2B_WITNESSES + ATTACHMENT_R5_WITNESSES + ATTACHMENT_R6_WITNESSES + ATTACHMENT_R7_WITNESSES + NATIVE_R1_WITNESSES + NATIVE_R1_GRACE_WITNESSES
 
 
 def sha256(data: bytes) -> str:
@@ -1749,7 +1882,10 @@ PROOF_FIELDS = {
 # D2 round 2 measured focused receipts under E/lanes/D2/r2/checks (2026-11-14):
 # Core waiting 116, Worker waiting 31, scope 11 and authenticated pagination 37.
 # D2 round 3 measured Core waiting 118 before re-pinning: E/lanes/D2/r3/checks/r3-first-core-measure-waiting-20261117T120451288Z-f3fca3ba.stdout.log.
-EXPECTED_COUNTS = {("core", ("--waiting-mail-only",)): 118, ("worker", ("--waiting-mail-only",)): 31,
+# 1.10.6 lane N round 1: core --waiting-mail-only 118 -> 119 (WAIT_REASON_REDISCOVERY) and the new worker
+# --codex-preframe-only group (9), derived from the added check() calls, to be measured by the round's healthy baselines.
+EXPECTED_COUNTS = {("core", ("--waiting-mail-only",)): 119, ("worker", ("--waiting-mail-only",)): 31,
+                   ("worker", ("--codex-preframe-only",)): 9,
                    # L2 measured45: E/lanes/D2/checks/l2-a10-r2/workerdirectoryshape.stdout.log.
                    ("worker", ("--directory-shape-only",)): 45,
                    ("worker", ("--benchmark-validation-only",)): 12,
@@ -1764,7 +1900,9 @@ EXPECTED_COUNTS = {("core", ("--waiting-mail-only",)): 118, ("worker", ("--waiti
                    ("worker", ("--reply-runtime-only",)): 4,
                    ("worker", ("--channel-only",)): 37,
                    # 1.10.1: 80 at e398eba2 plus UNCERTAIN_NOTICE_REOPEN_PAST_RETENTION (measured 81 on the fixed source).
-                   ("core", ("--uncertain-notices-only",)): 81,
+                   # 1.10.6 lane N round 1: 81 plus the 18 Grace checks (17 graded labels and the clean-reopen witness),
+                   # derived from the added Check() calls, to be measured by the round's healthy baseline.
+                   ("core", ("--uncertain-notices-only",)): 99,
                    # 1.10.1 LocalOutputFile v2.1: the new group, measured 36 on its first healthy focused runs (2026-11-09).
                    # 36 -> 41 (review round 1, measured): CASE_SENSITIVE_ANCESTOR, HANDOFF_CLI_CLEANUP, MCP_CLI_CLEANUP,
                    # POST_CREATE_CHAIN and POST_CREATE_CASE.

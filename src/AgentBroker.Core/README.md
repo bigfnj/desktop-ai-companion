@@ -45,6 +45,12 @@ acknowledgement always has room. The journal is appended (tombstone first, then 
 message, so a crash between them leaves the snapshot authoritative), ignores a torn last line, refuses any
 other malformed line, and is compacted once its dead lines outnumber live ones by 4,096. The snapshot keeps
 schema 1 exactly, so a 1.0.4 worker still loads it and loses only the tombstoned IDs.
+Since 1.10.6 the same directory holds the report-only `broker-events.jsonl` (`BrokerEventLog`), rotated once
+to `broker-events.1.jsonl` at 1 MiB. The store appends an `advisory_withheld` line, never message text, after
+a commit that cancels an unadmitted uncertainty advisory because its source settled. It never reads the file,
+and a failed write is counted into the next line, never into the commit. An advisory for a native-cause
+`Uncertain` source (`native_` reason) is admitted only `UncertainAdvisoryGrace` (120 s) after it became
+owed, on monotonic time in this process.
 In-flight and uncertain records count toward per-recipient queue bounds. Session leases, current receive
 capability, privacy changes, idle state, and wake capability are rechecked before a local claim. Unknown
 activity permits a claim only with explicit `NativeIdleGuard` plus receive/wake capabilities; the

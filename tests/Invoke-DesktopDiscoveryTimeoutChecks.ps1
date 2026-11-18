@@ -9,7 +9,8 @@ pwsh -NoProfile -File tests/Invoke-DesktopDiscoveryTimeoutChecks.ps1 -Case defau
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('All', 'New', 'Existing', 'default-delay', 'method-defaults', 'explicit-deadline', 'outer-cancellation', 'missing-owner')]
+    [ValidateSet('All', 'New', 'Existing', 'default-delay', 'method-defaults', 'explicit-deadline', 'outer-cancellation', 'missing-owner',
+        'preframe-rediscovery', 'preframe-token', 'plaintext-preframe', 'postframe-timeout')]
     [string]$Case = 'All',
     [switch]$SkipBuild
 )

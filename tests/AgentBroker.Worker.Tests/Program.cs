@@ -43,6 +43,12 @@ if (args.SequenceEqual(["--waiting-mail-only"]))
     try { await WaitingMailToolChecks.RunAsync(Check); Console.WriteLine($"RESULT=PASS assertions={assertions}"); return 0; }
     catch (Exception error) { Console.Error.WriteLine(error); Console.WriteLine("RESULT=FAIL"); return 1; }
 }
+// 1.10.6 lane N: the Codex typed pre-frame deferral in the adapter and provider (N-broker-native-confirmation-01).
+if (args.SequenceEqual(["--codex-preframe-only"]))
+{
+    try { await CodexPreFrameChecks.RunAsync(Check); Console.WriteLine($"RESULT=PASS assertions={assertions}"); return 0; }
+    catch (Exception error) { Console.Error.WriteLine(error); Console.WriteLine("RESULT=FAIL"); return 1; }
+}
 if (args.SequenceEqual(["--certificate-continuity-only"]) ||
     args.SequenceEqual(["--certificate-renewal-only"]) ||
     args.SequenceEqual(["--certificate-renewal-lifecycle-only"]))
@@ -520,6 +526,7 @@ try
         await ClaudePinDiagnosticChecks.RunAsync(Check);
         await CodexPinDiagnosticChecks.RunAsync(Check);
         await CodexProviderDiagnosticChecks.RunAsync(Check);
+        await CodexPreFrameChecks.RunAsync(Check);
         await AdapterDiagnosticChecks.RunAsync(Check);
         await DeferredClaimChecks.RunAsync(Check);
         // Agent-to-agent bus: durable mailboxes, blocking waits, field-compared send, the instructions card.

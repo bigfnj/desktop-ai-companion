@@ -55,7 +55,7 @@ public sealed partial class BrokerStore
         "native_context_busy" or "native_recipient_busy" or "native_recipient_awaiting_approval" or
         "native_recipient_activity_unknown" or "native_metadata_unavailable" or "native_submission_wait_cancelled" or
         "native_delivery_wait_cancelled" or "native_session_unavailable" or "native_owner_changed" or
-        "native_owner_unavailable" or "native_verification_unavailable" or "native_receipt_capacity_reconnect" or
+        "native_owner_unavailable" or "native_owner_rediscovery_unavailable" or "native_verification_unavailable" or "native_receipt_capacity_reconnect" or
         "native_not_submitted" or "native_transport_unavailable" => reason,
         _ => "other_deferred"
     };

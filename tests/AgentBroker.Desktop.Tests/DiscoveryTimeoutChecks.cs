@@ -10,7 +10,9 @@ internal static class DiscoveryTimeoutChecks
         {
             ("default-delay", DefaultDelayAsync), ("method-defaults", MethodDefaultsAsync),
             ("explicit-deadline", ExplicitDeadlineAsync), ("outer-cancellation", OuterCancellationAsync),
-            ("missing-owner", MissingOwnerAsync)
+            ("missing-owner", MissingOwnerAsync), ("preframe-rediscovery", PreFrameRediscoveryAsync),
+            ("preframe-token", PreFrameTokenAsync), ("plaintext-preframe", PlaintextPreFrameAsync),
+            ("postframe-timeout", PostFrameTimeoutAsync)
         };
         if (scenario is not null && !cases.Any(item => item.Name == scenario))
             throw new ArgumentException("Unknown discovery timeout test case.", nameof(scenario));
@@ -129,6 +131,78 @@ internal static class DiscoveryTimeoutChecks
             && connection.Inner.SubmissionCount == 0, "a negative discovery does not resume, replace or submit to any thread");
     }
 
+    // N-broker-native-confirmation-01: the external-peer path's owner rediscovery runs out of its own deadline before any
+    // message ID is reserved or turn frame written. The library answers with a typed pre-frame deferral, says the failed
+    // request closed the connection, and the router saw no start-turn.
+    private static async Task PreFrameRediscoveryAsync(Action<bool, string> check)
+    {
+        var options = new DesktopAdapterOptions(EnableExternalPeerDelivery: true, RequestTimeout: TimeSpan.FromMilliseconds(100));
+        await using var connection = new DelayedConnection { SecondDiscoveryDelay = TimeSpan.FromMilliseconds(400) };
+        await using var adapter = await DesktopAdapter.ConnectForTestAsync(connection, options);
+        var binding = await adapter.DiscoverAsync(Guid.NewGuid());
+        check(binding is not null && connection.Inner.DiscoveryCount == 1, "pre-frame rediscovery witness: the first discovery answers in time");
+        // Before 1.10.6 the cancellation escaped; catch it so a regression reports through this check's own label.
+        DesktopSubmissionResult? receipt = null;
+        try { receipt = await adapter.SubmitExternalPeerAsync(binding!, Guid.NewGuid(), "Synthetic pre-frame rediscovery check."); }
+        catch (OperationCanceledException) { }
+        check(receipt is { Outcome: DesktopSubmissionOutcome.DeferredNotSubmitted, ErrorCode: "rediscovery_timeout", ConnectionClosed: true } &&
+            connection.Inner.SubmissionCount == 0 && connection.Inner.Disposed,
+            "CODEX_PREFRAME_REDISCOVERY_DEFERS: a timed-out owner rediscovery defers with nothing written and its closed connection named");
+    }
+
+    // The caller's token runs out after the rediscovery answered (the final token check): the deferral names the attempt,
+    // the connection stays open, and because no message ID was reserved, a same-ID retry on this connection reaches the
+    // owner and submits instead of answering from a cached result.
+    private static async Task PreFrameTokenAsync(Action<bool, string> check)
+    {
+        using var attempt = new CancellationTokenSource();
+        await using var connection = new DelayedConnection { CancelAfterSecondDiscovery = attempt };
+        await using var adapter = await DesktopAdapter.ConnectForTestAsync(connection, new(EnableExternalPeerDelivery: true));
+        var binding = await adapter.DiscoverAsync(Guid.NewGuid());
+        Guid id = Guid.NewGuid();
+        var first = await adapter.SubmitExternalPeerAsync(binding!, id, "Synthetic pre-frame token check.", attempt.Token);
+        check(first.Outcome == DesktopSubmissionOutcome.DeferredNotSubmitted && first.ErrorCode == "attempt_cancelled" &&
+            !first.ConnectionClosed && connection.Inner.SubmissionCount == 0,
+            "pre-frame token witness: the final token check defers the attempt with the connection open and nothing written");
+        var retry = await adapter.SubmitExternalPeerAsync(binding!, id, "Synthetic pre-frame token check.");
+        check(retry.Outcome == DesktopSubmissionOutcome.Accepted && connection.Inner.SubmissionCount == 1,
+            "CODEX_PREFRAME_TOKEN_DEFERS_OPEN: a pre-frame deferral reserves no message ID, so the same-ID retry submits once");
+    }
+
+    // The plaintext path never defers (DesktopAdapter's own rule): its timed-out rediscovery still raises.
+    private static async Task PlaintextPreFrameAsync(Action<bool, string> check)
+    {
+        var options = new DesktopAdapterOptions(EnableAuthorizedPlaintextDelivery: true, RequestTimeout: TimeSpan.FromMilliseconds(100));
+        await using var connection = new DelayedConnection { SecondDiscoveryDelay = TimeSpan.FromMilliseconds(400) };
+        await using var adapter = await DesktopAdapter.ConnectForTestAsync(connection, options);
+        var binding = await adapter.DiscoverAsync(Guid.NewGuid());
+        bool raised = false;
+        DesktopSubmissionResult? receipt = null;
+        try { receipt = await adapter.SubmitAuthorizedPlaintextAsync(binding!, Guid.NewGuid(), "Synthetic plaintext pre-frame check."); }
+        catch (OperationCanceledException) { raised = true; }
+        check(raised && receipt is null && connection.Inner.SubmissionCount == 0,
+            "CODEX_PLAINTEXT_PREFRAME_UNCHANGED: the plaintext path keeps raising a timed-out rediscovery and never defers");
+    }
+
+    // After the reservation and the start-turn write, a timeout stays Uncertain on the external path too and can never enter the
+    // pre-frame retry branch: the inner catch answers it first, and a same-ID retry returns the reserved receipt.
+    private static async Task PostFrameTimeoutAsync(Action<bool, string> check)
+    {
+        var options = new DesktopAdapterOptions(EnableExternalPeerDelivery: true, RequestTimeout: TimeSpan.FromMilliseconds(100));
+        await using var connection = new DelayedConnection { SubmissionDelay = TimeSpan.FromMilliseconds(400) };
+        await using var adapter = await DesktopAdapter.ConnectForTestAsync(connection, options);
+        var binding = await adapter.DiscoverAsync(Guid.NewGuid());
+        Guid id = Guid.NewGuid();
+        var first = await adapter.SubmitExternalPeerAsync(binding!, id, "Synthetic post-frame timeout check.");
+        // A retry that throws (a closed connection after a wrongly released reservation) fails this check's own label.
+        DesktopSubmissionResult? retry = null;
+        try { retry = await adapter.SubmitExternalPeerAsync(binding!, id, "Synthetic post-frame timeout check."); }
+        catch (DesktopAdapterException) { }
+        check(first is { Outcome: DesktopSubmissionOutcome.Uncertain, ErrorCode: "response_timeout_or_cancelled", ConnectionClosed: false } &&
+            retry == first && connection.Inner.SubmissionCount == 1,
+            "CODEX_POSTFRAME_TIMEOUT_STAYS_UNCERTAIN: an external-path start-turn timeout stays Uncertain and its same-ID retry never resubmits");
+    }
+
     private static string? Method(JsonObject request) => DesktopFrames.Text(request, "method");
     private static int? TimeoutFor(DelayedConnection connection, string method) =>
         (int?)connection.Inner.Requests.First(request => Method(request) == method)["timeoutMs"];
@@ -141,17 +215,32 @@ internal static class DiscoveryTimeoutChecks
         public DesktopRouterTrust Trust => Inner.Trust;
         internal TimeSpan DiscoveryDelay { get; init; }
         internal TimeSpan SubmissionDelay { get; init; }
+        // Delays only the second and later owner discoveries: the pre-submit rediscovery after a prompt first lookup.
+        internal TimeSpan SecondDiscoveryDelay { get; init; }
+        // Cancels this source once the second discovery's answer has been read (RequestAsync verifies the owner just
+        // before returning it), so cancellation lands after the rediscovery and before the reservation.
+        internal CancellationTokenSource? CancelAfterSecondDiscovery { get; init; }
+        private bool cancelled;
+        private int discoveries;
         internal TaskCompletionSource DiscoveryRequested { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly DelayedReadStream stream;
         internal DelayedConnection() { stream = new(Inner.Stream, SelectDelay); }
         private TimeSpan SelectDelay(JsonObject request)
         {
-            if (Method(request) == "thread-owner-discovery") { DiscoveryRequested.TrySetResult(); return DiscoveryDelay; }
+            if (Method(request) == "thread-owner-discovery")
+            {
+                DiscoveryRequested.TrySetResult();
+                return ++discoveries >= 2 && SecondDiscoveryDelay > TimeSpan.Zero ? SecondDiscoveryDelay : DiscoveryDelay;
+            }
             return Method(request) == "thread-follower-start-turn" ? SubmissionDelay : TimeSpan.Zero;
         }
         public Stream Stream => stream;
         public OwnerProcessIdentity Identity => Inner.Identity;
-        public void VerifyStillSameOwner() => Inner.VerifyStillSameOwner();
+        public void VerifyStillSameOwner()
+        {
+            Inner.VerifyStillSameOwner();
+            if (CancelAfterSecondDiscovery is { } source && !cancelled && Inner.DiscoveryCount == 2) { cancelled = true; source.Cancel(); }
+        }
         public ValueTask DisposeAsync() { stream.Dispose(); return Inner.DisposeAsync(); }
     }
 
