@@ -158,14 +158,19 @@ public sealed partial class AgentBrokerModule
         });
         Scenario(f =>
         {
-            // Round 6 (U-7): the Brokers card's OWN two invitation buttons, taken by label from the list the pane shows, bound to
-            // the right handlers: Copy writes once and never reads; Pair reads once, never writes, and only previews.
+            // Membership/order belong to BROKERS_ONE_CARD. Exercise the real card bindings when present, but use the
+            // production factories for a missing action so a schema mutant cannot abort this independent behavior check.
+            // The swapped-handler mutant still uses the real card actions and fails BROKERS_INVITATION_BINDING.
             int writes = 0;
             f.Module.writeInvitationClipboard = _ => writes++;
-            PaneAction[] cardActions = f.Pane.Lists!.Single().Actions.ToArray();
-            string copied = f.Press(cardActions.Single(action => action.Label == CopyInvitationLabel));
+            PaneAction[] cardActions = f.Pane.Lists?.Where(card => card.Title == "Brokers")
+                .SelectMany(card => card.Actions).ToArray() ?? [];
+            PaneAction copy = cardActions.FirstOrDefault(action => action.Label == CopyInvitationLabel) ??
+                f.Module.BrokerAction(CopyInvitationLabel, _ => f.Module.CopyInvitationAsync());
+            PaneAction pair = cardActions.FirstOrDefault(action => action.Label == PairCopiedInvitationLabel) ?? f.Pair;
+            string copied = f.Press(copy);
             bool copyBound = writes == 1 && f.Reads == 0 && copied.StartsWith("Public broker invitation copied.", StringComparison.Ordinal);
-            string preview = f.Press(cardActions.Single(action => action.Label == PairCopiedInvitationLabel));
+            string preview = f.Press(pair);
             check(copyBound && f.Reads == 1 && writes == 1 && PairingRequestCount(f.Control) == 0 &&
                 preview.StartsWith("Invitation from ", StringComparison.Ordinal) && preview.Contains("No request has been sent.", StringComparison.Ordinal),
                 "BROKERS_INVITATION_BINDING: the Brokers card's Copy button writes without reading and its Pair button reads and previews without writing");
