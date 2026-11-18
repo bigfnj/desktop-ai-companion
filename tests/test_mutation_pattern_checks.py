@@ -8,13 +8,18 @@ Run through tests/run_mutation_capture_checks.py.
 
 import contextlib
 import importlib.util
+import inspect
 import io
+import os
 from pathlib import Path
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
+import types
 import unittest
+from unittest import mock
 
 TESTS = Path(__file__).resolve().parent
 
@@ -252,6 +257,470 @@ class GuardsModuleGrade(ScratchCase):
         # WITNESS: an advanced timestamp and a changed hash are the proof.
         path, before = self.artifact(b"mutant bytes", 10)
         self.assertIsNone(self.guards.rebuild_problem(path, before, "0" * 64))
+
+
+class FakeTree:
+    """Fake csproj builds over scratch files, for score() in GuardsScoreCarryOver. A project owns artefacts, each compiled from
+    its sources' CURRENT bytes (so two projects can share a source); every write advances the artefact's mtime. The fake
+    self-test loads every artefact and script at once and fails one label for each that holds a mutant, which is the
+    carry-over's worst case: a stale artefact anywhere shows up in the next case's labels."""
+
+    def __init__(self, scratch):
+        self.scratch = scratch
+        (scratch / "src").mkdir()
+        (scratch / "bin").mkdir()
+        self.projects = {}
+        self.labels = {}
+        self.builds = []
+        self.build_all_calls = 0
+        self.faults = {}
+        self.skip_on_baseline = set()
+        self.head = "aaaaaaaaaaaa"
+        self.clock = time.time()
+
+    def source(self, name):
+        path = self.scratch / "src" / name
+        if not path.exists():
+            path.write_bytes(b"clean\n")
+        return str(path)
+
+    def project(self, name, artifacts):
+        """artifacts: [(artefact name, [source names], label)]; returns the csproj and the artefact paths."""
+        csproj = str(self.scratch / name)
+        owned = []
+        for artifact, sources, label in artifacts:
+            path = str(self.scratch / "bin" / artifact)
+            owned.append((path, [self.source(source) for source in sources]))
+            self.labels[path] = label
+        self.projects[csproj] = owned
+        return csproj, [path for path, _ in owned]
+
+    def script(self, name, label):
+        """A csproj-None case's script, which the self-test reads directly (the TEMPLATE and MODULE-SELFTESTS shape)."""
+        path = self.source(name)
+        self.labels[path] = label
+        return path
+
+    def put(self, path, data):
+        Path(path).write_bytes(data)
+        self.clock += 10
+        os.utime(path, (self.clock, self.clock))
+
+    def compile(self, csproj, skip=()):
+        for path, sources in self.projects[csproj]:
+            if path not in skip:
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                self.put(path, b"BUILT " + b"+".join(Path(source).read_bytes() for source in sources))
+
+    def build(self, csproj):
+        self.builds.append(csproj)
+        fault = self.faults.get((csproj, self.builds.count(csproj)))
+        if fault == "raise":
+            raise subprocess.TimeoutExpired(["dotnet", "build", csproj], 1800)
+        if fault == "fail":
+            return False, "synthetic: error CS0000 before any output"
+        if isinstance(fault, tuple) and fault[0] == "skip":
+            # Design v3: a rebuild that leaves one output as it was (here, still the previous case's mutant).
+            self.compile(csproj, skip=(fault[1],))
+            return True, ""
+        self.compile(csproj)
+        if isinstance(fault, tuple) and fault[0] == "add":
+            os.makedirs(os.path.dirname(fault[1]), exist_ok=True)
+            self.put(fault[1], b"a file the baseline did not have")
+        if fault == "partial":
+            return False, "synthetic: error CS0000 after a partial write"
+        if isinstance(fault, tuple) and fault[0] == "omit":
+            os.remove(fault[1])
+        if isinstance(fault, tuple) and fault[0] == "drift":
+            self.put(fault[1], b"DRIFT " + Path(fault[1]).read_bytes())
+            if len(fault) > 2:
+                self.head = fault[2]
+        return True, ""
+
+    def build_all(self):
+        self.build_all_calls += 1
+        for csproj in self.projects:
+            self.compile(csproj, self.skip_on_baseline if self.build_all_calls == 1 else ())
+        return True, ""
+
+    def watched_selftest(self, flag, marker):
+        failing = [label for path, label in self.labels.items()
+                   if os.path.isfile(path) and b"MUTANT" in Path(path).read_bytes()]
+        report = "PASS: synthetic\n" + "".join("FAIL: %s\n" % label for label in failing)
+        return report + ("RESULT=FAIL\n" if failing else "RESULT=PASS\n"), (1 if failing else 0), None
+
+
+class GuardsScoreCarryOver(ScratchCase):
+    """Marathon-1106 lane G round 1 (N-P4-cross-artifact-mutant-carryover-01; 1105 DECISIONS 150, X1d's 010): score() must leave
+    the switched-away target at its clean bytes before the next case, and stop the run when it cannot. The real score(),
+    grade() and rebuild_problem() run over FakeTree; nothing is built and no product file is read or written. The killing
+    mutations and their expected failing sets are in the round's killers file (E6 lanes/G/r01; v4: killers-v3)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.guards = load("mutate-selftest-guards.py", "carryover_guards_under_test")
+
+    def setUp(self):
+        super().setUp()
+        self.tree = FakeTree(self.scratch)
+        (self.scratch / "run").mkdir()
+
+    def case(self, name, csproj, source, artifact, label):
+        return (name, source, b"clean", b"MUTANT", csproj, artifact, "--synthetic", "synthetic.txt", label)
+
+    def score(self, cases, catalogue=None, owned=None, patches=()):
+        """(exit, stdout, rows): rows maps a case name to [outcome, failing labels]. owned: OWNED_TREES for the run (none by
+        default, so the real AgentBroker worker path is never walked). patches: further (object, name, value) for this run."""
+        guards = self.guards
+        out = io.StringIO()
+        with contextlib.ExitStack() as stack:
+            for target, name, value in patches:
+                stack.enter_context(mock.patch.object(target, name, value))
+            for name, value in (("RUN_TEMP", str(self.scratch / "run")), ("CASES", list(catalogue or cases)),
+                                ("OWNED_TREES", dict(owned or {})),
+                                ("build", self.tree.build), ("build_all", self.tree.build_all),
+                                ("watched_selftest", self.tree.watched_selftest),
+                                ("documents_watch_selfcheck", lambda scratch: []),
+                                ("documents_watch_notice", lambda: "DOCUMENTS WATCH: synthetic"),
+                                ("worktree_head", lambda: self.tree.head),
+                                ("time", types.SimpleNamespace(sleep=lambda seconds: None, monotonic=time.monotonic))):
+                stack.enter_context(mock.patch.object(guards, name, value))
+            stack.enter_context(contextlib.redirect_stdout(out))
+            code = guards.score(types.SimpleNamespace(cases=cases, indices=list(range(1, len(cases) + 1))))
+        rows, current = {}, None
+        for line in out.getvalue().splitlines():
+            if line.startswith("  ") and not line.startswith("   ") and len(line) > 55:
+                current = line[2:54].rstrip()
+                rows[current] = [line[55:], None]
+            elif current is not None and line.startswith("        failing labels ("):
+                text = line.split("): ", 1)[1]
+                rows[current][1] = [] if text == "none" else text.split(" | ")
+        return code, out.getvalue(), rows
+
+    def restore_lines(self, text):
+        return [line for line in text.splitlines() if line.startswith("        switch restore of ")]
+
+    def stop_lines(self, text):
+        return [line for line in text.splitlines() if line.startswith("THE SWITCHED-AWAY TARGET WAS NOT RESTORED -- ")]
+
+    def unproven_lines(self, text):
+        return [line for line in text.splitlines() if line.startswith("THE OWNED TREE CANNOT BE PROVEN -- ")]
+
+    @staticmethod
+    def walk_refusing(locked):
+        """os.walk, except that a folder named `locked` cannot be listed: onerror gets a PermissionError naming it and the walk
+        goes on without it, which is what os.walk does with a folder that scandir refuses."""
+        real = os.walk
+
+        def walk(top, topdown=True, onerror=None, followlinks=False):
+            for current, dirs, names in real(top, topdown, onerror, followlinks):
+                if os.path.basename(current) == locked:
+                    if onerror is not None:
+                        onerror(PermissionError(13, "Access is denied", current))
+                    dirs[:] = []
+                    continue
+                yield current, dirs, names
+        return walk
+
+    def two_targets(self):
+        p, (a,) = self.tree.project("P.csproj", [("A.dll", ["a.cs"], "alpha guard")])
+        q, (b,) = self.tree.project("Q.csproj", [("B.dll", ["b.cs"], "beta guard")])
+        return p, a, q, b
+
+    def test_GUARDS_CARRYOVER_SWITCH_RESTORES(self):
+        # P4's shape: a case on one target, then a case on another. The second must carry no label of the first.
+        p, a, q, b = self.two_targets()
+        cases = [self.case("first target", p, self.tree.source("a.cs"), a, "alpha"),
+                 self.case("second target", q, self.tree.source("b.cs"), b, "beta")]
+        code, text, rows = self.score(cases)
+        self.assertEqual(code, 0, text)
+        self.assertEqual(rows["first target"], ["FIRED", ["FAIL: alpha guard"]], text)
+        self.assertEqual(rows["second target"], ["FIRED", ["FAIL: beta guard"]], text)
+        self.assertEqual(len(self.restore_lines(text)), 1, text)
+        self.assertIn("switch restore of P.csproj after a mutant of A.dll", text)
+        self.assertIn("switch restores: 1 rebuild(s)", text)
+        self.assertEqual([Path(self.tree.source(name)).read_bytes() for name in ("a.cs", "b.cs")], [b"clean\n"] * 2)
+
+    def test_GUARDS_CARRYOVER_TEMPLATE_RESTORES(self):
+        # A csproj-None case (TEMPLATE, MODULE-SELFTESTS) after a built target counts as a switch; a second one after it does
+        # not, because the restore cleared the dirty state and a csproj-None case builds nothing.
+        p, a, q, b = self.two_targets()
+        cases = [self.case("built target", p, self.tree.source("a.cs"), a, "alpha"),
+                 self.case("template case", None, self.tree.script("template.ps1", "delta guard"), None, "delta"),
+                 self.case("second template case", None, self.tree.script("module.ps1", "omega guard"), None, "omega")]
+        code, text, rows = self.score(cases)
+        self.assertEqual(code, 0, text)
+        self.assertEqual(rows["template case"], ["FIRED", ["FAIL: delta guard"]], text)
+        self.assertEqual(rows["second template case"], ["FIRED", ["FAIL: omega guard"]], text)
+        self.assertEqual(len(self.restore_lines(text)), 1, text)
+        self.assertEqual(self.tree.builds, [p, p], text)
+
+    def test_GUARDS_CARRYOVER_SECOND_ARTEFACT_RESTORED(self):
+        # The Host's Contracts copy shape: a project owning two case artefacts, a case on the second, then a switch. Both are
+        # hashed on the restore, the first named only by a catalogue entry outside the selection.
+        p, (a1, a2) = self.tree.project("P.csproj", [("A1.dll", ["a1.cs"], "alpha guard"),
+                                                     ("A2.dll", ["a2.cs"], "kappa guard")])
+        q, (b,) = self.tree.project("Q.csproj", [("B.dll", ["b.cs"], "beta guard")])
+        cases = [self.case("second artefact", p, self.tree.source("a2.cs"), a2, "kappa"),
+                 self.case("other target", q, self.tree.source("b.cs"), b, "beta")]
+        catalogue = cases + [self.case("unselected first artefact", p, self.tree.source("a1.cs"), a1, "alpha")]
+        code, text, rows = self.score(cases, catalogue)
+        self.assertEqual(code, 0, text)
+        self.assertEqual(rows["other target"], ["FIRED", ["FAIL: beta guard"]], text)
+        restores = self.restore_lines(text)
+        self.assertEqual(len(restores), 1, text)
+        self.assertIn("A1.dll ", restores[0])
+        self.assertIn("A2.dll ", restores[0])
+        self.assertTrue(restores[0].endswith(" match the baseline"), restores[0])
+
+    def test_GUARDS_CARRYOVER_SHARED_SOURCE_RESTORED_BEFORE_WRITE(self):
+        # AiBrain and Remembrance both compile CLI_RUNNER, and adjacent cases mutate it alike. A restore after the next case's
+        # write would compile that case's mutant into the switched-away target.
+        p, (a,) = self.tree.project("P.csproj", [("A.dll", ["shared.cs"], "alpha guard")])
+        q, (b,) = self.tree.project("Q.csproj", [("B.dll", ["shared.cs"], "beta guard")])
+        shared = self.tree.source("shared.cs")
+        cases = [self.case("shared on P", p, shared, a, "alpha"), self.case("shared on Q", q, shared, b, "beta")]
+        code, text, rows = self.score(cases)
+        self.assertEqual(code, 0, text)
+        self.assertEqual(rows["shared on P"], ["FIRED", ["FAIL: alpha guard"]], text)
+        self.assertEqual(rows["shared on Q"], ["FIRED", ["FAIL: beta guard"]], text)
+        self.assertEqual(self.stop_lines(text), [], text)
+
+    def test_GUARDS_CARRYOVER_FAILED_BUILD_RESTORED(self):
+        # A compile that fails after writing part of its output leaves the target dirty too.
+        p, a, q, b = self.two_targets()
+        self.tree.faults[(p, 1)] = "partial"
+        cases = [self.case("does not compile", p, self.tree.source("a.cs"), a, "alpha"),
+                 self.case("after the failed build", q, self.tree.source("b.cs"), b, "beta")]
+        code, text, rows = self.score(cases)
+        self.assertEqual(rows["does not compile"][0], "BROKEN (does not compile)", text)
+        self.assertEqual(rows["after the failed build"], ["FIRED", ["FAIL: beta guard"]], text)
+        self.assertEqual(len(self.restore_lines(text)), 1, text)
+        self.assertEqual(code, 1, text)
+
+    def test_GUARDS_CARRYOVER_SAME_TARGET_NO_EXTRA_BUILD(self):
+        # Two cases of one target: the second case's own build recompiles what the first changed, so no restore is built.
+        p, (a1, a2) = self.tree.project("P.csproj", [("A1.dll", ["a1.cs"], "alpha guard"),
+                                                     ("A2.dll", ["a2.cs"], "kappa guard")])
+        cases = [self.case("first of P", p, self.tree.source("a1.cs"), a1, "alpha"),
+                 self.case("second of P", p, self.tree.source("a2.cs"), a2, "kappa")]
+        code, text, rows = self.score(cases)
+        self.assertEqual(code, 0, text)
+        self.assertEqual(self.tree.builds, [p, p], text)
+        self.assertEqual(rows["second of P"], ["FIRED", ["FAIL: kappa guard"]], text)
+        self.assertEqual(self.restore_lines(text), [], text)
+        self.assertIn("switch restores: 0 rebuild(s)", text)
+
+    def test_GUARDS_CARRYOVER_RESTORE_FAILURE_STOPS(self):
+        # Every named restore outcome is a whole-run stop: exit 2, its column-0 line, no later case (the next case's mutant is
+        # never written), and build_all only twice (the baseline and the outer finally).
+        scenarios = (("compile", "fail", "P.csproj: the rebuild did not compile"),
+                     ("raise", "raise", "P.csproj: the rebuild raised TimeoutExpired: "),
+                     ("missing", "omit", "A.dll: the artefact is missing after the rebuild"),
+                     ("hash", "drift", "A.dll: it rebuilt to "),
+                     ("head", "drift-head", " (HEAD moved from aaaaaaaaaaaa to bbbbbbbbbbbb)"),
+                     ("baseline", "ghost", "G.dll: it has no baseline SHA-256"))
+        for label, fault, expected in scenarios:
+            with self.subTest(label):
+                shutil.rmtree(self.scratch)
+                self.scratch.mkdir()
+                self.tree = FakeTree(self.scratch)
+                (self.scratch / "run").mkdir()
+                p, a, q, b = self.two_targets()
+                catalogue = []
+                if fault == "ghost":
+                    p, (a, ghost) = self.tree.project("P.csproj", [("A.dll", ["a.cs"], "alpha guard"),
+                                                                   ("G.dll", ["g.cs"], "gamma guard")])
+                    self.tree.skip_on_baseline.add(ghost)
+                    catalogue = [self.case("unselected ghost", p, self.tree.source("g.cs"), ghost, "gamma")]
+                else:
+                    self.tree.faults[(p, 2)] = {"omit": ("omit", a), "drift": ("drift", a),
+                                                "drift-head": ("drift", a, "bbbbbbbbbbbb")}.get(fault, fault)
+                cases = [self.case("dirty target", p, self.tree.source("a.cs"), a, "alpha"),
+                         self.case("restore refused here", q, self.tree.source("b.cs"), b, "beta"),
+                         self.case("later case", q, self.tree.source("b.cs"), b, "beta")]
+                code, text, rows = self.score(cases, cases + catalogue)
+                self.assertEqual(code, 2, text)
+                stops = self.stop_lines(text)
+                self.assertEqual(len(stops), 1, text)
+                self.assertIn(expected, stops[0])
+                if fault == "drift":
+                    self.assertNotIn("HEAD moved", stops[0])
+                self.assertEqual(sorted(rows), ["dirty target"], text)
+                self.assertEqual(Path(self.tree.source("b.cs")).read_bytes(), b"clean\n")
+                self.assertEqual(self.tree.build_all_calls, 2, text)
+                self.assertIn("restoring and rebuilding the clean tree", text)
+
+    def owned_tree_target(self):
+        """An AgentBroker-shaped target: a named DLL and an owned tree no case names, all compiled from one source. The tree holds
+        one file at its top and one a folder down (v4, X3's K2 and the lead's N7: the real worker tree has files in its licenses folder,
+        so the walk's recursion must be an axis a test varies). Returns p, a, top, nested, q, b, cases, owned."""
+        p, (a, top, nested) = self.tree.project("P.csproj", [
+            ("A.dll", ["a.cs"], "alpha guard"),
+            (os.path.join("worker", "w0.bin"), ["a.cs"], "top tree guard"),
+            (os.path.join("worker", "sub", "w1.bin"), ["a.cs"], "nested tree guard")])
+        q, (b,) = self.tree.project("Q.csproj", [("B.dll", ["b.cs"], "beta guard")])
+        cases = [self.case("owned-tree target", p, self.tree.source("a.cs"), a, ("alpha", "top tree", "nested tree")),
+                 self.case("next target", q, self.tree.source("b.cs"), b, "beta")]
+        return p, a, top, nested, q, b, cases, {p: (str(self.scratch / "bin" / "worker"),)}
+
+    def test_GUARDS_CARRYOVER_OWNED_TREE_RESTORED(self):
+        # Design v3 (G-DESIGN-01): the restore proves the target's owned tree too. Here the rebuild leaves the NESTED tree file
+        # holding the previous mutant; no case names it, so only the owned tree can stop the run before the next case loads it.
+        p, a, top, nested, q, b, cases, owned = self.owned_tree_target()
+        self.tree.faults[(p, 2)] = ("skip", nested)
+        code, text, rows = self.score(cases, owned=owned)
+        self.assertEqual(code, 2, text)
+        stops = self.stop_lines(text)
+        self.assertEqual(len(stops), 1, text)
+        self.assertTrue(stops[0].startswith("THE SWITCHED-AWAY TARGET WAS NOT RESTORED -- %s: it rebuilt to " % nested), stops[0])
+        self.assertNotIn("HEAD moved", stops[0])
+        self.assertEqual(sorted(rows), ["owned-tree target"], text)
+
+    def test_GUARDS_CARRYOVER_OWNED_TREE_ADDED_FILE_RECORDED(self):
+        # A file the baseline tree did not have, here a folder down, is recorded in the restore line, not a stop: the next case
+        # runs clean. Tree files are counted, never named.
+        p, a, top, nested, q, b, cases, owned = self.owned_tree_target()
+        extra = os.path.join(os.path.dirname(nested), "extra.bin")
+        self.tree.faults[(p, 2)] = ("add", extra)
+        code, text, rows = self.score(cases, owned=owned)
+        self.assertEqual(code, 0, text)
+        self.assertEqual(rows["owned-tree target"],
+                         ["FIRED", ["FAIL: alpha guard", "FAIL: top tree guard", "FAIL: nested tree guard"]], text)
+        self.assertEqual(rows["next target"], ["FIRED", ["FAIL: beta guard"]], text)
+        restores = self.restore_lines(text)
+        self.assertEqual(len(restores), 1, text)
+        self.assertIn("A.dll ", restores[0])
+        self.assertIn("owned tree: 2 file(s) match the baseline", restores[0])
+        self.assertIn("1 file(s) not in the baseline tree, recorded, not a stop: extra.bin", restores[0])
+        self.assertNotIn("w0.bin", restores[0])
+        self.assertNotIn("w1.bin", restores[0])
+
+    def test_GUARDS_CARRYOVER_OWNED_TREES_NAMES_WORKER(self):
+        # v4 (DECISIONS 65 item 1; the lead's F2, X3's K1): every other test patches OWNED_TREES, so this one reads the real
+        # value. The published AgentBroker worker tree is the one owned tree, at its BIN path.
+        guards = self.guards
+        self.assertEqual(guards.OWNED_TREES,
+                         {guards.AGENTBROKER_CSPROJ: (os.path.join(guards.BIN, "modules", "agentbroker", "worker"),)})
+        self.assertEqual(os.path.dirname(guards.OWNED_TREES[guards.AGENTBROKER_CSPROJ][0]),
+                         os.path.dirname(guards.AGENTBROKER_DLL))
+
+    def test_GUARDS_CARRYOVER_OWNED_TREE_BASELINE_COUNTED(self):
+        # v4: one column-0 line per declared tree at the baseline, with its count, so a tree that shrank is visible on every run.
+        p, a, top, nested, q, b, cases, owned = self.owned_tree_target()
+        code, text, rows = self.score(cases, owned=owned)
+        self.assertEqual([line for line in text.splitlines() if line.startswith("owned tree of ")],
+                         ["owned tree of P.csproj: 2 file(s) hashed at baseline under %s" % owned[p][0]], text)
+
+    def test_GUARDS_CARRYOVER_OWNED_TREE_EMPTY_AT_BASELINE_STOPS(self):
+        # v4: a declared tree with no file at the baseline stops the run before any case (exit 2, its column-0 line, nothing
+        # mutated, so no clean rebuild): no switch restore could prove a tree the baseline does not hold.
+        p, a, q, b = self.two_targets()
+        empty = self.scratch / "bin" / "empty"
+        empty.mkdir()
+        cases = [self.case("first target", p, self.tree.source("a.cs"), a, "alpha"),
+                 self.case("second target", q, self.tree.source("b.cs"), b, "beta")]
+        code, text, rows = self.score(cases, owned={p: (str(empty),)})
+        self.assertEqual(code, 2, text)
+        self.assertEqual(self.unproven_lines(text), ["THE OWNED TREE CANNOT BE PROVEN -- %s: no file under it at baseline, so no "
+                                                     "switch restore could prove it" % empty], text)
+        self.assertEqual(rows, {}, text)
+        self.assertEqual(self.tree.build_all_calls, 1, text)
+        self.assertEqual([Path(self.tree.source(name)).read_bytes() for name in ("a.cs", "b.cs")], [b"clean\n"] * 2)
+
+    def test_GUARDS_CARRYOVER_OWNED_TREE_UNLISTABLE_AT_BASELINE_STOPS(self):
+        # v4 (X3's V3-X3-01): a root that is missing, or a folder under it the walk cannot list, stops the run before any case,
+        # naming the path; a tree read in part must never pass for a smaller tree.
+        for label in ("missing root", "locked folder"):
+            with self.subTest(label):
+                shutil.rmtree(self.scratch)
+                self.scratch.mkdir()
+                self.tree = FakeTree(self.scratch)
+                (self.scratch / "run").mkdir()
+                p, a, top, nested, q, b, cases, owned = self.owned_tree_target()
+                patches = ()
+                if label == "missing root":
+                    path = str(self.scratch / "bin" / "absent")
+                    owned = {p: (path,)}
+                    reason = ": it could not be listed at baseline (FileNotFoundError: "
+                else:
+                    locked_file = str(self.scratch / "bin" / "worker" / "locked" / "w2.bin")
+                    self.tree.projects[p].append((locked_file, [self.tree.source("a.cs")]))
+                    self.tree.labels[locked_file] = "locked tree guard"
+                    path = os.path.dirname(locked_file)
+                    patches = ((os, "walk", self.walk_refusing("locked")),)
+                    reason = ": it could not be listed at baseline (PermissionError: Access is denied)"
+                code, text, rows = self.score(cases, owned=owned, patches=patches)
+                self.assertEqual(code, 2, text)
+                self.assertIn("THE OWNED TREE CANNOT BE PROVEN -- " + path + reason,
+                              "\n".join(self.unproven_lines(text)), text)
+                if label == "locked folder":
+                    self.assertEqual(len(self.unproven_lines(text)), 1, text)
+                self.assertEqual(rows, {}, text)
+                self.assertEqual(self.tree.build_all_calls, 1, text)
+
+    def test_GUARDS_CARRYOVER_OWNED_TREE_UNLISTABLE_AT_RESTORE_STOPS(self):
+        # v4: at the switch restore, a folder under the tree that the walk cannot list is a whole-run stop naming it.
+        p, a, top, nested, q, b, cases, owned = self.owned_tree_target()
+        locked = os.path.join(owned[p][0], "locked")
+        self.tree.faults[(p, 2)] = ("add", os.path.join(locked, "x.bin"))
+        code, text, rows = self.score(cases, owned=owned, patches=((os, "walk", self.walk_refusing("locked")),))
+        self.assertEqual(code, 2, text)
+        self.assertEqual(self.stop_lines(text), ["THE SWITCHED-AWAY TARGET WAS NOT RESTORED -- %s: the owned tree could not be "
+                                                 "listed (PermissionError: Access is denied)" % locked], text)
+        self.assertEqual(sorted(rows), ["owned-tree target"], text)
+
+    def test_GUARDS_CARRYOVER_OWNED_TREE_UNREADABLE_FILE_STOPS(self):
+        # v4 (the lead's N15): a tree file the restore cannot read is a whole-run stop naming it, not a traceback.
+        p, a, top, nested, q, b, cases, owned = self.owned_tree_target()
+        real = self.guards.artifact_sha256
+
+        def sha(path):
+            if path == nested and self.tree.builds.count(p) >= 2:
+                raise PermissionError(13, "The process cannot access the file", path)
+            return real(path)
+        code, text, rows = self.score(cases, owned=owned, patches=((self.guards, "artifact_sha256", sha),))
+        self.assertEqual(code, 2, text)
+        self.assertEqual(self.stop_lines(text), ["THE SWITCHED-AWAY TARGET WAS NOT RESTORED -- %s: it could not be read "
+                                                 "(PermissionError: The process cannot access the file)" % nested], text)
+        self.assertEqual(sorted(rows), ["owned-tree target"], text)
+
+    def test_GUARDS_CARRYOVER_OWNED_TREES_PLAN_ONLY(self):
+        # v4 (the lead's N10): only the targets of the selected cases have their trees walked. U.csproj is in the catalogue and in
+        # OWNED_TREES but no selected case builds it; its root does not exist, so walking it would also stop the run.
+        p, a, top, nested, q, b, cases, owned = self.owned_tree_target()
+        u = str(self.scratch / "U.csproj")
+        owned[u] = (str(self.scratch / "bin" / "absent"),)
+        catalogue = cases + [self.case("unselected U case", u, self.tree.source("u.cs"), str(self.scratch / "bin" / "U.dll"),
+                                       "upsilon")]
+        real, walked = self.guards.owned_tree_files, []
+
+        def recording(csproj):
+            walked.append(csproj)
+            return real(csproj)
+        code, text, rows = self.score(cases, catalogue, owned=owned,
+                                      patches=((self.guards, "owned_tree_files", recording),))
+        # Both selected targets are asked (Q declares no tree, so nothing is walked for it); U never is.
+        self.assertEqual(sorted(set(walked)), sorted([p, q]), text)
+        self.assertNotIn(u, walked)
+        self.assertNotIn("U.csproj", text)
+
+    def test_GUARDS_CARRYOVER_RESTORE_SIGNATURE(self):
+        # The frozen tools-v2 wrapper (repro_exact.py) calls restore_switched_target with exactly these four arguments.
+        self.assertEqual(list(inspect.signature(self.guards.restore_switched_target).parameters),
+                         ["csproj", "baseline", "head", "after"])
+
+    def test_GUARDS_CARRYOVER_REBUILD_PROOF_UNCHANGED(self):
+        # After a switch restore, a mutant that compiles to the baseline bytes is still BROKEN: the proof reads the case's own
+        # baseline hash, which no restore replaces.
+        p, a, q, b = self.two_targets()
+        cases = [self.case("dirty target", p, self.tree.source("a.cs"), a, "alpha"),
+                 self.case("mutant never compiled", q, self.tree.source("unbuilt.cs"), b, "beta")]
+        code, text, rows = self.score(cases)
+        self.assertEqual(rows["mutant never compiled"][0],
+                         "BROKEN (B.dll rebuilt with the baseline SHA-256: the mutant did not reach it)", text)
+        self.assertEqual(len(self.restore_lines(text)), 1, text)
+        self.assertEqual(code, 1, text)
 
 
 class HygieneAnchorCheck(ScratchCase):
