@@ -220,6 +220,7 @@ internal static class PaginationChecks
             LastFrameBytes = Encoding.UTF8.GetByteCount(line);
             using var json = JsonDocument.Parse(line);
             if (json.RootElement.GetProperty("id").GetInt32() != id) throw new IOException("Pagination RPC correlation changed.");
+            AdvisoryKindChecks.ObserveResponse(json.RootElement);
             return json.RootElement.Clone();
         }
         internal async Task<JsonElement> ArrayAsync(string name, object arguments)

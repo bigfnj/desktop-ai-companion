@@ -130,6 +130,7 @@ internal static class SendToolChecks
         if (response.Content.Headers.ContentType?.MediaType == "text/event-stream")
             body = string.Join("\n", body.Split('\n').Where(line => line.StartsWith("data: ", StringComparison.Ordinal)).Select(line => line[6..]));
         using var result = JsonDocument.Parse(body);
+        AdvisoryKindChecks.ObserveResponse(result.RootElement);
         if (!result.RootElement.TryGetProperty("result", out var tool) ||
             tool.TryGetProperty("isError", out var error) && error.GetBoolean()) return null;
         return tool.GetProperty("content").EnumerateArray().First(item => item.GetProperty("type").GetString() == "text").GetProperty("text").GetString();

@@ -133,6 +133,7 @@ internal static class SendAdvisoryChecks
         if (response.Content.Headers.ContentType?.MediaType == "text/event-stream")
             body = string.Join("\n", body.Split('\n').Where(line => line.StartsWith("data: ", StringComparison.Ordinal)).Select(line => line[6..]));
         using var document = JsonDocument.Parse(body);
+        AdvisoryKindChecks.ObserveResponse(document.RootElement);
         if (document.RootElement.TryGetProperty("result", out var result) && result.TryGetProperty("isError", out var isError) && isError.GetBoolean())
             throw new InvalidOperationException("Synthetic MCP call failed: " + result.GetRawText());
         return document.RootElement.Clone();

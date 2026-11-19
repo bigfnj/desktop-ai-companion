@@ -107,6 +107,10 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
     internal int PreFrameDeferralEntries { get { deliveryGate.Wait(); try { return preFrameDeferrals.Count; } finally { deliveryGate.Release(); } } }
     private int skippedLastPass;
     private int staleLastPass, missingLastPass, invalidLastPass;
+    // Report only (lane N round 2): the last completed pass's per-conversation outcomes, a fresh array of immutable rows
+    // written under gate as the last statement before a successful return, so a failed pass keeps the previous one.
+    private volatile IReadOnlyList<DiscoveryTraceRow>? lastDiscoveryTrace;
+    public IReadOnlyList<DiscoveryTraceRow>? LastDiscoveryTrace => lastDiscoveryTrace;
     private volatile bool disposed;
     public string Id => "codex-native";
     public bool DiscoveryCensusComplete => skippedLastPass == 0;
@@ -163,6 +167,10 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
     {
         if (brokerId == Guid.Empty) throw new BrokerException("invalid_session", "Broker identity is required.");
         await gate.WaitAsync(token);
+        // Report only (LastDiscoveryTrace): the branch that decided each conversation in this pass, and the incarnation of
+        // each row the pass renewed or kept. Published only by a pass that completes, just before its return below.
+        var outcome = new Dictionary<Guid, string>();
+        var kept = new Dictionary<Guid, Guid>();
         try
         {
             ObjectDisposedException.ThrowIf(disposed, this);
@@ -184,6 +192,7 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
                 skipped.Add(conversation);
                 unreached.Add(conversation);
                 if (slowLookups.Contains(conversation)) slow.Add(conversation);
+                outcome[conversation] = "skipped_unreached";
             }
             var pendingNow = new Dictionary<SessionAddress, DateTimeOffset>();
             // Failed lookups remain last. Within each class, resume the previous queue before directory-new IDs.
@@ -193,9 +202,10 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
                 .ThenBy(r => orderIndex.GetValueOrDefault(r.ConversationId, int.MaxValue)).ToArray();
             foreach (var row in ordered)
             {
+                // The Guid.Empty sentinel is counted but not traced: it names no conversation.
                 if (row.ConversationId == Guid.Empty) { invalid++; continue; }
                 if (row.LastSeenAt > clock.GetUtcNow().AddSeconds(5) ||
-                    row.LastSeenAt <= clock.GetUtcNow().AddMinutes(-2)) { stale++; continue; }
+                    row.LastSeenAt <= clock.GetUtcNow().AddMinutes(-2)) { stale++; outcome[row.ConversationId] = "stale"; continue; }
                 // Past the pass deadline nothing more is looked up; what was resolved is still returned and renewed.
                 if (token.IsCancellationRequested) { NotReached(row.ConversationId); continue; }
                 DesktopOwnerBinding? binding;
@@ -211,9 +221,14 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
                 catch (CodexReconnectOutlastedPassException) { NotReached(row.ConversationId); continue; }
                 catch (Exception error) when (error is OperationCanceledException or IOException or
                     DesktopAdapterException { Code: "owner_discovery_rejected" or "owner_capability_mismatch" or "invalid_protocol_identity" })
-                { skipped.Add(row.ConversationId); slow.Add(row.ConversationId); continue; }
-                if (binding is null) { missing++; continue; }
-                if (!ValidBinding(binding, row.ConversationId)) { invalid++; continue; }
+                {
+                    skipped.Add(row.ConversationId); slow.Add(row.ConversationId);
+                    // Both land in slow above; the trace keeps them apart: a lookup that ran out of time, or one that failed.
+                    outcome[row.ConversationId] = error is OperationCanceledException ? "skipped_slow" : "skipped_failed";
+                    continue;
+                }
+                if (binding is null) { missing++; outcome[row.ConversationId] = "missing"; continue; }
+                if (!ValidBinding(binding, row.ConversationId)) { invalid++; outcome[row.ConversationId] = "invalid"; continue; }
                 var address = new SessionAddress(brokerId, "codex:" + row.ConversationId.ToString("D"), binding!.NativeSessionIncarnation);
                 found.Add(address, binding);
                 // Capture this row while its verified connection is still live. A later row can retire that connection
@@ -243,6 +258,7 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
                     : pending && clock.GetUtcNow() - pendingNow[address] < VerificationPendingBound ? SessionCapabilities.Receive
                     : SessionCapabilities.None;
                 sessions.Add(new(address, row.DisplayLabel, Id, capabilities, activity, clock.GetUtcNow().AddSeconds(30)));
+                outcome[row.ConversationId] = "renewed";
             }
             // A skipped conversation keeps its earlier binding for as long as it keeps being skipped, as it did when a failed
             // pass left every binding in place; submission resolves the owner afresh before any input either way. Its
@@ -272,6 +288,12 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
             // in the background and kept beside the rows, never in them, so it can neither change one nor delay the pass.
             // A skipped conversation keeps its old observation while its binding is retained, but its lease is not renewed.
             BeginEngineObservation(sessions.Select(session => session.Address).ToArray(), found.Keys.ToArray());
+            // Report only: found holds exactly the rows this pass renewed and the skipped rows that kept an earlier binding,
+            // so a renewed row carries the incarnation it renewed, a skipped row the one it kept (or none), and a stale,
+            // missing or invalid row none. Any throw above skips this, so a failed pass keeps the previous trace.
+            foreach (var address in found.Keys)
+                if (Guid.TryParseExact(address.SessionId["codex:".Length..], "D", out var keptThread)) kept[keptThread] = address.Incarnation;
+            lastDiscoveryTrace = TraceOf(outcome, kept);
             return sessions;
         }
         catch (DesktopAdapterException error)
@@ -380,6 +402,13 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
     }
 
     private static Guid ThreadOf(SessionAddress address) => Guid.ParseExact(address.SessionId["codex:".Length..], "D");
+
+    // One row per conversation the pass decided, ordered by session ID. Iterating the outcomes, not the directory, means an
+    // unclassified row is absent from the trace rather than a lookup failure.
+    private static DiscoveryTraceRow[] TraceOf(Dictionary<Guid, string> outcome, Dictionary<Guid, Guid> kept) =>
+        outcome.Select(pair => new DiscoveryTraceRow("codex:" + pair.Key.ToString("D"),
+                kept.TryGetValue(pair.Key, out var incarnation) ? incarnation : (Guid?)null, pair.Value))
+            .OrderBy(row => row.SessionId, StringComparer.Ordinal).ToArray();
 
     private static AdapterResult Observed(AdapterResult result, EngineBinding? engine) => engine is null ? result : result with { EngineBinding = engine };
 

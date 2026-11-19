@@ -116,6 +116,7 @@ internal static class WaitHostShutdownChecks
         if (response.Content.Headers.ContentType?.MediaType == "text/event-stream")
             body = string.Concat(body.Split('\n').Where(line => line.StartsWith("data: ", StringComparison.Ordinal)).Select(line => line[6..]));
         using var document = JsonDocument.Parse(body);
+        AdvisoryKindChecks.ObserveResponse(document.RootElement);
         return document.RootElement.Clone();
     }
 }

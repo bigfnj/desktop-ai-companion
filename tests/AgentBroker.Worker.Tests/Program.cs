@@ -49,6 +49,30 @@ if (args.SequenceEqual(["--codex-preframe-only"]))
     try { await CodexPreFrameChecks.RunAsync(Check); Console.WriteLine($"RESULT=PASS assertions={assertions}"); return 0; }
     catch (Exception error) { Console.Error.WriteLine(error); Console.WriteLine("RESULT=FAIL"); return 1; }
 }
+// 1.10.6 lane N round 2: the report-only discovery trace, discovery_pass and session_forgotten (N-broker-native-lease-gap-01).
+if (args.SequenceEqual(["--discovery-trace-only"]))
+{
+    try { await RuntimeLifecycleChecks.DiscoveryTraceAsync(Check); Console.WriteLine($"RESULT=PASS assertions={assertions}"); return 0; }
+    catch (Exception error) { Console.Error.WriteLine(error); Console.WriteLine("RESULT=FAIL"); return 1; }
+}
+// 1.10.6 lane N round 2: the report-only native_submission_stage line of each settled native attempt (N-broker-native-confirmation-01).
+if (args.SequenceEqual(["--native-stage-events-only"]))
+{
+    try { await NativeStageEventChecks.RunAsync(Check); Console.WriteLine($"RESULT=PASS assertions={assertions}"); return 0; }
+    catch (Exception error) { Console.Error.WriteLine(error); Console.WriteLine("RESULT=FAIL"); return 1; }
+}
+// 1.10.6 lane N round 2: the advisory kinds a release emits (N-broker-standby-response-shape-01, BACKLOG.md:117).
+if (args.SequenceEqual(["--advisory-kinds-only"]))
+{
+    try { await SendAdvisoryChecks.RunAsync(Check); AdvisoryKindChecks.Run(Check); Console.WriteLine($"RESULT=PASS assertions={assertions}"); return 0; }
+    catch (Exception error) { Console.Error.WriteLine(error); Console.WriteLine("RESULT=FAIL"); return 1; }
+}
+// 1.10.6 lane N round 2: one running stdio bridge across a worker restart on the same data root (N-broker-long-outage-client-recovery-01, BACKLOG.md:89).
+if (args.SequenceEqual(["--stdio-bridge-restart-only"]))
+{
+    try { await StdioBridgeRestartChecks.RunAsync(Check); Console.WriteLine($"RESULT=PASS assertions={assertions}"); return 0; }
+    catch (Exception error) { Console.Error.WriteLine(error); Console.WriteLine("RESULT=FAIL"); return 1; }
+}
 if (args.SequenceEqual(["--certificate-continuity-only"]) ||
     args.SequenceEqual(["--certificate-renewal-only"]) ||
     args.SequenceEqual(["--certificate-renewal-lifecycle-only"]))
@@ -527,6 +551,9 @@ try
         await CodexPinDiagnosticChecks.RunAsync(Check);
         await CodexProviderDiagnosticChecks.RunAsync(Check);
         await CodexPreFrameChecks.RunAsync(Check);
+        await RuntimeLifecycleChecks.DiscoveryTraceAsync(Check);
+        await NativeStageEventChecks.RunAsync(Check);
+        await StdioBridgeRestartChecks.RunAsync(Check);
         await AdapterDiagnosticChecks.RunAsync(Check);
         await DeferredClaimChecks.RunAsync(Check);
         // Agent-to-agent bus: durable mailboxes, blocking waits, field-compared send, the instructions card.
@@ -738,6 +765,14 @@ try
             "explicit unauthenticated mode works only on the literal loopback listener after restart");
         Check(restarted.Runtime.Store.Directory().Count == 0, "restart never resurrects stale native session leases");
     }
+    // 1.10.6 lane N round 2: the advisory kinds every fed helper saw in this run; after the --existing-tests-only cut-off, so
+    // the existing-suite count is unchanged.
+    if (!args.SequenceEqual(new[] { "--existing-tests-only" }))
+    {
+        int beforeAdvisoryKinds = assertions;
+        AdvisoryKindChecks.Run(Check);
+        fullOnlyAssertions += assertions - beforeAdvisoryKinds;
+    }
     await StartupCleanupChecks.RunAsync(Check, scratch, keys);
     exit = 0;
 }
@@ -774,7 +809,9 @@ static async Task<JsonElement> Rpc(HttpClient client, string method, object para
     string body = await response.Content.ReadAsStringAsync();
     if (response.Content.Headers.ContentType?.MediaType == "text/event-stream")
         body = string.Join("\n", body.Split('\n').Where(l => l.StartsWith("data: ", StringComparison.Ordinal)).Select(l => l[6..]));
-    using var document = JsonDocument.Parse(body); return document.RootElement.Clone();
+    using var document = JsonDocument.Parse(body);
+    AdvisoryKindChecks.ObserveResponse(document.RootElement);
+    return document.RootElement.Clone();
 }
 static async Task Until(Func<bool> condition, Func<string>? describe = null)
 {

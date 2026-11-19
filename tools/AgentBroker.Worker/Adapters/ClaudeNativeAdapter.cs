@@ -51,6 +51,11 @@ public sealed class ClaudeNativeAdapter : ILocalAgentAdapter
     private volatile (SessionAddress Address, long ProcessId, ulong StartFileTime)[] processIndex = [];
     private bool disposed;
     private bool discoveryCensusComplete;
+    // Report only (lane N round 2): the last completed pass's census, a fresh array written under gate just before renewedLastPass
+    // is replaced and the pass returns. renewedLastPass is the session IDs that pass returned, read and written only under gate.
+    private volatile IReadOnlyList<DiscoveryTraceRow>? lastDiscoveryTrace;
+    private Dictionary<string, Guid> renewedLastPass = new(StringComparer.Ordinal);
+    public IReadOnlyList<DiscoveryTraceRow>? LastDiscoveryTrace => lastDiscoveryTrace;
     public string Id => "claude-native";
     public IReadOnlyList<AdapterDiscoveryDiagnostic> DiscoveryDiagnostics => provider.DiscoveryDiagnostics;
     public bool DiscoveryCensusComplete => discoveryCensusComplete;
@@ -94,6 +99,16 @@ public sealed class ClaudeNativeAdapter : ILocalAgentAdapter
             candidates.Clear(); foreach (var pair in found) candidates.Add(pair.Key, pair.Value);
             processIndex = found.Select(pair => (pair.Key, (long)pair.Value.Target.ProcessId, pair.Value.Target.StartFileTime)).ToArray();
             discoveryCensusComplete = complete;
+            // Report only: each returned row renewed (by indexer, so the last row listed wins, as the store keeps it), and each
+            // session ID the previous completed pass returned and this one did not, once, as absent with its previous
+            // incarnation. A failed pass replaces neither, so it never uses an absence up.
+            var renewed = new Dictionary<string, Guid>(StringComparer.Ordinal);
+            foreach (var session in result) renewed[session.Address.SessionId] = session.Address.Incarnation;
+            lastDiscoveryTrace = renewed.Select(pair => new DiscoveryTraceRow(pair.Key, pair.Value, "renewed"))
+                .Concat(renewedLastPass.Where(pair => !renewed.ContainsKey(pair.Key))
+                    .Select(pair => new DiscoveryTraceRow(pair.Key, pair.Value, "absent")))
+                .OrderBy(row => row.SessionId, StringComparer.Ordinal).ToArray();
+            renewedLastPass = renewed;
             return result;
         }
         finally { gate.Release(); }

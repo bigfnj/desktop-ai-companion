@@ -1644,6 +1644,166 @@ NATIVE_R1_GRACE_WITNESSES = (
             "UNCERTAIN_NOTICE_EVENTS_NO_TEXT: neither the current nor the rotated events file holds message text, while both name their messages"),
 )
 
+# ---- 1.10.6 lane N round 2 (killers/MANIFEST 962F063D; 028 sections 1g, 2, 5, 6 and 7, erratum 031; DEC 236, 237 and 238).
+# Written after the advance onto e2184706, verbatim from the frozen killer lists, except stage K7, which is verbatim from its
+# DEC 238 amendment (named in the comment above that row); every edit is a count-1 replace_exact and every expected label is
+# the full InvalidOperationException text. The files stop at their first failure.
+
+NATIVE_R2_TRACE_GROUP = ("--discovery-trace-only",)
+NATIVE_R2_TRACE_WITNESSES = (
+    Witness('native-r2-store-event-unstamped', 'src/AgentBroker.Core/BrokerStore.cs', "worker", NATIVE_R2_TRACE_GROUP,
+            (('            line["eventAt"] = Now.ToString("O");\n            events.Append(line);',
+              '            events.Append(line);', 1),),
+            'STORE_EVENT_APPENDED: AppendEvent writes one line, the caller keys first and eventAt from the store clock last'),
+    Witness('native-r2-store-append-removed', 'src/AgentBroker.Core/BrokerStore.cs', "worker", NATIVE_R2_TRACE_GROUP,
+            (('            line["eventAt"] = Now.ToString("O");\n            events.Append(line);',
+              '            line["eventAt"] = Now.ToString("O");\n            _ = line;', 1),),
+            'STORE_EVENT_APPENDED: AppendEvent writes one line, the caller keys first and eventAt from the store clock last'),
+    Witness('native-r2-store-kind-unchecked', 'src/AgentBroker.Core/BrokerEventLog.cs', "worker", NATIVE_R2_TRACE_GROUP,
+            (('            if (line["event"] is not JsonValue kind || !kind.TryGetValue(out string? name) || !ValidKind(name)) { lost++; return; }\n',
+              '', 1),),
+            'STORE_EVENT_KIND_REQUIRED: a line without a valid event name is refused and counted into the next line as eventsLost 1'),
+    Witness('native-r2-store-size-unbounded', 'src/AgentBroker.Core/BrokerEventLog.cs', "worker", NATIVE_R2_TRACE_GROUP,
+            (('            if (bytes.Length > MaximumLineBytes) { lost++; return; }\n',
+              '', 1),),
+            'STORE_EVENT_SIZE_BOUNDED: a line over MaximumLineBytes once encoded is refused and counted into the next line as eventsLost 1'),
+    Witness('native-r2-store-append-after-dispose', 'src/AgentBroker.Core/BrokerStore.cs', "worker", NATIVE_R2_TRACE_GROUP,
+            (('            if (disposed) return; // the owner lock is released (Dispose); this store no longer owns its directory',
+              '            _ = disposed; // the owner lock is released (Dispose); this store no longer owns its directory', 1),),
+            'STORE_EVENT_AFTER_DISPOSE_DROPPED: after Dispose AppendEvent neither throws nor writes'),
+    Witness('native-r2-codex-unreached-collapsed', 'tools/AgentBroker.Worker/Adapters/CodexNativeAdapter.cs', "worker", NATIVE_R2_TRACE_GROUP,
+            (('                outcome[conversation] = "skipped_unreached";',
+              '                outcome[conversation] = "skipped_slow";', 1),),
+            'CODEX_TRACE_OUTCOMES: the last completed Codex pass names each conversation outcome with the incarnation it renewed or kept, and a failed pass keeps that snapshot'),
+    Witness('native-r2-codex-trace-published-on-failure', 'tools/AgentBroker.Worker/Adapters/CodexNativeAdapter.cs', "worker", NATIVE_R2_TRACE_GROUP,
+            (('            lastDiscoveryTrace = TraceOf(outcome, kept);\n            return sessions;',
+              '            return sessions;', 1),('        finally { gate.Release(); }\n    }\n\n    public Task<AdapterResult> SubmitAsync(BrokerMessage message, CancellationToken token) => SubmitAsync(message, null, token);',
+              '        finally { lastDiscoveryTrace = TraceOf(outcome, kept); gate.Release(); }\n    }\n\n    public Task<AdapterResult> SubmitAsync(BrokerMessage message, CancellationToken token) => SubmitAsync(message, null, token);', 1),),
+            'CODEX_TRACE_OUTCOMES: the last completed Codex pass names each conversation outcome with the incarnation it renewed or kept, and a failed pass keeps that snapshot'),
+    Witness('native-r2-claude-census-collapsed', 'tools/AgentBroker.Worker/Adapters/ClaudeNativeAdapter.cs', "worker", NATIVE_R2_TRACE_GROUP,
+            (('new DiscoveryTraceRow(pair.Key, pair.Value, "absent")',
+              'new DiscoveryTraceRow(pair.Key, pair.Value, "renewed")', 1),),
+            'CLAUDE_TRACE_CENSUS: a Claude session renewed last pass and not this pass reads absent once, then leaves the census'),
+    Witness('native-r2-claude-absent-sticky', 'tools/AgentBroker.Worker/Adapters/ClaudeNativeAdapter.cs', "worker", NATIVE_R2_TRACE_GROUP,
+            (('            renewedLastPass = renewed;',
+              '            foreach (var pair in renewed) renewedLastPass[pair.Key] = pair.Value;', 1),),
+            'CLAUDE_TRACE_CENSUS: a Claude session renewed last pass and not this pass reads absent once, then leaves the census'),
+    Witness('native-r2-append-removed', 'tools/AgentBroker.Worker/BrokerRuntime.DiscoveryTrace.cs', "worker", NATIVE_R2_TRACE_GROUP,
+            (('        store.AppendEvent(PassLine(adapterId, failure, census, diagnostics, changed, dropped));',
+              '        _ = PassLine(adapterId, failure, census, diagnostics, changed, dropped);', 1),),
+            'DISCOVERY_PASS_WRITTEN: the first pass writes one discovery_pass line naming each row session, incarnation and outcome'),
+    Witness('native-r2-change-gate-removed', 'tools/AgentBroker.Worker/BrokerRuntime.DiscoveryTrace.cs', "worker", NATIVE_R2_TRACE_GROUP,
+            (('        if (Unchanged(',
+              '        if (trace.Rows.Count < 0 && Unchanged(', 1),),
+            'DISCOVERY_PASS_NO_CHURN: identical passes write no further discovery_pass line'),
+    Witness('native-r2-label-included', 'tools/AgentBroker.Worker/BrokerRuntime.DiscoveryTrace.cs', "worker", NATIVE_R2_TRACE_GROUP,
+            (('            ["outcome"] = pair.Value.Outcome,',
+              '            ["outcome"] = pair.Value.Outcome, ["label"] = observed.GetValueOrDefault(pair.Key)?.Label,', 1),),
+            'DISCOVERY_PASS_NO_LABEL: discovery_pass lines hold only the schema keys and no row label is anywhere in the events file'),
+    Witness('native-r2-dropped-omitted', 'tools/AgentBroker.Worker/BrokerRuntime.DiscoveryTrace.cs', "worker", NATIVE_R2_TRACE_GROUP,
+            (('        ["dropped"] = TraceArray(dropped),',
+              '        ["dropped"] = null,', 1),),
+            'DISCOVERY_PASS_DROPPED: session IDs the last written completed pass reported and this pass no longer reports are named in dropped on the next discovery_pass line (a Claude closure reads absent in changed first, then dropped)'),
+    Witness('native-r2-diagnostics-ignored', 'tools/AgentBroker.Worker/BrokerRuntime.DiscoveryTrace.cs', "worker", NATIVE_R2_TRACE_GROUP,
+            (('        (trace.Diagnostics is null ? diagnostics is null : diagnostics is not null && trace.Diagnostics.SequenceEqual(diagnostics)) &&\n',
+              '', 1),),
+            'DISCOVERY_PASS_DIAGNOSTICS_CHANGE: a pass whose only change is one diagnostic code writes exactly one discovery_pass line, codes only'),
+    Witness('native-r2-forgotten-write-removed', 'tools/AgentBroker.Worker/BrokerRuntime.DiscoveryTrace.cs', "worker", NATIVE_R2_TRACE_GROUP,
+            (('        store.AppendEvent(ForgottenLine(adapterId, address, until));',
+              '        _ = ForgottenLine(adapterId, address, until);', 1),),
+            'SESSION_FORGOTTEN_ON_LAPSE: a native lease passing without renewal writes session_forgotten with the exact address, native_lease_elapsed and its last leaseUntil'),
+    Witness('native-r2-forgotten-every-pass', 'tools/AgentBroker.Worker/BrokerRuntime.DiscoveryTrace.cs', "worker", NATIVE_R2_TRACE_GROUP,
+            (('        trace.Leases.Remove(address);',
+              '        _ = address;', 1),),
+            'SESSION_FORGOTTEN_ONCE: later passes write no second session_forgotten line for the same lapse'),
+    Witness('native-r2-forgotten-inside-pass-missed', 'tools/AgentBroker.Worker/BrokerRuntime.DiscoveryTrace.cs', "worker", NATIVE_R2_TRACE_GROUP,
+            (('        foreach (var lapsed in trace.Leases.Where(pair => pair.Key.SessionId == session.Address.SessionId && pair.Value <= Now).ToArray())\n            Forgotten(trace, session.Adapter, lapsed.Key, lapsed.Value);\n',
+              '', 1),),
+            'SESSION_FORGOTTEN_LAPSE_INSIDE_PASS: a native lease that passes during a slow pass and is renewed in that same pass still writes its line'),
+    Witness('native-r2-forgotten-scope-widened', 'tools/AgentBroker.Worker/BrokerRuntime.cs', "worker", NATIVE_R2_TRACE_GROUP,
+            (('                    Register(session);\n',
+              '                    Register(session); trace.Leases.TryAdd(session.Address, session.LeaseUntil);\n', 1),),
+            'SESSION_FORGOTTEN_NATIVE_ONLY: a non-native row returned by the same adapter never writes session_forgotten'),
+    Witness('native-r2-forgotten-on-replacement', 'tools/AgentBroker.Worker/BrokerRuntime.DiscoveryTrace.cs', "worker", NATIVE_R2_TRACE_GROUP,
+            (('            trace.Leases.Remove(replaced);',
+              '            _ = replaced;', 1),),
+            'SESSION_FORGOTTEN_NOT_ON_REPLACEMENT: a still-live native incarnation replaced by a new one writes no session_forgotten'),
+    Witness('native-r2-trace-ignored', 'tools/AgentBroker.Worker/BrokerRuntime.DiscoveryTrace.cs', "worker", NATIVE_R2_TRACE_GROUP,
+            (('        else foreach (var row in reported) rows[row.SessionId] = (row.Incarnation, row.Outcome);',
+              '        else foreach (var session in sessions) rows[session.Address.SessionId] = (session.Address.Incarnation, "renewed");', 1),),
+            'DISCOVERY_PASS_CODEX_OUTCOMES: the runtime writes the Codex adapter outcome for each conversation, not only the rows the pass returned'),
+    Witness('native-r2-failed-pass-uncoded', 'tools/AgentBroker.Worker/BrokerRuntime.cs', "worker", NATIVE_R2_TRACE_GROUP,
+            (('                passFailure = "adapter_failed";',
+              '                _ = "adapter_failed";', 1),),
+            'DISCOVERY_PASS_FAILED: a failed pass writes one discovery_pass line with its failure code and no rows, once while it repeats, and recovery writes one'),
+    Witness('native-r2-failed-pass-io-uncoded', 'tools/AgentBroker.Worker/BrokerRuntime.cs', "worker", NATIVE_R2_TRACE_GROUP,
+            (('                passFailure = e is AdapterDiscoveryException discoveryFailure ? AdapterDiscoveryDiagnostic.CleanCode(discoveryFailure.Diagnostic.Code)',
+              '                _ = e is AdapterDiscoveryException discoveryFailure ? AdapterDiscoveryDiagnostic.CleanCode(discoveryFailure.Diagnostic.Code)', 1),),
+            'DISCOVERY_PASS_FAILED: a failed pass writes one discovery_pass line with its failure code and no rows, once while it repeats, and recovery writes one'),
+)
+
+NATIVE_R2_STAGE_GROUP = ("--native-stage-events-only",)
+NATIVE_R2_STAGE_WITNESSES = (
+    Witness('native-r2-stage-append-removed', 'tools/AgentBroker.Worker/BrokerRuntime.NativeStage.cs', "worker", NATIVE_R2_STAGE_GROUP,
+            (('        store.AppendEvent(line);\n',
+              '        _ = line;\n', 1),),
+            'NATIVE_STAGE_EVENT_WRITTEN: one settled Codex attempt leaves exactly one native_submission_stage line naming its message, exact recipient, outcome, reason, stage answer_wait, monotonic duration and store time'),
+    Witness('native-r2-stage-collapsed', 'tools/AgentBroker.Worker/BrokerRuntime.NativeStage.cs', "worker", NATIVE_R2_STAGE_GROUP,
+            (('            ["stage"] = NativeStageFamily(adapter, result.Outcome, result.Reason),\n',
+              '            ["stage"] = NativeStageFamily(adapter, result.Outcome, "native_uncertain_timeout"),\n', 1),),
+            "NATIVE_STAGE_EVENT_NAMES_STAGE: a typed Codex pre-frame deferral reads pre_frame, an ambiguous raised code after the provider's submit marker reads other, and every reason of the static table reads its own family"),
+    Witness('native-r2-receipt-attempts-zero', 'tools/AgentBroker.Worker/BrokerRuntime.NativeStage.cs', "worker", NATIVE_R2_STAGE_GROUP,
+            (('            ["receiptAttempts"] = claim.Receipt.Attempts,\n',
+              '            ["receiptAttempts"] = 0,\n', 1),),
+            "NATIVE_STAGE_EVENT_RECEIPT_ATTEMPTS: each line carries the claim's public receipt Attempts, 1 for every attempt"),
+    Witness('native-r2-ordinal-constant', 'tools/AgentBroker.Worker/BrokerRuntime.NativeStage.cs', "worker", NATIVE_R2_STAGE_GROUP,
+            (('            ["lifetimeOrdinal"] = observations.CountAttempt(message, claim.AdmissionEpoch),\n',
+              '            ["lifetimeOrdinal"] = Math.Min(1, observations.CountAttempt(message, claim.AdmissionEpoch)),\n', 1),),
+            'NATIVE_STAGE_EVENT_LIFETIME_ORDINAL: three pre-frame deferrals and the fourth Uncertain of one message carry lifetimeOrdinal 1, 2, 3 and 4, each with receiptAttempts 1'),
+    Witness('native-r2-stage-text-included', 'tools/AgentBroker.Worker/BrokerRuntime.NativeStage.cs', "worker", NATIVE_R2_STAGE_GROUP,
+            (('            ["messageId"] = message.Id.ToString("D"),\n',
+              '            ["messageId"] = message.Id.ToString("D"),\n            ["text"] = message.Text,\n', 1),),
+            'NATIVE_STAGE_EVENT_NO_TEXT: no events line holds the message text, the sender or any label, and every stage line has its ten keys in order and nothing after them but eventsLost'),
+    Witness('native-r2-stage-scope-widened', 'tools/AgentBroker.Worker/BrokerRuntime.cs', "worker", NATIVE_R2_STAGE_GROUP,
+            (('            if (nativeAdapter is not null) WriteNativeStage(nativeAdapter, claim, result, elapsedMs);\n',
+              '            WriteNativeStage(nativeAdapter, claim, result, elapsedMs);\n', 1),),
+            "NATIVE_STAGE_EVENT_NATIVE_ONLY: a normal mailbox is never dispatched, and completed attempts through a local non-native adapter and to a paired broker's codex: address write no line"),
+    # Stage K7 per DEC 238: this tuple is verbatim from r2-killers-N-r2-2-K7-amendment-DEC236.md, which MANIFEST-addendum-DEC236.txt names with its SHA-256.
+    Witness('native-r2-stage-written-before-settlement', 'tools/AgentBroker.Worker/BrokerRuntime.cs', "worker", NATIVE_R2_STAGE_GROUP,
+            (("        long elapsedMs = (long)attemptClock.GetElapsedTime(attemptStarted).TotalMilliseconds;\n        // Publication shares selection's gate with successful atomic settlement. A rejected snapshot publishes nothing.\n        void Observe()\n        {\n            if (receipt.Message.Recipient.BrokerId == store.BrokerId)\n                observations.Record(receipt.Message, result, claim.AdmissionEpoch);\n            if (nativeAdapter is not null) WriteNativeStage(nativeAdapter, claim, result, elapsedMs);\n            DeliverySettled?.Invoke(receipt.Message.Id, result);\n        }\n",
+              "        long elapsedMs = (long)attemptClock.GetElapsedTime(attemptStarted).TotalMilliseconds;\n        if (nativeAdapter is not null) WriteNativeStage(nativeAdapter, claim, result, elapsedMs);\n        // Publication shares selection's gate with successful atomic settlement. A rejected snapshot publishes nothing.\n        void Observe()\n        {\n            if (receipt.Message.Recipient.BrokerId == store.BrokerId)\n                observations.Record(receipt.Message, result, claim.AdmissionEpoch);\n            DeliverySettled?.Invoke(receipt.Message.Id, result);\n        }\n", 1),),
+            'NATIVE_STAGE_EVENT_REJECTED_NO_LINE: an attempt whose settlement is rejected, the recipient having acknowledged the message meanwhile, writes no line'),
+    Witness('native-r2-ordinal-never-resets', 'tools/AgentBroker.Worker/DeliveryObservations.cs', "worker", NATIVE_R2_STAGE_GROUP,
+            (('            int count = attempts.TryGetValue(message.Id, out var seen) && seen.Epoch == epoch && seen.Admission == admission ? seen.Count + 1 : 1;\n',
+              '            int count = attempts.TryGetValue(message.Id, out var seen) ? seen.Count + 1 : 1;\n', 1),),
+            'NATIVE_STAGE_ORDINAL_RESETS: the ordinal restarts at 1 for a new admission, a new lifetime and another recipient incarnation of the same message ID'),
+    Witness('native-r2-ordinal-unbounded', 'tools/AgentBroker.Worker/DeliveryObservations.cs', "worker", NATIVE_R2_STAGE_GROUP,
+            (('            if (!attempts.ContainsKey(message.Id) && attempts.Count >= MaximumMessages)\n                attempts.Remove(attempts.MinBy(pair => pair.Value.Sequence).Key);\n',
+              '', 1),),
+            'NATIVE_STAGE_ORDINAL_BOUNDED: at capacity the least recently counted entry is evicted, so the map stays at the bound, an evicted lifetime revisited restarts at 1 and a retained one continues'),
+)
+
+NATIVE_R2_ADVISORY_GROUP = ("--advisory-kinds-only",)
+NATIVE_R2_ADVISORY_WITNESSES = (
+    Witness('advisory-third-kind-emitted', 'tools/AgentBroker.Worker/BrokerRecoveryGuidance.cs', "worker", NATIVE_R2_ADVISORY_GROUP,
+            (('            Text = JsonSerializer.Serialize(new { kind = "agentbroker.recovery_guidance", guidance }, McpJsonUtilities.DefaultOptions)\n        }];',
+              '            Text = JsonSerializer.Serialize(new { kind = "agentbroker.recovery_guidance", guidance }, McpJsonUtilities.DefaultOptions)\n        }, new TextContentBlock { Text = JsonSerializer.Serialize(new { kind = "agentbroker.extra" }, McpJsonUtilities.DefaultOptions) }];', 1),),
+            "ADVISORY_KINDS_EXACT_SET: the advisory kinds in this run's actual worker tool results are exactly agentbroker.pending_messages and agentbroker.recovery_guidance"),
+)
+
+NATIVE_R2_OUTAGE_GROUP = ("--stdio-bridge-restart-only",)
+NATIVE_R2_OUTAGE_WITNESSES = (
+    Witness('native-r2-stdio-bridge-connection-cached', 'tools/AgentBroker.Worker/McpStdioBridge.cs', "worker", NATIVE_R2_OUTAGE_GROUP,
+            (('        string protocolVersion = "2025-11-25";\n',
+              '        string protocolVersion = "2025-11-25";\n        LocalConnection? cachedConnection = null;\n', 1),('                LocalConnection connection = await GetConnectionAsync(directory, deadline.Token);\n',
+              '                LocalConnection connection = cachedConnection ??= await GetConnectionAsync(directory, deadline.Token);\n', 1),),
+            'STDIO_BRIDGE_RECOVERS_AFTER_WORKER_RESTART: the same running bridge relays the next request to the restarted worker through its new connection and token'),
+    Witness('native-r2-stdio-bridge-exits-on-error', 'tools/AgentBroker.Worker/McpStdioBridge.cs', "worker", NATIVE_R2_OUTAGE_GROUP,
+            (('                    try { await WriteJsonAsync(error, lifetime.Token); }\n',
+              '                    try { await WriteJsonAsync(error, lifetime.Token); lifetime.Cancel(); }\n', 1),),
+            'STDIO_BRIDGE_STAYS_ALIVE_DURING_OUTAGE: with the worker stopped, a request gets its id-matched -32001 answer and the bridge keeps running'),
+)
+
 WITNESSES = (
     Witness("hygiene-late-held-allowed", STORE, "core", ("--hygiene-only",), ((X1_GUARD, "", 1),),
             "LATE_HELD_REFUSED: a local Held after the deadline is refused message_expired and the record stays Uncertain"),
@@ -1838,6 +1998,8 @@ WITNESSES = (
     Witness('watch-cleanup-exists-omitted', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('if (File.Exists(lockPath)) cleanup = "failed";', '', 1),), 'WATCH_CLEANUP_DELETE_PENDING: a visible delete-pending lock reports cleanup failed without changing the mail exit code'),
 
 ) + ATTACHMENT_WITNESSES + ATTACHMENT_R2_WITNESSES + ATTACHMENT_R2B_WITNESSES + ATTACHMENT_R5_WITNESSES + ATTACHMENT_R6_WITNESSES + ATTACHMENT_R7_WITNESSES + NATIVE_R1_WITNESSES + NATIVE_R1_GRACE_WITNESSES
+# 1.10.6 lane N round 2: appended as its own statement, so no line above changes (DEC 237).
+WITNESSES = WITNESSES + NATIVE_R2_TRACE_WITNESSES + NATIVE_R2_STAGE_WITNESSES + NATIVE_R2_ADVISORY_WITNESSES + NATIVE_R2_OUTAGE_WITNESSES
 
 
 def sha256(data: bytes) -> str:
@@ -1921,6 +2083,11 @@ EXPECTED_COUNTS = {("core", ("--waiting-mail-only",)): 119, ("worker", ("--waiti
                    # by the rebase campaign's baseline.
                    ("core", ("--attachments-only",)): 64, ("worker", ("--attachments-only",)): 69,
                    ("network", ("--attachments-only",)): 64}
+# 1.10.6 lane N round 2 (028 :1416-1419), derived from the frozen test source, to be measured by the window's healthy
+# baselines: 18 check( calls in RuntimeLifecycleChecks.DiscoveryTrace.cs, 9 in NativeStageEventChecks.cs, SendAdvisoryChecks'
+# 5 plus ADVISORY_KINDS_EXACT_SET, and 3 in StdioBridgeRestartChecks.cs. Added as its own statement (DEC 237).
+EXPECTED_COUNTS.update({("worker", ("--discovery-trace-only",)): 18, ("worker", ("--native-stage-events-only",)): 9,
+                        ("worker", ("--advisory-kinds-only",)): 6, ("worker", ("--stdio-bridge-restart-only",)): 3})
 CORE_SUMMARIES = {("--waiting-mail-only",): "AgentBroker waiting-mail smoke", ("--reply-receipt-only",): "AgentBroker reply receipt smoke", ("--hygiene-only",): "AgentBroker hygiene smoke", ("--peer-receipt-only",): "AgentBroker peer receipt smoke",
                   ("--commit-timing-only",): "AgentBroker commit timing smoke",
                   ("--uncertain-notices-only",): "AgentBroker uncertainty notice smoke",

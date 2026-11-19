@@ -199,7 +199,9 @@ internal static class NativeRecoveryToolChecks
         response.EnsureSuccessStatusCode(); string body = await response.Content.ReadAsStringAsync();
         if (response.Content.Headers.ContentType?.MediaType == "text/event-stream")
             body = string.Concat(body.Split('\n').Where(line => line.StartsWith("data: ", StringComparison.Ordinal)).Select(line => line[6..]));
-        using var json = JsonDocument.Parse(body); return json.RootElement.Clone();
+        using var json = JsonDocument.Parse(body);
+        AdvisoryKindChecks.ObserveResponse(json.RootElement);
+        return json.RootElement.Clone();
     }
     private sealed class NativeAdapter : ILocalAgentAdapter
     {
@@ -237,7 +239,9 @@ internal static class NativeRecoveryToolChecks
             await input.Writer.WriteAsync(JsonSerializer.SerializeToUtf8Bytes(new { jsonrpc = "2.0", id = requestId, method, @params = parameters }, Json)); await input.Writer.WriteAsync("\n"u8.ToArray());
             string line = await reader.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(15)) ?? throw new IOException("Missing recovery bridge response.");
             using var json = JsonDocument.Parse(line);
-            if (json.RootElement.GetProperty("id").GetInt32() != requestId) throw new IOException("Recovery bridge correlation changed."); return json.RootElement.Clone();
+            if (json.RootElement.GetProperty("id").GetInt32() != requestId) throw new IOException("Recovery bridge correlation changed.");
+            AdvisoryKindChecks.ObserveResponse(json.RootElement);
+            return json.RootElement.Clone();
         }
         public async ValueTask DisposeAsync()
         {

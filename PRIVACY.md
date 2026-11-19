@@ -357,12 +357,24 @@ drive-relative, and current-drive-rooted overrides are rejected or ignored. Data
   app's client ID, DPAPI-encrypted for your Windows user, in the Reminder module's folder as `zoom-signin.dpapi`.
   **Sign out of Zoom** deletes it.
 - since AgentBroker 1.10.6, a small report-only events file, `broker-events.jsonl`, in the broker's store folder
-  beside its message state. It records when the broker held back an uncertainty advisory because the message
-  was settled first. Each line holds an event name, the message ID, the recipient's address, statuses, reasons
-  and times, and sometimes a count of earlier lines that could not be written; never the message text. The
-  broker writes it and never reads it. Each file is capped at 1 MiB and rotated once to
-  `broker-events.1.jsonl`, so the two take at most about 2 MiB. Writing it is best-effort, so it can miss
-  events but never invents one. It never leaves this computer and goes when the broker's data folder is removed.
+  beside its message state. The broker writes it and never reads it. Each line holds an event name and the time
+  it was written, and sometimes a count of earlier lines that could not be written or were refused. An
+  `advisory_withheld` line records an uncertainty advisory held back because the message was settled first: the
+  message ID, the recipient's address, statuses, reasons and times. A `native_submission_stage` line records each
+  settled attempt to deliver a message into a Claude Code or Codex session on this computer: the message ID, the
+  recipient's address, two attempt counts, the outcome, its reason code, a stage name and how long the attempt
+  took. A `discovery_pass` line records what a discovery pass did with each session it considered (renewed,
+  absent, stale, missing, invalid or skipped), and a `session_forgotten` line the exact address of a discovered
+  session whose lease ran out without renewal. New local persistence in 1.10.6: a Codex `discovery_pass` line
+  holds the Codex conversation IDs the desktop lists, including conversations the broker never listed,
+  at most 256 changed rows plus at most 256 IDs an earlier pass listed and this one no longer does (dropped),
+  written in full once per worker start and then only on change. Every other session ID and address in the file
+  is one that message receipts or the session list have held. No line holds message text, a label or title, an
+  owner client ID, a process ID or a path. Each file is capped at 1 MiB and rotated once to
+  `broker-events.1.jsonl`, and no single line may exceed 64 KiB, so the two take at most about 2 MiB. A chat that
+  stays busy for hours fills it faster, so older lines are replaced sooner; the size cap is unchanged. Writing it
+  is best-effort, so it can miss events but never invents one. It never leaves this computer and goes when the
+  broker's data folder is removed.
 
 Questions by the clock (app 1.6.0) keep nothing on disk: the tray's "No answer" list is held in memory
 for the session and is gone when the app closes. The question card is excluded from screen capture, so

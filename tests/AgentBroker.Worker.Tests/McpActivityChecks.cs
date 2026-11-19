@@ -150,6 +150,7 @@ internal static class McpActivityChecks
         if (response.Content.Headers.ContentType?.MediaType == "text/event-stream")
             text = string.Concat(text.Split('\n').Where(line => line.StartsWith("data: ", StringComparison.Ordinal)).Select(line => line[6..]));
         using var document = JsonDocument.Parse(text);
+        AdvisoryKindChecks.ObserveResponse(document.RootElement);
         return document.RootElement.Clone();
     }
     private static async Task Until(Func<bool> condition)

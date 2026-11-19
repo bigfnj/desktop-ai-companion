@@ -331,9 +331,16 @@ public sealed partial class BrokerRuntime(BrokerStore store, IPeerFederation fed
     private async Task DiscoverLoopAsync(ILocalAgentAdapter adapter, CancellationToken stop)
     {
         var discoveryClock = clock ?? TimeProvider.System;
+        // Report only (BrokerRuntime.DiscoveryTrace.cs): what this loop last wrote to the events file, owned by this loop alone.
+        var trace = new DiscoveryTraceState();
         while (!stop.IsCancellationRequested)
         {
             var passStarted = discoveryClock.GetTimestamp();
+            // This pass's report: its rows, census and diagnostic codes when it completes, or its failure code.
+            Dictionary<string, (Guid? Incarnation, string Outcome)>? passRows = null;
+            string[]? passDiagnostics = null;
+            bool? passCensus = null;
+            string? passFailure = null;
             try
             {
                 // An already-started reconnect gets at most the interval it previously overlapped.
@@ -352,6 +359,7 @@ public sealed partial class BrokerRuntime(BrokerStore store, IPeerFederation fed
                     {
                         store.ObserveNativeSession(session.Address, adapter.Id);
                         observations.ObserveDirectory(session);
+                        RenewNativeLease(trace, session);
                     }
                 }
                 // Missing rows end only report-only busy evidence, and only when this successful native pass was complete.
@@ -364,6 +372,11 @@ public sealed partial class BrokerRuntime(BrokerStore store, IPeerFederation fed
                 var notes = reported.Where(item => item.Note).Select(item => item.ToStatusText()).Distinct().ToArray();
                 if (notes.Length == 0) adapterNotes.TryRemove(adapter.Id, out _);
                 else adapterNotes[adapter.Id] = string.Join(AgentBroker.Protocol.ControlProtocol.NoteSeparator, notes);
+                // Report only, read inside this try so a malformed adapter report fails this pass rather than the loop. Codes
+                // come from reported, as Status reads them, bounded the same way; never a description.
+                passRows = TraceRows(adapter.LastDiscoveryTrace, sessions);
+                passCensus = adapter.DiscoveryCensusComplete;
+                passDiagnostics = reported.Select(item => AdapterDiscoveryDiagnostic.CleanCode(item.Code)).Distinct().Order(StringComparer.Ordinal).ToArray();
             }
             catch (Exception e) when (e is IOException or InvalidDataException or BrokerException or
                 UnauthorizedAccessException or System.ComponentModel.Win32Exception or OperationCanceledException)
@@ -372,6 +385,8 @@ public sealed partial class BrokerRuntime(BrokerStore store, IPeerFederation fed
                 adapterNotes.TryRemove(adapter.Id, out _); // A failed pass completed nothing to note.
                 adapterErrors[adapter.Id] = e is AdapterDiscoveryException diagnostic ? diagnostic.Diagnostic.ToStatusText()
                     : e is BrokerException b ? b.Code : "adapter_unavailable";
+                passFailure = e is AdapterDiscoveryException discoveryFailure ? AdapterDiscoveryDiagnostic.CleanCode(discoveryFailure.Diagnostic.Code)
+                    : e is BrokerException brokerFailure ? AdapterDiscoveryDiagnostic.CleanCode(brokerFailure.Code) : "adapter_unavailable";
             }
             // Any other failure is this adapter's alone. With one loop per adapter it used to end that adapter's discovery in
             // silence while the others went on (its rows lapsed, its status kept its last value, and nothing surfaced until
@@ -381,7 +396,9 @@ public sealed partial class BrokerRuntime(BrokerStore store, IPeerFederation fed
             {
                 adapterNotes.TryRemove(adapter.Id, out _); // As above: a failed pass completed nothing to note.
                 adapterErrors[adapter.Id] = "adapter_failed";
+                passFailure = "adapter_failed";
             }
+            TraceDiscoveryPass(adapter.Id, trace, passRows, passCensus, passDiagnostics, passFailure);
             var pause = DiscoveryInterval - discoveryClock.GetElapsedTime(passStarted);
             if (pause >= TimeSpan.FromMilliseconds(1)) await Task.Delay(pause, stop);
             else await Task.Yield(); // Task.Delay truncates sub-ms waits; synchronous adapters must still cooperate.
@@ -545,6 +562,11 @@ public sealed partial class BrokerRuntime(BrokerStore store, IPeerFederation fed
     private async Task DeliverAsync(DeliveryClaim claim, CancellationToken stop)
     {
         var receipt = claim.Receipt;
+        // Report only (BrokerRuntime.NativeStage.cs): the attempt's monotonic start on the runtime clock, and the native adapter
+        // that took it (none for a paired broker, an mcp row or another adapter, so those write no stage line).
+        var attemptClock = clock ?? TimeProvider.System;
+        long attemptStarted = attemptClock.GetTimestamp();
+        string? nativeAdapter = null;
         AdapterResult result;
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(stop);
         deadline.CancelAfter(TimeSpan.FromSeconds(20));
@@ -572,6 +594,7 @@ public sealed partial class BrokerRuntime(BrokerStore store, IPeerFederation fed
             {
                 var target = store.Directory().SingleOrDefault(s => s.Address == receipt.Message.Recipient);
                 var adapter = adapters.SingleOrDefault(a => a.Id == target?.Adapter);
+                if (adapter?.Id is { } adapterId && adapterId is "codex-native" or "claude-native") nativeAdapter = adapterId;
                 result = adapter is null ? new(AdapterAdmission.Refused, "adapter_unavailable")
                     : await adapter.SubmitAsync(receipt.Message, DescribeSender(receipt.Message.Sender), deadline.Token);
             }
@@ -611,11 +634,14 @@ public sealed partial class BrokerRuntime(BrokerStore store, IPeerFederation fed
         if (invalidResult)
             adapterErrors["adapter_result"] = "adapter_result_invalid: " + Interlocked.Increment(ref invalidAdapterResults) +
                 " malformed adapter results; affected claims use a fixed diagnostic instead of stopping delivery.";
+        // The adapter call and the exception mapping above; not the settlement commit or the claims-gate wait below.
+        long elapsedMs = (long)attemptClock.GetElapsedTime(attemptStarted).TotalMilliseconds;
         // Publication shares selection's gate with successful atomic settlement. A rejected snapshot publishes nothing.
         void Observe()
         {
             if (receipt.Message.Recipient.BrokerId == store.BrokerId)
                 observations.Record(receipt.Message, result, claim.AdmissionEpoch);
+            if (nativeAdapter is not null) WriteNativeStage(nativeAdapter, claim, result, elapsedMs);
             DeliverySettled?.Invoke(receipt.Message.Id, result);
         }
         if (result.Outcome == AdapterAdmission.DeferredNotSubmitted)

@@ -127,6 +127,7 @@ internal static class RecoveryGuidanceChecks
             using var output = new MemoryStream();
             int exitCode = await McpCallClient.RunAsync(new(scratch, request, false), output);
             using var reply = JsonDocument.Parse(output.ToArray());
+            AdvisoryKindChecks.ObserveCallOutput(reply.RootElement);
             var root = reply.RootElement;
             check(exitCode == 10 && root.GetProperty("dispatchState").GetString() == "confirmed" &&
                 root.GetProperty("result").GetString() == "An error occurred invoking 'read_inbox_page': invalid_inbox_cursor",
@@ -140,6 +141,7 @@ internal static class RecoveryGuidanceChecks
             using var unavailableOutput = new MemoryStream();
             int unavailableCode = await McpCallClient.RunAsync(new(scratch, request, false), unavailableOutput);
             using var unavailable = JsonDocument.Parse(unavailableOutput.ToArray());
+            AdvisoryKindChecks.ObserveCallOutput(unavailable.RootElement);
             using var availabilityHint = JsonDocument.Parse(unavailable.RootElement.GetProperty("advisories")[0].GetString()!);
             var actualGuidance = availabilityHint.RootElement.GetProperty("guidance");
             check(unavailableCode == 10 && unavailable.RootElement.GetProperty("result").GetString() == "An error occurred invoking 'wait_for_messages': session_unavailable" &&
@@ -152,6 +154,7 @@ internal static class RecoveryGuidanceChecks
             using var hintOutput = new MemoryStream();
             int hintCode = await McpCallClient.RunAsync(new(scratch, request, false), hintOutput);
             using var hint = JsonDocument.Parse(hintOutput.ToArray());
+            AdvisoryKindChecks.ObserveCallOutput(hint.RootElement);
             var hintAdvisories = hint.RootElement.GetProperty("advisories").EnumerateArray().Select(value => value.GetString()!).ToArray();
             bool hintGuided = hintAdvisories.Any(value =>
             {
@@ -187,6 +190,7 @@ internal static class RecoveryGuidanceChecks
                 using var receiptOutput = new MemoryStream();
                 int receiptCode = await McpCallClient.RunToolAsync(scratch, "get_message_receipt", JsonSerializer.SerializeToElement(new { messageId = id }), receiptOutput, default);
                 using var receiptReply = JsonDocument.Parse(receiptOutput.ToArray());
+                AdvisoryKindChecks.ObserveCallOutput(receiptReply.RootElement);
                 var receipt = receiptReply.RootElement.GetProperty("result");
                 bool matches = receiptReply.RootElement.GetProperty("advisories").EnumerateArray().Any(value =>
                 {
@@ -311,7 +315,9 @@ internal static class RecoveryGuidanceChecks
             {
                 using var output = new MemoryStream();
                 int exitCode = await McpCallClient.RunToolAsync(scratch, tool, JsonSerializer.SerializeToElement(arguments), output, default);
-                return (exitCode, JsonDocument.Parse(output.ToArray()));
+                var reply = JsonDocument.Parse(output.ToArray());
+                AdvisoryKindChecks.ObserveCallOutput(reply.RootElement);
+                return (exitCode, reply);
             }
         }
         finally

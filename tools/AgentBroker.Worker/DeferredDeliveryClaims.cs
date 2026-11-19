@@ -2,7 +2,11 @@ using AgentBroker.Core;
 
 namespace AgentBroker.Worker;
 
-/// <summary>Serializes selection with guarded settlement and report publication; never holds the gate over IO.</summary>
+/// <summary>
+/// Serializes selection with guarded settlement and report publication; never holds the gate over adapter IO. The store's
+/// own writes do run under it (the selection and settlement commits, and the publication's one append to the report-only
+/// events file, BrokerRuntime.WriteNativeStage through BrokerStore.AppendEvent), always in the order claims gate, then store gate.
+/// </summary>
 internal sealed class DeferredDeliveryClaims(BrokerStore store, Action? beforeStoreSelection = null,
     Action? beforeObservation = null)
 {

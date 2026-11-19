@@ -9,7 +9,8 @@ namespace AgentBroker.Worker;
 /// seconds), and nothing said since when the recipient had been busy, so a sender could not tell busy-for-hours from stuck.
 /// Observation only: nothing here changes which message is claimed, when, or how often (the store and
 /// DeferredDeliveryClaims still decide that), and nothing is persisted. broker-state.json keeps the schema a 1.0.4 worker
-/// reads, so a receipt field there would break a rollback; a worker restart starts these afresh.
+/// reads, so a receipt field there would break a rollback; a worker restart starts these afresh. This class writes nothing
+/// itself; the runtime copies CountAttempt's ordinal into its report-only events line (broker-events.jsonl), never into a receipt.
 /// </summary>
 internal sealed class DeliveryObservations(TimeProvider clock)
 {
@@ -43,6 +44,12 @@ internal sealed class DeliveryObservations(TimeProvider clock)
     // past the bound the older half by observation time goes.
     private sealed record EngineObservation(MessageEpoch Epoch, Guid Admission, EngineBinding Binding);
     private readonly Dictionary<Guid, EngineObservation> engineAtAttempt = new();
+    // The lifetimeOrdinal of the runtime's report-only native_submission_stage line (BrokerRuntime.NativeStage.cs, lane N round 2,
+    // DECISIONS 127), per message ID: the settled attempts this process published for the message's current lifetime (its epoch,
+    // which holds the exact recipient incarnation, and its admission), and when it was last counted (a sequence, not a clock, so
+    // the least recently counted entry is exact however many counts share one timestamp). See CountAttempt.
+    private readonly Dictionary<Guid, (MessageEpoch Epoch, Guid Admission, int Count, long Sequence)> attempts = new();
+    private long attemptSequence;
 
     // After every local native attempt. A busy deferral starts (or continues) the message's busy run and refreshes the
     // recipient's; any other answer ends both, since it says nothing about a turn still running.
@@ -89,6 +96,28 @@ internal sealed class DeliveryObservations(TimeProvider clock)
             }
         }
     }
+
+    // One more settled native attempt of this message, published by the runtime's Observe (never from a rejected settlement), and
+    // its 1-based ordinal. Observe runs under the claims gate, which serializes one message's attempts, so the ordinals of one
+    // retained lifetime are 1, 2, 3 with no gap. The count restarts at 1 when the message's epoch or admission changes (a reused
+    // UUID, another recipient incarnation, a new admission), when a worker restart starts this class afresh, and when its entry was
+    // evicted: at MaximumMessages the least recently counted entry goes, so the ordinal is consecutive 1..N only while that entry
+    // is retained. Report only: nothing reads it to decide anything, and receipts, requeue and the claims never see it.
+    internal int CountAttempt(BrokerMessage message, Guid admission)
+    {
+        var epoch = MessageEpoch.From(message);
+        lock (gate)
+        {
+            int count = attempts.TryGetValue(message.Id, out var seen) && seen.Epoch == epoch && seen.Admission == admission ? seen.Count + 1 : 1;
+            if (!attempts.ContainsKey(message.Id) && attempts.Count >= MaximumMessages)
+                attempts.Remove(attempts.MinBy(pair => pair.Value.Sequence).Key);
+            attempts[message.Id] = (epoch, admission, count, ++attemptSequence);
+            return count;
+        }
+    }
+
+    // For the checks: how many messages currently hold an attempt ordinal.
+    internal int AttemptEntries { get { lock (gate) return attempts.Count; } }
 
     // Discovery can already know Busy before any submission is attempted. Only fresh native discovery contributes;
     // Unknown does not erase a recent authoritative busy answer, and approval/interruption are never labeled Busy.

@@ -99,6 +99,7 @@ internal static class McpCallClientChecks
                 check(errors.Length == 0 && text.Count(character => character == '\n') == 1,
                     "MCP_CALL_PROCESS_FRAME: actual CLI emits exactly one JSON line and no stderr");
                 using var document = JsonDocument.Parse(text);
+                AdvisoryKindChecks.ObserveCallOutput(document.RootElement);
                 return (process.ExitCode, document.RootElement.Clone());
             }
             using (var output = new MemoryStream())
@@ -116,6 +117,7 @@ internal static class McpCallClientChecks
             {
                 int code = await McpCallClient.RunToolAsync(scratch, "list_sessions", JsonSerializer.SerializeToElement(new { }), output, default);
                 using var result = JsonDocument.Parse(output.ToArray());
+                AdvisoryKindChecks.ObserveCallOutput(result.RootElement);
                 check(code == 0 && result.RootElement.GetProperty("status").GetString() == "ok" &&
                     result.RootElement.GetProperty("result").ValueKind == JsonValueKind.Array && !File.Exists(request) &&
                     !Encoding.UTF8.GetString(output.ToArray()).Contains(worker.LocalAccessToken, StringComparison.Ordinal),
@@ -133,6 +135,7 @@ internal static class McpCallClientChecks
             {
                 int code = await McpCallClient.RunAsync(new(scratch, request, false), output);
                 using var result = JsonDocument.Parse(output.ToArray());
+                AdvisoryKindChecks.ObserveCallOutput(result.RootElement);
                 var message = result.RootElement.GetProperty("result")[0].GetProperty("message");
                 check(code == 0 && message.GetProperty("id").GetGuid() == sent.Message.Id &&
                     message.GetProperty("text").GetString() == text,
@@ -144,6 +147,7 @@ internal static class McpCallClientChecks
             {
                 int code = await McpCallClient.RunAsync(new(scratch, request, false), output);
                 using var result = JsonDocument.Parse(output.ToArray());
+                AdvisoryKindChecks.ObserveCallOutput(result.RootElement);
                 check(code == 10 && result.RootElement.GetProperty("status").GetString() == "tool_error" &&
                     result.RootElement.GetProperty("dispatchState").GetString() == "confirmed",
                     "MCP_CALL_TOOL_ERROR_EXIT: an MCP isError result cannot masquerade as process success");

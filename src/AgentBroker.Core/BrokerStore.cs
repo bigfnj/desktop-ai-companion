@@ -1217,6 +1217,24 @@ public sealed partial class BrokerStore : IDisposable
         };
     }
 
+    // The worker's one way into the report-only events file (lane N round 2: discovery_pass, session_forgotten,
+    // native_submission_stage). The caller
+    // writes "event" first, then its payload, and leaves eventAt unset: it is stamped here, last, from the store clock in
+    // WithheldEvent's format. The store takes ownership of the object (the sink may add eventsLost), so a caller never reuses
+    // one it passed. Under the store gate, as the sink requires; it reads the clock and calls the sink, neither of which takes
+    // the gate again. Never throws for a line: the sink catches and counts every failure, and refuses (counted the same way) a
+    // line without a valid event name or over BrokerEventLog.MaximumLineBytes. After Dispose it writes nothing.
+    public void AppendEvent(JsonObject line)
+    {
+        ArgumentNullException.ThrowIfNull(line);
+        lock (gate)
+        {
+            if (disposed) return; // the owner lock is released (Dispose); this store no longer owns its directory
+            line["eventAt"] = Now.ToString("O");
+            events.Append(line);
+        }
+    }
+
     // Every retained Expired or Uncertain record, or Refused tombstone, a local session sent whose notice exists in neither
     // form. On the first start after an upgrade this also backfills uncertainty advisories from retained old receipts.
     private Dictionary<Guid, MessageReceipt> RebuildOwed()

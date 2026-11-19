@@ -6,6 +6,9 @@ public enum AdapterAdmission { Submitted, Delivered, Held, Refused, Uncertain, D
 // EngineBinding: what the adapter observed about the recipient's engine around this attempt, for the sender's receipt.
 // Report only (N-agentbroker-code-owner-provenance-01): the runtime never reads it to decide anything.
 public sealed record AdapterResult(AdapterAdmission Outcome, string? Reason = null, EngineBinding? EngineBinding = null);
+// One row of a completed discovery pass's trace (ILocalAgentAdapter.LastDiscoveryTrace): the session ID, the native
+// incarnation the pass renewed or kept (null when it resolved none), and the outcome code. Codes only, never text.
+public sealed record DiscoveryTraceRow(string SessionId, Guid? Incarnation, string Outcome);
 
 // How the native envelope names a message's sender (BrokerRuntime.DescribeSender). Label is that session's own
 // registration label: self-declared, it identifies and authorizes nothing. Scope is "local", or the paired broker by the
@@ -31,4 +34,10 @@ public interface ILocalAgentAdapter : IAsyncDisposable
     // Report only (N-agentbroker-code-owner-provenance-01): what the last discovery pass observed about the engine behind
     // this row. An adapter that observes nothing says null.
     EngineBinding? EngineBindingOf(SessionAddress address) => null;
+    // Report only (N-broker-native-lease-gap-01, lane N round 2): what the last COMPLETED discovery pass did with each row
+    // it considered, one entry per session ID, ordered by session ID. Replaced whole at the end of a completed pass and never
+    // changed afterwards; a failed pass keeps the previous snapshot. The runtime only writes it to the events file
+    // (discovery_pass) and never reads it to decide anything. Null means no completed pass yet, or an adapter that reports no
+    // per-row outcome; the runtime then records every row the pass returned as renewed.
+    IReadOnlyList<DiscoveryTraceRow>? LastDiscoveryTrace => null;
 }

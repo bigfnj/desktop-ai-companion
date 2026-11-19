@@ -173,6 +173,7 @@ internal static class CodexQueueChecks
         var root = json.RootElement;
         if (root.GetProperty("id").GetInt32() != id || root.TryGetProperty("error", out _))
             throw new IOException("Synthetic MCP request failed or changed correlation.");
+        AdvisoryKindChecks.ObserveResponse(root);
         return root.Clone();
     }
     private static int nextRpcId;
