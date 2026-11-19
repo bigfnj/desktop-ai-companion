@@ -180,8 +180,23 @@ internal static class CompactReceiptChecks
         var sent = fixture.Clock.GetUtcNow();
         var fromPeer = new BrokerMessage(Guid.NewGuid(), Guid.NewGuid(), null, new(peer.BrokerId, "remote", Guid.NewGuid()), row.Address,
             "Synthetic busy message from a paired broker.", sent, sent.AddHours(2));
+        // N-worker-check-busysince-wallclock-01 (lane G round 2): the settlement seam, armed before Accept, replaces 300 x 50 ms
+        // of wall time, and the receipt is read inside the callback, where the store write is already done. A stall or an early
+        // report fails this label within its bound; it is never read as a federation defect by the check below.
+        var settled = new TaskCompletionSource<MessageReceipt?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        fixture.Runtime.DeliverySettled = (settledId, settledResult) =>
+        {
+            if (settledId == fromPeer.Id && settledResult.Reason == "native_context_busy") settled.TrySetResult(fixture.Store.FindReceipt(settledId));
+        };
         fixture.Store.Accept(fromPeer, peer.BrokerId);
-        for (int i = 0; i < 300 && fixture.Store.FindReceipt(fromPeer.Id)?.Reason != "native_context_busy"; i++) await Task.Delay(50);
+        bool settledInTime = await Task.WhenAny(settled.Task, Task.Delay(TimeSpan.FromSeconds(60))) == settled.Task;
+        fixture.Runtime.DeliverySettled = null;
+        MessageReceipt? seen = settledInTime ? await settled.Task : fixture.Store.FindReceipt(fromPeer.Id);
+        if (!(settledInTime && seen is { Reason: "native_context_busy" }))
+            Console.WriteLine("BUSY_PEER_DEFERRAL_STATE: " + (settledInTime ? "reported " : "unreported ") +
+                (seen is null ? "no receipt" : seen.Status + " " + (seen.Reason ?? "no reason")));
+        check(settledInTime && seen is { Reason: "native_context_busy" },
+            "BUSY_PEER_DEFERRAL_SETTLED: the delivery loop settled the paired broker's message native_context_busy within 60 s, with the receipt already stored (a failure here is a loop stall or an early report, not a federation defect)");
         var localRead = fixture.Tools.GetMessageReceipt(fromPeer.Id);
         fixture.Context.Items["agentbroker.identity"] = peer.BrokerId;
         var peerRead = fixture.Tools.GetMessageReceipt(fromPeer.Id);

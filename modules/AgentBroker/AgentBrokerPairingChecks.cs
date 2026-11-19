@@ -11,12 +11,14 @@ public sealed partial class AgentBrokerModule
 {
     private static void RunPairingChecks(Action<bool, string> check, TestDispatcher dispatcher)
     {
-        CheckPairingControlDeadlinesAsync(check).GetAwaiter().GetResult();
-        RunPaneBrokerChecks(check, dispatcher);
-        RunPaneLayoutChecks(check, dispatcher);
-        CheckConfirmedPairingStatus(check, dispatcher);
-        CheckPairingObservationsAndList(check, dispatcher);
-        CheckIssuedObservationOrdering(check, dispatcher);
+        // Group isolation one level down (lane G round 2, case 1664): a throw in one pairing sub-group is that sub-group's own
+        // labelled failure (SELFTEST_GROUP_ABORTED) and the other sub-groups still run.
+        RunGroup(check, nameof(CheckPairingControlDeadlinesAsync), () => CheckPairingControlDeadlinesAsync(check).GetAwaiter().GetResult());
+        RunGroup(check, nameof(RunPaneBrokerChecks), () => RunPaneBrokerChecks(check, dispatcher));
+        RunGroup(check, nameof(RunPaneLayoutChecks), () => RunPaneLayoutChecks(check, dispatcher));
+        RunGroup(check, nameof(CheckConfirmedPairingStatus), () => CheckConfirmedPairingStatus(check, dispatcher));
+        RunGroup(check, nameof(CheckPairingObservationsAndList), () => CheckPairingObservationsAndList(check, dispatcher));
+        RunGroup(check, nameof(CheckIssuedObservationOrdering), () => CheckIssuedObservationOrdering(check, dispatcher));
         const string privateDiagnostic = "SYNTHETIC_PRIVATE_PAIRING_DIAGNOSTIC";
         foreach (var item in new (Exception Error, string Code)[] {
             (new TaskCanceledException(privateDiagnostic), "pairing_network_timeout"),

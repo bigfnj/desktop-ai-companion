@@ -447,6 +447,15 @@ public sealed partial class BrokerRuntime(BrokerStore store, IPeerFederation fed
     // failure would surface.
     internal Func<Exception?>? AttachmentForwardFault { get; set; }
 
+    // Test seam (lane G round 2, N-worker-check-busysince-wallclock-01), null in production. Called with the message ID and the
+    // adapter result for every settlement DeliverAsync makes that the store accepted (DeferredDeliveryClaims' release and
+    // completion returned true), after the store write and, for a local recipient, the observation record, under the claims
+    // gate. Not called for the forwards-busy release, which passes no observe, or the forward-fault completion, whose observe is
+    // empty; a background attachment forward settles through DeliverAsync and does call it. A handler may read the store
+    // synchronously (its lock nests inside the claims gate on every existing path); it must not await, block, throw, or call
+    // the runtime.
+    internal Action<Guid, AdapterResult>? DeliverySettled { get; set; }
+
     private async Task ForwardAsync(DeliveryClaim claim, CancellationToken stop)
     {
         await Task.Yield(); // the caller records this task before its body runs
@@ -607,6 +616,7 @@ public sealed partial class BrokerRuntime(BrokerStore store, IPeerFederation fed
         {
             if (receipt.Message.Recipient.BrokerId == store.BrokerId)
                 observations.Record(receipt.Message, result, claim.AdmissionEpoch);
+            DeliverySettled?.Invoke(receipt.Message.Id, result);
         }
         if (result.Outcome == AdapterAdmission.DeferredNotSubmitted)
             claims.ReleaseUnsubmittedClaim(claim, result.Reason, Observe);

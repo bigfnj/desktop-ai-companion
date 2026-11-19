@@ -64,6 +64,23 @@ function Remove-LineComments {
     return ($Text -replace '(?m)^((?:[^"''/\n]|"(?:[^"\\\n]|\\.)*"|''(?:[^''\\\n]|\\.)*''|/(?!/))*)//.*$', '$1')
 }
 
+# S-016 (marathon-1106 lane G round 2): Windows PowerShell 5.1 turns each line a native command writes to a REDIRECTED stderr
+# into an ErrorRecord, and under $ErrorActionPreference Stop the first one is a terminating error before 2>$null discards it,
+# so one git warning (exit 0, stdout complete) aborted this whole file under 5.1 while pwsh 7 passed the same bytes. The
+# listing runs under Continue for git's own lines only, and a failing git is loud under both engines through its exit code.
+function Get-TrackedFiles {
+    param([string[]] $GitArguments)
+    $savedPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $listed = @(& git -C $repoRoot @GitArguments 2>$null | ForEach-Object { "$_" })
+        $gitExit = $LASTEXITCODE
+    }
+    finally { $ErrorActionPreference = $savedPreference }
+    if ($gitExit -ne 0) { throw "git $($GitArguments -join ' ') exited $gitExit." }
+    return $listed
+}
+
 # Every object-initialiser body that follows `new ProcessStartInfo`, sliced on BRACE BALANCE.
 #
 # The slicer this replaced was the regex `new ProcessStartInfo(.*?)\}\s*;`. It was right for every
@@ -126,6 +143,32 @@ function Get-SynchronousReadSites {
 
 $testsRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = Split-Path -Parent $testsRoot
+
+# S-016 WITNESS (marathon-1106 lane G round 2; X3's F1): runs before any ordinary listing, so a git stderr line with exit 0 (a
+# warning from the launching environment, or trace output) is met first inside this protected path. A plain listing and one
+# with GIT_TRACE=1 (git writes trace lines to stderr, exit 0) must both succeed and return the same sequence. PowerShell 7.2 and
+# later never turns redirected native stderr into an error, so there it is vacuous and says so on every run.
+$savedTrace = [Environment]::GetEnvironmentVariable('GIT_TRACE', 'Process')
+$plainListing = $null
+$tracedListing = $null
+$witnessStage = 'plain'
+$witnessError = ''
+try {
+    try {
+        $plainListing = @(Get-TrackedFiles -GitArguments 'ls-files', '-co', '--exclude-standard', '--', '*.cs')
+        $witnessStage = 'traced'
+        [Environment]::SetEnvironmentVariable('GIT_TRACE', '1', 'Process')
+        $tracedListing = @(Get-TrackedFiles -GitArguments 'ls-files', '-co', '--exclude-standard', '--', '*.cs')
+    }
+    catch { $witnessError = " [$witnessStage listing threw $($_.Exception.GetType().Name)]" }
+}
+finally { [Environment]::SetEnvironmentVariable('GIT_TRACE', $savedTrace, 'Process') }
+$engineVacuous = $PSVersionTable.PSEdition -eq 'Core' -and $PSVersionTable.PSVersion -ge [version]'7.2'
+$engineNote = if ($engineVacuous) { ' [engine-vacuous: PowerShell 7.2 and later never convert redirected native stderr]' } else { '' }
+Assert-True ($null -ne $plainListing -and $null -ne $tracedListing -and $plainListing.Count -gt 0 -and
+    [string]::Join([char]10, $plainListing) -ceq [string]::Join([char]10, $tracedListing)) (
+    "WITNESS (S-016)$($witnessError): a git stderr line neither aborts nor changes the tracked-file listing (plain and " +
+    "GIT_TRACE=1) under $($PSVersionTable.PSEdition) $($PSVersionTable.PSVersion)$engineNote")
 
 $formPetSource = Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\FormCompanion.cs') -Raw
 $formSpeechSource = Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\FormSpeech.cs') -Raw
@@ -274,7 +317,7 @@ $redirectSiteCount = 0
 # untracked-not-ignored, so a brand-new .cs with a fresh redirect is judged before it is staged, while
 # `.claude/`, bin\ and obj\ are ignored and drop out. Measured 2026-09-30: 213 files either way on
 # this tree, with no file on one side only.
-$redirectScanFiles = @(& git -C $repoRoot ls-files -co --exclude-standard -- '*.cs' 2>$null | ForEach-Object {
+$redirectScanFiles = @(Get-TrackedFiles -GitArguments 'ls-files', '-co', '--exclude-standard', '--', '*.cs' | ForEach-Object {
     $p = Join-Path $repoRoot ($_ -replace '/', '\')
     if (Test-Path -LiteralPath $p -PathType Leaf) { Get-Item -LiteralPath $p }
 })
@@ -1594,7 +1637,7 @@ $parityHost = "$($PSVersionTable.PSEdition) $($PSVersionTable.PSVersion)"
 # scan enumerates its .cs files (F411): tracked-only meant a brand-new script with a `??` or a
 # Set-Content write passed the local gate until `git add` and failed on the run after (RA-363). CI
 # under pwsh caught a committed `??` regardless; what was late was the local answer.
-$ciScripts = @(& git -C $repoRoot ls-files -co --exclude-standard -- '*.ps1' 2>$null | ForEach-Object {
+$ciScripts = @(Get-TrackedFiles -GitArguments 'ls-files', '-co', '--exclude-standard', '--', '*.ps1' | ForEach-Object {
     $p = Join-Path $repoRoot ($_ -replace '/', '\')
     if (Test-Path -LiteralPath $p -PathType Leaf) { $p }
 })
@@ -1909,7 +1952,7 @@ Assert-True ($selfTestFlagCount -gt 10) (
 # 16. The self-test count next to it had NOT rotted in the same period, and the only difference between
 # the two numbers was that one of them was asserted. Spelled-out numerals, because that is how the
 # sentence is written and a digit would not match.
-$projectCount = @(git -C $repoRoot ls-files '*.csproj').Count
+$projectCount = @(Get-TrackedFiles -GitArguments 'ls-files', '*.csproj').Count
 $numeralNames = @{ 14 = 'fourteen'; 15 = 'fifteen'; 16 = 'sixteen'; 17 = 'seventeen';
                    18 = 'eighteen'; 19 = 'nineteen'; 20 = 'twenty'; 31 = 'thirty-one'; 32 = 'thirty-two';
                    33 = 'thirty-three' }
@@ -4584,7 +4627,7 @@ $cliRemembranceProject = Get-Content -LiteralPath (Join-Path $repoRoot 'modules\
 Assert-True ($cliAiBrainProject.Contains($cliProjectLink) -and $cliRemembranceProject.Contains($cliProjectLink) -and
     $cliRemembranceProject.Contains('<Compile Include="..\AiBrain\engine\AiExecutablePolicy.cs"')) (
     'AI Brain and Remembrance both compile the shared CLI runner by link, and Remembrance the trust rules it applies (feature/cli-backend)')
-$cliRunnerCopies = @(& git -C $repoRoot ls-files -co --exclude-standard -- '*CodingAgentCli.cs' 2>$null)
+$cliRunnerCopies = @(Get-TrackedFiles -GitArguments 'ls-files', '-co', '--exclude-standard', '--', '*CodingAgentCli.cs')
 Assert-True ($cliRunnerCopies.Count -eq 1 -and $cliRunnerCopies[0] -ceq 'shared/CodingAgentCli/CodingAgentCli.cs') (
     "the CLI runner exists once, in shared/CodingAgentCli (found $($cliRunnerCopies -join ', '))")
 
