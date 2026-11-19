@@ -4882,6 +4882,11 @@ CASES = (
      BUILD_YML, re.compile(rb"(?s)\A.*\Z"), lambda match: nuget_v7_span_variant(match, 'colon-flow'), 'packs the module-author NuGet packages'),
     ('release.yml: the NuGet release job exists behind an NBSP comment boundary',
      RELEASE_YML, re.compile(rb"(?s)\A.*\Z"), lambda match: nuget_v7_span_variant(match, 'nbsp-release'), 'propagates the module-author NuGet pack failure'),
+    # S-016 (marathon-1106 lane G round 2), M-bare: the helper's Continue line deleted, so a git stderr line is terminating
+    # again under Windows PowerShell 5.1. 5.1-only by declaration: pwsh 7.2 and later never converts redirected native stderr.
+    ('S-016: the git listing runs under Stop again',
+     HARDENING, b"    $ErrorActionPreference = 'Continue'\n", b'',
+     'WITNESS (S-016)'),
 )
 
 

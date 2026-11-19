@@ -652,10 +652,16 @@ class GuardsScoreCarryOver(ScratchCase):
                     reason = ": it could not be listed at baseline (PermissionError: Access is denied)"
                 code, text, rows = self.score(cases, owned=owned, patches=patches)
                 self.assertEqual(code, 2, text)
-                self.assertIn("THE OWNED TREE CANNOT BE PROVEN -- " + path + reason,
-                              "\n".join(self.unproven_lines(text)), text)
-                if label == "locked folder":
-                    self.assertEqual(len(self.unproven_lines(text)), 1, text)
+                lines = self.unproven_lines(text)
+                if label == "missing root":
+                    # N8 (lane G round 2, the record route): a missing root is both unlistable and empty, so exactly two
+                    # lines, the listing line first; its strerror is the OS's, so that line is matched by its prefix.
+                    self.assertEqual(len(lines), 2, text)
+                    self.assertTrue(lines[0].startswith("THE OWNED TREE CANNOT BE PROVEN -- " + path + reason), text)
+                    self.assertEqual(lines[1], "THE OWNED TREE CANNOT BE PROVEN -- %s: no file under it at baseline, so no "
+                                               "switch restore could prove it" % path, text)
+                else:
+                    self.assertEqual(lines, ["THE OWNED TREE CANNOT BE PROVEN -- " + path + reason], text)
                 self.assertEqual(rows, {}, text)
                 self.assertEqual(self.tree.build_all_calls, 1, text)
 
@@ -684,6 +690,24 @@ class GuardsScoreCarryOver(ScratchCase):
         self.assertEqual(self.stop_lines(text), ["THE SWITCHED-AWAY TARGET WAS NOT RESTORED -- %s: it could not be read "
                                                  "(PermissionError: The process cannot access the file)" % nested], text)
         self.assertEqual(sorted(rows), ["owned-tree target"], text)
+
+    def test_GUARDS_CARRYOVER_OWNED_TREE_UNREADABLE_AT_BASELINE_STOPS(self):
+        # Lane G round 2 (DECISIONS 81 (a), N1): a tree file the baseline cannot read is named by its own stop line before any
+        # case, symmetric with UNREADABLE_FILE_STOPS at the restore, not a traceback out of score().
+        p, a, top, nested, q, b, cases, owned = self.owned_tree_target()
+        real = self.guards.artifact_sha256
+
+        def sha(path):
+            if path == nested and self.tree.builds.count(p) == 0:
+                raise PermissionError(13, "The process cannot access the file", path)
+            return real(path)
+        code, text, rows = self.score(cases, owned=owned, patches=((self.guards, "artifact_sha256", sha),))
+        self.assertEqual(code, 2, text)
+        self.assertEqual(self.unproven_lines(text), ["THE OWNED TREE CANNOT BE PROVEN -- %s: it could not be read at baseline "
+                                                     "(PermissionError: The process cannot access the file)" % nested], text)
+        self.assertEqual(rows, {}, text)
+        self.assertEqual(self.tree.build_all_calls, 1, text)
+        self.assertEqual([Path(self.tree.source(name)).read_bytes() for name in ("a.cs", "b.cs")], [b"clean\n"] * 2)
 
     def test_GUARDS_CARRYOVER_OWNED_TREES_PLAN_ONLY(self):
         # v4 (the lead's N10): only the targets of the selected cases have their trees walked. U.csproj is in the catalogue and in

@@ -15499,13 +15499,21 @@ CASES = (
      AGENTBROKER_CSPROJ, AGENTBROKER_DLL,
      "--module-selftest=agentbroker", "dp-module-agentbroker-selftest.txt",
      'BROKER_EMPTY_HINT_STATE'),
+    # Lane G round 2 (1106 DECISIONS 121 and 128; 1105 DECISIONS 151/153): a documented multi-label owner. PAIRING_FINISHES_IN_PANE
+    # is the declared guard and fails for its declared reason; the other four labels assert an outbound offer under Awaiting
+    # approval on purpose (AgentBrokerPaneBrokerChecks.cs:56 offerC, the outgoing request of :116 and :145; :465 oldOffer, whose
+    # replacement at :468 flips Outbound; AgentBrokerInvitationAuditChecks.cs:102, the 'outbound-offer Pairing prose' row). Never
+    # make those fixtures inbound to leave one label sole.
     ('broker-pane: review: list: outbound offers are not listed under Awaiting approval',
      os.path.join(REPO, "modules", "AgentBroker", "AgentBrokerModule.BrokerList.cs"),
      b'view.PairingOffers.Where(offer => PairingIdentity(offer.Peer) is not null)',
      b'view.PairingOffers.Where(offer => !offer.Outbound && PairingIdentity(offer.Peer) is not null)',
      AGENTBROKER_CSPROJ, AGENTBROKER_DLL,
      "--module-selftest=agentbroker", "dp-module-agentbroker-selftest.txt",
-     'PAIRING_FINISHES_IN_PANE'),
+     ('PAIRING_FINISHES_IN_PANE', 'BROKER_APPROVE_TICKED_OFFER',
+      'a row rendered for a replaced offer cannot approve either the old or the replacement offer',
+      'Awaiting labels and outbound-offer Pairing prose use the same visible broker name',
+      'name sanitizing preserves the complete separate comparison code')),
     ('broker-pane: review: list: Awaiting approval no longer sorts first',
      os.path.join(REPO, "modules", "AgentBroker", "AgentBrokerModule.BrokerList.cs"),
      b'    internal const string AwaitingGroup = "Awaiting approval",',
@@ -22830,6 +22838,16 @@ CASES = (
      HOST_CSPROJ, HOST_DLL,
      "--module-host-selftest", "dp-module-host-selftest.txt",
      "host-a11y: settings: a failed move writes nothing"),
+    # Lane G round 2 (1106 DECISIONS 121 and 128): the killer of the check-group isolation case 1664 relies on. The rowA lookup at
+    # AgentBrokerPaneBrokerChecks.cs:88 asks for a group no row has, so it throws inside RunPaneBrokerChecks: the run must fail at
+    # exactly that sub-group's SELFTEST_GROUP_ABORTED label. The checks the abort skips print no line; the window records the count.
+    ('agentbroker self-test: a throw in one check group hides every later group',
+     os.path.join(REPO, "modules", "AgentBroker", "AgentBrokerPaneBrokerChecks.cs"),
+     b'ListItem rowA = rows.Single(row => row.Group == AwaitingGroup), rowB',
+     b'ListItem rowA = rows.Single(row => row.Group == "SYNTHETIC_NO_SUCH_GROUP"), rowB',
+     AGENTBROKER_CSPROJ, AGENTBROKER_DLL,
+     "--module-selftest=agentbroker", "dp-module-agentbroker-selftest.txt",
+     'SELFTEST_GROUP_ABORTED: RunPaneBrokerChecks threw InvalidOperationException'),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
@@ -23667,13 +23685,17 @@ def rebuild_problem(artifact, before_mtime, baseline_sha):
 # The whole-run stop of a switch restore (marathon-1106 lane G round 1), printed at column 0 once per artefact or project at fault.
 TARGET_NOT_RESTORED = "THE SWITCHED-AWAY TARGET WAS NOT RESTORED -- %s: %s"
 # Lane G v4 (DECISIONS 65; X3's V3-X3-01): the baseline stop for a declared owned tree that no switch restore could prove, printed
-# at column 0 once per tree or folder at fault before any case runs; score() then returns 2, as for a baseline that is not green.
+# at column 0 once per tree, folder or file at fault before any case runs; score() then returns 2, as for a baseline that is not
+# green. A missing root is both unlistable and empty, so it prints two lines, the listing line first (N8, lane G round 2).
 OWNED_TREE_UNPROVEN = "THE OWNED TREE CANNOT BE PROVEN -- %s: %s"
 
 # Design v3 (lane G round 1; X3's G-DESIGN-01, DECISIONS 12): outputs a target's build writes that a later case can load but no
 # case tuple names, proven file by file at the switch restore beside the named artefacts. The published AgentBroker worker tree
-# (Publish-AgentBrokerWorker.ps1:25-33, 133-139) is hashed and loaded whole by Test-ModuleSelfTests.ps1:197-219 and
-# ModuleConventionSelfTest.cs:291-303, and all 339 AgentBroker cases name only AgentBroker.dll.
+# (packaging/Publish-AgentBrokerWorker.ps1:25-33, 133-139) is hashed, never loaded, by tests/Test-ModuleSelfTests.ps1:197-219
+# and src/dotNet/Plugins/ModuleConventionSelfTest.cs:291-303 (:283: copied Worker files are not Worker execution), and every
+# AgentBroker case names only AgentBroker.dll (340 cases at lane G round 2; 339 at 7cc1c3ed).
+# N9 (lane G round 2): the baseline's per-root count and the restore's tree match are both normcase(root) + os.sep prefix
+# tests, so a declared root must carry no trailing separator; OWNED_TREES_NAMES_WORKER pins the exact value (killer M39).
 OWNED_TREES = {AGENTBROKER_CSPROJ: (os.path.join(BIN, "modules", "agentbroker", "worker"),)}
 
 
@@ -23835,7 +23857,15 @@ def score(plan):
         tree_stops.extend(OWNED_TREE_UNPROVEN % (path, "it could not be listed at baseline (%s)" % reason)
                           for path, reason in problems)
         owned = set(c[5] for c in CASES if c[4] == target and c[5] is not None) | set(tree)
-        restore_sha[target] = dict((path, artifact_sha256(path) if os.path.isfile(path) else None) for path in sorted(owned))
+        restore_sha[target] = {}
+        for path in sorted(owned):
+            # Lane G round 2 (DECISIONS 81 (a), N1): a file the baseline cannot read is named by its own stop line, symmetric
+            # with the restore's catch, instead of raising out of score() before any stop line is printed. The count line
+            # below still counts the files the walk found.
+            try:
+                restore_sha[target][path] = artifact_sha256(path) if os.path.isfile(path) else None
+            except OSError as error:
+                tree_stops.append(OWNED_TREE_UNPROVEN % (path, "it could not be read at baseline (%s)" % os_error_text(error)))
         for root in OWNED_TREES.get(target, ()):
             count = len([path for path in tree if os.path.normcase(path).startswith(os.path.normcase(root) + os.sep)])
             print("owned tree of %s: %d file(s) hashed at baseline under %s" % (os.path.basename(target), count, root))

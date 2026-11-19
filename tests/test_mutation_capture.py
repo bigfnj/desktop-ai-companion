@@ -235,6 +235,41 @@ class MutationCaptureTests(unittest.TestCase):
         self.assertEqual(offsets, {"stdout": len(PARENT_OUT), "stderr": len(PARENT_ERR),
                                    "released": True})
 
+    def test_capture_files_live_in_the_process_temp_not_beside_the_module(self):
+        """Lane G round 2 (marathon-1106 DECISIONS 81 (c), 121, 128): with no patch, a live child's two capture files
+        are in the process temp folder and none is beside this module, so a harness run's status shows none."""
+        self.capture_location.stop()  # the module's own default, not the setUp folder; tearDown's stop is then a no-op
+        temp = self.root / "process-temp"
+        temp.mkdir()
+        module_folder = Path(mutation_process.__file__).resolve().parent
+        before = set(module_folder.glob("mutation-capture-*.bin"))
+        observed = []
+        snapshot = mutation_process._snapshot
+
+        def observing_snapshot(writers):
+            observed.append((sorted(path.name for path in temp.glob("mutation-capture-*.bin")),
+                             sorted(str(path) for path in set(module_folder.glob("mutation-capture-*.bin")) - before)))
+            return snapshot(writers)
+
+        try:
+            with patch.object(mutation_process.tempfile, "tempdir", str(temp)), \
+                    patch.object(mutation_process, "_snapshot", side_effect=observing_snapshot):
+                result = mutation_process.run_bytes(self.command("spawn-late", self.root), timeout=3)
+            self.assertEqual((result.stdout, result.stderr), (PARENT_OUT, PARENT_ERR))
+            self.assertTrue(observed, "the snapshot ran")
+            in_temp, beside = observed[0]
+            self.assertEqual(beside, [], "no capture file beside the module while the child is alive")
+            self.assertEqual(len(in_temp), 2, "both capture files in the process temp folder while the child is alive")
+        finally:
+            (self.root / "release.txt").write_text("release", encoding="ascii")
+            self.assertTrue(_wait_for_file(self.root / "writer-finished.txt"), "owned synthetic descendant did not finish")
+        deadline = time.monotonic() + 5.0
+        while list(temp.glob("mutation-capture-*.bin")) and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertEqual(list(temp.glob("mutation-capture-*.bin")), [], "capture files must eventually disappear")
+        self.assertEqual(sorted(set(module_folder.glob("mutation-capture-*.bin")) - before), [],
+                         "no capture file beside the module after release either")
+
     def test_timeout_is_bounded_even_with_an_inherited_writer(self):
         arguments = self.command("spawn-timeout", self.root)
         try:

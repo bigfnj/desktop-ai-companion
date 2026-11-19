@@ -984,6 +984,24 @@ function Test-HostRuntimeTransaction([string]$Parent) {
         $checks++
         Close-HostRuntimePlan $plan
 
+        # N-installer-recovery-precondition-coverage-01 (lane G round 2): one negative per remaining precondition, each its own
+        # label, because every other call here passes a stopped companion, a safe runtime and no relaunched process.
+        if (Test-RecoveryLaunchPermitted $false $false $true $null $null) {
+            throw 'INSTALL_RECOVERY_REQUIRES_COMPANION_STOPPED: recovery never launches while the retained companion has not exited.'
+        }
+        $checks++
+        if (Test-RecoveryLaunchPermitted $false $true $false $null $null) {
+            throw 'INSTALL_RECOVERY_REQUIRES_RUNTIME_LAUNCH_SAFE: recovery never launches when the host runtime was judged unsafe to launch.'
+        }
+        $checks++
+        $liveRelaunch = [pscustomobject]@{ HasExited = $false }
+        $exitedRelaunch = [pscustomobject]@{ HasExited = $true }
+        if ((Test-RecoveryLaunchPermitted $false $true $true $null $liveRelaunch) -or
+            -not (Test-RecoveryLaunchPermitted $false $true $true $null $exitedRelaunch)) {
+            throw 'INSTALL_RECOVERY_REQUIRES_RELAUNCH_EXITED: a relaunched companion still running withholds recovery; one that has exited permits it.'
+        }
+        $checks++
+
         # The launch decision in the installer's own finally block is exactly that function: the CONDITION of the if that starts
         # the recovery companion, read from this script's syntax tree (not the mere presence of a call somewhere).
         $installerAst = [Management.Automation.Language.Parser]::ParseFile($PSCommandPath, [ref]$null, [ref]$null)

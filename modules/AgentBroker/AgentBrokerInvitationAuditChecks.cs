@@ -102,12 +102,15 @@ public sealed partial class AgentBrokerModule
             var offer = new PairingView(Guid.NewGuid(), peer, "123456-ABCDEF-123456-ABCDEF-123456", f.Now.AddMinutes(2), true);
             f.Apply(f.View with { PairingOffers = [offer], Discovered = [peer] });
             IReadOnlyList<ListItem> rows = f.Module.LoadBrokerItems();
-            ListItem shown = rows.Single(row => row.Group == AwaitingGroup);
-            check(shown.Label == "Visiblename" && !HasHiddenIdentityRunes(shown.Label) &&
+            // Total conditions (the P-CHK-3 pattern of AgentBrokerSelfTest.cs's "Total conditions (review P-CHK-3)" comment;
+            // lane G round 2, case 1664): with no Awaiting row these two checks fail by their own labels instead of throwing and
+            // skipping the rest of the group.
+            ListItem? shown = rows.SingleOrDefault(row => row.Group == AwaitingGroup);
+            check(shown is not null && shown.Label == "Visiblename" && !HasHiddenIdentityRunes(shown.Label) &&
                 f.Module.PairingDisplayText().Contains("Visiblename (" + ShortBrokerId(peer.BrokerId), StringComparison.Ordinal) &&
                 !HasHiddenIdentityRunes(f.Module.PairingDisplayText()),
                 label + ": Awaiting labels and outbound-offer Pairing prose use the same visible broker name");
-            check(shown.Detail == offer.VerificationCode,
+            check(shown is not null && shown.Detail == offer.VerificationCode,
                 "BROKER_DETAIL_FULL_CODE: name sanitizing preserves the complete separate comparison code");
             TrayItem[] tray = f.Module.BuildTray().ToArray();
             string offerLabel = tray.Single(item => item.Label.StartsWith("Pairing code ", StringComparison.Ordinal)).Label;

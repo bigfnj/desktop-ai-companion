@@ -20,23 +20,26 @@ public sealed partial class AgentBrokerModule
         AgentBrokerModule? module = null;
         try
         {
-            AgentBrokerSupervisorChecks.RunAsync(Check).GetAwaiter().GetResult();
-            RunSupervisionRecoveryChecks(Check, dispatcher);
-            RunMetadataChecks(Check);
-            RunStatusChecks(Check, dispatcher);
-            RunMcpStatusChecks(Check, dispatcher);
-            RunLifetimeChecks(Check, dispatcher);
-            RunPairingChecks(Check, dispatcher);
-            RunFirewallChecks(Check, dispatcher);
-            RunOnboardingChecks(Check, dispatcher);
-            RunClientSetupChecks(Check, dispatcher);
-            RunClientRouteChecks(Check);
-            RunClientsSummaryChecks(Check);
-            RunDesktopChatChecks(Check, dispatcher);
-            RunPeerClockChecks(Check);
-            RunPaneTextChecks(Check, dispatcher);
-            RunWaitingMailChecks(Check, dispatcher);
-            RunAttachmentChecks(Check, dispatcher);
+            // Group isolation (N-P4-wrong-declaration-outbound-offers-awaiting-01; 1105 DECISIONS 151/153, 1106 DECISIONS 121):
+            // a throw inside one check group is that group's own labelled failure and every later group still runs, so an
+            // early throw can no longer hide a later declared guard. The main fixture below is not a group: its catch is below.
+            RunGroup(Check, nameof(AgentBrokerSupervisorChecks), () => AgentBrokerSupervisorChecks.RunAsync(Check).GetAwaiter().GetResult());
+            RunGroup(Check, nameof(RunSupervisionRecoveryChecks), () => RunSupervisionRecoveryChecks(Check, dispatcher));
+            RunGroup(Check, nameof(RunMetadataChecks), () => RunMetadataChecks(Check));
+            RunGroup(Check, nameof(RunStatusChecks), () => RunStatusChecks(Check, dispatcher));
+            RunGroup(Check, nameof(RunMcpStatusChecks), () => RunMcpStatusChecks(Check, dispatcher));
+            RunGroup(Check, nameof(RunLifetimeChecks), () => RunLifetimeChecks(Check, dispatcher));
+            RunGroup(Check, nameof(RunPairingChecks), () => RunPairingChecks(Check, dispatcher));
+            RunGroup(Check, nameof(RunFirewallChecks), () => RunFirewallChecks(Check, dispatcher));
+            RunGroup(Check, nameof(RunOnboardingChecks), () => RunOnboardingChecks(Check, dispatcher));
+            RunGroup(Check, nameof(RunClientSetupChecks), () => RunClientSetupChecks(Check, dispatcher));
+            RunGroup(Check, nameof(RunClientRouteChecks), () => RunClientRouteChecks(Check));
+            RunGroup(Check, nameof(RunClientsSummaryChecks), () => RunClientsSummaryChecks(Check));
+            RunGroup(Check, nameof(RunDesktopChatChecks), () => RunDesktopChatChecks(Check, dispatcher));
+            RunGroup(Check, nameof(RunPeerClockChecks), () => RunPeerClockChecks(Check));
+            RunGroup(Check, nameof(RunPaneTextChecks), () => RunPaneTextChecks(Check, dispatcher));
+            RunGroup(Check, nameof(RunWaitingMailChecks), () => RunWaitingMailChecks(Check, dispatcher));
+            RunGroup(Check, nameof(RunAttachmentChecks), () => RunAttachmentChecks(Check, dispatcher));
             var host = new TestHost();
             string directory = Path.Combine(Path.GetTempPath(), "agentbroker-synthetic-" + Guid.NewGuid().ToString("N"));
             host.UseStorage(Id, new TestStorage(directory));
@@ -415,6 +418,20 @@ public sealed partial class AgentBrokerModule
         { dispatcher.Drain(); Thread.Sleep(5); }
         dispatcher.Drain();
         if (!complete()) throw new TimeoutException("Synthetic lifecycle did not complete.");
+    }
+
+    // Group isolation (lane G round 2, case 1664): runs one check group and records a throw as ONE failed check labelled
+    // SELFTEST_GROUP_ABORTED, a FAIL line the mutation harness grades like any other label (never an EXC line), so the groups
+    // after it still run. The message is one line and at most 200 characters, so the FAIL line stays whole.
+    private static void RunGroup(Action<bool, string> check, string name, Action run)
+    {
+        try { run(); }
+        catch (Exception ex)
+        {
+            string message = ex.Message.ReplaceLineEndings(" ");
+            check(false, "SELFTEST_GROUP_ABORTED: " + name + " threw " + ex.GetType().Name + ": " +
+                (message.Length > 200 ? message[..200] : message));
+        }
     }
     private sealed class TestDispatcher : SynchronizationContext
     {

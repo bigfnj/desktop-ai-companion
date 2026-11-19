@@ -3,17 +3,21 @@
 Capture raw bytes through temporary files so inherited output handles cannot
 strand Windows pipe readers. Source and result-marker files still use their
 declared, strict UTF-8 encoding separately.
+
+The capture files live in the process temp folder (tempfile's default), never
+beside this module, so a harness run's status shows none while a child is
+alive (marathon-1106 lane G round 2). The capture-checks runner points TEMP
+under tests/ on purpose (run_mutation_capture_checks.py:18-20).
 """
 
 import ctypes
 import io
 import os
-from pathlib import Path
 import subprocess
 import tempfile
 
 
-_CAPTURE_DIRECTORY = Path(__file__).resolve().parent
+_CAPTURE_DIRECTORY = None  # tempfile's default folder (TMPDIR, TEMP or TMP); the tests patch this name
 _MAX_CAPTURE_BYTES = 64 * 1024 * 1024
 _REAP_TIMEOUT = 5.0
 
