@@ -1,6 +1,8 @@
 # AgentBroker 1.10.5 validation
 
-Current status, 2026-11-13: candidate AAFC0702 is installed on A, with local results and coverage limits recorded below. It remains uncommitted and unpublished; the published version is 1.10.4. Mandatory workstation-B acceptance awaits the owner's safe maintenance window. The four campaign items remain open until the required combined installed acceptance and explicit scope dispositions are complete.
+Current status, 2026-11-19: AgentBroker 1.10.5 is published (released 2026-11-18, marathon-1105 DECISIONS 155), and this file remains its validation record. The four 1.10.5 campaign items stay open in [BACKLOG.md](../BACKLOG.md) and are carried as owner decisions in the 1.10.6 release plan (marathon-1106 DECISIONS 122), and the workstation-B items wait for the owner's workstation-B window. The 1.10.6 release candidate (candidate ZIP `EB0BC993`, stamped build receipt `B15C2BA5`, 357 payload files) was installed on A on 2026-11-19 (marathon-1106 DECISIONS 253); its publication waits for the owner's word.
+
+Status of 2026-11-13, retained as history: candidate AAFC0702 is installed on A, with local results and coverage limits recorded below. It remains uncommitted and unpublished; the published version is 1.10.4. Mandatory workstation-B acceptance awaits the owner's safe maintenance window. The four campaign items remain open until the required combined installed acceptance and explicit scope dispositions are complete.
 
 Campaign-start status, retained as history: implementation in progress; the installed and published version was still 1.10.4. Later dated observations describe the candidate's installation and qualification.
 
