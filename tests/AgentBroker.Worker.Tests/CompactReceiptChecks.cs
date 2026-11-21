@@ -53,9 +53,6 @@ internal static class CompactReceiptChecks
         var legacy = tools.SendMessageTool(record);
         check(legacy.Message.Id == record.Id && legacy.Message.Text is null && legacy.TextBytes == Encoding.UTF8.GetByteCount(Text),
             "COMPACT_SEND_MESSAGE: send_message returns the compact receipt too");
-        var reply = tools.ReplyTool(id, Guid.NewGuid(), Text);
-        check(reply.Message.ReplyTo == id && reply.Message.Text is null && reply.TextBytes is > 0,
-            "COMPACT_REPLY: reply_to_message returns the reply's compact receipt");
         var waited = await tools.WaitForReceipt(id, default, timeoutSeconds: 0);
         check(waited.Message.Id == id && waited.Message.Text is null && waited.Status == MessageStatus.Accepted,
             "COMPACT_WAIT_NO_TEXT: wait_for_receipt returns the receipt without its text");
@@ -65,11 +62,16 @@ internal static class CompactReceiptChecks
             "COMPACT_GET_INCLUDE: get_message_receipt with includeText returns the text");
         string json = JsonSerializer.Serialize(tools.GetMessageReceipt(id), McpJsonUtilities.DefaultOptions);
         check(!json.Contains("\"text\"", StringComparison.Ordinal) && !json.Contains("busySince", StringComparison.Ordinal) &&
+            !json.Contains("\"waits\"", StringComparison.Ordinal) &&
             json.Contains("\"readAt\"", StringComparison.Ordinal),
-            "COMPACT_JSON_OMITS: the serialized receipt has no text member and no busySince while nothing was seen busy");
+            "COMPACT_JSON_OMITS: the serialized receipt has no text, busySince or waits while nothing was seen busy");
 
         var inbox = tools.ReadInbox(recipient.Address);
         var incoming = await tools.WaitForMessages(recipient.Address, default, timeoutSeconds: 0);
+        // Read the pending parent's text before the reply records its recipient acknowledgement.
+        var reply = tools.ReplyTool(id, Guid.NewGuid(), Text);
+        check(reply.Message.ReplyTo == id && reply.Message.Text is null && reply.TextBytes is > 0,
+            "COMPACT_REPLY: reply_to_message returns the reply's compact receipt");
         var replies = await tools.WaitForReply(id, default, timeoutSeconds: 0);
         check(inbox.Any(r => r.Message.Id == id && r.Message.Text == Text) && incoming.Any(r => r.Message.Id == id && r.Message.Text == Text) &&
             replies.Count == 1 && replies[0].Message.Text == Text,
@@ -87,7 +89,7 @@ internal static class CompactReceiptChecks
         Guid id = Guid.NewGuid();
         fixture.Tools.Send(sender.Address, native.Address, id, Text);
         check(fixture.Store.BeginDelivery()?.Message.Id == id, "The synthetic native message is claimed.");
-        fixture.Store.CompleteDelivery(id, MessageStatus.Submitted, "native_admission_unconfirmed");
+        fixture.Store.CompleteDelivery(fixture.Store.FindReceipt(id)!, MessageStatus.Submitted, "native_admission_unconfirmed");
         var submittedAt = fixture.Clock.GetUtcNow();
         fixture.Clock.Advance(TimeSpan.FromSeconds(1));
         check(fixture.Tools.GetMessageReceipt(id)?.ReadAt == submittedAt.AddSeconds(1), "READ_AT_NOW: readAt is the broker's clock at the read");
@@ -108,17 +110,21 @@ internal static class CompactReceiptChecks
         MessageReceipt Busy() => new(message, MessageStatus.Accepted, clock.GetUtcNow(), DeliveryObservations.BusyReason);
         var busy = new AdapterResult(AdapterAdmission.DeferredNotSubmitted, DeliveryObservations.BusyReason);
         var first = clock.GetUtcNow();
-        observations.Record(message, busy, _ => true);
+        observations.Record(message, busy);
+        clock.Advance(TimeSpan.FromSeconds(5));
+        observations.Record(message, busy);
+        check(observations.BusySince(Busy()) == first, "BUSY_SINCE_KEPT: fresh later busy answers keep the first one's time");
         clock.Advance(TimeSpan.FromMinutes(5));
-        observations.Record(message, busy, _ => true);
-        check(observations.BusySince(Busy()) == first, "BUSY_SINCE_KEPT: later busy answers keep the first one's time");
+        observations.Record(message, busy);
+        check(observations.BusySince(Busy()) == clock.GetUtcNow(),
+            "BUSY_RUN_GAP_RESTARTS: a busy answer after an unobserved gap starts a new episode");
         check(observations.SeenBusy(recipient), "BUSY_ROW_FRESH: a recipient that answered busy just now is seen busy");
         clock.Advance(DeliveryObservations.BusyFreshFor);
         check(!observations.SeenBusy(recipient), "BUSY_ROW_FRESHNESS: a busy answer older than 30 seconds no longer counts");
-        observations.Record(message, new(AdapterAdmission.DeferredNotSubmitted, "native_owner_unavailable"), _ => true);
+        observations.Record(message, new(AdapterAdmission.DeferredNotSubmitted, "native_owner_unavailable"));
         clock.Advance(TimeSpan.FromSeconds(1));
         var restarted = clock.GetUtcNow();
-        observations.Record(message, busy, _ => true);
+        observations.Record(message, busy);
         check(observations.BusySince(Busy()) == restarted, "BUSY_RUN_RESTARTS: another answer ends the busy run, so the next busy answer starts a new one");
         check(observations.BusySince(Busy() with { Status = MessageStatus.Submitted }) is null &&
             observations.BusySince(Busy() with { Reason = "native_owner_unavailable" }) is null,
@@ -154,7 +160,7 @@ internal static class CompactReceiptChecks
         var listed = (await fixture.Tools.ListSessions(default)).Single(session => session.Address == row.Address);
         check(listed.Activity == SessionActivity.Busy && fixture.Current(row.Address)?.Activity == SessionActivity.Unknown,
             "BUSY_ROW_PRESENTED: list_sessions shows the Unknown row Busy while the stored activity, which decides delivery, stays Unknown");
-        fixture.Clock.Advance(TimeSpan.FromMinutes(1));
+        fixture.Clock.Advance(TimeSpan.FromSeconds(5));
         fixture.Store.Register(row with { LeaseUntil = fixture.Clock.GetUtcNow().AddMinutes(2) });
         bool again = await Attempts(2);
         var later = fixture.Tools.GetMessageReceipt(id);
@@ -174,8 +180,23 @@ internal static class CompactReceiptChecks
         var sent = fixture.Clock.GetUtcNow();
         var fromPeer = new BrokerMessage(Guid.NewGuid(), Guid.NewGuid(), null, new(peer.BrokerId, "remote", Guid.NewGuid()), row.Address,
             "Synthetic busy message from a paired broker.", sent, sent.AddHours(2));
+        // N-worker-check-busysince-wallclock-01 (lane G round 2): the settlement seam, armed before Accept, replaces 300 x 50 ms
+        // of wall time, and the receipt is read inside the callback, where the store write is already done. A stall or an early
+        // report fails this label within its bound; it is never read as a federation defect by the check below.
+        var settled = new TaskCompletionSource<MessageReceipt?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        fixture.Runtime.DeliverySettled = (settledId, settledResult) =>
+        {
+            if (settledId == fromPeer.Id && settledResult.Reason == "native_context_busy") settled.TrySetResult(fixture.Store.FindReceipt(settledId));
+        };
         fixture.Store.Accept(fromPeer, peer.BrokerId);
-        for (int i = 0; i < 300 && fixture.Store.FindReceipt(fromPeer.Id)?.Reason != "native_context_busy"; i++) await Task.Delay(50);
+        bool settledInTime = await Task.WhenAny(settled.Task, Task.Delay(TimeSpan.FromSeconds(60))) == settled.Task;
+        fixture.Runtime.DeliverySettled = null;
+        MessageReceipt? seen = settledInTime ? await settled.Task : fixture.Store.FindReceipt(fromPeer.Id);
+        if (!(settledInTime && seen is { Reason: "native_context_busy" }))
+            Console.WriteLine("BUSY_PEER_DEFERRAL_STATE: " + (settledInTime ? "reported " : "unreported ") +
+                (seen is null ? "no receipt" : seen.Status + " " + (seen.Reason ?? "no reason")));
+        check(settledInTime && seen is { Reason: "native_context_busy" },
+            "BUSY_PEER_DEFERRAL_SETTLED: the delivery loop settled the paired broker's message native_context_busy within 60 s, with the receipt already stored (a failure here is a loop stall or an early report, not a federation defect)");
         var localRead = fixture.Tools.GetMessageReceipt(fromPeer.Id);
         fixture.Context.Items["agentbroker.identity"] = peer.BrokerId;
         var peerRead = fixture.Tools.GetMessageReceipt(fromPeer.Id);

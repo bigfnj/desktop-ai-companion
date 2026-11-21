@@ -15,4 +15,5 @@
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <DebugType Condition="'$(Configuration)' == 'Release'">none</DebugType>
   </PropertyGroup>
+  <ItemGroup><InternalsVisibleTo Include="AgentBroker.Relay.Tests" /></ItemGroup>
 </Project>

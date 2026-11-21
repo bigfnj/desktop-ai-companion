@@ -12,6 +12,9 @@ internal interface IWorkerSupervisor
 {
     Task<WorkerStatus> RefreshAsync(WorkerLaunch launch, CancellationToken token);
     Task StopOwnedAsync(string dataDirectory, CancellationToken token);
+    // BSM-4 (1.10.5): the worker's separate waiting-mail read, made after a connected status in the same poll. Null is no
+    // answer. A supervisor without the read reports none, which the pane shows as "measurement unavailable", never as zero.
+    Task<ControlResponse?> ReadWaitingMailAsync(WorkerLaunch launch, CancellationToken token) => Task.FromResult<ControlResponse?>(null);
 }
 
 internal sealed class WorkerSupervisor(IBrokerControlClient control, IWorkerChildLauncher? launcher = null,
@@ -22,7 +25,8 @@ internal sealed class WorkerSupervisor(IBrokerControlClient control, IWorkerChil
     private readonly IWorkerChildLauncher launcher = launcher ?? new WorkerChildLauncher();
     private readonly TimeProvider clock = clock ?? TimeProvider.System;
     private IWorkerChild? owned;
-    private DateTimeOffset retryAfter;
+    private long retryStarted;
+    private TimeSpan retryDelay;
     private long ownedStarted;
     private bool ownedResponded;
     private int failures;
@@ -55,10 +59,11 @@ internal sealed class WorkerSupervisor(IBrokerControlClient control, IWorkerChil
             if (owned is not null && !IsOwnedAlive())
             {
                 ReleaseExited();
-                retryAfter = clock.GetUtcNow().AddSeconds(Math.Min(60, 2 << Math.Min(5, failures++)));
+                ScheduleRetry();
                 return new(false, false, "worker_exited");
             }
-            if (clock.GetUtcNow() < retryAfter) return new(false, false, "restart_backoff");
+            if (retryDelay > TimeSpan.Zero && clock.GetElapsedTime(retryStarted) < retryDelay)
+                return new(false, false, "restart_backoff");
             if (!File.Exists(launch.Executable)) return new(false, false, "worker_not_packaged");
             token.ThrowIfCancellationRequested();
             var start = new ProcessStartInfo(launch.Executable)
@@ -67,7 +72,13 @@ internal sealed class WorkerSupervisor(IBrokerControlClient control, IWorkerChil
                 WorkingDirectory = Path.GetDirectoryName(launch.Executable)!
             };
             AddArguments(start, launch);
-            owned = launcher.Start(start);
+            try { owned = launcher.Start(start); }
+            catch (Exception error) when (error is System.ComponentModel.Win32Exception or IOException or
+                UnauthorizedAccessException or InvalidOperationException or System.Security.SecurityException)
+            {
+                ScheduleRetry();
+                return new(false, false, "worker_start_failed");
+            }
             ownedStarted = clock.GetTimestamp();
             ownedResponded = false;
             // Cancellation after launch still leaves this instance owning its exact child, so shutdown
@@ -76,7 +87,7 @@ internal sealed class WorkerSupervisor(IBrokerControlClient control, IWorkerChil
             if (!IsOwnedAlive())
             {
                 ReleaseExited();
-                retryAfter = clock.GetUtcNow().AddSeconds(Math.Min(60, 2 << Math.Min(5, failures++)));
+                ScheduleRetry();
                 return new(false, false, "worker_exited");
             }
             return new(false, true, "starting");
@@ -90,7 +101,7 @@ internal sealed class WorkerSupervisor(IBrokerControlClient control, IWorkerChil
         try
         {
             IWorkerChild? child = owned;
-            if (child is null) { failures = 0; retryAfter = default; return; }
+            if (child is null) { failures = 0; retryDelay = default; return; }
             try
             {
                 if (child.IsAlive)
@@ -109,9 +120,24 @@ internal sealed class WorkerSupervisor(IBrokerControlClient control, IWorkerChil
                 // Refused control, canceled waiting, and metadata failures all converge here. The
                 // retained process handle can only stop our original child, never a standby or PID reuse.
                 try { child.StopForcefully(); }
-                finally { child.Dispose(); owned = null; failures = 0; retryAfter = default; }
+                finally { child.Dispose(); owned = null; failures = 0; retryDelay = default; }
             }
         }
+        finally { gate.Release(); }
+    }
+
+    public async Task<ControlResponse?> ReadWaitingMailAsync(WorkerLaunch launch, CancellationToken token)
+    {
+        await gate.WaitAsync(token).ConfigureAwait(false);
+        try
+        {
+            // Bound to the owned child exactly as its status is, so the answer never comes from another process (a child
+            // that exited fails the bound read); a standby reads unbound, as its status does.
+            return await control.SendAsync(launch.DataDirectory, new(AgentBrokerModule.WaitingMailOperation), token, owned?.Id).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
+            OperationCanceledException or System.Text.Json.JsonException)
+        { token.ThrowIfCancellationRequested(); return null; }
         finally { gate.Release(); }
     }
 
@@ -130,6 +156,11 @@ internal sealed class WorkerSupervisor(IBrokerControlClient control, IWorkerChil
     private bool IsOwnedAlive()
     {
         return owned?.IsAlive == true;
+    }
+    private void ScheduleRetry()
+    {
+        retryStarted = clock.GetTimestamp();
+        retryDelay = TimeSpan.FromSeconds(Math.Min(60, 2 << Math.Min(5, failures++)));
     }
     private void ReleaseExited() { if (owned is not null && !IsOwnedAlive()) { owned.Dispose(); owned = null; } }
 
@@ -151,5 +182,9 @@ internal sealed class WorkerSupervisor(IBrokerControlClient control, IWorkerChil
         // The same for Claude (on by default, the owner's decision of 2026-11-02); off launches the worker with exact pins only.
         if (launch.Settings.ClaudeUpdateTolerantDelivery) Add("--claude-update-tolerant-delivery", Bool(true));
         Add("--message-lifetime-minutes", launch.Settings.MessageLifetimeHours * 60);
+        if (launch.Settings.AdditionalCodexHome.Length > 0)
+            Add("--codex-additional-homes", System.Text.Json.JsonSerializer.Serialize(new[] { launch.Settings.AdditionalCodexHome }));
+        // Lane F: sent only when the owner turned attachments on; off launches the worker in its default (no attachments).
+        if (launch.Settings.AttachmentsEnabled) Add("--attachments", Bool(true));
     }
 }

@@ -5,7 +5,6 @@ using AgentBroker.Worker.Security;
 using AgentBroker.Worker.Adapters;
 using Microsoft.AspNetCore.Server.Kestrel.Https;
 using ModelContextProtocol.AspNetCore;
-using System.Diagnostics;
 using System.Net;
 using System.Security.Cryptography;
 using System.Text;
@@ -14,19 +13,30 @@ namespace AgentBroker.Worker;
 
 public sealed class WorkerApplication : IAsyncDisposable
 {
+    // Kestrel's request body limit. The --mcp-call client bounds the body it encodes by the same value before it connects.
+    internal const int MaximumRequestBodyBytes = 128 * 1024;
     private readonly BrokerIdentity identity;
+    private readonly DateTimeOffset certificateRenewalDueAt;
     private readonly CancellationTokenSource lifetime = new();
     private readonly byte[] localToken = RandomNumberGenerator.GetBytes(32);
     private Task? parentWatch;
+    private Task? certificateWatch;
     private LocalControlServer? control;
     private readonly McpActivityTracker mcpActivity;
-    private readonly CancellationTokenRegistration mcpStarted, mcpStopping;
+    private readonly CancellationTokenRegistration mcpStarted, mcpStopping, waitStopping;
     private int disposed;
+    private int certificateRenewalRequested;
+    private int shutdownCleanupFailed;
+    private int externalStopRequested;
     public WebApplication Application { get; }
     public BrokerRuntime Runtime { get; }
     public WorkerOptions Options { get; }
     public string LocalAccessToken => Convert.ToHexString(localToken);
     public McpStatusView McpStatus => mcpActivity.Snapshot();
+    internal DateTimeOffset CertificateRenewalDueAt => certificateRenewalDueAt;
+    internal bool CertificateRenewalRequested => Volatile.Read(ref certificateRenewalRequested) != 0;
+    internal bool ShutdownCleanupFailed => Volatile.Read(ref shutdownCleanupFailed) != 0;
+    internal bool ExternalStopRequested => Volatile.Read(ref externalStopRequested) != 0;
     // Read-only LAN observations for status: network category, this worker's rule, inbound evidence.
     public LanProfileMonitor LanProfile { get; } = new(new WindowsLanProfileProbe());
 
@@ -34,17 +44,28 @@ public sealed class WorkerApplication : IAsyncDisposable
         BrokerIdentity identity, WorkerOptions options, McpActivityTracker mcpActivity)
     {
         Application = application; Runtime = runtime; this.identity = identity; Options = options;
+        certificateRenewalDueAt = identity.RenewalDueAt;
         this.mcpActivity = mcpActivity;
         mcpStarted = application.Lifetime.ApplicationStarted.Register(static state => ((McpActivityTracker)state!).SetReady(true), mcpActivity);
         mcpStopping = application.Lifetime.ApplicationStopping.Register(static state => ((McpActivityTracker)state!).SetReady(false), mcpActivity);
+        waitStopping = application.Lifetime.ApplicationStopping.Register(static state => ((BrokerRuntime)state!).StopWaits(), runtime);
     }
 
-    public static async Task<WorkerApplication> CreateAsync(WorkerOptions options,
-        IReadOnlyList<ILocalAgentAdapter>? adapters = null, CancellationToken token = default)
+    public static Task<WorkerApplication> CreateAsync(WorkerOptions options,
+        IReadOnlyList<ILocalAgentAdapter>? adapters = null, CancellationToken token = default) =>
+        CreateCoreAsync(options, adapters, TimeProvider.System, token);
+
+    internal static Task<WorkerApplication> CreateAsync(WorkerOptions options,
+        IReadOnlyList<ILocalAgentAdapter>? adapters, TimeProvider clock, CancellationToken token = default) =>
+        CreateCoreAsync(options, adapters, clock, token);
+
+    private static async Task<WorkerApplication> CreateCoreAsync(WorkerOptions options,
+        IReadOnlyList<ILocalAgentAdapter>? adapters, TimeProvider clock, CancellationToken token)
     {
+        ArgumentNullException.ThrowIfNull(clock);
         token.ThrowIfCancellationRequested(); options.Validate();
         var store = new BrokerStore(Path.Combine(options.DataDirectory, "store"),
-            new BrokerLimits(DefaultMessageLifetimeMinutes: options.DefaultMessageLifetimeMinutes));
+            new BrokerLimits(DefaultMessageLifetimeMinutes: options.DefaultMessageLifetimeMinutes), clock);
         BrokerIdentity? identity = null;
         IPeerFederation? federation = null;
         IReadOnlyList<ILocalAgentAdapter>? nativeAdapters = null;
@@ -54,9 +75,12 @@ public sealed class WorkerApplication : IAsyncDisposable
         try
         {
             identity = BrokerIdentity.LoadOrCreate(options.DataDirectory, store.BrokerId);
-            federation = new PeerFederation(store, identity, options, enableDiscovery: options.EnableBrokerDiscovery);
+            // Lane F: one attachment store for the federation routes, the tools and the retention sweep.
+            var attachments = new AgentBroker.Worker.Attachments.AttachmentStore(options.DataDirectory, store, options.EnableAttachments, clock);
+            federation = new PeerFederation(store, identity, options, enableDiscovery: options.EnableBrokerDiscovery) { Attachments = attachments };
             nativeAdapters = adapters ?? CreateNativeAdapters(options);
-            runtime = new BrokerRuntime(store, federation, nativeAdapters, new SessionPreferences(options.DataDirectory));
+            runtime = new BrokerRuntime(store, federation, nativeAdapters, new SessionPreferences(options.DataDirectory), clock);
+            runtime.Attachments = attachments;
             var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions
             { Args = [], ContentRootPath = AppContext.BaseDirectory, EnvironmentName = "Production" });
             builder.Logging.ClearProviders(); // Neither message text nor credentials enter request logs.
@@ -64,7 +88,7 @@ public sealed class WorkerApplication : IAsyncDisposable
             builder.WebHost.ConfigureKestrel(server =>
             {
                 server.AddServerHeader = false;
-                server.Limits.MaxRequestBodySize = 128 * 1024;
+                server.Limits.MaxRequestBodySize = MaximumRequestBodyBytes;
                 server.Limits.MaxRequestHeadersTotalSize = 16 * 1024;
                 server.Limits.MaxConcurrentConnections = 128;
                 server.Limits.RequestHeadersTimeout = TimeSpan.FromSeconds(10);
@@ -85,10 +109,10 @@ public sealed class WorkerApplication : IAsyncDisposable
             builder.Services.AddSingleton(runtime);
             builder.Services.AddHttpContextAccessor();
             var mcpActivity = new McpActivityTracker();
-            var mcpFilters = new McpActivityFilters(mcpActivity, store.BrokerId);
+            var mcpFilters = new McpActivityFilters(mcpActivity, store.BrokerId, runtime);
             // The instructions card reaches HTTP clients directly and Codex through the verbatim stdio bridge.
             builder.Services.AddMcpServer(server => server.ServerInstructions = BrokerInstructions.Text).WithHttpTransport(transport =>
-                transport.SessionMode = HttpServerSessionMode.Stateless).WithTools<BrokerTools>()
+                transport.SessionMode = HttpServerSessionMode.Stateless).WithTools<BrokerTools>(McpToolJson.Create())
                 .WithMessageFilters(filters => filters.AddIncomingFilter(mcpFilters.Incoming()).AddOutgoingFilter(mcpFilters.Outgoing()))
                 .WithRequestFilters(filters => filters.AddListToolsFilter(mcpFilters.ListTools()).AddCallToolFilter(mcpFilters.CallTool()));
             app = builder.Build();
@@ -124,7 +148,7 @@ public sealed class WorkerApplication : IAsyncDisposable
     {
         var adapters = new List<ILocalAgentAdapter>();
         if (options.EnableCodexNativeDiscovery) adapters.Add(new CodexNativeAdapter(options.EnableCodexPeerMessages,
-            options.EnableCodexUpdateTolerantDelivery));
+            options.EnableCodexUpdateTolerantDelivery, options.AdditionalCodexHomes));
         if (options.EnableClaudeNativeDiscovery) adapters.Add(new ClaudeNativeAdapter(options.EnableClaudePeerCredentials,
             options.EnableClaudeUpdateTolerantDelivery));
         return adapters;
@@ -198,6 +222,36 @@ public sealed class WorkerApplication : IAsyncDisposable
         control!.Start();
         Runtime.Start(lifetime.Token);
         if (Options.ParentPid > 0) parentWatch = WatchParentAsync(lifetime.Token);
+        certificateWatch = WatchCertificateAsync(lifetime.Token);
+    }
+
+    private async Task WatchCertificateAsync(CancellationToken token)
+    {
+        try
+        {
+            // Startup has already renewed a due certificate. Never replace a certificate held by live listeners.
+            while (true)
+            {
+                await Task.Delay(TimeSpan.FromHours(1), token);
+                if (RequestCertificateRenewal(DateTimeOffset.UtcNow)) return;
+            }
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+    }
+
+    internal bool RequestCertificateRenewal(DateTimeOffset now)
+    {
+        if (!WorkerLifetime.RenewalIsDue(now, CertificateRenewalDueAt) ||
+            Application.Lifetime.ApplicationStopping.IsCancellationRequested ||
+            Interlocked.CompareExchange(ref certificateRenewalRequested, 1, 0) != 0) return false;
+        Application.Lifetime.StopApplication();
+        return true;
+    }
+
+    internal void RequestExternalStop()
+    {
+        Interlocked.Exchange(ref externalStopRequested, 1);
+        Application.Lifetime.StopApplication();
     }
 
     private async Task WatchParentAsync(CancellationToken token)
@@ -206,16 +260,7 @@ public sealed class WorkerApplication : IAsyncDisposable
         {
             while (!token.IsCancellationRequested)
             {
-                bool owned;
-                try
-                {
-                    using var parent = Process.GetProcessById(Options.ParentPid);
-                    owned = !parent.HasExited && parent.StartTime.ToUniversalTime().ToFileTimeUtc() == Options.ParentCreationFileTime;
-                }
-                catch (ArgumentException) { owned = false; }
-                catch (InvalidOperationException) { owned = false; }
-                catch (System.ComponentModel.Win32Exception) { owned = false; }
-                if (!owned) { Application.Lifetime.StopApplication(); return; }
+                if (!WorkerLifetime.ParentIsAlive(Options)) { RequestExternalStop(); return; }
                 await Task.Delay(TimeSpan.FromSeconds(1), token);
             }
         }
@@ -234,19 +279,24 @@ public sealed class WorkerApplication : IAsyncDisposable
             using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
             await CleanAsync(() => Application.StopAsync(deadline.Token));
             if (parentWatch is not null) await CleanAsync(() => parentWatch);
+            if (certificateWatch is not null) await CleanAsync(() => certificateWatch);
             await CleanAsync(() => Runtime.Federation.DisposeAsync().AsTask());
             await CleanAsync(() => Application.DisposeAsync().AsTask());
         }
         finally
         {
             Runtime.Store.Dispose(); identity.Dispose();
-            mcpStarted.Dispose(); mcpStopping.Dispose();
+            mcpStarted.Dispose(); mcpStopping.Dispose(); waitStopping.Dispose();
             CryptographicOperations.ZeroMemory(localToken); lifetime.Dispose();
         }
-        static async Task CleanAsync(Func<Task> action)
+        async Task CleanAsync(Func<Task> action)
         {
             try { await action(); }
-            catch (Exception) { Console.Error.WriteLine("agentbroker: shutdown_cleanup_failed"); }
+            catch (Exception)
+            {
+                Interlocked.Exchange(ref shutdownCleanupFailed, 1);
+                Console.Error.WriteLine("agentbroker: shutdown_cleanup_failed");
+            }
         }
     }
 }

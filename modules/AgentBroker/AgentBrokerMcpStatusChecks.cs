@@ -7,12 +7,14 @@ public sealed partial class AgentBrokerModule
 {
     private static void RunMcpStatusChecks(Action<bool, string> check, TestDispatcher dispatcher)
     {
+        RunClientEndpointDisplayChecks(check, dispatcher);
         DateTimeOffset now = new(2026, 10, 21, 12, 0, 0, TimeSpan.Zero);
         var empty = new McpStatusView(true, null, null,
             [new(McpClientFamily.Other), new(McpClientFamily.Claude), new(McpClientFamily.Codex)]);
         var native = new SessionView("synthetic-native-only", Guid.NewGuid(), "Synthetic Claude native", "claude-native",
             "idle", true, true, false, false);
-        var view = new BrokerSnapshot(Guid.NewGuid(), "Synthetic", "http://127.0.0.1:7432/mcp", null,
+        // The bare base, as LocalControlServer reports it; the module appends /mcp (K3).
+        var view = new BrokerSnapshot(Guid.NewGuid(), "Synthetic", "http://127.0.0.1:7432", null,
             [], [], [], [native], new Dictionary<string, string>(), Mcp: empty);
         var host = new TestHost();
         host.UseStorage(Id, new TestStorage(Path.Combine(Path.GetTempPath(), "agentbroker-mcp-status-synthetic")));
@@ -68,8 +70,9 @@ public sealed partial class AgentBrokerModule
                 pane.Load()["agentInboxes"].Contains("1 native, 1 MCP", StringComparison.Ordinal) &&
                 pane.Load()["agentInboxes"].Contains("MCP labels (self-reported): \"Codex collaboration\"", StringComparison.Ordinal),
                 "MCP status: generic Codex inbox is visible independently of its harness client implementation name");
+            // The guide's Clients table explains client traffic versus inbox ownership and self-reported labels.
+            // Full B1 removes that repeated static footer; the live row must still refuse false attribution and health.
             check(pane.Load()["mcpStatus"].Contains("Codex client: not seen", StringComparison.Ordinal) &&
-                pane.Load()["mcpStatus"].Contains("not participating agents", StringComparison.Ordinal) &&
                 pane.Load()["mcpStatus"].Contains("Live connection health is not verified", StringComparison.Ordinal) &&
                 !pane.Load()["status"].Contains("Codex client", StringComparison.Ordinal),
                 "MCP status: a self-reported Codex label cannot manufacture Codex client traffic or verified connection health");
@@ -124,6 +127,98 @@ public sealed partial class AgentBrokerModule
         {
             module.Shutdown();
             Pump(() => module.pending.IsCompleted, dispatcher);
+        }
+    }
+
+    private static void RunClientEndpointDisplayChecks(Action<bool, string> check, TestDispatcher dispatcher)
+    {
+        const string live = "http://127.0.0.1:7432/mcp";
+        const string ready = "\u2713 Endpoint: ready at " + live + ".";
+        const string unverified = "\u26A0 Endpoint: ready; its address is not verified.";
+        var view = new BrokerSnapshot(Guid.NewGuid(), "Synthetic live endpoint", "http://127.0.0.1:7432", null,
+            [], [], [], [], new Dictionary<string, string>(), Mcp: new(true, null, null,
+                [new(McpClientFamily.Other), new(McpClientFamily.Claude), new(McpClientFamily.Codex)]));
+        var control = new EndpointDisplayControl(view);
+        var host = new TestHost();
+        host.UseStorage(Id, new TestStorage(Path.Combine(Path.GetTempPath(), "agentbroker-client-endpoint-synthetic")));
+        host.SettingsFor(Id).Set("enabled", "true");
+        var command = new TestClientCommand { Existing =
+            "{\"transport\":{\"type\":\"streamable_http\",\"url\":\"" + live + "\"},\"enabled\":true}" };
+        var module = new AgentBrokerModule(control, new WorkerSupervisor(control, control)) { ClientSetup = new(command) };
+        // PANE-TEXT (1.10.5): a ready endpoint is an ok state, so the pane shows it as the "endpoint" token and the full
+        // sentence with its address lives in the state lines the tray lists. The address checks read those lines.
+        string Detail(string client) => string.Join("\n", module.ClientStateLines(client));
+        try
+        {
+            module.Init(host);
+            var pane = host.OptionsPanes.Single();
+            Pump(() => module.snapshot?.Mcp?.EndpointReady == true, dispatcher);
+            check(!module.ownsWorker && control.Starts == 0 && pane.Load()["codexClient"].Contains("\u2713 endpoint", StringComparison.Ordinal) &&
+                Detail("codex").Contains(ready, StringComparison.Ordinal),
+                "CLIENT_ENDPOINT_BASELINE: the real supervisor attaches to an existing ready worker without launching one");
+            check(pane.Save(new Dictionary<string, string> { ["loopbackPort"] = "17432" }),
+                "CLIENT_ENDPOINT_SETTINGS: a standby instance can save a different requested port");
+            Pump(() => module.snapshot?.Mcp?.EndpointReady == true, dispatcher);
+            var checking = module.CheckClientSetupAsync("codex");
+            Pump(() => checking.IsCompleted, dispatcher);
+            _ = checking.GetAwaiter().GetResult();
+            check(module.codexInspection?.State == ClientConfiguration.Configured && command.Calls.Count == 1 &&
+                command.Calls[0].Arguments.SequenceEqual(new[] { "mcp", "get", AgentClientSetup.ServerName, "--json" }),
+                "CLIENT_ENDPOINT_CHECK_CONFIGURED: the real Check action verifies the existing live HTTP entry");
+            string details = Detail("codex");
+            string claudeDetails = Detail("claude");
+            check(module.settings.LoopbackPort == 17432 && !module.ownsWorker && control.Starts == 0 && control.Stops == 0 &&
+                details.Contains(ready, StringComparison.Ordinal) && !details.Contains(":17432/mcp", StringComparison.Ordinal) &&
+                claudeDetails.Contains(ready, StringComparison.Ordinal) && !claudeDetails.Contains(":17432/mcp", StringComparison.Ordinal),
+                "CLIENT_ENDPOINT_STANDBY_LIVE_PORT: a standby settings restart preserves the owner's worker and displays its actual port");
+            check(module.ClientTrayItems().Single(item => item.Label.StartsWith("Codex:", StringComparison.Ordinal)).BuildChildren!()
+                .Any(item => item.Label == ready),
+                "CLIENT_ENDPOINT_TRAY_LIVE_PORT: the tray uses the same live endpoint as the pane");
+
+            control.View = view with { LoopbackEndpoint = "http://localhost:7432" };
+            module.ApplyStatus(new(true, false, "attached_standby", control.View));
+            check(Detail("codex").Contains("Endpoint: ready at http://localhost:7432/mcp.", StringComparison.Ordinal),
+                "CLIENT_ENDPOINT_CANONICAL_LOCALHOST: another canonical loopback spelling is displayed exactly");
+            foreach (var invalid in new (string Name, string? Endpoint)[] {
+                ("EMPTY", ""), ("ABSENT", null), ("DOUBLE_PATH", live),
+                ("FOREIGN", "http://example.invalid:7432"), ("SCHEME", "https://127.0.0.1:7432"),
+                ("USERINFO", "http://user:SYNTHETIC_VALUE@127.0.0.1:7432"),
+                ("QUERY", "http://127.0.0.1:7432?token=SYNTHETIC_VALUE") })
+            {
+                control.View = view with { LoopbackEndpoint = invalid.Endpoint! };
+                module.ApplyStatus(new(true, false, "attached_standby", control.View));
+                details = Detail("codex");
+                check(details.Contains(unverified, StringComparison.Ordinal) && pane.Load()["codexClient"].Contains(unverified, StringComparison.Ordinal) &&
+                    !details.Contains("Endpoint: ready at", StringComparison.Ordinal) &&
+                    !details.Contains("SYNTHETIC_VALUE", StringComparison.Ordinal),
+                    "CLIENT_ENDPOINT_UNVERIFIED_" + invalid.Name + ": ready status without a canonical address has no URL or token claim");
+            }
+            check(command.Calls.Count == 1 && control.Starts == 0 && control.Stops == 0,
+                "CLIENT_ENDPOINT_DISPLAY_READ_ONLY: status formatting launches no worker or vendor command and stops no peer");
+        }
+        finally
+        {
+            module.Shutdown();
+            Pump(() => module.pending.IsCompleted, dispatcher);
+        }
+    }
+
+    private sealed class EndpointDisplayControl(BrokerSnapshot view) : IBrokerControlClient, IWorkerChildLauncher
+    {
+        internal BrokerSnapshot View = view;
+        internal int Starts, Stops;
+        public Task<ControlResponse> SendAsync(string directory, ControlRequest request, CancellationToken token, int? requiredServerPid = null)
+        {
+            token.ThrowIfCancellationRequested();
+            if (request.Operation == "stop") Interlocked.Increment(ref Stops);
+            return Task.FromResult(request.Operation == "connection"
+                ? new ControlResponse(true, "ok", Connection: new("http://127.0.0.1:7432/mcp", null))
+                : new ControlResponse(true, "ok", View));
+        }
+        public IWorkerChild Start(System.Diagnostics.ProcessStartInfo start)
+        {
+            Interlocked.Increment(ref Starts);
+            throw new InvalidOperationException("The standby fixture must not launch a worker.");
         }
     }
 }

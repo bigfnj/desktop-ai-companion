@@ -12,6 +12,10 @@
   <ItemGroup>
     <Compile Include="..\DesktopAICompanion.ModuleKit\AtomicFile.cs" Link="Shared\AtomicFile.cs" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="AgentBroker.Core.Tests" />
+    <InternalsVisibleTo Include="AgentBroker.Worker.Tests" />
+  </ItemGroup>
   <!-- Keep the shared implementation byte-for-byte. Its existing nullable-disabled semantics are
        retained by compiling a generated .g.cs copy; our handwritten sources keep nullable warnings. -->
   <Target Name="PrepareSharedAtomicFile" BeforeTargets="CoreCompile">

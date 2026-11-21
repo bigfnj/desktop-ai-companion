@@ -95,13 +95,13 @@ internal static class DiscoveryLifetimeChecks
             var transport = inbound.Transports[0];
             transport.Inject(DnsSdCodec.Query(), IPAddress.Parse("8.8.8.8"), 5353);
             transport.Inject(DnsSdCodec.Query(), IPAddress.Parse("10.10.0.9"), 9999);
-            await Until(() => transport.ReceivedCount == 2);
-            check(transport.SendCount == 2, "recovery transport still rejects nonprivate and wrong-port discovery queries");
+            await Until(() => transport.ReceiveCalls >= 3);
+            check(transport.SendCount == 2, "DISCOVERY_QUERY_POLICY: after both packets are processed, nonprivate and wrong-port discovery queries caused no reply");
             transport.Inject(DnsSdCodec.Query(), IPAddress.Parse("10.10.0.9"), 5353);
             await Until(() => transport.SendCount == 3);
             transport.Inject(DnsSdCodec.Query(), IPAddress.Parse("10.10.0.9"), 5353);
-            await Until(() => transport.ReceivedCount == 4);
-            check(transport.SendCount == 3, "valid private queries receive one announcement and retain the global one-second reply bound");
+            await Until(() => transport.ReceiveCalls >= 5);
+            check(transport.SendCount == 3, "DISCOVERY_QUERY_RATE: after the repeated query is processed, the global one-second reply bound still holds");
         }
     }
 
@@ -137,18 +137,20 @@ internal static class DiscoveryLifetimeChecks
         private readonly Channel<UdpReceiveResult> input = Channel.CreateUnbounded<UdpReceiveResult>();
         private readonly object gate = new();
         private readonly List<DnsSdCodec.Advertisement> announcements = [];
-        private int disposals, activeReceives, sendCount, receivedCount;
+        private int disposals, activeReceives, sendCount, receivedCount, receiveCalls;
         internal readonly IPAddress[] Addresses = addresses;
         internal volatile bool FailSend;
         internal int Disposals => Volatile.Read(ref disposals);
         internal int ActiveReceives => Volatile.Read(ref activeReceives);
         internal int SendCount => Volatile.Read(ref sendCount);
         internal int ReceivedCount => Volatile.Read(ref receivedCount);
+        internal int ReceiveCalls => Volatile.Read(ref receiveCalls);
         internal IReadOnlyList<DnsSdCodec.Advertisement> Announcements { get { lock (gate) return announcements.ToArray(); } }
         internal void Inject(byte[] packet, IPAddress source, int port) => input.Writer.TryWrite(new(packet, new(source, port)));
         internal void FailReceive() => input.Writer.TryComplete(new IOException("Synthetic receive failure."));
         public async ValueTask<UdpReceiveResult> ReceiveAsync(CancellationToken token)
         {
+            Interlocked.Increment(ref receiveCalls); // The next call starts only after the previous packet's policy/reply handling finished.
             Interlocked.Increment(ref activeReceives);
             try
             {

@@ -6,9 +6,34 @@ using System.Text.Json;
 
 namespace AgentBroker.Worker;
 
-/// <summary>Local administration never shares the LAN listener or its trust domain.</summary>
-public sealed class LocalControlServer(WorkerApplication worker) : IAsyncDisposable
+// Tests replace the application boundary while retaining the actual control handler and snapshot mapping.
+internal interface ILocalControlWorker
 {
+    WorkerOptions Options { get; }
+    BrokerRuntime Runtime { get; }
+    WebApplication Application { get; }
+    string LocalAccessToken { get; }
+    McpStatusView McpStatus { get; }
+    LanProfileMonitor LanProfile { get; }
+    void RequestExternalStop() => Application.Lifetime.StopApplication();
+}
+
+/// <summary>Local administration never shares the LAN listener or its trust domain.</summary>
+public sealed class LocalControlServer : IAsyncDisposable
+{
+    private readonly ILocalControlWorker worker;
+    public LocalControlServer(WorkerApplication worker) : this(new ApplicationControlWorker(worker)) { }
+    internal LocalControlServer(ILocalControlWorker worker) => this.worker = worker;
+    private sealed class ApplicationControlWorker(WorkerApplication worker) : ILocalControlWorker
+    {
+        public WorkerOptions Options => worker.Options;
+        public BrokerRuntime Runtime => worker.Runtime;
+        public WebApplication Application => worker.Application;
+        public string LocalAccessToken => worker.LocalAccessToken;
+        public McpStatusView McpStatus => worker.McpStatus;
+        public LanProfileMonitor LanProfile => worker.LanProfile;
+        public void RequestExternalStop() => worker.RequestExternalStop();
+    }
     private readonly CancellationTokenSource stop = new();
     private Task[] listeners = [];
     public void Start()
@@ -46,7 +71,7 @@ public sealed class LocalControlServer(WorkerApplication worker) : IAsyncDisposa
                 await pipe.WriteAsync(frame, deadline.Token);
                 await pipe.WriteAsync("\n"u8.ToArray(), deadline.Token);
                 await pipe.FlushAsync(deadline.Token);
-                if (shouldStop) worker.Application.Lifetime.StopApplication();
+                if (shouldStop) worker.RequestExternalStop();
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { break; }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException or OperationCanceledException)
@@ -58,6 +83,12 @@ public sealed class LocalControlServer(WorkerApplication worker) : IAsyncDisposa
         switch (request.Operation)
         {
             case "status": return new(true, "ok", Snapshot());
+            case "waiting-mail":
+                var mail = worker.Runtime.Store.ReadWaitingMail();
+                return new(true, "ok", WaitingMail: new(mail.BrokerId, mail.ObservedAtUtc, mail.NoticeAfterSeconds,
+                    mail.Sessions.Select(row => new WaitingMailSessionView(row.Session.SessionId, row.Session.Incarnation,
+                        row.PendingCount, row.QueuedCount, row.BlockedCount, row.BusyCount, row.UnobservedBlockedCount,
+                        row.OldestBusyObservedAtUtc, row.OldestBusyObservedAgeMilliseconds)).ToArray()));
             case "peer-diagnostics":
                 return new(true, "ok", PeerDiagnostics: await PeerDiagnostics.CollectAsync(worker.Runtime, token));
             case "connection":
@@ -72,10 +103,22 @@ public sealed class LocalControlServer(WorkerApplication worker) : IAsyncDisposa
                 worker.Runtime.Federation.RejectPair(request.Id); break;
             case "peer-revoke" when request.Id != Guid.Empty:
                 worker.Runtime.Federation.RevokePeer(request.Id); break;
+            // Lane F (D-9): the owner's per-broker attachment choice, for a currently paired broker and its current certificate.
+            // DECISIONS 41 (F-23): allowing a broker needs the master switch on; removing an allow never does, so the owner
+            // can withdraw one while attachments are off. A removal needs no pairing either: it only ever narrows.
+            case "peer-attachments" when request.Id != Guid.Empty:
+                if (worker.Runtime.Attachments is not { } attachments || (request.Value && !attachments.Enabled))
+                    throw new BrokerException(AttachmentCodes.Disabled, "File attachments are off.");
+                if (!request.Value) { attachments.Policy.Remove(request.Id); break; }
+                attachments.Policy.Set(worker.Runtime.Store.Peers().SingleOrDefault(peer => peer.BrokerId == request.Id)
+                    ?? throw new BrokerException("unpaired_peer", "That broker is not paired."), true);
+                break;
             case "session-private" when request.SessionId is not null:
                 worker.Runtime.SetSessionPreference(request.SessionId, request.Value, null); break;
             case "session-muted" when request.SessionId is not null:
                 worker.Runtime.SetSessionPreference(request.SessionId, null, request.Value); break;
+            case "approval-observation":
+                worker.Runtime.SetApprovalObservation(request.ApprovalPromptCount, request.ApprovalObservedAtUtc); break;
             case "stop": return new(true, "stopping");
             default: return new(false, "unknown_control_operation");
         }
@@ -106,8 +149,17 @@ public sealed class LocalControlServer(WorkerApplication worker) : IAsyncDisposa
             new Dictionary<string, string>(runtime.AdapterErrors, StringComparer.Ordinal),
             worker.Options.EnableLan ? runtime.Federation.LocalAdvertisement.CertificateSha256 : null, mcp, LanProfile(lanEndpoint),
             DroppedNotices(runtime.Store.DroppedNotices()),
-            runtime.AdapterNotes.Count == 0 ? null : new Dictionary<string, string>(runtime.AdapterNotes, StringComparer.Ordinal));
+            runtime.AdapterNotes.Count == 0 ? null : new Dictionary<string, string>(runtime.AdapterNotes, StringComparer.Ordinal),
+            runtime.Federation.ClockObservations is { Count: > 0 } clocks ? clocks.Take(32).ToArray() : null,
+            runtime.ApprovalObservationView is { } approval ? new ApprovalPromptView(approval.State, approval.VisiblePromptCount, approval.ObservedAtUtc) : null,
+            AttachmentsSnapshot(runtime));
     }
+
+    // Absent while attachments are off and leave nothing behind, so that snapshot is exactly the one before lane F.
+    private static AttachmentsView? AttachmentsSnapshot(BrokerRuntime runtime) =>
+        runtime.Attachments?.View() is { } view && (view.Enabled || view.AllowedBrokers.Length > 0 || view.InboxFiles > 0 ||
+            view.PolicyUnreadable || view.QuarantineUnavailable == true || view.PolicyUnsaved == true)
+            ? view : null;
 
     // Absent while none was dropped, so the snapshot is unchanged for a worker that has nothing to report.
     public static NoticeDropView? DroppedNotices(NoticeDrops drops) => drops.Total == 0 ? null

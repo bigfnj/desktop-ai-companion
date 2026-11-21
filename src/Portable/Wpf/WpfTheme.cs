@@ -154,19 +154,52 @@ namespace DesktopAICompanion.Wpf
                 new Setter(Control.BackgroundProperty, Surface),
                 new Setter(Control.ForegroundProperty, Text),
                 new Setter(Control.BorderBrushProperty, Border));
-            Implicit(res, typeof(CheckBox), new Setter(Control.ForegroundProperty, Text));
+            // The keyboard focus cue as well as the text (N-broker-checkbox-focus-01): see BuildDarkFocusVisual.
+            Style focusCue = BuildDarkFocusVisual();
+            ImplicitWithFocusCue(res, typeof(CheckBox), focusCue);
             // RadioButton needs exactly what CheckBox needs, and did not get it until the
             // options pane grew its first radio group: the stock foreground is near-black,
             // so every option rendered as black text on a dark card and the one control
             // whose entire job is to be read was the one that could not be. Nothing was
             // wrong with the radio; the theme simply had no opinion about it.
-            Implicit(res, typeof(RadioButton), new Setter(Control.ForegroundProperty, Text));
+            ImplicitWithFocusCue(res, typeof(RadioButton), focusCue);
             // Grouped list cards (fortune packs) use Expander section headers; without this its header
             // text/chevron keep the stock near-black foreground and vanish against the dark card.
             Implicit(res, typeof(Expander), new Setter(Control.ForegroundProperty, Text));
             Implicit(res, typeof(Separator), new Setter(Control.BackgroundProperty, Border));
             res[typeof(ScrollBar)] = BuildScrollBarStyle();   // WPF scrollbars are light by default
             res.MergedDictionaries.Add(BuildComboResources());   // dark ComboBox + readable popup, dark Button
+        }
+
+        /// <summary>
+        /// The keyboard focus cue the dark theme gives a CheckBox and a RadioButton (N-broker-checkbox-focus-01, AgentBroker
+        /// 1.10.5 marathon lane H). WPF's own cue is a 1 px dotted rectangle in SystemColors.ControlTextBrush, which is
+        /// near-black, so on the dark card it all but vanished: tabbing through Settings at 100 percent scale, the owner
+        /// found checkbox focus "VERY hard to tell" while the text boxes showed a clear blue border. This is the same
+        /// rectangle drawn in the theme's text colour, 2 px outside the control. The light theme keeps the stock cue, which
+        /// reads fine on a light card. Built per dictionary, never cached, so no Style instance is shared between windows.
+        /// </summary>
+        internal static Style BuildDarkFocusVisual()
+        {
+            var dashes = new DoubleCollection(new double[] { 1, 2 });
+            dashes.Freeze();
+            var rect = new FrameworkElementFactory(typeof(System.Windows.Shapes.Rectangle));
+            rect.SetValue(System.Windows.Shapes.Shape.StrokeProperty, Text);
+            rect.SetValue(System.Windows.Shapes.Shape.StrokeThicknessProperty, 1.0);
+            rect.SetValue(System.Windows.Shapes.Shape.StrokeDashArrayProperty, dashes);
+            rect.SetValue(FrameworkElement.MarginProperty, new Thickness(-2));
+            rect.SetValue(UIElement.SnapsToDevicePixelsProperty, true);
+            // Aliased, so the stroke lands on whole device pixels instead of being blended across a pixel boundary. The stroke
+            // is one DIP: one pixel at 96 DPI, two at 200 %. SnapsToDevicePixels snaps the layout box, not a Shape's stroke: at
+            // 96 DPI a one-DIP stroke centred on a pixel boundary was antialiased across two pixels at half strength, and the
+            // drawn cue measured 0.41 of ink on the dark card instead of the 0.82 its colour gives (--wpf-options-selftest).
+            rect.SetValue(RenderOptions.EdgeModeProperty, EdgeMode.Aliased);
+            // Sealed here rather than on first use, so the template is complete before any window or check touches it.
+            var template = new ControlTemplate { VisualTree = rect };
+            template.Seal();
+            var style = new Style();
+            style.Setters.Add(new Setter(Control.TemplateProperty, template));
+            return style;
         }
 
         // A dark ComboBox: the stock template's dropdown popup uses SystemColors (a light popup with faint
@@ -316,6 +349,24 @@ namespace DesktopAICompanion.Wpf
             style.Setters.Add(new Setter(Control.BackgroundProperty, Bg));
             style.Setters.Add(new Setter(Control.TemplateProperty, (ControlTemplate)XamlReader.Parse(xaml)));
             return style;
+        }
+
+        /// <summary>
+        /// The dark CheckBox or RadioButton style: the theme's text colour and its keyboard focus cue. The cue is set twice on
+        /// purpose (lane H round 2, H-7). A plain Setter covers a box with no content. A box WITH content gets the stock
+        /// template's own trigger, HasContent=true -> FocusVisualStyle=OptionMarkFocusVisual, and a template trigger outranks
+        /// a Style setter, so a labelled box, which is nearly every box, kept the near-black stock cue. A Style trigger
+        /// outranks a template trigger, which is why the same cue is set again by one on HasContent.
+        /// </summary>
+        private static void ImplicitWithFocusCue(ResourceDictionary res, Type target, Style focusCue)
+        {
+            var style = new Style(target);
+            style.Setters.Add(new Setter(Control.ForegroundProperty, Text));
+            style.Setters.Add(new Setter(FrameworkElement.FocusVisualStyleProperty, focusCue));
+            var labelled = new Trigger { Property = ContentControl.HasContentProperty, Value = true };
+            labelled.Setters.Add(new Setter(FrameworkElement.FocusVisualStyleProperty, focusCue));
+            style.Triggers.Add(labelled);
+            res[target] = style;
         }
 
         private static void Implicit(ResourceDictionary res, Type target, params Setter[] setters)

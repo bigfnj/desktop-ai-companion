@@ -24,6 +24,19 @@
     PDB layouts. It reads; it never writes, except New-PortablePdbTestImage, which builds a synthetic image
     in memory for the scan's own proof.
 
+    THE THIRD VECTOR, AND COUNTS ONLY (2026-11-10). A normal build also writes a SourceLink map into the
+    embedded PDB: a CustomDebugInformation row of kind CC110556-A091-4D38-9FEC-25AB9A351A6A whose JSON keys
+    on the checkout's absolute path, and which neither the Document table nor a regex over the image can see.
+    TWO DETECTORS ON PURPOSE: Get-BuildIdentityFindings reads the CustomDebugInformation ROWS (above) for the
+    build-identity scan, and the privacy summary below tests #GUID heap PRESENCE for its counts-only verdict.
+    CustomDebugInformation.Kind is an index into the #GUID heap, so such a row cannot exist unless those
+    sixteen bytes are in the heap: scanning the heap's slots is a sound test that sizes no table, and its only
+    possible error is an unreferenced slot, which over-reports and so fails closed. A WITNESS ties the heap to
+    the Document table: every Document row's Language index must land inside the heap and at least one must
+    resolve to a known language GUID, or the heap was misread and a "no SourceLink" verdict would be vacuous.
+    Get-EmbeddedPortablePdbPrivacySummary returns COUNTS (documents, absolute document names, PDBs carrying
+    SourceLink) and judges the names in here, so no name or path ever reaches a caller or its output.
+
     Deliberately 5.1-compatible: the freshness check runs inside the gate under both shells.
 #>
 
@@ -172,6 +185,11 @@ function Read-DocumentName {
 # carries in its #Pdb stream (TypeSystemTableRows) because the type system tables live in the assembly. Columns from
 # the Portable PDB specification; index widths from ECMA-335 II.24.2.6: a table index is 2 bytes below 65,536 rows, a
 # coded index 2 bytes while every table it can name stays below 2^(16 - tag bits) rows.
+# One copy of the layout, shared by the document-name reader, the CustomDebugInformation reader and the privacy facts
+# below, so they can never disagree about where a row starts. The #Pdb stream is OPTIONAL here: without it every
+# type-system count stays 0, which can only under-size LocalScope and StateMachineMethod rows, so the fit check stays a
+# valid necessary condition and Document's offset (which needs no type-system count) is exact. TypeSystemRowsKnown says
+# which, and Read-PortablePdbCustomDebugInformation refuses a PDB whose custom debug information it cannot size.
 function Read-PortablePdbLayout {
     param([Parameter(Mandatory = $true)][byte[]]$Pdb)
 
@@ -195,7 +213,7 @@ function Read-PortablePdbLayout {
         $nameField = [int]([Math]::Ceiling($nameField / 4.0) * 4)
         $at = $nameStart + $nameField
     }
-    foreach ($required in @('#~', '#Blob', '#Pdb')) {
+    foreach ($required in @('#~', '#Blob')) {
         if (-not $streams.ContainsKey($required)) { throw "the portable PDB has no $required stream" }
     }
     $tables = [int]$streams['#~'].Offset
@@ -223,17 +241,21 @@ function Read-PortablePdbLayout {
 
     # #Pdb: PdbId (20 bytes), EntryPoint (4), ReferencedTypeSystemTables (a 64-bit mask), then one row count per
     # referenced table, in table order: the assembly's own counts, for the columns that point into its tables.
-    $pdbStream = [int]$streams['#Pdb'].Offset
-    $referencedLow = [long][BitConverter]::ToUInt32($Pdb, $pdbStream + 24)
-    $referencedHigh = [long][BitConverter]::ToUInt32($Pdb, $pdbStream + 28)
+    # Optional (see above): without it every count stays 0 and TypeSystemRowsKnown is false.
     $typeSystemRows = New-Object 'long[]' 64
-    $at = $pdbStream + 32
-    for ($t = 0; $t -lt 64; $t++) {
-        if ($t -lt 32) { $present = (($referencedLow -band (1L -shl $t)) -ne 0) }
-        else { $present = (($referencedHigh -band (1L -shl ($t - 32))) -ne 0) }
-        if ($present) {
-            $typeSystemRows[$t] = [long][BitConverter]::ToUInt32($Pdb, $at)
-            $at += 4
+    $typeSystemRowsKnown = $streams.ContainsKey('#Pdb')
+    if ($typeSystemRowsKnown) {
+        $pdbStream = [int]$streams['#Pdb'].Offset
+        $referencedLow = [long][BitConverter]::ToUInt32($Pdb, $pdbStream + 24)
+        $referencedHigh = [long][BitConverter]::ToUInt32($Pdb, $pdbStream + 28)
+        $at = $pdbStream + 32
+        for ($t = 0; $t -lt 64; $t++) {
+            if ($t -lt 32) { $present = (($referencedLow -band (1L -shl $t)) -ne 0) }
+            else { $present = (($referencedHigh -band (1L -shl ($t - 32))) -ne 0) }
+            if ($present) {
+                $typeSystemRows[$t] = [long][BitConverter]::ToUInt32($Pdb, $at)
+                $at += 4
+            }
         }
     }
 
@@ -287,12 +309,22 @@ function Read-PortablePdbLayout {
         BlobIndex                 = $blobIndex
         GuidIndex                 = $guidIndex
         HasCustomDebugInformation = $hasCustomDebugInformation
+        TypeSystemRowsKnown       = $typeSystemRowsKnown
+        # The Document-only names Read-PortablePdbPrivacyFacts reads, from the same sizing. Document is the first
+        # debug table, so its rows start the table data.
+        Streams                   = $streams
+        DocumentPresent           = (($validHigh -band 0x10000) -ne 0)
+        DocumentRows              = $layoutTables[0].Rows
+        RowDataAt                 = $layoutTables[0].Offset
+        RowSize                   = $layoutTables[0].RowSize
+        BlobIndexSize             = $blobIndex
+        GuidIndexSize             = $guidIndex
     }
 }
 
-function Read-IndexColumn {
-    param([byte[]]$Data, [int]$At, [int]$Width)
-    if ($Width -eq 4) { return [int][BitConverter]::ToUInt32($Data, $At) }
+# A #Blob or #GUID heap index, or a table or coded index, of the width (2 or 4 bytes) the layout sized.
+function Read-PortablePdbHeapIndex([byte[]]$Data, [int]$At, [int]$Size) {
+    if ($Size -eq 4) { return [int][BitConverter]::ToUInt32($Data, $At) }
     return [int][BitConverter]::ToUInt16($Data, $At)
 }
 
@@ -304,7 +336,7 @@ function Read-PortablePdbDocumentNames {
     $table = $layout.Tables[0]
     $names = New-Object 'Collections.Generic.List[string]'
     for ($r = 0; $r -lt $table.Rows; $r++) {
-        $nameIndex = Read-IndexColumn $Pdb ($table.Offset + $r * $table.RowSize) $layout.BlobIndex
+        $nameIndex = Read-PortablePdbHeapIndex $Pdb ($table.Offset + $r * $table.RowSize) $layout.BlobIndex
         $names.Add((Read-DocumentName $Pdb $layout.BlobHeap $nameIndex))
     }
     # Enumerated on output; the caller wraps the call in @(). See Read-PeDebugDirectoryEntries.
@@ -322,13 +354,18 @@ function Read-PortablePdbCustomDebugInformation {
 
     $layout = Read-PortablePdbLayout -Pdb $Pdb
     $table = $layout.Tables[7]
+    # Fails closed: without #Pdb the MethodDef count and the type-system row counts are unknown, so the rows ahead of
+    # this table and its parent index cannot be sized (the layout reads them as 0). Real PDBs always carry #Pdb.
+    if ($table.Rows -gt 0 -and -not $layout.TypeSystemRowsKnown) {
+        throw 'the portable PDB has custom debug information but no #Pdb stream, so its rows and parent index cannot be sized'
+    }
     if ($table.Rows -gt 0 -and $layout.GuidHeap -lt 0) { throw 'the portable PDB has custom debug information but no #GUID stream' }
     $records = New-Object 'Collections.Generic.List[object]'
     for ($r = 0; $r -lt $table.Rows; $r++) {
         $row = $table.Offset + $r * $table.RowSize
-        $parent = Read-IndexColumn $Pdb $row $layout.HasCustomDebugInformation
-        $kindIndex = Read-IndexColumn $Pdb ($row + $layout.HasCustomDebugInformation) $layout.GuidIndex
-        $valueIndex = Read-IndexColumn $Pdb ($row + $layout.HasCustomDebugInformation + $layout.GuidIndex) $layout.BlobIndex
+        $parent = Read-PortablePdbHeapIndex $Pdb $row $layout.HasCustomDebugInformation
+        $kindIndex = Read-PortablePdbHeapIndex $Pdb ($row + $layout.HasCustomDebugInformation) $layout.GuidIndex
+        $valueIndex = Read-PortablePdbHeapIndex $Pdb ($row + $layout.HasCustomDebugInformation + $layout.GuidIndex) $layout.BlobIndex
         $kind = [Guid]::Empty
         if ($kindIndex -gt 0) {
             $guidBytes = New-Object byte[] 16
@@ -344,6 +381,117 @@ function Read-PortablePdbCustomDebugInformation {
     }
     # Enumerated on output; the caller wraps the call in @(). See Read-PeDebugDirectoryEntries.
     return $records.ToArray()
+}
+
+# A drive-rooted (C:\ or C:/), drive-relative (C:x) or UNC (two leading slashes of either kind) document
+# name. Mapped names are rooted at /_/ (the SourceLink convention) and carry no drive. Widened on 2026-11-10
+# from the freshness script's ^(?:[A-Za-z]:[\\/]|\\\\), which let a forward-slash UNC name and a bare drive
+# prefix through. A Unix-rooted name (/home/...) is NOT matched: this repo's builds run on Windows, and
+# refusing every name not under /_/ is the stricter optional rule recorded in the proposal.
+function Test-AbsoluteDocumentName([string]$Name) {
+    return [regex]::IsMatch($Name, '^(?:[A-Za-z]:|[\\/]{2})')
+}
+
+function Test-PortablePdbGuidAt([byte[]]$Data, [int]$At, [byte[]]$Guid) {
+    for ($i = 0; $i -lt 16; $i++) {
+        if ($Data[$At + $i] -ne $Guid[$i]) { return $false }
+    }
+    return $true
+}
+
+# Counts only. The names are judged here and never returned, so no caller can print one.
+function Read-PortablePdbPrivacyFacts {
+    param([Parameter(Mandatory = $true)][byte[]]$Pdb)
+
+    $layout = Read-PortablePdbLayout -Pdb $Pdb
+    if (-not $layout.DocumentPresent) {
+        return [pscustomobject]@{ DocumentCount = 0; AbsoluteDocumentCount = 0; SourceLinkGuidCount = 0; EmbeddedSourceGuidCount = 0; KnownLanguageDocumentCount = 0 }
+    }
+    if (-not $layout.Streams.ContainsKey('#GUID')) {
+        throw 'the portable PDB has no #GUID stream, so its Document languages and any SourceLink kind cannot be read'
+    }
+    $guidHeap = [int]$layout.Streams['#GUID'].Offset
+    $guidSize = [int]$layout.Streams['#GUID'].Size
+    if ($guidSize -lt 16 -or ($guidSize % 16) -ne 0 -or ($guidHeap + $guidSize) -gt $Pdb.Length) {
+        throw "the portable PDB #GUID heap ($guidSize bytes) is not a whole number of 16-byte GUIDs inside the blob"
+    }
+    $slots = [int]($guidSize / 16)
+    # [Guid]::ToByteArray is the on-disk order the #GUID heap uses.
+    $sourceLinkKind = ([Guid]'CC110556-A091-4D38-9FEC-25AB9A351A6A').ToByteArray()
+    # Same embedded-source kind as AgentBrokerReleasePayloadMetadata.CheckModuleKitSymbols.
+    $embeddedSourceKind = ([Guid]'0E8A571B-6926-466E-B4AD-8AB04611F5FE').ToByteArray()
+    # Document.Language values from the Portable PDB specification: C#, Visual Basic, F#.
+    $knownLanguages = @(
+        ([Guid]'3F5162F8-07C6-11D3-9053-00C04FA302A1').ToByteArray(),
+        ([Guid]'3A12D0B8-C26C-11D0-B442-00A0244A1DD2').ToByteArray(),
+        ([Guid]'AB4F38C9-B6E6-43BA-BE3B-58080B2CCCE3').ToByteArray())
+    $sourceLinkSlots = 0
+    $embeddedSourceSlots = 0
+    for ($s = 0; $s -lt $slots; $s++) {
+        if (Test-PortablePdbGuidAt $Pdb ($guidHeap + 16 * $s) $sourceLinkKind) { $sourceLinkSlots++ }
+        if (Test-PortablePdbGuidAt $Pdb ($guidHeap + 16 * $s) $embeddedSourceKind) { $embeddedSourceSlots++ }
+    }
+    $blobHeap = [int]$layout.Streams['#Blob'].Offset
+    # Language is the fourth column: Name (blob), HashAlgorithm (guid), Hash (blob), Language (guid).
+    $languageAt = 2 * $layout.BlobIndexSize + $layout.GuidIndexSize
+    $absolute = 0
+    $knownLanguage = 0
+    for ($r = 0; $r -lt $layout.DocumentRows; $r++) {
+        $row = $layout.RowDataAt + $r * $layout.RowSize
+        $name = Read-DocumentName $Pdb $blobHeap (Read-PortablePdbHeapIndex $Pdb $row $layout.BlobIndexSize)
+        if (Test-AbsoluteDocumentName $name) { $absolute++ }
+        $language = Read-PortablePdbHeapIndex $Pdb ($row + $languageAt) $layout.GuidIndexSize
+        if ($language -lt 1 -or $language -gt $slots) {
+            throw "a Document row's Language index $language lies outside the $slots-entry #GUID heap, so the Document table or the heap was misread"
+        }
+        foreach ($known in $knownLanguages) {
+            if (Test-PortablePdbGuidAt $Pdb ($guidHeap + 16 * ($language - 1)) $known) { $knownLanguage++; break }
+        }
+    }
+    if ($layout.DocumentRows -gt 0 -and $knownLanguage -eq 0) {
+        throw ('WITNESS failed: no Document row of the embedded portable PDB resolves to a known language GUID, so the ' +
+               '#GUID heap was misread and its SourceLink verdict would be vacuous.')
+    }
+    return [pscustomobject]@{
+        DocumentCount              = $layout.DocumentRows
+        AbsoluteDocumentCount      = $absolute
+        SourceLinkGuidCount        = $sourceLinkSlots
+        EmbeddedSourceGuidCount    = $embeddedSourceSlots
+        KnownLanguageDocumentCount = $knownLanguage
+    }
+}
+
+<#
+.SYNOPSIS
+    Every source document name recorded in the assembly's embedded portable PDB(s), and how many such
+    PDBs the image carries.
+
+.DESCRIPTION
+    An image with no EmbeddedPortablePdb debug entry (DebugType none, or a separate .pdb) yields
+    EmbeddedPdbCount 0 and no names, which is a fact about the image and not a failure. An embedded PDB
+    that yields ZERO documents is refused: a compiled assembly always has at least one source file, so
+    zero means this reader lost the Document table, and scoring that as "no build paths" would be the
+    check-cannot-fail shape the scan exists to close.
+#>
+function Get-EmbeddedPortablePdbDocumentNames {
+    param([Parameter(Mandatory = $true)][byte[]]$Image)
+
+    $entries = @(Read-PeDebugDirectoryEntries -Image $Image)
+    $embedded = @($entries | Where-Object { $_.Type -eq 17 })
+    $names = New-Object 'Collections.Generic.List[string]'
+    foreach ($entry in $embedded) {
+        $pdb = Expand-EmbeddedPortablePdb -Image $Image -Entry $entry
+        $documents = @(Read-PortablePdbDocumentNames -Pdb $pdb)
+        if ($documents.Count -eq 0) {
+            throw ('an embedded portable PDB parsed to ZERO documents. A compiled assembly has source files, so ' +
+                   'the Document table was lost by this reader; refusing to score the assembly as free of build paths.')
+        }
+        foreach ($document in $documents) { $names.Add($document) }
+    }
+    return [pscustomobject]@{
+        EmbeddedPdbCount = $embedded.Count
+        DocumentNames    = @($names.ToArray())
+    }
 }
 
 <#
@@ -565,6 +713,16 @@ function New-PortablePdbTestImage {
         $guids.Write($guidBytes, 0, 16)
         $recordRows += , @([int]($guids.Length / 16), (& $addBlob ([Text.Encoding]::UTF8.GetBytes([string]$record.Text))))
     }
+    # A REAL LANGUAGE in every Document row: the C# GUID of the Portable PDB specification, appended AFTER the record
+    # kinds so no record row's GUID index moves. Read-PortablePdbPrivacyFacts refuses a Language index outside the heap
+    # and a PDB whose documents name no known language, so the 0 written here before left every image this builds
+    # unreadable to the freshness check's privacy verdict (step 11 merge, R-5). No document, no GUID: the heap is unchanged.
+    $languageIndex = 0
+    if ($documentIndexes.Count -gt 0) {
+        $languageGuid = ([Guid]'3F5162F8-07C6-11D3-9053-00C04FA302A1').ToByteArray()
+        $guids.Write($languageGuid, 0, 16)
+        $languageIndex = [int]($guids.Length / 16)
+    }
     while (($blob.Length % 4) -ne 0) { $blob.WriteByte(0) }
 
     # #~: Document (0x30) and CustomDebugInformation (0x37), 2-byte indexes throughout.
@@ -572,7 +730,7 @@ function New-PortablePdbTestImage {
     $tilde.Write([uint32]0); $tilde.Write([byte]2); $tilde.Write([byte]0); $tilde.Write([byte]0); $tilde.Write([byte]1)
     $tilde.Write([uint32]0); $tilde.Write([uint32]0x00810000); $tilde.Write([uint64]0)
     $tilde.Write([uint32]$documentIndexes.Count); $tilde.Write([uint32]$recordRows.Count)
-    foreach ($index in $documentIndexes) { $tilde.Write([uint16]$index); $tilde.Write([uint16]0); $tilde.Write([uint16]0); $tilde.Write([uint16]0) }
+    foreach ($index in $documentIndexes) { $tilde.Write([uint16]$index); $tilde.Write([uint16]0); $tilde.Write([uint16]0); $tilde.Write([uint16]$languageIndex) }
     foreach ($row in $recordRows) { $tilde.Write([uint16]((1 -shl 5) -bor 7)); $tilde.Write([uint16]$row[0]); $tilde.Write([uint16]$row[1]) }
     while (($tilde.BaseStream.Length % 4) -ne 0) { $tilde.Write([byte]0) }
     $pdbStream = New-Object byte[] 32
@@ -706,4 +864,47 @@ function Test-BuildIdentityScan {
         $results.Add([pscustomobject]@{ Name = $leg[0]; Passed = $passed; Detail = $detail })
     }
     return $results.ToArray()
+}
+
+<#
+.SYNOPSIS
+    The privacy verdict inputs for one assembly image, as COUNTS: embedded PDBs, their documents, how many
+    document names are absolute, and how many embedded PDBs carry SourceLink or EmbeddedSource kind GUIDs.
+
+.DESCRIPTION
+    The same refusals as Get-EmbeddedPortablePdbDocumentNames (an embedded PDB with ZERO documents means the
+    reader lost the Document table), plus the #GUID-heap witness in Read-PortablePdbPrivacyFacts. No name,
+    path or SourceLink content is returned or decoded: a SourceLink record is detected by its kind GUID
+    alone, and its JSON blob is never read. EmbeddedSource uses the same heap-presence test. Each PDB counts
+    at most once per kind, including an unreferenced kind slot, which over-reports and fails closed. Neither
+    count claims to enumerate CustomDebugInformation records or decode embedded source content.
+#>
+function Get-EmbeddedPortablePdbPrivacySummary {
+    param([Parameter(Mandatory = $true)][byte[]]$Image)
+
+    $entries = @(Read-PeDebugDirectoryEntries -Image $Image)
+    $embedded = @($entries | Where-Object { $_.Type -eq 17 })
+    $documentCount = 0
+    $absoluteCount = 0
+    $sourceLinkPdbs = 0
+    $embeddedSourcePdbs = 0
+    foreach ($entry in $embedded) {
+        $pdb = Expand-EmbeddedPortablePdb -Image $Image -Entry $entry
+        $facts = Read-PortablePdbPrivacyFacts -Pdb $pdb
+        if ($facts.DocumentCount -eq 0) {
+            throw ('an embedded portable PDB parsed to ZERO documents. A compiled assembly has source files, so ' +
+                   'the Document table was lost by this reader; refusing to score the assembly as free of build paths.')
+        }
+        $documentCount += $facts.DocumentCount
+        $absoluteCount += $facts.AbsoluteDocumentCount
+        if ($facts.SourceLinkGuidCount -gt 0) { $sourceLinkPdbs++ }
+        if ($facts.EmbeddedSourceGuidCount -gt 0) { $embeddedSourcePdbs++ }
+    }
+    return [pscustomobject]@{
+        EmbeddedPdbCount      = $embedded.Count
+        DocumentCount         = $documentCount
+        AbsoluteDocumentCount = $absoluteCount
+        SourceLinkPdbCount    = $sourceLinkPdbs
+        EmbeddedSourcePdbCount = $embeddedSourcePdbs
+    }
 }

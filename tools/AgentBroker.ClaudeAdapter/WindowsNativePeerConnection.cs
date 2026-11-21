@@ -46,12 +46,13 @@ public sealed class WindowsNativePeerConnectionFactory : INativePeerConnectionFa
         catch { pipe.Dispose(); throw; }
     }
 
-    private static async Task<INativePipeLease> ConnectWindowsAsync(string pipeName, CancellationToken cancellation)
+    internal static async Task<INativePipeLease> ConnectWindowsAsync(string pipeName, CancellationToken cancellation)
     {
         if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException();
         // .NET CurrentUserOnly compares pipe owner to the token's default Owner, which can differ
         // from its User SID. Validate actual connected server identity and pipe User ownership below.
-        var pipe = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+        var pipe = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous,
+            TokenImpersonationLevel.Identification);
         try
         {
             await pipe.ConnectAsync(5000, cancellation).ConfigureAwait(false);

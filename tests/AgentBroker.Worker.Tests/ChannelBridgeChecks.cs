@@ -24,7 +24,8 @@ internal static class ChannelBridgeChecks
         check(McpChannelBridge.NegotiateProtocol("2025-06-18") == "2025-06-18",
             "WITNESS the channel bridge echoes a supported older MCP revision");
 
-        string scratch = Path.Combine(AppContext.BaseDirectory, "scratch", "channel-" + Guid.NewGuid().ToString("N"));
+        using var scratchOwner = OwnedScratch.Create("channel");
+        string scratch = scratchOwner.Root;
         Guid brokerId;
         using (var seed = new BrokerStore(Path.Combine(scratch, "store"))) brokerId = seed.BrokerId;
         string keyName = AgentBroker.Worker.Security.BrokerIdentity.KeyNameFor(scratch, brokerId);
@@ -50,12 +51,39 @@ internal static class ChannelBridgeChecks
                 "the channel bridge declares the claude/channel capability and tools");
             check(!experimental.TryGetProperty("claude/channel/permission", out _),
                 "the channel bridge never declares claude/channel/permission, so no peer can answer tool-approval prompts");
-            check(result.GetProperty("instructions").GetString() == McpChannelBridge.Instructions &&
-                McpChannelBridge.Instructions.Length <= BrokerInstructions.MaximumLength,
-                "the channel instructions card is in the initialize result and within the card bound");
-            var tools = (await client.RequestAsync("tools/list", new { })).GetProperty("result").GetProperty("tools").EnumerateArray()
+            string? channelInstructions = result.GetProperty("instructions").GetString();
+            check(channelInstructions is not null && channelInstructions == McpChannelBridge.Instructions &&
+                McpChannelBridge.MaximumInstructionsLength == 1800 && channelInstructions.Length <= McpChannelBridge.MaximumInstructionsLength,
+                "CARD_CHANNEL_BOUND: initialize carries the actual channel instructions within their separate 1800-character bound");
+            check(channelInstructions is not null &&
+                channelInstructions.Contains("After 5 minutes of fresh observed Busy, local senders may get an advisory, not a failure.", StringComparison.Ordinal) &&
+                channelInstructions.Contains("Observations reset on worker restart; waits metadata is local-only.", StringComparison.Ordinal),
+                "CARD_CHANNEL_WAITING_ADVISORY: actual initialize describes fresh observed Busy timing, an advisory rather than failure, restart reset and local-only waits metadata");
+            var listedTools = (await client.RequestAsync("tools/list", new { })).GetProperty("result").GetProperty("tools").EnumerateArray().ToArray();
+            var tools = listedTools
                 .Select(tool => tool.GetProperty("name").GetString()).Order(StringComparer.Ordinal).ToArray();
             check(tools.SequenceEqual(new[] { "acknowledge", "reply" }), "the channel bridge publishes exactly its acknowledge and reply tools");
+            string replyDescription = listedTools.Single(tool => tool.GetProperty("name").GetString() == "reply").GetProperty("description").GetString() ?? "";
+            string acknowledgeDescription = listedTools.Single(tool => tool.GetProperty("name").GetString() == "acknowledge").GetProperty("description").GetString() ?? "";
+            check(channelInstructions is not null && channelInstructions.Contains("A push or inbox read does not acknowledge") &&
+                channelInstructions.Contains("Retain content before acknowledging or replying") &&
+                channelInstructions.Contains("unexpired Accepted, Submitting, Submitted or Uncertain parent only when both peers are local and the recipient row has Receive") &&
+                channelInstructions.Contains("Delivered/reply_receipt removes its text atomically with the reply") &&
+                channelInstructions.Contains("acknowledge Held before replying, then Delivered when done") &&
+                channelInstructions.Contains("If not replying or the reply is ineligible, acknowledge Delivered") &&
+                replyDescription.Contains("unexpired Accepted, Submitting, Submitted or Uncertain parent only when both peers are local and the recipient row has Receive") &&
+                replyDescription.Contains("Delivered/reply_receipt removes its text atomically with the reply") &&
+                replyDescription.Contains("Otherwise acknowledge Delivered explicitly") &&
+                acknowledgeDescription.Contains("acknowledge Held before replying to keep it, then Delivered when done"),
+                "CARD_CHANNEL_REPLY_RECEIPT_GUIDANCE: actual initialize and tool descriptions explain conditional text removal, retention and Held completion");
+            const string heldDeadline = "Held does not extend the original deadline; mark Delivered before it expires.";
+            check(channelInstructions is not null && channelInstructions.Contains(heldDeadline) &&
+                replyDescription.Contains(heldDeadline) && acknowledgeDescription.Contains(heldDeadline),
+                "CARD_CHANNEL_HELD_DEADLINE: actual initialize and tool descriptions require Delivered before the original Held deadline");
+            check(channelInstructions is not null && channelInstructions.Contains("acknowledge Delivered when permitted") &&
+                replyDescription.Contains("Otherwise acknowledge Delivered explicitly when permitted") &&
+                acknowledgeDescription.Contains("Record Delivered, Held or Refused when permitted"),
+                "CARD_CHANNEL_ACK_PERMISSION: fallback acknowledgement is conditional in actual initialize and tool descriptions");
             check(store.Directory().All(session => session.Label != "Synthetic channel"),
                 "WITNESS the channel inbox is not registered before initialization completes");
 
@@ -83,7 +111,7 @@ internal static class ChannelBridgeChecks
             await Task.Delay(2500);
             check(await client.NextNotificationAsync(TimeSpan.Zero) is null, "an unacknowledged message is pushed once, not again on every wait");
             check(store.FindReceipt(first)?.Status == MessageStatus.Accepted,
-                "a channel push is not Delivered: the receipt stays Accepted until the session acknowledges it");
+                "a channel push alone does not settle its pending receipt");
 
             var acknowledged = await client.CallToolAsync("acknowledge", new { message_id = first.ToString("D"), outcome = "Delivered" });
             check(!acknowledged.IsError && store.FindReceipt(first) is { Status: MessageStatus.Delivered, Reason: "recipient_receipt" },

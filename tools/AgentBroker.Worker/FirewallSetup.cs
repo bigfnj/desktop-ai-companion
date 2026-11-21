@@ -115,7 +115,7 @@ public static class FirewallSetup
     // conflict even when a block has additional address/interface restrictions we do not evaluate.
     public static bool CouldBlock(FirewallRuleState rule, FirewallRuleState desired) =>
         rule.Enabled && rule.Action == 0 && rule.Direction == 1 && (rule.Profiles & 2) != 0 &&
-        rule.Protocol is 6 or 256 && SamePath(rule.ApplicationName, desired.ApplicationName) &&
+        rule.Protocol is 6 or 256 && (string.IsNullOrWhiteSpace(rule.ApplicationName) || SamePath(rule.ApplicationName, desired.ApplicationName)) &&
         (rule.Protocol == 256 || PortMayInclude(rule.LocalPorts, int.Parse(desired.LocalPorts!, CultureInfo.InvariantCulture)));
 
     private static bool PortMayInclude(string? ports, int requested)
@@ -170,17 +170,26 @@ internal sealed class WindowsFirewallPolicyBackend : IFirewallPolicyBackend, IDi
         {
             try
             {
-                dynamic rule = item;
-                int protocol = (int)rule.Protocol;
-                if (!(bool)rule.Enabled || (int)rule.Action != 0 || (int)rule.Direction != 1 ||
-                    ((int)rule.Profiles & 2) == 0 || protocol is not (6 or 256)) continue;
-                var candidate = desired with { ApplicationName = (string?)rule.ApplicationName ?? "", Protocol = protocol,
-                    LocalPorts = protocol == 6 ? (string?)rule.LocalPorts : null, Action = 0, Profiles = (int)rule.Profiles };
+                var candidate = ReadPotentialBlock(item, desired);
                 if (FirewallSetup.CouldBlock(candidate, desired)) return true;
             }
             finally { Release(item); }
         }
         return false;
+    }
+
+    // The COM backend and deterministic checks use this same projection and the same policy predicate.
+    internal static FirewallRuleState ReadPotentialBlock(object native, FirewallRuleState desired)
+    {
+        dynamic rule = native;
+        int protocol = (int)rule.Protocol;
+        return desired with
+        {
+            ApplicationName = (string?)rule.ApplicationName ?? "", Protocol = protocol,
+            LocalPorts = protocol == 6 ? (string?)rule.LocalPorts : null,
+            Enabled = (bool)rule.Enabled, Action = (int)rule.Action,
+            Direction = (int)rule.Direction, Profiles = (int)rule.Profiles
+        };
     }
 
     public IReadOnlyList<FirewallRuleState> FindRules(string name)

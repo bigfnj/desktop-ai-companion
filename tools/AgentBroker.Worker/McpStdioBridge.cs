@@ -158,6 +158,12 @@ public static class McpStdioBridge
         if (body.Length != 0) throw new InvalidDataException("Incomplete MCP stdio frame.");
         return null;
     }
+    // A request FILE may begin with one UTF-8 signature (EF BB BF): Windows PowerShell 5.1 writes one with -Encoding UTF8.
+    // It is an encoding mark, not JSON text, so the client readers drop exactly one before parsing. Wire bodies keep the
+    // strict rule and never pass through here.
+    internal static ReadOnlyMemory<byte> WithoutUtf8Signature(byte[] bytes) =>
+        bytes.AsSpan().StartsWith((ReadOnlySpan<byte>)[0xEF, 0xBB, 0xBF]) ? bytes.AsMemory(3) : bytes;
+
     internal static async Task<byte[]> ReadBoundedAsync(Stream input, int maximum, CancellationToken token)
     {
         using var result = new MemoryStream(); byte[] buffer = new byte[8192]; int read;

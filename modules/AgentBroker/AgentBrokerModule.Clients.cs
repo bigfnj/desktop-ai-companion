@@ -15,13 +15,29 @@ public sealed partial class AgentBrokerModule
     private ClientInspection? claudeInspection, codexInspection;
     private bool clientCheckOpen;
     private readonly Dictionary<string, string> clientSetupResults = new(StringComparer.Ordinal);
+    // Post-push audit U5: client verdicts are matched against the live worker's endpoint, so ApplyStatus drops them (and bumps
+    // clientEpoch, which an in-flight check compares) when that endpoint or this companion's worker ownership changes.
+    private string? verdictEndpoint;
+    private int clientEpoch;
+    // ConfigurationInvoked false: the outcome is final as written (the module stopped before the helper, or the helper stopped
+    // itself on a connection change), so ConnectAndCheckAsync adds no obsolete-operation suffix and runs no follow-up check.
+    private sealed record ClientSetupOutcome(string Text, bool ConfigurationInvoked);
+    private const string ClientSetupCancelledBeforeCommand =
+        "Client setup was cancelled because the broker connection changed before a client command started. " +
+        "When AgentBroker is running, choose Check client setup before retrying.";
 
     private static string ClientName(string client) => client == "claude" ? "Claude Code" : "Codex";
     private ClientInspection? Inspection(string client) => client == "claude" ? claudeInspection : codexInspection;
     private static string WorkerExecutable() =>
         Path.Combine(Path.GetDirectoryName(typeof(AgentBrokerModule).Assembly.Location)!, "worker", "AgentBroker.Worker.exe");
-    private string LoopbackMcpEndpoint() =>
-        "http://127.0.0.1:" + settings.LoopbackPort.ToString(CultureInfo.InvariantCulture) + "/mcp";
+    private static string? SnapshotMcpEndpoint(BrokerSnapshot? view)
+    {
+        if (view?.LoopbackEndpoint is not { } endpoint) return null;
+        string candidate = endpoint + "/mcp";
+        return AgentClientSetup.IsCanonicalLoopbackEndpoint(candidate) ? candidate : null;
+    }
+    private static string? UsableClientHttpEndpoint(ControlResponse? connection) =>
+        AgentClientSetup.HasVerifiedConnection(connection) ? AgentClientSetup.EndpointFromConnection(connection) : null;
 
     /// <summary>On demand only (the pane action, the tray item, after a Connect action). The status poll
     /// never launches a vendor CLI: a check spawns the client's CLI, and Claude's get also runs its own
@@ -32,15 +48,20 @@ public sealed partial class AgentBrokerModule
             return "Enable AgentBroker before checking client setup.";
         if (clientCheckOpen) return "A client setup check is already running.";
         clientCheckOpen = true;
-        int current = generation;
+        int current = generation, epoch = clientEpoch;
         CancellationToken token = run.Token;
-        string directory = dataDirectory, worker = WorkerExecutable(), endpoint = LoopbackMcpEndpoint();
+        string directory = dataDirectory, worker = WorkerExecutable();
         try
         {
+            ControlResponse? connection = await SendAsync(new("connection"));
+            if (shutDown || generation != current || clientEpoch != epoch || token.IsCancellationRequested)
+                return "The client setup check was cancelled because the broker connection changed.";
+            string endpoint = UsableClientHttpEndpoint(connection) ?? "";
             foreach (string client in only is null ? new[] { "claude", "codex" } : new[] { only })
             {
-                ClientInspection inspection = await ClientSetup.InspectAsync(client, worker, directory, endpoint, McpNow(), token);
-                if (shutDown || generation != current || token.IsCancellationRequested)
+                ClientInspection inspection = await ClientSetup.InspectAsync(client, worker, directory, endpoint, McpNow(), token,
+                    httpConnectionVerified: AgentClientSetup.HasVerifiedConnection(connection));
+                if (shutDown || generation != current || clientEpoch != epoch || token.IsCancellationRequested)
                     return "The client setup check was cancelled because the broker connection changed.";
                 if (client == "claude") claudeInspection = inspection; else codexInspection = inspection;
                 NotifyInfoChanged();
@@ -54,12 +75,37 @@ public sealed partial class AgentBrokerModule
 
     private async Task<string> ConnectAndCheckAsync(string client)
     {
-        string result = await ConfigureClientAsync(client);
-        if (!shutDown && settings.Enabled && run is not null && !run.IsCancellationRequested) await CheckClientSetupAsync(client);
-        clientSetupResults[client] = result;
+        if (shutDown || !settings.Enabled || dataDirectory is null || run is null)
+            return "Enable AgentBroker before connecting a client.";
+        int current = generation, epoch = clientEpoch;
+        CancellationToken token = run.Token;
+        ClientSetupOutcome result = await ConfigureClientAsync(client);
+        // The module can finish before entering client setup, including cancellation during the control probe, and the helper
+        // can stop itself before an add when the connection changes. That outcome already describes the action; do not
+        // append an obsolete-vendor-operation suffix.
+        if (!result.ConfigurationInvoked)
+        {
+            if (!shutDown && generation == current && clientEpoch == epoch && !token.IsCancellationRequested)
+            {
+                clientSetupResults[client] = result.Text;
+                NotifyInfoChanged();
+            }
+            return result.Text;
+        }
+        if (shutDown || generation != current || clientEpoch != epoch || token.IsCancellationRequested)
+            return ObsoleteSetupResult(result.Text);
+        await CheckClientSetupAsync(client);
+        if (shutDown || generation != current || clientEpoch != epoch || token.IsCancellationRequested)
+            return ObsoleteSetupResult(result.Text);
+        clientSetupResults[client] = result.Text;
         NotifyInfoChanged();
-        return result;
+        return result.Text;
     }
+
+    // ConfigureAsync returns application-owned guidance, never raw vendor diagnostics. Its completed or uncertain
+    // outcome still matters when a restart prevents publishing it into the new connection's cached status.
+    private static string ObsoleteSetupResult(string result) => result +
+        " The broker connection changed while this action was running. When AgentBroker is running, choose Check client setup before retrying.";
 
     private string ClientHeadline(string client)
     {
@@ -71,7 +117,8 @@ public sealed partial class AgentBrokerModule
             ClientConfiguration.CliMissing => "CLI not found.",
             ClientConfiguration.PolicyBlocked => "blocked by managed policy.",
             ClientConfiguration.Absent => "not configured.",
-            ClientConfiguration.DifferentEntry => "an entry with AgentBroker's name points elsewhere.",
+            ClientConfiguration.DifferentEntry => "an entry with AgentBroker's name needs review.",
+            ClientConfiguration.ConnectionUnverified => "HTTP entry not verified; the broker connection is unavailable.",
             ClientConfiguration.Disabled => "configured but disabled.",
             ClientConfiguration.Unrecognized => "configuration not recognized (unsupported CLI output).",
             ClientConfiguration.Configured => InboxCounts(client).Attributed > 0
@@ -81,84 +128,166 @@ public sealed partial class AgentBrokerModule
         };
     }
 
+    // PANE-TEXT (1.10.5): one state per line of evidence. Token names the state in the pane's summary line; Action is a short
+    // pane-only next step for a warning whose tray line has no room for one. A plain string converts to a state with no
+    // token, which notes, the engine report and the last setup result use.
+    private readonly record struct ClientState(string? Token, string Line, string? Action = null, bool NoAction = false)
+    {
+        internal bool Ok => Line.StartsWith('\u2713');
+        internal bool NeedsAttention => !NoAction && (Token is not null ? !Ok :
+            Line.StartsWith('\u26A0') || Line.StartsWith('\u2717'));
+        public static implicit operator ClientState(string line) => new(null, line);
+    }
+
+    // The pane's compact form: one summary line that starts with the client's name, its headline and a glyph per state, then
+    // one line for each state that is not ok, with its action. A healthy client is a single line unless it has supplementary
+    // notes or a stored setup result (review FU-3). The tray keeps one item per state (ClientStateLines), so the full
+    // sentence for each state stays one click away.
     private string ClientDisplay(string client)
     {
-        var lines = new List<string> { ClientName(client) + ": " + ClientHeadline(client) };
-        lines.AddRange(ClientStateLines(client));
+        var states = ClientStates(client).ToList();
+        string tokens = string.Join(" \u00B7 ", states.Where(state => state.Token is not null).Select(state => state.Line[..1] + " " + state.Token));
+        var lines = new List<string> { ClientName(client) + ": " + ClientHeadline(client) + (tokens.Length == 0 ? "" : " " + tokens) };
+        lines.AddRange(states.Where(state => !state.Ok).Select(state => state.Action is null ? state.Line : state.Line + " " + state.Action));
         return string.Join("\n", lines);
     }
 
-    private IEnumerable<string> ClientStateLines(string client, bool wrapTrayNotes = false)
+    private bool ClientsAreHealthy()
+    {
+        if (snapshot is null || snapshot.AdapterErrors.Count != 0 ||
+            ClientNotes().Any(note => note.Adapter is not ("claude-native" or "codex-native"))) return false;
+        return new[] { "claude", "codex" }.All(client => !ClientNeedsAttention(client));
+    }
+
+    private bool ClientNeedsAttention(string client)
+    {
+        ClientState[] states = ClientStates(client).ToArray();
+        string adapter = client == "claude" ? "claude-native" : "codex-native";
+        // The pane bounds note rendering. A truncated list remains attention even when its visible notes need no action.
+        return !states.Any(state => state.Token is not null) || states.Any(state => state.NeedsAttention) ||
+            ClientNotes().Count(note => note.Adapter == adapter) > 8;
+    }
+
+    private IEnumerable<(string Adapter, string Text)> ClientNotes()
+    {
+        if (snapshot?.AdapterNotes is not { } notes) yield break;
+        foreach (var pair in notes)
+        {
+            string[] parts = pair.Value.Split(ControlProtocol.NoteSeparator, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 0) yield return (pair.Key, "");
+            foreach (string text in parts) yield return (pair.Key, text);
+        }
+    }
+
+    // Codes are compared before StripCode or display truncation. Unrecognized codes need attention.
+    private static bool IsNoActionClientNote(string adapter, string note)
+    {
+        int separator = note.IndexOf(": ", StringComparison.Ordinal);
+        string code = separator < 0 ? "" : note[..separator];
+        return (adapter == "claude-native" && code == "claude_update_tolerant_delivery") ||
+            (adapter == "codex-native" && code == "codex_update_tolerant_delivery");
+    }
+
+    private string ClientsSummaryText()
+    {
+        string[] clients = ["claude", "codex"];
+        int ok = clients.Count(client => !ClientNeedsAttention(client));
+        int notes = ClientNotes().Count();
+        int off = (!settings.ClaudeDiscovery || !settings.ClaudePeerCredentials ? 1 : 0) +
+            (!settings.CodexDiscovery || !settings.CodexPeerMessages ? 1 : 0);
+        return Count(ok) + " OK, " + Count(notes) + (notes == 1 ? " note" : " notes") +
+            (off == 0 ? "" : ", " + Count(off) + " off");
+    }
+
+    private IEnumerable<string> ClientStateLines(string client, bool wrapTrayNotes = false) =>
+        ClientStates(client, wrapTrayNotes).Select(state => state.Line);
+
+    private IEnumerable<ClientState> ClientStates(string client, bool wrapTrayNotes = false)
     {
         string name = ClientName(client);
         // Broker running.
-        if (!settings.Enabled) { yield return "\u2717 Broker: disabled. Enable AgentBroker first."; yield break; }
-        yield return snapshot is null ? "\u2717 Broker: not running (" + Safe(status, 80) + ")."
-            : ownsWorker ? "\u2713 Broker: running." : "\u2713 Broker: running in another companion; this one is on standby.";
+        if (!settings.Enabled) { yield return new ClientState("broker", "\u2717 Broker: disabled. Enable AgentBroker first."); yield break; }
+        yield return new ClientState("broker", snapshot is null ? "\u2717 Broker: not running (" + Safe(status, 80) + ")."
+            : ownsWorker ? "\u2713 Broker: running." : "\u2713 Broker: running in another companion; this one is on standby.");
 
         // Client configured: the exact entry and its effective scope, from the client's own read command.
         var inspection = Inspection(client);
         string exit = inspection is null ? "" : inspection.Health == "timed_out" ? "timed out"
             : "exit " + inspection.ExitCode.ToString(CultureInfo.InvariantCulture);
-        yield return inspection?.State switch
+        yield return new ClientState("config", inspection?.State switch
         {
             null => "\u26A0 Configuration: not checked. Choose Check client setup; it runs " + name + "'s read-only mcp get for this entry only.",
             ClientConfiguration.CliMissing => client == "claude"
                 ? "\u2717 Configuration: the Claude Code CLI was not found. The companion starts claude.exe from PATH or the standard user install, never a script shim such as claude.cmd."
                 : "\u2717 Configuration: the Codex CLI was not found. The companion starts codex.exe from PATH, never a script shim such as codex.cmd.",
-            ClientConfiguration.PolicyBlocked => "\u2717 Configuration: blocked by managed policy (" + exit + "). Ask the policy owner to approve this exact local server.",
+            ClientConfiguration.PolicyBlocked => inspection.Health == "disabled_by_requirements"
+                ? "\u2717 Configuration: Codex reports this entry disabled by requirements. Ask the policy owner to permit this exact local server, then start a fresh chat."
+                : "\u2717 Configuration: blocked by managed policy (" + exit + "). Ask the policy owner to approve this exact local server.",
             ClientConfiguration.Absent => "\u2717 Configuration: absent. Use Connect " + (client == "claude" ? "Claude" : "Codex") + " MCP to add it for this user.",
             ClientConfiguration.DifferentEntry => "\u2717 Configuration: an entry named " + AgentClientSetup.ServerName +
-                " exists but does not point at this broker. Review it in " + name + "'s MCP settings; AgentBroker never replaces it.",
+                " exists but does not match this broker's supported connection. Review it in " + name + "'s MCP settings; AgentBroker never replaces it.",
+            ClientConfiguration.ConnectionUnverified => "\u26A0 Configuration: HTTP entry not verified because the broker connection is unavailable. Refresh status, then check client setup again.",
             ClientConfiguration.Disabled => client == "claude"
                 ? "\u2717 Configuration: this broker's entry exists, but Claude Code reports it rejected or disabled in its settings."
-                : "\u2717 Configuration: this broker's entry exists, but it is disabled in Codex (enabled = false).",
+                : inspection.Health == "disabled_reason_reported"
+                    ? "\u2717 Configuration: Codex reports this entry disabled. Review its MCP settings and disabled reason; no setting was changed."
+                    : "\u2717 Configuration: this broker's entry exists, but it is disabled in Codex (enabled = false).",
             ClientConfiguration.Unrecognized => "\u26A0 Configuration: " + name + "'s report was not in a recognized form, so this CLI version is unsupported here. Nothing was changed.",
             ClientConfiguration.Configured => "\u2713 Configuration: the exact entry for this broker, " + ScopeText(inspection!.Scope) + ", " +
                 (inspection.Transport == "http" ? "local HTTP" : "stdio bridge") + ". Checked " + Age(inspection.CheckedUtc, McpNow()) + ".",
             ClientConfiguration.Cancelled => "\u26A0 Configuration: the check was cancelled.",
             _ => "\u26A0 Configuration: the check did not complete (" + exit + "). Try again."
-        };
+        });
 
         // Endpoint: the worker's own listener readiness, plus Claude's own connection check when it ran one.
         var mcp = snapshot?.Mcp;
-        if (mcp is null) yield return "\u26A0 Endpoint: status unknown.";
-        else if (!mcp.EndpointReady) yield return "\u2717 Endpoint: the broker's MCP endpoint is not accepting connections.";
-        else if (inspection?.State == ClientConfiguration.DifferentEntry) yield return "\u2717 Endpoint: ready, but the configured entry does not reach it.";
+        const string Endpoint = "endpoint";
+        if (mcp is null) yield return new ClientState(Endpoint, "\u26A0 Endpoint: status unknown.");
+        else if (!mcp.EndpointReady) yield return new ClientState(Endpoint, "\u2717 Endpoint: the broker's MCP endpoint is not accepting connections.");
+        else if (inspection?.State == ClientConfiguration.ConnectionUnverified)
+            yield return new ClientState(Endpoint, "\u26A0 Endpoint: the broker last reported ready, but this HTTP entry could not be verified. Refresh status, then check client setup again.");
+        else if (inspection?.State == ClientConfiguration.DifferentEntry) yield return new ClientState(Endpoint, "\u2717 Endpoint: ready, but this client's entry is not verified for this connection.");
         else if (client == "claude" && inspection?.State == ClientConfiguration.Configured && inspection!.Health != "unknown")
-            yield return inspection.Health == "connected"
+            yield return new ClientState(Endpoint, inspection.Health == "connected"
                 ? "\u2713 Endpoint: reachable; the Claude CLI connected and listed tools during the check."
-                : "\u2717 Endpoint: ready, but the Claude CLI reported " + HealthText(inspection.Health) + " during the check.";
-        else yield return "\u2713 Endpoint: ready at " + LoopbackMcpEndpoint() + ".";
+                : "\u2717 Endpoint: ready, but the Claude CLI reported " + HealthText(inspection.Health) + " during the check.");
+        else if (SnapshotMcpEndpoint(snapshot) is { } endpoint)
+            yield return new ClientState(Endpoint, "\u2713 Endpoint: ready at " + endpoint + ".");
+        else yield return new ClientState(Endpoint, "\u26A0 Endpoint: ready; its address is not verified.");
 
-        // Tools available: only traffic this client identified itself in, never another client's.
-        yield return ToolsLine(mcp, client == "claude" ? McpClientFamily.Claude : McpClientFamily.Codex);
+        // Tools available: only traffic this client identified itself in, never another client's. A client with no tool list
+        // since the broker started is the session the reconnect advice is for, so its pane line says how.
+        string tools = ToolsLine(mcp, client == "claude" ? McpClientFamily.Claude : McpClientFamily.Codex, out bool reconnect);
+        yield return new ClientState("tools", tools, reconnect ? ReconnectAction(client) : null);
 
         // Live inbox: generic sessions in the directory, attributed only by their own registration request.
         var inbox = InboxCounts(client);
-        if (inbox.Unknown) yield return "\u26A0 Inbox: unknown until the broker reports its sessions.";
+        string inboxToken = inbox.Attributed > 0 ? "inbox " + Count(inbox.Attributed) : "inbox";
+        if (inbox.Unknown) yield return new ClientState(inboxToken, "\u26A0 Inbox: unknown until the broker reports its sessions.");
         else if (inbox.Attributed > 0)
-            yield return "\u2713 Inbox: " + Count(inbox.Attributed) + " registered through this client (" + Count(inbox.AttributedPresent) +
-                " present, " + Count(inbox.Attributed - inbox.AttributedPresent) + " away).";
+            yield return new ClientState(inboxToken, "\u2713 Inbox: " + Count(inbox.Attributed) + " registered through this client (" + Count(inbox.AttributedPresent) +
+                " present, " + Count(inbox.Attributed - inbox.AttributedPresent) + " away).");
         else if (inbox.Unattributed > 0)
-            yield return "\u26A0 Inbox: none identified as " + name + ". " + Count(inbox.Unattributed) + " MCP inbox" + (inbox.Unattributed == 1 ? " here carries" : "es here carry") +
-                " no client identity (" + Count(inbox.UnattributedPresent) + " present, " + Count(inbox.Unattributed - inbox.UnattributedPresent) + " away).";
-        else yield return "\u2717 Inbox: none registered. An agent registers with register_agent; an MCP connection alone is not an inbox.";
+            yield return new ClientState(inboxToken, "\u26A0 Inbox: none identified as " + name + ". " + Count(inbox.Unattributed) + " MCP inbox" + (inbox.Unattributed == 1 ? " here carries" : "es here carry") +
+                " no client identity (" + Count(inbox.UnattributedPresent) + " present, " + Count(inbox.Unattributed - inbox.UnattributedPresent) + " away).");
+        else yield return new ClientState(inboxToken, "\u2717 Inbox: none registered. An agent registers with register_agent; an MCP connection alone is not an inbox.");
 
         // Native receive and wake support.
-        yield return NativeLine(client);
+        yield return NativeState(client);
         // A note about some sessions (lane broker-163: elevated Claude Code sessions), beside the healthy line, not instead.
         // The pane keeps each note whole within the worker's description bound; the tray uses bounded continuation items.
-        if (snapshot?.AdapterNotes is { } notes && notes.TryGetValue(client == "claude" ? "claude-native" : "codex-native", out string? joined))
-            foreach (string note in joined.Split(ControlProtocol.NoteSeparator, StringSplitOptions.RemoveEmptyEntries).Take(8))
-            {
-                string description = Safe(StripCode(note), 320);
-                if (wrapTrayNotes)
-                    foreach (string part in TrayNoteLines(description)) yield return part;
-                else yield return "\u26A0 " + description;
-            }
+        string adapter = client == "claude" ? "claude-native" : "codex-native";
+        foreach (var note in ClientNotes().Where(note => note.Adapter == adapter).Take(8))
+        {
+            string description = Safe(StripCode(note.Text), 320);
+            if (wrapTrayNotes)
+                foreach (string part in TrayNoteLines(description))
+                    yield return new ClientState(null, part, NoAction: IsNoActionClientNote(adapter, note.Text));
+            else yield return new ClientState(null, "\u26A0 " + description, NoAction: IsNoActionClientNote(adapter, note.Text));
+        }
         // Report only (lane broker-163, N-agentbroker-code-owner-provenance-01): whose engine holds each Codex row's thread.
-        if (client == "codex" && EngineBindingLine() is { } engine) yield return engine;
+        // It asks for nothing ("Nothing is refused on it."), so it folds like a no-action note (DECISIONS 107, U-3).
+        if (client == "codex" && EngineBindingLine() is { } engine) yield return new ClientState(null, engine, NoAction: true);
 
         if (clientSetupResults.TryGetValue(client, out string? result)) yield return "Last setup action: " + result;
     }
@@ -185,8 +314,13 @@ public sealed partial class AgentBrokerModule
         _ => "an unrecognized state"
     };
 
-    private string ToolsLine(McpStatusView? mcp, McpClientFamily family)
+    // Pane only: the short reconnect step; the guide carries the full client connection instructions.
+    internal static string ReconnectAction(string client) => client == "claude"
+        ? "To reconnect, use /mcp or restart the session." : "To reconnect, restart the session.";
+
+    private string ToolsLine(McpStatusView? mcp, McpClientFamily family, out bool reconnect)
     {
+        reconnect = false;
         var clients = mcp?.Clients;
         if (clients is null || clients.Length != 3 || clients.Any(row => row is null || !Enum.IsDefined(row.Family)) ||
             clients.Select(row => row.Family).Distinct().Count() != 3)
@@ -199,6 +333,7 @@ public sealed partial class AgentBrokerModule
         if (row.LastToolsListUtc is { } listed && listed <= now.AddSeconds(5))
             return "\u2713 Tools: listed by this client " + Age(listed, now) + ".";
         DateTimeOffset? contact = new[] { row.LastInitializeUtc, row.LastSuccessfulRequestUtc, row.LastSuccessfulToolUtc }.Max();
+        reconnect = true;
         return contact is { } any && any <= now.AddSeconds(5)
             ? "\u26A0 Tools: this client connected " + Age(any, now) + ", but no tool list was attributed to it" + unidentified + "."
             : "\u26A0 Tools: no traffic from this client since the broker started" + unidentified + ".";
@@ -220,6 +355,25 @@ public sealed partial class AgentBrokerModule
             else if (owner == family) { attributed++; if (present) attributedPresent++; }
         }
         return (false, attributed, attributedPresent, unattributed, unattributedPresent);
+    }
+
+    // The wake token carries the count the owner asked for ("wake 3/3"), or why there is none.
+    private ClientState NativeState(string client)
+    {
+        string line = NativeLine(client);
+        bool claude = client == "claude";
+        bool discovery = claude ? settings.ClaudeDiscovery : settings.CodexDiscovery;
+        bool wake = claude ? settings.ClaudePeerCredentials : settings.CodexPeerMessages;
+        string adapter = claude ? "claude-native" : "codex-native";
+        if (!discovery) return new("discovery off", line, NoAction: true);
+        if (snapshot is null || snapshot.AdapterErrors.ContainsKey(adapter)) return new("wake", line);
+        if (!wake) return new("wake off", line, NoAction: true);
+        var native = snapshot.Sessions.Where(session => session?.Adapter == adapter).ToArray();
+        string token = "wake " + Count(native.Count(session => session.CanWake)) + "/" + Count(native.Length);
+        // With wake on and no session discovered yet there is nothing for the owner to do: a session is discovered when one
+        // runs. It folds like the unwakeable case and the folded header still names it ("wake 0/0"); adapter or discovery
+        // errors stay actionable above (DECISIONS 107, U-q1).
+        return native.Length == 0 ? new(token, line, NoAction: true) : new(token, line);
     }
 
     private string NativeLine(string client)

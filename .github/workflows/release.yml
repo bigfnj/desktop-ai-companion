@@ -37,7 +37,9 @@ jobs:
     # Raised from 30 when the release started running the product's tests itself (the step before the assets are
     # assembled, N-audit-1106-034). The job now does build.yml's test work on top of its own signing and
     # publishing, and a job killed at its limit halfway through `gh release upload` leaves a partial release.
-    timeout-minutes: 45
+    # Raised from 45 to 90 at the step 11 merge, matching build.yml (905c03b9), whose job overran 30 with steps still
+    # pending; the Release builds now also run with --no-incremental (build.ps1).
+    timeout-minutes: 90
 
     steps:
       - name: Resolve and validate the tag
@@ -198,7 +200,16 @@ jobs:
         # package on every host release even when the contract has not changed. Pushing to nuget.org stays a
         # deliberate manual act: see packaging\New-NuGetPackages.ps1, which prints the command.
         shell: pwsh
-        run: .\packaging\New-NuGetPackages.ps1 -OutputDirectory dist\nuget
+        run: |
+          .\tests\Test-NuGetPackagePrivacyRules.ps1
+          .\packaging\New-NuGetPackages.ps1 -OutputDirectory dist\nuget
+
+      # The same Python build.yml pins, so the Pillow install and the offline checks below run in the interpreter CI
+      # runs them in rather than whatever `python` the runner image carries. After the key scrub, like the Pillow step.
+      - name: Set up Python for offline tooling self-tests
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1   # v6
+        with:
+          python-version: '3.11'
 
       # THE RELEASE TESTS WHAT IT PUBLISHES (N-audit-1106-034). Until this step a v* tag built, signed and published
       # the ZIP, MSI and author packages without running one test or self-test, and nothing tied it to a green

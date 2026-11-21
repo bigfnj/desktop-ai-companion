@@ -80,11 +80,14 @@ public sealed class NativePeerAdapter(INativePeerConnectionFactory connections, 
             finally { CryptographicOperations.ZeroMemory(user); }
             return new(SubmissionStatus.SubmittedUnconfirmed, "native_write_only");
         }
-        catch (OperationCanceledException) when (userWriteStarted)
-        { return new(SubmissionStatus.SubmittedUnconfirmed, "native_write_uncertain"); }
+        catch (OperationCanceledException)
+        {
+            return userWriteStarted ? new(SubmissionStatus.SubmittedUnconfirmed, "native_write_uncertain")
+                : Refused("native_transport_unavailable");
+        }
         catch (NativeImagePathMismatchException)
         { return Refused("native_image_path_mismatch"); }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or TimeoutException
             or System.ComponentModel.Win32Exception or InvalidOperationException or ArgumentException or NotSupportedException)
         {
             return userWriteStarted ? new(SubmissionStatus.SubmittedUnconfirmed, "native_write_uncertain")

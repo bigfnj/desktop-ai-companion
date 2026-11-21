@@ -7,9 +7,9 @@ namespace AgentBroker.ClaudeAdapter;
 
 public static class CanonicalPeerTarget
 {
-    private static readonly Regex Pipe = new(@"^[\\/]{2}[.?][\\/]pipe[\\/](?:(LOCAL)[\\/])?([^\\/]+)$",
+    private static readonly Regex Pipe = new(@"^[\\/]{2}[.?][\\/]pipe[\\/](?:(LOCAL)[\\/])?([^\\/]+)\z",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
-    private static readonly Regex Message = new(@"^[cC][cC]-[mM][sS][gG]-[0-9a-fA-F]{32}$",
+    private static readonly Regex Message = new(@"^[cC][cC]-[mM][sS][gG]-[0-9a-fA-F]{32}\z",
         RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
 
     /// <summary>Public native OJ/YE behavior, with the additional cc-msg message-pipe restriction.</summary>

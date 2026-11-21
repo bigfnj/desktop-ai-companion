@@ -80,9 +80,13 @@ public sealed record DesktopOwnerBinding(Guid ConversationId, Guid OwnerClientId
 
 public enum DesktopSubmissionOutcome { Accepted, Rejected, Uncertain, DeferredNotSubmitted }
 
+/// <summary>
+/// <see cref="ConnectionClosed"/> is set only on a pre-frame deferral and says whether the failed request closed this
+/// connection, so the caller retires a connection a request failed on and keeps one no request failed on.
+/// </summary>
 public sealed record DesktopSubmissionResult(DesktopSubmissionOutcome Outcome,
     string? TurnId = null, string? ErrorCode = null, bool Duplicate = false,
-    DesktopProtocolDiagnostic? Diagnostic = null);
+    DesktopProtocolDiagnostic? Diagnostic = null, bool ConnectionClosed = false);
 
 public sealed record DesktopProtocolDiagnostic(string[] FrameKeys, int UnknownFrameKeyCount,
     string? ResultType, bool MethodPresent, bool OwnerClientPresent, string ResultShape,
@@ -105,6 +109,8 @@ internal static class DesktopFrames
 {
     internal const int MaximumFrameBytes = 64 * 1024;
     private static readonly JsonSerializerOptions JsonOptions = new() { MaxDepth = 32 };
+
+    internal static int EncodedLength(JsonObject message) => JsonSerializer.SerializeToUtf8Bytes(message, JsonOptions).Length;
 
     internal static async Task WriteAsync(Stream stream, JsonObject message, CancellationToken token)
     {

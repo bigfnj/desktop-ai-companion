@@ -858,11 +858,15 @@ namespace DesktopAICompanion.Modules
     /// Secret". Corrected 2026-09-17 after an audit: BOTH halves were false, and a module author
     /// relying on either got the opposite of what they read.
     ///
-    /// `Save()` is a plain `File.WriteAllText` -- no temp-and-replace, no lock -- so an interrupted
-    /// write can truncate the file, and two `GetSettings` calls hand back two INDEPENDENT in-memory
-    /// dictionaries, so the last `Save` wins silently. If you need atomicity, `ModuleKit.AtomicFile`
-    /// is in the DLL that ships beside you; if you need cross-process safety, so is
-    /// `ModuleKit.CrossSessionLock`.
+    /// `Save()` writes through `ModuleKit.AtomicFile` (a temporary file, then a replace) in hosts
+    /// built after 2026-11-14 (N-audit-1106-234), so a save lands whole or not at all; older hosts
+    /// used a plain `File.WriteAllText` that an interrupted write could truncate. A settings.json that
+    /// exists but does not parse is kept beside it as `settings.json.corrupt-<utc>` before the next
+    /// save writes a new one, and a handle whose load failed merges only the keys it Set over a file
+    /// that reads healthy again by then. Otherwise two `GetSettings` calls still hand back two
+    /// INDEPENDENT in-memory dictionaries, so the last `Save` wins. The host serializes handles to one
+    /// path inside its own process only; for cross-process safety (two app instances on one data
+    /// root), `ModuleKit.CrossSessionLock` is in the DLL that ships beside you.
     ///
     /// Nothing here is ENCRYPTED. This type never sees the settings schema, so it cannot know which
     /// key was declared `SettingKind.Secret` -- the pane's Secret kind controls how a value is
@@ -1166,8 +1170,8 @@ namespace DesktopAICompanion.Modules
         void PublishContext(string moduleId, string key, string valueJson);
         string ReadContext(string key);
 
-        // READ AT USE, unless you must act ON the change -- and that distinction is why ContextChanged has no
-        // in-repo subscriber. Decided 2026-09-17; the reasoning is in docs/DESIGN-REGISTER.md under "Settled
+        // READ AT USE, unless you must act ON the change. Decided 2026-09-17; the reasoning is in
+        // docs/DESIGN-REGISTER.md under "Settled
         // decisions". The host RETAINS every published value for the life of the process, so ReadContext at the
         // instant you need the value cannot miss anything, needs no cached field, and needs no unsubscribe in
         // Shutdown. A SUBSCRIBER sees only changes that happen while it is attached, and a publisher may
@@ -1178,7 +1182,8 @@ namespace DesktopAICompanion.Modules
         //
         // This event is therefore for the OTHER kind of reader -- one that must do something the moment the
         // fact changes rather than the moment it is used -- including out-of-tree modules, which is why it
-        // stays on the ABI with no consumer in this repo. ModuleKit.Testing.RecordingHost raises it inline on the
+        // stays on the ABI. AgentBroker subscribes to AgentFlow's aggregate approval observation and also reads
+        // the retained value on attachment for late load; it detaches in Shutdown. ModuleKit.Testing.RecordingHost raises it inline on the
         // caller's thread, which is what the host does for a publish made on the UI thread; a publish from a worker
         // thread is posted to the UI thread here and raised at once on the worker there (N-host-runtime-02), so a
         // subscriber can be unit-tested against the shipped double for UI-thread publishes only.

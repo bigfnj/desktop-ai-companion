@@ -793,8 +793,10 @@ CASES = [
      "",
      "wpf", "P6: a group header counts ticked of total"),
     # The detail column is never built (the item is a bare box again, detail lost), or it is not muted.
+    # Re-pointed at the step 11 master merge: master's list-card change (host-a11y B3) reads the trimmed detail into
+    # detailText first, so hasDetail is now decided from it; same intent.
     ("feature/settings-primitives: an item's Detail gets no column", OPTIONSWINDOW,
-     "                    bool hasDetail = !string.IsNullOrEmpty(it.Detail);\n",
+     "                    bool hasDetail = detailText.Length > 0;\n",
      "                    bool hasDetail = false;\n",
      "wpf", "P6: an item's Detail renders as a muted column"),
     ("feature/settings-primitives: an item's Detail column is not muted", OPTIONSWINDOW,
@@ -1323,6 +1325,97 @@ CASES = [
      "                Arguments = \"/select,\\\"\" + full + \"\\\"\",\n",
      "                Arguments = \"/select,\" + full,\n",
      "wpf", "WITNESS reveal-explorer: explorer.exe is a file in this machine's Windows folder"),
+
+    # ---- AgentBroker 1.10.5 marathon, lane H (host accessibility) ----
+    # B2 (N-broker-checkbox-focus-01) and B3 (N-broker-row-accessibility-01), graded by --wpf-options-selftest's "host-a11y:"
+    # checks. Every case needs a connected desktop session: a blank render fails the pane self-test's pixel checks, so the
+    # wpf baseline refuses and no case of this block runs (see above).
+    # Round 2, H-7: the labelled box's EFFECTIVE cue. If removing the Style trigger does not fail the labelled check, the
+    # stock template trigger does not outrank the setter after all and H-7 is disproved; the run says which.
+    ("host-a11y: H-7 the HasContent trigger removed", WPFTHEME,
+     "            style.Triggers.Add(labelled);\n",
+     "",
+     "wpf", "host-a11y: focus: a labelled dark CheckBox resolves the theme's focus cue"),
+    ("host-a11y: the content-less setter removed", WPFTHEME,
+     "            style.Setters.Add(new Setter(FrameworkElement.FocusVisualStyleProperty, focusCue));\n",
+     "",
+     "wpf", "host-a11y: focus: a content-less dark CheckBox resolves the theme's focus cue"),
+    ("host-a11y: the dark RadioButton gets no cue", WPFTHEME,
+     "            ImplicitWithFocusCue(res, typeof(RadioButton), focusCue);\n",
+     "            Implicit(res, typeof(RadioButton), new Setter(Control.ForegroundProperty, Text));\n",
+     "wpf", "host-a11y: focus: a dark RadioButton's keyboard focus cue is the theme's"),
+    # H-15: the shape the cue check asserts, thickness and dashes, each with its own mutant.
+    ("host-a11y: H-15 the cue's stroke is two DIPs thick", WPFTHEME,
+     "            rect.SetValue(System.Windows.Shapes.Shape.StrokeThicknessProperty, 1.0);\n",
+     "            rect.SetValue(System.Windows.Shapes.Shape.StrokeThicknessProperty, 2.0);\n",
+     "wpf", "host-a11y: focus: a dark CheckBox's keyboard focus cue is a 1 px dashed rectangle in the theme text colour"),
+    ("host-a11y: H-15 the cue's stroke is solid", WPFTHEME,
+     "            rect.SetValue(System.Windows.Shapes.Shape.StrokeDashArrayProperty, dashes);\n",
+     "",
+     "wpf", "host-a11y: focus: a dark CheckBox's keyboard focus cue is a 1 px dashed rectangle in the theme text colour"),
+    # H-8: a template-less cue in the light theme, which a Rectangle-only witness passed.
+    ("host-a11y: H-8 the light theme takes a template-less cue", WPFTHEME,
+     "            res[FieldBorderKey] = LightFieldBorder;\n",
+     "            res[FieldBorderKey] = LightFieldBorder;\n"
+     "            Implicit(res, typeof(CheckBox), new Setter(FrameworkElement.FocusVisualStyleProperty, new Style()));\n",
+     "wpf", "host-a11y: focus: WITNESS the light theme keeps the stock focus cue"),
+    # Round 3, R2-1: an explicit null-valued setter also replaces the stock cue; the witness judges the setter's property.
+    ("host-a11y: R2-1 the light theme takes an explicit null cue", WPFTHEME,
+     "            res[FieldBorderKey] = LightFieldBorder;\n",
+     "            res[FieldBorderKey] = LightFieldBorder;\n"
+     "            Implicit(res, typeof(CheckBox), new Setter(FrameworkElement.FocusVisualStyleProperty, null));\n",
+     "wpf", "host-a11y: focus: WITNESS the light theme keeps the stock focus cue"),
+    # Round 3, R2-2: a trigger-only cue (no ordinary setter), which only the witness's trigger scan can see. The control
+    # proving that branch is live (this mutant plus the scan removed: the witness passes) is a hand run in the lane report.
+    ("host-a11y: R2-2 the light theme takes a trigger-only cue", WPFTHEME,
+     "            res[FieldBorderKey] = LightFieldBorder;\n",
+     "            res[FieldBorderKey] = LightFieldBorder;\n"
+     "            { var trigged = new Style(typeof(CheckBox)); var onLabel = new Trigger { Property = ContentControl.HasContentProperty, Value = true }; "
+     "onLabel.Setters.Add(new Setter(FrameworkElement.FocusVisualStyleProperty, BuildDarkFocusVisual())); trigged.Triggers.Add(onLabel); res[typeof(CheckBox)] = trigged; }\n",
+     "wpf", "host-a11y: focus: WITNESS the light theme keeps the stock focus cue"),
+    # H-14: a whitespace-only Detail is a detail again.
+    ("host-a11y: H-14 the detail is not trimmed", OPTIONSWINDOW,
+     '                    string detailText = (it.Detail ?? "").Trim();\n',
+     '                    string detailText = it.Detail ?? "";\n',
+     "wpf", "host-a11y: list-card: WITNESS a row without a detail keeps its bare label"),
+    ("host-a11y: the focus cue is drawn in the card's border colour", WPFTHEME,
+     "            rect.SetValue(System.Windows.Shapes.Shape.StrokeProperty, Text);\n",
+     "            rect.SetValue(System.Windows.Shapes.Shape.StrokeProperty, Border);\n",
+     "wpf", "host-a11y: focus: a dark CheckBox's keyboard focus cue is a 1 px dashed rectangle in the theme text colour"),
+    # The pixel check's own mutants: every property the style checks read stays right, and the cue still does not stand
+    # out. The second is the half-strength antialiased stroke the pixel check found before the fix (0.41 of ink).
+    ("host-a11y: the focus cue is drawn faded", WPFTHEME,
+     "            rect.SetValue(RenderOptions.EdgeModeProperty, EdgeMode.Aliased);\n",
+     "            rect.SetValue(RenderOptions.EdgeModeProperty, EdgeMode.Aliased);\n"
+     "            rect.SetValue(UIElement.OpacityProperty, 0.15);\n",
+     "wpf", "host-a11y: focus: drawn on the dark card, the cue's dashes stand out from it"),
+    ("host-a11y: the focus cue's stroke is antialiased across two pixels again", WPFTHEME,
+     "            rect.SetValue(RenderOptions.EdgeModeProperty, EdgeMode.Aliased);\n",
+     "",
+     "wpf", "host-a11y: focus: drawn on the dark card, the cue's dashes stand out from it"),
+    ("host-a11y: the light theme takes the dark focus cue too", WPFTHEME,
+     "            res[FieldBorderKey] = LightFieldBorder;\n",
+     "            res[FieldBorderKey] = LightFieldBorder;\n"
+     "            Implicit(res, typeof(CheckBox), new Setter(FrameworkElement.FocusVisualStyleProperty, BuildDarkFocusVisual()));\n",
+     "wpf", "host-a11y: focus: WITNESS the light theme keeps the stock focus cue"),
+    ("host-a11y: a list-card row's box is named by its label alone", OPTIONSWINDOW,
+     '                        hasDetail ? text + ", " + detailText : text,\n',
+     '                        text,\n',
+     "wpf", "host-a11y: list-card: a row's checkbox is named by its label and its detail"),
+    ("host-a11y: a list-card row's detail is not its box's help text", OPTIONSWINDOW,
+     "                        hasDetail ? detailText : null);\n",
+     "                        null);\n",
+     "wpf", "host-a11y: list-card: a row's detail is its checkbox's help text"),
+    ("host-a11y: a list-card row's detail goes ahead of its box again", OPTIONSWINDOW,
+     "                        line.Children.Add(cb);\n"
+     "                        line.Children.Add(detail);\n",
+     "                        line.Children.Add(detail);\n"
+     "                        line.Children.Add(cb);\n",
+     "wpf", "host-a11y: list-card: a row's checkbox precedes its detail in the automation tree"),
+    ("host-a11y: a list-card row without a detail is named as if it had one", OPTIONSWINDOW,
+     '                        hasDetail ? text + ", " + detailText : text,\n',
+     '                        text + ", " + detailText,\n',
+     "wpf", "host-a11y: list-card: WITNESS a row without a detail keeps its bare label"),
 ]
 
 

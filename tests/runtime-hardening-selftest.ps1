@@ -64,6 +64,23 @@ function Remove-LineComments {
     return ($Text -replace '(?m)^((?:[^"''/\n]|"(?:[^"\\\n]|\\.)*"|''(?:[^''\\\n]|\\.)*''|/(?!/))*)//.*$', '$1')
 }
 
+# S-016 (marathon-1106 lane G round 2): Windows PowerShell 5.1 turns each line a native command writes to a REDIRECTED stderr
+# into an ErrorRecord, and under $ErrorActionPreference Stop the first one is a terminating error before 2>$null discards it,
+# so one git warning (exit 0, stdout complete) aborted this whole file under 5.1 while pwsh 7 passed the same bytes. The
+# listing runs under Continue for git's own lines only, and a failing git is loud under both engines through its exit code.
+function Get-TrackedFiles {
+    param([string[]] $GitArguments)
+    $savedPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $listed = @(& git -C $repoRoot @GitArguments 2>$null | ForEach-Object { "$_" })
+        $gitExit = $LASTEXITCODE
+    }
+    finally { $ErrorActionPreference = $savedPreference }
+    if ($gitExit -ne 0) { throw "git $($GitArguments -join ' ') exited $gitExit." }
+    return $listed
+}
+
 # Every object-initialiser body that follows `new ProcessStartInfo`, sliced on BRACE BALANCE.
 #
 # The slicer this replaced was the regex `new ProcessStartInfo(.*?)\}\s*;`. It was right for every
@@ -126,6 +143,32 @@ function Get-SynchronousReadSites {
 
 $testsRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = Split-Path -Parent $testsRoot
+
+# S-016 WITNESS (marathon-1106 lane G round 2; X3's F1): runs before any ordinary listing, so a git stderr line with exit 0 (a
+# warning from the launching environment, or trace output) is met first inside this protected path. A plain listing and one
+# with GIT_TRACE=1 (git writes trace lines to stderr, exit 0) must both succeed and return the same sequence. PowerShell 7.2 and
+# later never turns redirected native stderr into an error, so there it is vacuous and says so on every run.
+$savedTrace = [Environment]::GetEnvironmentVariable('GIT_TRACE', 'Process')
+$plainListing = $null
+$tracedListing = $null
+$witnessStage = 'plain'
+$witnessError = ''
+try {
+    try {
+        $plainListing = @(Get-TrackedFiles -GitArguments 'ls-files', '-co', '--exclude-standard', '--', '*.cs')
+        $witnessStage = 'traced'
+        [Environment]::SetEnvironmentVariable('GIT_TRACE', '1', 'Process')
+        $tracedListing = @(Get-TrackedFiles -GitArguments 'ls-files', '-co', '--exclude-standard', '--', '*.cs')
+    }
+    catch { $witnessError = " [$witnessStage listing threw $($_.Exception.GetType().Name)]" }
+}
+finally { [Environment]::SetEnvironmentVariable('GIT_TRACE', $savedTrace, 'Process') }
+$engineVacuous = $PSVersionTable.PSEdition -eq 'Core' -and $PSVersionTable.PSVersion -ge [version]'7.2'
+$engineNote = if ($engineVacuous) { ' [engine-vacuous: PowerShell 7.2 and later never convert redirected native stderr]' } else { '' }
+Assert-True ($null -ne $plainListing -and $null -ne $tracedListing -and $plainListing.Count -gt 0 -and
+    [string]::Join([char]10, $plainListing) -ceq [string]::Join([char]10, $tracedListing)) (
+    "WITNESS (S-016)$($witnessError): a git stderr line neither aborts nor changes the tracked-file listing (plain and " +
+    "GIT_TRACE=1) under $($PSVersionTable.PSEdition) $($PSVersionTable.PSVersion)$engineNote")
 
 $formPetSource = Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\FormCompanion.cs') -Raw
 $formSpeechSource = Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\FormSpeech.cs') -Raw
@@ -274,7 +317,7 @@ $redirectSiteCount = 0
 # untracked-not-ignored, so a brand-new .cs with a fresh redirect is judged before it is staged, while
 # `.claude/`, bin\ and obj\ are ignored and drop out. Measured 2026-09-30: 213 files either way on
 # this tree, with no file on one side only.
-$redirectScanFiles = @(& git -C $repoRoot ls-files -co --exclude-standard -- '*.cs' 2>$null | ForEach-Object {
+$redirectScanFiles = @(Get-TrackedFiles -GitArguments 'ls-files', '-co', '--exclude-standard', '--', '*.cs' | ForEach-Object {
     $p = Join-Path $repoRoot ($_ -replace '/', '\')
     if (Test-Path -LiteralPath $p -PathType Leaf) { Get-Item -LiteralPath $p }
 })
@@ -1596,7 +1639,7 @@ $parityHost = "$($PSVersionTable.PSEdition) $($PSVersionTable.PSVersion)"
 # scan enumerates its .cs files (F411): tracked-only meant a brand-new script with a `??` or a
 # Set-Content write passed the local gate until `git add` and failed on the run after (RA-363). CI
 # under pwsh caught a committed `??` regardless; what was late was the local answer.
-$ciScripts = @(& git -C $repoRoot ls-files -co --exclude-standard -- '*.ps1' 2>$null | ForEach-Object {
+$ciScripts = @(Get-TrackedFiles -GitArguments 'ls-files', '-co', '--exclude-standard', '--', '*.ps1' | ForEach-Object {
     $p = Join-Path $repoRoot ($_ -replace '/', '\')
     if (Test-Path -LiteralPath $p -PathType Leaf) { $p }
 })
@@ -1911,7 +1954,7 @@ Assert-True ($selfTestFlagCount -gt 10) (
 # 16. The self-test count next to it had NOT rotted in the same period, and the only difference between
 # the two numbers was that one of them was asserted. Spelled-out numerals, because that is how the
 # sentence is written and a digit would not match.
-$projectCount = @(git -C $repoRoot ls-files '*.csproj').Count
+$projectCount = @(Get-TrackedFiles -GitArguments 'ls-files', '*.csproj').Count
 $numeralNames = @{ 14 = 'fourteen'; 15 = 'fifteen'; 16 = 'sixteen'; 17 = 'seventeen';
                    18 = 'eighteen'; 19 = 'nineteen'; 20 = 'twenty'; 31 = 'thirty-one'; 32 = 'thirty-two';
                    33 = 'thirty-three' }
@@ -3530,7 +3573,7 @@ Assert-True ($manualSpanAt -ge 0 -and $manualRunAt -gt $manualSpanAt -and $manua
 # because Test-ModuleSelfTests.ps1 throws without a build. Sliced per step like the release.yml check under
 # the fix/scripts anchor: one slice from each `- name:` to the next, comment lines dropped, the ARGUMENT of
 # the if: asserted and not the presence of one. Positive control first: both steps are still there to judge.
-$buildWorkflowText = Get-Content -LiteralPath (Join-Path $repoRoot '.github\workflows\build.yml') -Raw
+$buildWorkflowText = Get-Content -LiteralPath (Join-Path $repoRoot '.github\workflows\build.yml') -Raw -Encoding UTF8
 $buildWorkflowSteps = @([regex]::Split($buildWorkflowText, '(?m)^      - name:') | Select-Object -Skip 1 |
     ForEach-Object { $_ -replace '(?m)^[ \t]*#.*$', '' })
 $buildStepSlices = @($buildWorkflowSteps | Where-Object { $_ -cmatch '\A Build Release x64 and the portable ZIP' })
@@ -3542,21 +3585,231 @@ Assert-True (($buildStepSlices[0] -cmatch '(?m)^        id: build\s*$') -and
              ($moduleSelfTestSlices[0] -cmatch ('(?m)^' + [regex]::Escape($moduleSelfTestCondition) + '\s*$'))) (
     "build.yml's module self-test step runs whenever the build step succeeded, red product self-tests or not (RA-001)")
 
-# THE NUGET PACK RUNS ON EVERY PUSH. New-NuGetPackages.ps1 (dotnet pack, the README/lib assertions and the
-# dependency-free check) first executed on a v* tag, the one release-only build step left (RA-190); build.yml
-# runs it after the MSI and ships the packages in the artifact. The whole file is judged comment-stripped so
-# the prose that explains the step cannot satisfy it.
-$buildWorkflowCode = $buildWorkflowText -replace '(?m)^[ \t]*#.*$', ''
-$nugetPackRun = '        run: .\packaging\New-NuGetPackages.ps1 -OutputDirectory dist\nuget'
-Assert-True (($buildWorkflowCode -cmatch ('(?m)^' + [regex]::Escape($nugetPackRun) + '\s*$')) -and
-             ($buildWorkflowCode -cmatch '(?m)^            dist/nuget/\*\.nupkg\s*$')) (
+# Closed source policy for these canonical workflows, not YAML parsing or trigger validation. LF/CRLF
+# are supported; lone CR, NEL, LS and PS are refused. Outside recognized opaque block bodies, quoted
+# tokens and a conservative nonnegative combined count of unquoted []/{} must close on each line.
+# Multiline flow is unsupported; plain ASCII key prefixes and leading tag/anchor/alias limits remain.
+# MappingLayout lets only an empty value or bare literal | own continuation data. The build retains
+# its legacy inline pack form; current pack blocks check privacy then pack. In release, selected Pack/Assemble/Publish
+# ordering/if are judged; Assemble/Publish may use continue-on-error. Other steps/scripts are unqualified.
+function Test-NuGetMappingLayout([string]$Body, [string[]]$AllowedKeys, [string[]]$RequiredKeys, [int]$IndentWidth) {
+    # Only an empty mapping or literal-block header can own more-indented data. A scalar's first line
+    # cannot hide a folded shell/run continuation. Callers still judge the values they depend on.
+    $seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    $prefix = ' ' * $IndentWidth
+    $open = $false
+    foreach ($line in @($Body -split '\r?\n')) {
+        if ([string]::IsNullOrWhiteSpace($line)) { continue }
+        if ($line -cmatch ('^' + $prefix + '(?<key>[a-z][a-z0-9-]*):(?<value>(?:[ \t].*)?)$')) {
+            $key = $Matches['key']; $value = $Matches['value'].Trim()
+            $open = $value.Length -eq 0 -or $value -ceq '|'
+            if ($AllowedKeys -cnotcontains $key -or -not $seen.Add($key)) { return $false }
+        } elseif (-not $open -or $line -cnotmatch ('^' + $prefix + '  ')) { return $false }
+    }
+    foreach ($key in $RequiredKeys) { if (-not $seen.Contains($key)) { return $false } }
+    return $true
+}
+function Test-NuGetPhysicalScalars([string]$Text) {
+    # Closed lexical precheck: recognized plain |/> block bodies are opaque. Other lines must close
+    # quoted tokens and a nonnegative combined unquoted delimiter count. Multiline flow is unsupported.
+    # Plain ASCII key-prefix removal needs no space after its colon. Leading tag/anchor/alias markers
+    # are refused; tokenStart below defines recognized quotes. This is not YAML nesting or parsing.
+    $literalIndent = -1
+    foreach ($line in @($Text -split "`n")) {
+        if ([string]::IsNullOrWhiteSpace($line)) { continue }
+        if ($line -cmatch '^[ \t]*#') { continue }
+        $indent = [regex]::Match($line, '^ *').Length
+        if ($literalIndent -ge 0 -and $indent -gt $literalIndent) { continue }
+        $literalIndent = -1
+        $header = [regex]::Match($line, '^(?<indent> *)(?<dash>- )?(?:(?<key>[A-Za-z0-9_-]+):[ \t]*)?(?<value>.*)$')
+        $value = $header.Groups['value'].Value
+        if ($value.TrimStart() -cmatch '^[!&*]') { return $false }
+        $quote = 0; $escaped = $false; $end = $value.Length; $depth = 0
+        for ($at = 0; $at -lt $value.Length; $at++) {
+            $character = [int][char]$value[$at]
+            if ($quote -ne 0) {
+                if ($quote -eq 34 -and $escaped) { $escaped = $false; continue }
+                if ($quote -eq 34 -and $character -eq 92) { $escaped = $true; continue }
+                if ($character -eq $quote) {
+                    if ($quote -eq 39 -and $at + 1 -lt $value.Length -and [int][char]$value[$at + 1] -eq 39) { $at++; continue }
+                    $quote = 0
+                }
+            } else {
+                if ($character -eq 35 -and ($at -eq 0 -or " `t".Contains([string]$value[$at - 1]))) { $end = $at; break }
+                $tokenStart = $at -eq 0 -or [char]::IsWhiteSpace($value[$at - 1]) -or '[{,:'.Contains([string]$value[$at - 1])
+                if (($character -eq 39 -or $character -eq 34) -and $tokenStart) { $quote = $character }
+                elseif ($character -eq 91 -or $character -eq 123) { $depth++ }
+                elseif ($character -eq 93 -or $character -eq 125) {
+                    if ($depth -eq 0) { return $false }
+                    $depth--
+                }
+            }
+        }
+        if ($quote -ne 0 -or $depth -ne 0) { return $false }
+        if ($value.Substring(0, $end).Trim() -cmatch '^[|>][+-]?$') {
+            $literalIndent = $header.Groups['indent'].Length
+            if ($header.Groups['key'].Success) { $literalIndent += $header.Groups['dash'].Length }
+        }
+    }
+    return $true
+}
+function Get-NuGetWorkflowCode([string]$WorkflowText) {
+    if ($WorkflowText -cmatch '\r(?!\n)|[\u0085\u2028\u2029]') { return $null }
+    $code = $WorkflowText.TrimStart([char]0xfeff).Replace("`r`n", "`n")
+    if (-not (Test-NuGetPhysicalScalars $code)) { return $null }
+    $code = $code -replace '(?m)^[ \t]*#.*$', ''
+    if ($code -cmatch '(?m)^(?:---|\.\.\.)(?:[ \t].*)?$' -or
+        -not (Test-NuGetMappingLayout $code @('name', 'on', 'permissions', 'concurrency', 'jobs') @('on', 'jobs') 0)) { return $null }
+    return $code
+}
+function Test-NuGetPackBody([string]$Body, [bool]$AllowInline) {
+    if (-not (Test-NuGetMappingLayout $Body @('shell', 'run') @('shell', 'run') 8) -or
+        $Body -cnotmatch '(?m)^        shell: pwsh[ \t]*$') { return $false }
+    $lines = @($Body -split '\r?\n')
+    $indices = @(for ($index = 0; $index -lt $lines.Count; $index++) { if ($lines[$index] -cmatch '^        run: ') { $index } })
+    if ($indices.Count -ne 1) { return $false }
+    $runIndex = $indices[0]; $value = $lines[$runIndex].Substring(13).Trim()
+    $packCommand = '.\packaging\New-NuGetPackages.ps1 -OutputDirectory dist\nuget'
+    if ($value -cne '|') { return $AllowInline -and $value -ceq $packCommand }
+    $commands = @()
+    for ($index = $runIndex + 1; $index -lt $lines.Count; $index++) {
+        if ([string]::IsNullOrWhiteSpace($lines[$index])) { continue }
+        if ($lines[$index] -cnotmatch '^          ') { break }
+        $commands += $lines[$index].Trim()
+    }
+    return $commands.Count -eq 2 -and $commands[0] -ceq '.\tests\Test-NuGetPackagePrivacyRules.ps1' -and $commands[1] -ceq $packCommand
+}
+function Test-NuGetUploadInputs([string]$Body) {
+    $blocks = [regex]::Matches($Body, '(?ms)^        with:[ \t]*\n(?<body>.*?)(?=^        \S|\z)')
+    if ($blocks.Count -ne 1) { return $false }
+    $seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    $paths = @(); $inPaths = $false
+    foreach ($line in @($blocks[0].Groups['body'].Value -split "`n")) {
+        if ([string]::IsNullOrWhiteSpace($line)) { continue }
+        $match = [regex]::Match($line, '^          (?<key>[a-z][a-z0-9-]*):(?<value>(?:[ \t].*)?)$')
+        $quoted = $false
+        if (-not $match.Success) {
+            $match = [regex]::Match($line, "^          '(?<key>[a-z][a-z0-9-]*)':(?<value>(?:[ \t].*)?)$")
+            $quoted = $match.Success
+        }
+        if ($match.Success) {
+            $key = $match.Groups['key'].Value; $value = $match.Groups['value'].Value.Trim(); $inPaths = $false
+            if (-not $seen.Add($key) -or ($quoted -and $key -cin @('name', 'path', 'if-no-files-found'))) { return $false }
+            if ($key -ceq 'path') { if ($value -cne '|') { return $false }; $inPaths = $true }
+            elseif ($key -ceq 'name') { if ($value -cne 'DesktopAICompanion-x64') { return $false } }
+            elseif ($key -ceq 'if-no-files-found') { if ($value -cne 'error') { return $false } }
+            elseif ($value.Length -eq 0 -or $value -cmatch '^[|>!&*\[{]') { return $false }
+        } elseif ($inPaths -and $line -cmatch '^            (?<path>\S.*)$') { $paths += $Matches['path'].Trim() }
+        else { return $false }
+    }
+    return $seen.Contains('name') -and $seen.Contains('path') -and $seen.Contains('if-no-files-found') -and
+        ($paths -join '|') -ceq 'dist/DesktopAICompanion-Portable.zip|dist/DesktopAICompanion.msi|dist/nuget/*.nupkg'
+}
+function Test-NuGetBuildWorkflow([string]$WorkflowText) {
+    $raCode = Get-NuGetWorkflowCode $WorkflowText
+    if ($null -eq $raCode) { return $false }
+    $raJobBlocks = [regex]::Matches($raCode, '(?ms)^jobs:[ \t]*\r?\n(?<body>.*?)(?=^\S|\z)')
+    if ($raJobBlocks.Count -ne 1) { return $false }
+    $raJobs = [regex]::Matches($raJobBlocks[0].Groups['body'].Value, '(?ms)^  build:[ \t]*\r?\n(?<body>.*?)(?=^  \S|\z)')
+    if ($raJobs.Count -ne 1) { return $false }
+    $raJob = $raJobs[0].Groups['body'].Value
+    if (-not (Test-NuGetMappingLayout $raJob @('name', 'runs-on', 'timeout-minutes', 'steps') @('runs-on', 'steps') 4)) { return $false }
+    # Only the actual empty-valued steps mapping contributes executable steps. A display-name scalar
+    # may contain the same text, but stops this block at its own four-space job header.
+    $raStepBlocks = [regex]::Matches($raJob, '(?ms)^    steps:[ \t]*\r?\n(?<body>.*?)(?=^    \S|\z)')
+    if ($raStepBlocks.Count -ne 1) { return $false }
+    $raSteps = @([regex]::Matches($raStepBlocks[0].Groups['body'].Value, '(?ms)^      - name: (?<name>[^\r\n]+)\r?\n(?<body>.*?)(?=^      - |\z)'))
+    $raMsi = @($raSteps | Where-Object { $_.Groups['name'].Value -ceq 'Install WiX and build the MSI' })
+    $raPack = @($raSteps | Where-Object { $_.Groups['name'].Value -ceq 'Pack the module-author NuGet packages' })
+    $raUpload = @($raSteps | Where-Object { $_.Groups['name'].Value -ceq 'Upload the ZIP, MSI and author packages' })
+    if ($raMsi.Count -ne 1 -or $raPack.Count -ne 1 -or $raUpload.Count -ne 1) { return $false }
+    if ($raMsi[0].Index -ge $raPack[0].Index -or $raPack[0].Index -ge $raUpload[0].Index) { return $false }
+    $raPackBody = $raPack[0].Groups['body'].Value
+    $raUploadBody = $raUpload[0].Groups['body'].Value
+    if (-not (Test-NuGetPackBody $raPackBody $true) -or
+        -not (Test-NuGetMappingLayout $raUploadBody @('uses', 'with') @('uses', 'with') 8)) { return $false }
+    return ($raUploadBody -cmatch '(?m)^        uses: actions/upload-artifact@[0-9a-f]{40}(?:[ \t]+#.*)?[ \t]*$' -and
+            (Test-NuGetUploadInputs $raUploadBody))
+}
+Assert-True (Test-NuGetBuildWorkflow $buildWorkflowText) (
     'build.yml packs the module-author NuGet packages on every push and uploads them with the ZIP and MSI (RA-190)')
 
+$releaseWorkflowText = Get-Content -LiteralPath (Join-Path $repoRoot '.github\workflows\release.yml') -Raw -Encoding UTF8
+# The supported release pack body is exact; later Assemble/Publish steps remain after it without an if
+# override. Other steps' continue-on-error metadata is not a pack-step suppression and remains supported.
+function Test-NuGetReleasePackFailure([string]$WorkflowText) {
+    $raCode = Get-NuGetWorkflowCode $WorkflowText
+    if ($null -eq $raCode) { return $false }
+    $raJobBlocks = [regex]::Matches($raCode, '(?ms)^jobs:[ \t]*\r?\n(?<body>.*?)(?=^\S|\z)')
+    if ($raJobBlocks.Count -ne 1) { return $false }
+    $raJobs = [regex]::Matches($raJobBlocks[0].Groups['body'].Value, '(?ms)^  release:[ \t]*\r?\n(?<body>.*?)(?=^  \S|\z)')
+    if ($raJobs.Count -ne 1) { return $false }
+    if (-not (Test-NuGetMappingLayout $raJobs[0].Groups['body'].Value @('name', 'runs-on', 'timeout-minutes', 'steps') @('runs-on', 'steps') 4)) { return $false }
+    $raStepBlocks = [regex]::Matches($raJobs[0].Groups['body'].Value, '(?ms)^    steps:[ \t]*\r?\n(?<body>.*?)(?=^    \S|\z)')
+    if ($raStepBlocks.Count -ne 1) { return $false }
+    $raSteps = @([regex]::Matches($raStepBlocks[0].Groups['body'].Value, '(?ms)^      - name: (?<name>[^\r\n]+)\r?\n(?<body>.*?)(?=^      - |\z)'))
+    $raPack = @($raSteps | Where-Object { $_.Groups['name'].Value -ceq 'Pack the module-author NuGet packages' })
+    $raAssemble = @($raSteps | Where-Object { $_.Groups['name'].Value -ceq 'Assemble release assets and checksums' })
+    $raPublish = @($raSteps | Where-Object { $_.Groups['name'].Value -ceq 'Publish the GitHub release' })
+    return ($raPack.Count -eq 1 -and $raAssemble.Count -eq 1 -and $raPublish.Count -eq 1 -and
+        $raPack[0].Index -lt $raAssemble[0].Index -and $raAssemble[0].Index -lt $raPublish[0].Index -and
+        (Test-NuGetPackBody $raPack[0].Groups['body'].Value $false) -and
+        (Test-NuGetMappingLayout $raAssemble[0].Groups['body'].Value @('shell', 'run', 'continue-on-error') @('shell', 'run') 8) -and
+        (Test-NuGetMappingLayout $raPublish[0].Groups['body'].Value @('env', 'shell', 'run', 'continue-on-error') @('shell', 'run') 8))
+}
+Assert-True (Test-NuGetReleasePackFailure $releaseWorkflowText) (
+    'release.yml propagates the module-author NuGet pack failure (RA-190)')
+# Recorded lexical cases for this closed source policy, not a complete multiline or YAML class proof.
+# Opaque block data stays opaque; unsupported flow, quoted continuations and comment boundaries are
+# judged by the samples below. They are data, not executable workflow commands or Build arguments.
+$nugetScalarContract = & {
+    foreach ($style in @('|', '|-', '|+', '>', '>-', '>+')) {
+        foreach ($quote in @([string][char]39, [string][char]34)) {
+            $opaque = 'run: ' + $style + "`n  token " + $quote + 'Built by:' + $quote + " marker`n  token " + $quote + "built`n  today" + $quote + "`nnext: closed`n"
+            if (-not (Test-NuGetPhysicalScalars $opaque)) { return $false }
+            $bare = '- ' + $style + "`n  " + $quote + "opaque`n- closed`n"
+            if (-not (Test-NuGetPhysicalScalars $bare)) { return $false }
+            $sibling = '- run: ' + $style + "`n    opaque`n  env:`n    NOTE: " + $quote + "unfinished`n"
+            if (Test-NuGetPhysicalScalars $sibling) { return $false }
+        }
+    }
+    foreach ($quote in @([string][char]39, [string][char]34)) {
+        $bareQuoted = "name:`n  " + $quote + "open`n  close" + $quote + "`n"
+        if (Test-NuGetPhysicalScalars $bareQuoted) { return $false }
+        $explicitQuoted = '? ' + $quote + "open`n  close" + $quote + ": value`n"
+        if (Test-NuGetPhysicalScalars $explicitQuoted) { return $false }
+        $sequenceQuoted = '- ' + $quote + "open`n  close" + $quote + "`n"
+        if (Test-NuGetPhysicalScalars $sequenceQuoted) { return $false }
+        $closedQuoted = 'name: ' + $quote + 'open close' + $quote + "`n"
+        if (-not (Test-NuGetPhysicalScalars $closedQuoted)) { return $false }
+        $closedExplicit = '? ' + $quote + 'open close' + $quote + ": value`n"
+        if (-not (Test-NuGetPhysicalScalars $closedExplicit)) { return $false }
+        $closedSequence = '- ' + $quote + 'open close' + $quote + "`n"
+        if (-not (Test-NuGetPhysicalScalars $closedSequence)) { return $false }
+        $openFlow = "env: {A: one`n  >`n    , B: " + $quote + "unfinished`n"
+        if (Test-NuGetPhysicalScalars $openFlow) { return $false }
+        $cancelledFlow = "env:`n  NOTE]: {A: one`n    >`n      , B: " + $quote + "unfinished`n"
+        if (Test-NuGetPhysicalScalars $cancelledFlow) { return $false }
+        $nbspComment = "env:`n  NOTE: prefix" + [char]0x00A0 + "#, " + $quote + "unfinished`n"
+        if (Test-NuGetPhysicalScalars $nbspComment) { return $false }
+        $spaceComment = "env:`n  NOTE: prefix #, " + $quote + "unfinished`n"
+        if (-not (Test-NuGetPhysicalScalars $spaceComment)) { return $false }
+        $tabComment = "env:`n  NOTE: prefix`t#, " + $quote + "unfinished`n"
+        if (-not (Test-NuGetPhysicalScalars $tabComment)) { return $false }
+    }
+    foreach ($closedFlow in @("NOTE: [one]`n", "NOTE: {A: one}`n", "NOTE: ']'`n")) {
+        if (-not (Test-NuGetPhysicalScalars $closedFlow)) { return $false }
+    }
+    $quotedKey = [string][char]34 + "RE:MARK 'x" + [char]34 + ": 'unfinished`n"
+    if (Test-NuGetPhysicalScalars ("env:`n  " + $quotedKey)) { return $false }
+    return $true
+}
+Assert-True $nugetScalarContract (
+    'NuGet source policy preserves opaque scalar blocks and refuses multiline quoted headers in the recorded cases (RA-190)')
 # THE RELEASE NOTES SAY SIGNED OR UNSIGNED FROM THE THUMBPRINT. release.yml hardcoded "Unsigned" in the notes
 # while its own header promised the first signed release needs no workflow edit (RA-002). The publish step's
 # env maps the thumbprint (the F002 route) and the --notes text is built from $signedWord; the old literal is
 # asserted absent from every run body of the file.
-$releaseWorkflowText = Get-Content -LiteralPath (Join-Path $repoRoot '.github\workflows\release.yml') -Raw
 $releasePublishSlices = @([regex]::Split($releaseWorkflowText, '(?m)^      - name:') | Select-Object -Skip 1 |
     ForEach-Object { $_ -replace '(?m)^[ \t]*#.*$', '' } | Where-Object { $_ -cmatch '\A Publish the GitHub release' })
 $releaseNotesFromThumbprint = '--notes "$signedWord x64 build for $tag'
@@ -4383,7 +4636,7 @@ $cliRemembranceProject = Get-Content -LiteralPath (Join-Path $repoRoot 'modules\
 Assert-True ($cliAiBrainProject.Contains($cliProjectLink) -and $cliRemembranceProject.Contains($cliProjectLink) -and
     $cliRemembranceProject.Contains('<Compile Include="..\AiBrain\engine\AiExecutablePolicy.cs"')) (
     'AI Brain and Remembrance both compile the shared CLI runner by link, and Remembrance the trust rules it applies (feature/cli-backend)')
-$cliRunnerCopies = @(& git -C $repoRoot ls-files -co --exclude-standard -- '*CodingAgentCli.cs' 2>$null)
+$cliRunnerCopies = @(Get-TrackedFiles -GitArguments 'ls-files', '-co', '--exclude-standard', '--', '*CodingAgentCli.cs')
 Assert-True ($cliRunnerCopies.Count -eq 1 -and $cliRunnerCopies[0] -ceq 'shared/CodingAgentCli/CodingAgentCli.cs') (
     "the CLI runner exists once, in shared/CodingAgentCli (found $($cliRunnerCopies -join ', '))")
 
@@ -4600,7 +4853,7 @@ Assert-True (
 $insightPublishCode = Remove-PsLineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'packaging\New-ModulePublish.ps1') -Raw)
 $insightPublishJudgeAt = $insightPublishCode.IndexOf('Test-ModuleEntriesWithAppParser -RepoRoot $repoRoot', [StringComparison]::Ordinal)
 $insightPublishBuildAt = $insightPublishCode.IndexOf('& dotnet build $csproj.FullName', [StringComparison]::Ordinal)
-$insightPublishZipAt = $insightPublishCode.IndexOf("New-ModuleDistZip.ps1", [StringComparison]::Ordinal)
+$insightPublishZipAt = $insightPublishCode.IndexOf('$zip = & (Join-Path $PSScriptRoot ''New-ModuleDistZip.ps1'') @zipArguments', [StringComparison]::Ordinal)
 $insightPublishManifestAt = $insightPublishCode.IndexOf('[IO.File]::WriteAllText($manifestPath', [StringComparison]::Ordinal)
 Assert-True ($insightPublishJudgeAt -ge 0 -and $insightPublishBuildAt -ge 0 -and $insightPublishZipAt -ge 0 -and $insightPublishManifestAt -ge 0) (
     'catalog-insight: the publish''s judgement, build, zip and manifest write were located')
@@ -4932,11 +5185,11 @@ Assert-True ($briNotRunNamesAt -ge 0 -and $briNotRunAt -gt $briNotRunNamesAt -an
     $briRunner.IndexOf("`n", $briRunner.IndexOf("`n", $briNotRunAt, [StringComparison]::Ordinal) + 1, [StringComparison]::Ordinal) -gt $briNotRunJoinAt -and
     -not $briRunner.Contains('=1 -- $($r.RealInputSkips[0])")')) (
     "blinkingled-resume: Test-ModuleSelfTests.ps1's SELFTEST-NOT-RUN: line names every check a module did not run, joined from all its SKIPPED lines, not the first alone (found at $briNotRunNamesAt, $briNotRunAt, $briNotRunJoinAt)")
-$briRealInputLine = [regex]::Match($briRunner, 'if \(-not \$noRealInputRequested\) \{\s*Write-Host "REAL INPUT: DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT is not 1, so blinkingled''s self-test makes one pair of real Scroll Lock presses"\s*\}')
+$briRealInputLine = [regex]::Match($briRunner, 'if \(-not \$noRealInputRequested -and \$Covered -contains ''blinkingled''\) \{\s*Write-Host "REAL INPUT: DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT is not 1, so blinkingled''s self-test makes one pair of real Scroll Lock presses"\s*\}')
 $briFirstModuleAt = $briRunner.IndexOf('foreach ($id in $Covered) {', [StringComparison]::Ordinal)
 Assert-True ($briRealInputLine.Success -and $briFirstModuleAt -gt $briRealInputLine.Index -and
     $briRunner.IndexOf('$noRealInputRequested = (', [StringComparison]::Ordinal) -lt $briRealInputLine.Index) (
-    "blinkingled-resume: Test-ModuleSelfTests.ps1 prints its REAL INPUT line when DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT is not 1, before the first module runs (found at $($briRealInputLine.Index), first module at $briFirstModuleAt)")
+    "blinkingled-resume: Test-ModuleSelfTests.ps1 prints its REAL INPUT line when DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT is not 1 and blinkingled is selected, before the first module runs (found at $($briRealInputLine.Index), first module at $briFirstModuleAt)")
 
 # ---- lane feature/stale-pet-xml ----
 # (invariants added by lane feature/stale-pet-xml go directly below this line)
@@ -5653,18 +5906,20 @@ Assert-True ($w2pRepairPublish.Count -eq 1 -and $w2pRepairPublish[0].GetAttribut
 
 # THE MODULE PUBLISH COMMITS ITS OWN TWO PATHS, AND ONLY WHEN THEY CHANGED (N-audit-1106-263). A bare `git commit` took the
 # whole index into 'chore(modules): publish', and threw on a re-run that had nothing new to commit. No check may run
-# New-ModulePublish.ps1 (it writes modules-dist\ and catalog.json), so this is the source half, comment-stripped: the
-# staged-paths question comes first, the commit sits in the else of its empty answer (ORDER), the commit names
-# $publishPaths after `--`, and the old bare form is gone (WITNESS: the absence pattern matches that form).
+# New-ModulePublish.ps1 (it writes modules-dist\ and catalog.json), so this is the source half, comment-stripped. Since the
+# master merge of 905c03b9 the commit is master's Invoke-ModulePayloadCommit (Test-ModulePublishCommit.ps1 runs it against a
+# synthetic repository), so the slice is that function: the staged-paths question comes first, an empty answer returns
+# before the commit (ORDER), the commit names $paths after `--`, and the old bare form is gone from the whole file
+# (WITNESS: the absence pattern matches that form).
 $w2pPublish = Remove-PsLineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'packaging\New-ModulePublish.ps1') -Raw)
-$w2pStagedAt = $w2pPublish.IndexOf("`$publishStaged = @(Invoke-Git (@('diff', '--cached', '--name-only', '--') + `$publishPaths)", [StringComparison]::Ordinal)
-$w2pSkipAt = $w2pPublish.IndexOf('if ($publishStaged.Count -eq 0) {', [StringComparison]::Ordinal)
-$w2pCommitAt = $w2pPublish.IndexOf("Invoke-Git (@('commit', '-q', '-m',", [StringComparison]::Ordinal)
-Assert-True ($w2pStagedAt -gt 0 -and $w2pSkipAt -gt $w2pStagedAt -and $w2pCommitAt -gt $w2pSkipAt -and
-    $w2pPublish.Substring($w2pSkipAt, $w2pCommitAt - $w2pSkipAt) -cmatch '\}\s*else \{\s*$') (
+$w2pCommitFn = Get-MethodBody $w2pPublish 'function Invoke-ModulePayloadCommit(' @("`n}")
+$w2pStagedAt = $w2pCommitFn.IndexOf("`$changes = @(Invoke-Git (@('-C', `$Repository, 'diff', '--cached', '--name-only', '--') + `$paths)", [StringComparison]::Ordinal)
+$w2pSkipAt = $w2pCommitFn.IndexOf('if ($changes.Count -eq 0) { return $false }', [StringComparison]::Ordinal)
+$w2pCommitAt = $w2pCommitFn.IndexOf("Invoke-Git (@('-C', `$Repository, 'commit', ", [StringComparison]::Ordinal)
+Assert-True ($w2pCommitFn.Length -gt 0 -and $w2pStagedAt -gt 0 -and $w2pSkipAt -gt $w2pStagedAt -and $w2pCommitAt -gt $w2pSkipAt) (
     'w2-packaging-ci-1: the module publish commits only when its two paths have staged changes, asked first')
-$w2pCommitTail = "'-m', `$publishBody, '--') + `$publishPaths) 'git commit'"
-Assert-True ($w2pCommitAt -gt 0 -and $w2pPublish.Substring($w2pCommitAt) -cmatch ('\A[^\r\n]*\r?\n[ \t]*' + [regex]::Escape($w2pCommitTail))) (
+$w2pCommitTail = "'-m', `$Subject, '-m', `$Body, '--') + `$paths) 'git commit payload'"
+Assert-True ($w2pCommitAt -gt 0 -and $w2pCommitFn.Substring($w2pCommitAt) -cmatch ('\A[^\r\n]*' + [regex]::Escape($w2pCommitTail))) (
     'w2-packaging-ci-1: the module publish commit names its two paths after --, not the whole index')
 Assert-True (("Invoke-Git @('commit', '-q', '-m'" -cmatch "Invoke-Git @\('commit'") -and $w2pPublish -cnotmatch "Invoke-Git @\('commit'") (
     'w2-packaging-ci-1: no bare whole-index commit is left in the module publish (WITNESS: the pattern matches that form)')
@@ -5693,7 +5948,8 @@ Assert-True ($w2CoreUnregistered.Count -eq 0 -and @(@('TestW2WitnessGroup') | Wh
 # call. The CALL SITES are therefore also floored, pinned to the count the harnesses carry today, as
 # tests\Invoke-ShimejiConvertChecks.ps1 pins $shimejiSuiteFloor: deleting one fails here and has to be a deliberate edit of
 # this number, while adding one costs nothing.
-$w2BrokerCallSiteFloor = 118
+# 118 -> 234 in the step 11 merge of master 905c03b9, whose AgentBroker harnesses carry 234 call sites (measured).
+$w2BrokerCallSiteFloor = 234
 $w2BrokerClasses = 0
 $w2BrokerCallSites = 0
 $w2BrokerUnrun = New-Object 'Collections.Generic.List[string]'
@@ -5944,10 +6200,10 @@ Assert-True (@([regex]::Matches($respawnChild, $w3ToVirtual)).Count -eq 1 -and
 # no gate or CI step. tests\Invoke-OfflineScriptChecks.ps1 (which run-gate.ps1 and build.yml both call) lists each, runs
 # each list entry, and adds a failure on a nonzero exit; ORDER: every failure is added before the final throw.
 $w3Offline = Remove-PsLineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'tests\Invoke-OfflineScriptChecks.ps1') -Raw)
+# Since the master merge of 905c03b9 the installer runner's --self-test and the shard controller's three checks run in
+# master's summary-checked rows instead, so the two exit-code lists hold the three Python entries below and the MSI suites.
 $w3Wanted = @("@('mutate-agentflow.py', '--check-patterns')", "@('mutate-diagnostics.py', '--check-patterns')",
-    "@('run_installer_shutdown_mutations.py', '--self-test')", "@('run_codex_tolerant_note_mutations.py', '--self-test')",
-    "@('..\tools\agentbroker\Invoke-MutationShards.ps1', '-SelfTest')", "@('Test-MutationShardRemainder.ps1', '')",
-    "@('Test-MutationTempBudget.ps1', '')")
+    "@('run_codex_tolerant_note_mutations.py', '--self-test')")
 $w3Missing = @($w3Wanted | Where-Object { $w3Offline.IndexOf($_, [StringComparison]::Ordinal) -lt 0 })
 $w3PythonLoop = $w3Offline.IndexOf('foreach ($check in $mutationPython) {', [StringComparison]::Ordinal)
 $w3PwshLoop = $w3Offline.IndexOf('foreach ($check in $mutationPwsh) {', [StringComparison]::Ordinal)
@@ -6431,7 +6687,7 @@ $w8sMeasure = {
         $throwsAt.Count -eq 1 -and $staleAt -lt $throwsAt[0] -and
         $Code.IndexOf('$verdicts.Add("Module version(s) disagree', $mismatchAt, $degradedAt - $mismatchAt, [StringComparison]::Ordinal) -ge 0 -and
         $Code.IndexOf('$verdicts.Add("$($degraded.Count) module watch set(s) degraded', $degradedAt, $staleAt - $degradedAt, [StringComparison]::Ordinal) -ge 0 -and
-        $Code.IndexOf('$verdicts.Add("Published module payload(s) are behind their source', $staleAt, $throwsAt[0] - $staleAt, [StringComparison]::Ordinal) -ge 0 -and
+        $Code.IndexOf('$verdicts.Add((Get-StalePayloadRemedy -StaleIds @($stale.Id)))', $staleAt, $throwsAt[0] - $staleAt, [StringComparison]::Ordinal) -ge 0 -and
         $Code.Substring($throwsAt[0]) -cmatch '^[ \t]*throw \(\$verdicts -join '
     [pscustomobject]@{ Holds = $holds; Detail = "mismatch $mismatchAt, degraded $degradedAt, stale $staleAt, throws at $($throwsAt -join '/')" }
 }
@@ -6517,10 +6773,12 @@ Assert-True (
 # unless run by hand. Both are #requires 7, so they belong in tests\Invoke-OfflineScriptChecks.ps1's PowerShell 7 list,
 # whose loop reads each child's exit code and adds a failure before the throw (pinned by w3-tests-harness-1 above).
 # Asserted inside that list's literal, comment-stripped, so an entry left in a comment or in another list does not count.
-# WITNESS: the slice holds the TEMP-budget entry, so a slice that found nothing cannot pass.
+# WITNESS: the slice is not empty, and the file read holds the TEMP-budget check as master's summary-checked row (it left
+# this list at the master merge of 905c03b9), so a slice that found nothing, or a read of the wrong file, cannot pass.
 $w9tsOffline = Remove-PsLineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'tests\Invoke-OfflineScriptChecks.ps1') -Raw)
 $w9tsPwshList = [regex]::Match($w9tsOffline, '(?s)\$mutationPwsh = @\((.*?\))\)\r?\n').Groups[1].Value
-Assert-True ($w9tsPwshList.Length -gt 0 -and $w9tsPwshList.Contains("@('Test-MutationTempBudget.ps1', '')")) 'w9-tests-scripts-1: WITNESS the offline checks'' PowerShell 7 list was sliced'
+Assert-True ($w9tsPwshList.Length -gt 0 -and
+    $w9tsOffline.Contains('@{ Name = ''Test-MutationTempBudget.ps1''; Path = (Join-Path $PSScriptRoot ''Test-MutationTempBudget.ps1'')')) 'w9-tests-scripts-1: WITNESS the offline checks'' PowerShell 7 list was sliced'
 Assert-True ($w9tsPwshList.Contains("@('Test-IsolatedMsiApiLogging.ps1', '')") -and $w9tsPwshList.Contains("@('Test-IsolatedMsiApiLoggingCase.ps1', '')")) (
     'w9-tests-scripts-1: the offline checks run both MSI API logging suites in PowerShell 7, judged by exit code')
 # NO TEST PROJECT PINS A WARNING LEVEL BELOW THE SDK DEFAULT (N-bd-w6-tests-core-1-01). w6-tests-core-1's rule above covers
@@ -6572,16 +6830,21 @@ Assert-True ($w9tsLowPins.Count -eq 0) (
     "w9-tests-scripts-1: no project under tests pins a WarningLevel below its target framework's default" +
     $(if ($w9tsLowPins.Count) { ' -- ' + ($w9tsLowPins -join ', ') } else { '' }))
 # ---- burndown/w9-host-1 ----
-# N-audit-1106-234: a module's settings.json is replaced WHOLE on save (a temporary beside it, then File.Replace), because
-# File.WriteAllText truncated it in place first and a save cut short left a damaged file that the next load read as empty.
-# --module-host-selftest drives the load side (the damaged copy and the one log line); no reachable input makes an
+# N-audit-1106-234: a module's settings.json is replaced WHOLE on save, because File.WriteAllText truncated it in place
+# first and a save cut short left a damaged file that the next load read as empty. Since the master merge of 905c03b9 the
+# write is master's lane H Write seam, which calls ModuleKit's AtomicFile.TryWriteAllText outside the self-test.
+# --module-host-selftest drives the load side (the set-aside and the one log line per file); no reachable input makes an
 # in-place write fail half-way, so the write itself is pinned here, as the CALL and the absence of any in-place writer.
 $w9h1HostCode = Remove-LineComments $petHostSource
-$w9h1SettingsSave = Get-MethodBody $w9h1HostCode 'public bool Save()' @("`n            private ", "`n            public ", "`n            internal ")
-Assert-True ($w9h1SettingsSave.Length -gt 0) 'w9-host-1: the module settings Save was located'
+$w9h1Stops = @("`n            private ", "`n            public ", "`n            internal ")
+$w9h1SettingsSave = Get-MethodBody $w9h1HostCode 'public bool Save()' $w9h1Stops
+$w9h1SettingsWrite = Get-MethodBody $w9h1HostCode 'private static bool Write(string path, string json)' $w9h1Stops
+Assert-True ($w9h1SettingsSave.Length -gt 0 -and $w9h1SettingsWrite.Length -gt 0) 'w9-host-1: the module settings Save and its Write were located'
 Assert-True (
-    $w9h1SettingsSave -cmatch 'SecureDownload\.WriteAllBytesAtomic\(_path, ' -and
-    $w9h1SettingsSave -cnotmatch 'File\.(WriteAll|Create|Open|AppendAll)'
+    $w9h1SettingsSave -cmatch 'bool written = Write\(_path, JsonSerializer\.Serialize\(_d\)\);' -and
+    $w9h1SettingsSave -cnotmatch 'File\.(WriteAll|Create|Open|AppendAll)' -and
+    $w9h1SettingsWrite -cmatch 'DesktopAICompanion\.ModuleKit\.AtomicFile\.TryWriteAllText\(path, json, null\)' -and
+    $w9h1SettingsWrite -cnotmatch 'File\.(WriteAll|Create|Open|AppendAll)'
 ) 'w9-host-1: a module settings save replaces settings.json whole through the atomic write, never truncating it in place'
 
 # N-audit-1106-242: the resource-churn soak arms its exit timer whatever the verdict's sampling and marker write do.
@@ -6814,20 +7077,26 @@ Assert-True ($w10PythonList.Contains("@('test_shimeji_parity_scripts.py', '--onl
     'w10-tests-scripts-1: the offline checks run the parity script test''s offline-runner leg outside -ParityOnly, judged by exit code')
 # THE WORKER-CLEANUP AND INSTALLER-SHUTDOWN TESTS REMOVE THEIR SCRATCH TREES ON A PASS (N-audit-1106-363, N-audit-1106-366).
 # Each run left artifacts\worker-cleanup-tests-<guid> (a Git repository and its worktree) or build\scoped-shutdown-tests\<guid>
-# (six copies of the synthetic exe) behind. ORDER, comment-stripped: past the point a failing run stops (the worker test's
-# last check; the shutdown test's failure throw, itself after its child-cleanup finally), then the leaf check, then the
-# reparse-point refusal, then the recursive delete of $scratch, the only recursive delete in the file. A failing run says
-# where its kept folder is.
+# (six copies of the synthetic exe) behind. The shutdown test, comment-stripped: past its failure throw (itself after its
+# child-cleanup finally), then the leaf check, then the reparse-point refusal, then the recursive delete of $scratch, the
+# only recursive delete in the file; a failing run says where its kept folder is. The worker test is master's since the
+# merge of 905c03b9 (its failed-run evidence follows master): ORDER, comment-stripped: the worktree is marked registered
+# straight after `worktree add`; the main finally removes that worktree, then the whole scratch tree through
+# OwnedTestTree.ps1's Remove-OwnedTestTree (whose leaf and parent checks Test-OwnedTestTree.ps1 grades); and the absence of
+# the tree is a check after the finally. No hand-written recursive delete is left in the file.
 $w10Worker = Remove-PsLineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'tests\Test-CompletedWorkerBinaryCleanup.ps1') -Raw)
-$w10WorkerLastCheck = $w10Worker.LastIndexOf('Check ([IO.File]::Exists($path)) ''partial failure still preserves evidence''', [StringComparison]::Ordinal)
-$w10WorkerGuard = $w10Worker.IndexOf('(Split-Path -Leaf $scratch) -cnotmatch ''^worker-cleanup-tests-[0-9a-f]{32}$''', [StringComparison]::Ordinal)
-$w10WorkerLinks = $w10Worker.IndexOf('elseif (@(Get-ChildItem -LiteralPath $scratch -Recurse -Force -Attributes ReparsePoint).Count -gt 0) {', [StringComparison]::Ordinal)
-$w10WorkerDelete = $w10Worker.IndexOf('[IO.Directory]::Delete($scratch, $true)', [StringComparison]::Ordinal)
+$w10WorkerAdd = $w10Worker.IndexOf('[void](Invoke-WorkerBinaryGit $tiny @(''worktree'',''add'',''--quiet'',''--detach'',$worker))', [StringComparison]::Ordinal)
+$w10WorkerRegistered = $w10Worker.IndexOf('$registered = $true', [StringComparison]::Ordinal)
+$w10WorkerFinallyMatch = [regex]::Match($w10Worker, '(?m)^finally \{')
+$w10WorkerFinally = $(if ($w10WorkerFinallyMatch.Success) { $w10WorkerFinallyMatch.Index } else { -1 })
+$w10WorkerRemove = $w10Worker.IndexOf('[void](Invoke-WorkerBinaryGit $tiny @(''worktree'',''remove'',''--force'',$worker))', [StringComparison]::Ordinal)
+$w10WorkerTree = $w10Worker.IndexOf('Remove-OwnedTestTree $scratch (Join-Path $repo ''artifacts'')', [StringComparison]::Ordinal)
+$w10WorkerAbsent = $w10Worker.IndexOf('Check (-not (Test-Path -LiteralPath $scratch)) ''fixture and registered worktree removed''', [StringComparison]::Ordinal)
 $w10WorkerRecursive = @([regex]::Matches($w10Worker, '\[IO\.Directory\]::Delete\([^()]*,\s*\$true\)')).Count
-Assert-True ($w10Worker.Length -gt 0 -and $w10WorkerLastCheck -ge 0 -and $w10WorkerGuard -gt $w10WorkerLastCheck -and
-    $w10WorkerLinks -gt $w10WorkerGuard -and $w10WorkerDelete -gt $w10WorkerLinks -and $w10WorkerRecursive -eq 1 -and
-    $w10Worker.Contains('its scratch folder is kept for inspection: $keptScratch')) (
-    "w10-tests-scripts-1: the worker-cleanup test removes its own scratch tree after its last check, leaf and reparse points checked first (last check at $w10WorkerLastCheck, guard at $w10WorkerGuard, reparse at $w10WorkerLinks, delete at $w10WorkerDelete, recursive deletes $w10WorkerRecursive)")
+Assert-True ($w10Worker.Length -gt 0 -and $w10WorkerAdd -ge 0 -and $w10WorkerRegistered -gt $w10WorkerAdd -and
+    $w10WorkerFinally -gt $w10WorkerRegistered -and $w10WorkerRemove -gt $w10WorkerFinally -and $w10WorkerTree -gt $w10WorkerRemove -and
+    $w10WorkerAbsent -gt $w10WorkerTree -and $w10WorkerRecursive -eq 0) (
+    "w10-tests-scripts-1: the worker-cleanup test removes its own scratch tree and registered worktree in its finally, then checks they are gone (add at $w10WorkerAdd, registered at $w10WorkerRegistered, finally at $w10WorkerFinally, worktree remove at $w10WorkerRemove, tree removal at $w10WorkerTree, absence check at $w10WorkerAbsent, recursive deletes $w10WorkerRecursive)")
 $w10Shutdown = Remove-PsLineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'tests\Test-InstallerShutdown.ps1') -Raw)
 $w10ShutdownFinally = $w10Shutdown.IndexOf('$cleanupFailures = New-Object', [StringComparison]::Ordinal)
 $w10ShutdownThrow = $w10Shutdown.IndexOf('throw $primaryFailure', [StringComparison]::Ordinal)
@@ -7050,10 +7319,13 @@ Assert-True ($w14Every -cmatch 'if \(RemovePetInstance\(pet\)\) removed\+\+;\s*F
 # BEHAVIOUR first, unlike the rest of this file: the committed zips are the scan's only real input and stay red until the
 # release republishes them, so the oracle for its rules is Test-BuildIdentityScan's synthetic images, one assertion per
 # leg with the leg's name in the label. Dot-sourced inside a child scope so its helpers stay out of this file's.
-# Then the WIRING, comment-stripped and in ORDER: the freshness check proves the scan before the zip loop and refuses on
-# a failed leg; inside the loop each DLL's findings become lines naming the zip, the DLL and the kind; a finding adds a
-# verdict that the one throw carries; and no line quotes a path the scan found (the CodeView and document lines did).
-# WITNESS: the legs ran, and the loop still reads every zip's own DLLs and still scans the CodeView string.
+# Then the WIRING, comment-stripped and in ORDER, as the step 11 merge left it (RULINGS R-9: master's zip loop and its
+# immediate throws verbatim, the identity scan in a pass of its own after the legacy WITNESS): the freshness check proves
+# the scan before the zip loop and refuses on a failed leg; the build-identity pass re-reads every zip and turns each
+# DLL's findings into lines naming the zip, the DLL and the kind; a finding adds a verdict that the pass's throw carries;
+# and no offender line quotes a path the scan found (OURS' CodeView and document lines did; master's lines are counts).
+# WITNESS: the legs ran; the zip loop hands every zip to master's Get-ModuleZipPrivacyVerdict, which reads each DLL of
+# ours and scans the CodeView string; and the identity pass after the loop reads every zip's own DLLs.
 $w14Legs = @(& { . (Join-Path $repoRoot 'packaging\EmbeddedPortablePdb.ps1'); Test-BuildIdentityScan })
 # EXACTLY eleven legs, not "some": a leg deleted from Test-BuildIdentityScan leaves its rule with no grader and every
 # remaining leg green, and only the count can see that.
@@ -7063,8 +7335,23 @@ foreach ($w14Leg in $w14Legs) {
 }
 $w14Fresh = Remove-PsLineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'packaging\Test-ModulePublishFreshness.ps1') -Raw)
 $w14Loop = $w14Fresh.IndexOf('foreach ($bpZip in $buildPathZips) {', [StringComparison]::Ordinal)
-$w14Entries = $w14Fresh.IndexOf('foreach ($bpDll in @(Read-ZipEntryBytes -ZipPath $bpZip.FullName -EntryNames @($ourAssemblies))) {', [StringComparison]::Ordinal)
-$w14CodeView = $w14Fresh.IndexOf('foreach ($bpMatch in $buildPathPattern.Matches($bpText)) {', [StringComparison]::Ordinal)
+$w14LoopEnd = -1
+if ($w14Loop -ge 0) { $w14LoopEnd = $w14Fresh.IndexOf("`n}", $w14Loop, [StringComparison]::Ordinal) }
+$w14LoopPattern = $w14Fresh.IndexOf('CodeViewPattern = $buildPathPattern', [StringComparison]::Ordinal)
+$w14LoopVerdict = $w14Fresh.IndexOf('$bpVerdict = Get-ModuleZipPrivacyVerdict @bpArguments', [StringComparison]::Ordinal)
+# Master's per-zip verdict is a function DEFINED BEFORE the loop, so its DLL read and its CodeView scan are found inside
+# its own body (to the next line-start function), never by position against the loop.
+$w14VerdictAt = $w14Fresh.IndexOf('function Get-ModuleZipPrivacyVerdict {', [StringComparison]::Ordinal)
+$w14VerdictBody = ''
+if ($w14VerdictAt -ge 0) {
+    $w14VerdictEnd = $w14Fresh.IndexOf("`nfunction ", $w14VerdictAt + 1, [StringComparison]::Ordinal)
+    if ($w14VerdictEnd -gt $w14VerdictAt) { $w14VerdictBody = $w14Fresh.Substring($w14VerdictAt, $w14VerdictEnd - $w14VerdictAt) }
+}
+$w14VerdictDlls = $w14VerdictBody.IndexOf('foreach ($dll in @(Read-ZipEntryBytes -ZipBytes $ZipBytes -EntryNames @($OurAssemblies))) {', [StringComparison]::Ordinal)
+$w14CodeView = $w14VerdictBody.IndexOf('$codeView = $CodeViewPattern.Matches([Text.Encoding]::GetEncoding(28591).GetString($dll.Bytes)).Count', [StringComparison]::Ordinal)
+$w14LegacyWitness = $w14Fresh.IndexOf('if ($legacyWithoutSourceLink.Count -gt 0) {', [StringComparison]::Ordinal)
+$w14Pass = $w14Fresh.IndexOf('for ($bpIndex = 0; $bpIndex -lt $buildPathZips.Count; $bpIndex++) {', [StringComparison]::Ordinal)
+$w14Entries = $w14Fresh.IndexOf('foreach ($bpDll in @(Read-ZipEntryBytes -ZipBytes $bpZipBytes -EntryNames @($ourAssemblies))) {', [StringComparison]::Ordinal)
 $w14Proof = $w14Fresh.IndexOf('$identityProof = @(Test-BuildIdentityScan)', [StringComparison]::Ordinal)
 $w14Refuse = $w14Fresh.IndexOf('if ($identityProof.Count -eq 0 -or $identityProofFailed.Count -gt 0) {', [StringComparison]::Ordinal)
 $w14Judge = $w14Fresh.IndexOf('$identity = Get-BuildIdentityFindings -Image $bpDll.Bytes', [StringComparison]::Ordinal)
@@ -7072,31 +7359,62 @@ $w14Add = $w14Fresh.IndexOf('foreach ($kind in $identity.Findings) { $buildIdent
 $w14Verdict = $w14Fresh.IndexOf('if ($buildIdentityOffenders.Count -gt 0) {', [StringComparison]::Ordinal)
 $w14VerdictAdd = $w14Fresh.IndexOf('$scanVerdicts.Add("$($buildIdentityOffenders.Count) build-identity finding(s)', [StringComparison]::Ordinal)
 $w14Throw = $w14Fresh.IndexOf('throw ($scanVerdicts -join '' '')', [StringComparison]::Ordinal)
-Assert-True ($w14Fresh.Length -gt 0 -and $w14Loop -ge 0 -and $w14Entries -gt $w14Loop -and $w14CodeView -gt $w14Entries) (
-    'w14-packaging-ci-1: WITNESS the freshness check was read, and its loop still reads every zip''s own DLLs and scans the CodeView string')
+Assert-True ($w14Fresh.Length -gt 0 -and $w14Loop -ge 0 -and $w14VerdictAt -ge 0 -and $w14VerdictAt -lt $w14Loop -and
+             $w14VerdictDlls -ge 0 -and $w14CodeView -gt $w14VerdictDlls -and
+             $w14LoopPattern -gt $w14Loop -and $w14LoopVerdict -gt $w14LoopPattern -and $w14LoopEnd -gt $w14LoopVerdict -and
+             $w14Pass -gt $w14LoopEnd -and $w14Entries -gt $w14Pass) (
+    'w14-packaging-ci-1: WITNESS the freshness check was read, its zip loop hands every zip to the verdict that reads each DLL of ours and scans the CodeView string, and the build-identity pass after it reads every zip''s own DLLs')
 Assert-True ($w14Proof -ge 0 -and $w14Refuse -gt $w14Proof -and $w14Loop -gt $w14Refuse -and
              $w14Fresh.Substring($w14Refuse, $w14Loop - $w14Refuse) -cmatch '(?m)^[ \t]*throw \("The build-identity scan failed its own proof') (
     'w14-packaging-ci-1: the freshness check proves the build-identity scan on synthetic images before the zip loop and refuses on a failed leg')
 Assert-True ($w14Judge -gt $w14Entries -and $w14Add -gt $w14Judge -and $w14Verdict -gt $w14Add) (
     'w14-packaging-ci-1: every one of our DLLs in every zip is judged for a build identity, each finding a line naming the zip, the DLL and the kind')
-# The first throw after the identity block IS the one throw: the block must not throw its own sentence.
-Assert-True ($w14VerdictAdd -gt $w14Verdict -and $w14Throw -gt $w14VerdictAdd -and
+# The first throw after the identity block IS the pass's throw: the block must not throw its own sentence.
+# ORDER AS IT HOLDS NOW, not as OURS had it. OURS collected the build-path and identity verdicts and printed both lists
+# before one throw. The merge keeps master's build-path and SourceLink decisions as immediate throws, because
+# tests\Test-ModulePublishFreshnessRules.ps1 G4 and G5 execute them in place (RULINGS R-9), so the identity pass runs after
+# the legacy WITNESS and its throw carries the identity verdict alone. N-bd-w14-review-06 (R-6, widened by R-9) collects
+# every section's verdicts into one throw; it must rewrite this order and the SourceLink run below.
+Assert-True ($w14LegacyWitness -gt $w14LoopEnd -and $w14Pass -gt $w14LegacyWitness -and $w14Verdict -gt $w14Pass -and
+             $w14VerdictAdd -gt $w14Verdict -and $w14Throw -gt $w14VerdictAdd -and
              $w14Fresh.IndexOf('throw', $w14Verdict, $w14Throw + 5 - $w14Verdict, [StringComparison]::Ordinal) -eq $w14Throw) (
-    'w14-packaging-ci-1: a build-identity finding adds a verdict that the shipped-DLL scan''s one throw carries')
+    'w14-packaging-ci-1: a build-identity finding adds a verdict that the build-identity pass''s throw carries, the pass running after the build-path and SourceLink decisions until N-bd-w14-review-06')
+# Master's offender lines are COUNTS, and these three are every line its verdict adds: one that appends the match, a
+# name or any other text is a different line and fails here (the section run below also judges a planted path).
+$w14CountLines = @([regex]::Matches($w14VerdictBody, '(?m)^[ \t]*\$(?:buildPath|sourceLink)\.Add\(.*$') | ForEach-Object { $_.Value.Trim() })
+$w14CountWanted = @(
+    '$buildPath.Add($Name + '' -> '' + $dll.Name + " : $codeView CodeView build path(s)")',
+    '$buildPath.Add($Name + '' -> '' + $dll.Name + " : $($privacy.AbsoluteDocumentCount) absolute embedded PDB document name(s)")',
+    '$sourceLink.Add($Name + '' -> '' + $dll.Name + " : SourceLink record in $($privacy.SourceLinkPdbCount) embedded PDB(s)")')
 Assert-True ($w14Fresh -cnotmatch '\$bpMatch\.Value' -and $w14Fresh -cnotmatch '\+ \$documentName\)' -and
-             $w14Fresh -cmatch '\$buildPathOffenders\.Add\(\$bpZip\.Name \+ " -> " \+ \$bpDll\.FullName \+ " : a CodeView record naming an absolute \.pdb path"\)') (
+             ($w14CountLines -join "`n") -ceq ($w14CountWanted -join "`n")) (
     'w14-packaging-ci-1: the shipped-DLL scan prints no path it found, neither a CodeView path nor a document name')
-# THE SECTION RUN, NOT ONLY READ (the review of N-bd-w13-contracts-1-02). The order checks above cannot see a CONDITION
-# that stops firing ("if ($scanVerdicts.Count -gt 1)", or a proof refusal fed "@()"), and a redaction check over source
-# text bans only the spellings it names. So the shipped-DLL section's own text, cut from the comment-stripped freshness
-# check in three pieces (the setup, the proof refusal, then the zip loop with its verdicts and witnesses), is RUN in a
-# child scope over planted input: one zip holding one ModuleKit.dll, handed over by a stubbed Read-ZipEntryBytes, with the
-# proof stubbed to pass (its legs are graded above) or, for the refusal, to fail one leg of two. What the section prints
-# (Write-Host is stream 6) and the message it throws are captured and judged; a planted path must appear in neither.
+# THE SECTION RUN, NOT ONLY READ (the review of N-bd-w13-contracts-1-02; reworked at the step 11 merge, R-5). The order
+# checks above cannot see a CONDITION that stops firing ("if ($scanVerdicts.Count -gt 1)", or a proof refusal fed "@()"),
+# and a redaction check over source text bans only the spellings it names. So the shipped-DLL section's own text, cut
+# from the comment-stripped freshness check in three pieces (the setup, the proof refusal, then master's zip loop through
+# the build-identity pass with every verdict and witness), is RUN in a child scope on the freshness check's OWN helpers,
+# extracted by AST as tests\Test-ModulePublishFreshnessRules.ps1 extracts them, so the verdict, the hash, the legacy list
+# and the tally are the real ones and no stub stands in for a reader. The input is a real zip holding one ModuleKit.dll,
+# written under a scratch folder this file creates and removes; only the proof is stubbed, to pass (its legs are graded
+# above) or, for the refusal, to fail one leg of two. What the section prints (Write-Host is stream 6) and the message it
+# throws are captured and judged; a planted path must appear in neither.
 $w14SetupAt = $w14Fresh.IndexOf('$buildPathPattern = [regex]', [StringComparison]::Ordinal)
 $w14SetupEnd = $w14Fresh.IndexOf('$ourAssemblies = New-Object', [StringComparison]::Ordinal)
 $w14ProofAt = $w14Fresh.IndexOf('$buildIdentityOffenders = [System.Collections.Generic.List[string]]::new()', [StringComparison]::Ordinal)
-$w14Cut = ($w14SetupAt -ge 0 -and $w14SetupEnd -gt $w14SetupAt -and $w14ProofAt -gt $w14SetupEnd -and $w14Loop -gt $w14ProofAt)
+# Every freshness function the cut text calls, each defined exactly once (EmbeddedPortablePdb.ps1 supplies the rest).
+$w14HelperNames = @('Read-ZipEntryBytes', 'Get-Sha256Hex', 'Get-LegacyModuleZipBaselines', 'Test-LegacyModuleZip',
+                    'Get-ModuleZipPrivacyVerdict', 'Get-SourceLinkTallyLine', 'Select-BuildIdentityFindings')
+$w14ParseTokens = $null
+$w14ParseErrors = $null
+$w14Ast = [Management.Automation.Language.Parser]::ParseFile((Join-Path $repoRoot 'packaging\Test-ModulePublishFreshness.ps1'), [ref]$w14ParseTokens, [ref]$w14ParseErrors)
+$w14Helpers = @(foreach ($w14HelperName in $w14HelperNames) {
+    $w14Defined = @($w14Ast.FindAll({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $w14HelperName }, $true))
+    if ($w14Defined.Count -eq 1) { $w14Defined[0].Extent.Text }
+})
+$w14HelperText = $w14Helpers -join "`n"
+$w14Cut = ($w14ParseErrors.Count -eq 0 -and $w14Helpers.Count -eq $w14HelperNames.Count -and
+           $w14SetupAt -ge 0 -and $w14SetupEnd -gt $w14SetupAt -and $w14ProofAt -gt $w14SetupEnd -and $w14Loop -gt $w14ProofAt)
 $w14SetupText = ''; $w14ProofText = ''; $w14LoopText = ''
 if ($w14Cut) {
     $w14SetupText = $w14Fresh.Substring($w14SetupAt, $w14SetupEnd - $w14SetupAt)
@@ -7104,19 +7422,28 @@ if ($w14Cut) {
     $w14LoopText = $w14Fresh.Substring($w14Loop)
 }
 $w14Whole = $w14SetupText + "`n" + $w14ProofText + "`n" + $w14LoopText
+# The scratch folder: a fresh GUID-named child of TEMP, created below and removed after the runs, its absence asserted.
+$w14ScratchParent = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\')
+$w14Scratch = Join-Path $w14ScratchParent ('dac-hardening-w14-' + [Guid]::NewGuid().ToString('N'))
 $w14RunSection = {
-    param([string]$Text, [object[]]$Images, [bool]$ProofFails)
+    param([string]$Text, [byte[]]$Image, [bool]$ProofFails)
+    Add-Type -AssemblyName System.IO.Compression
     . (Join-Path $repoRoot 'packaging\EmbeddedPortablePdb.ps1')
+    . ([scriptblock]::Create($w14HelperText))
     $stubLegs = @([pscustomobject]@{ Name = 'stub leg'; Passed = $true; Detail = '' })
     if ($ProofFails) { $stubLegs += [pscustomobject]@{ Name = 'stub failing leg'; Passed = $false; Detail = 'found []' } }
     function Test-BuildIdentityScan { $stubLegs }
-    function Read-ZipEntryBytes {
-        param($ZipPath, $EntryNames)
-        foreach ($image in $Images) {
-            [pscustomobject]@{ Name = 'DesktopAICompanion.ModuleKit.dll'; FullName = 'lib/DesktopAICompanion.ModuleKit.dll'; Bytes = $image }
-        }
+    # A FILE, because both passes read each zip's bytes off disk: one entry, lib/DesktopAICompanion.ModuleKit.dll.
+    $zipMemory = New-Object IO.MemoryStream
+    $zipArchive = New-Object IO.Compression.ZipArchive($zipMemory, [IO.Compression.ZipArchiveMode]::Create, $true)
+    try {
+        $zipEntry = $zipArchive.CreateEntry('lib/DesktopAICompanion.ModuleKit.dll').Open()
+        try { $zipEntry.Write($Image, 0, $Image.Length) } finally { $zipEntry.Dispose() }
     }
-    $buildPathZips = @([pscustomobject]@{ Name = 'planted.zip'; FullName = 'planted.zip' })
+    finally { $zipArchive.Dispose() }
+    $zipPath = Join-Path $w14Scratch 'planted.zip'
+    [IO.File]::WriteAllBytes($zipPath, $zipMemory.ToArray())
+    $buildPathZips = @(Get-Item -LiteralPath $zipPath)
     $ourAssemblies = @('DesktopAICompanion.ModuleKit.dll')
     $printed = New-Object 'Collections.Generic.List[string]'
     $message = ''
@@ -7131,34 +7458,66 @@ $w14Images = & {
     $sourceLink = @{ Kind = $script:SourceLinkRecordKind; Text = '{"documents":{"/_/*":"https://example.invalid/*"}}' }
     @{
         Clean        = (New-PortablePdbTestImage -Documents @('/_/src/Kit/A.cs') -Records @($options))
-        IdentityOnly = (New-PortablePdbTestImage -Documents @('/_/src/Kit/A.cs') -Records @($options, $sourceLink))
+        SourceLink   = (New-PortablePdbTestImage -Documents @('/_/src/Kit/A.cs') -Records @($options, $sourceLink))
+        # A profile path with no .pdb after it, in the DLL bytes: no CodeView path, no document, no SourceLink record, so
+        # master's verdict passes it and the build-identity pass is the only check that can see it.
+        IdentityOnly = (New-PortablePdbTestImage -Documents @('/_/src/Kit/A.cs') -Records @($options) -AsciiTail "C:\Users\$w14Planted\src\Kit")
         Planted      = (New-PortablePdbTestImage -Documents @("C:\Users\$w14Planted\src\Kit\A.cs") -Records @($options) -AsciiTail "C:\Users\$w14Planted\obj\Kit.pdb")
         NoOptions    = (New-PortablePdbTestImage -Documents @('/_/src/Kit/A.cs') -Records @())
     }
 }
-$w14Clean = & $w14RunSection $w14Whole (, $w14Images.Clean) $false
-Assert-True ($w14Cut -and -not $w14Clean.Threw -and $w14Clean.Printed -cmatch 'no embedded build paths in 1 of our own published DLL\(s\) across 1 zip\(s\)') (
+# Every run first, inside try/finally, so the scratch folder goes whatever a run does; the assertions judge the results
+# after it. A cleanup fault is reported by exception TYPE only: the folder sits under TEMP, inside the user profile.
+$w14ScratchFault = ''
+[void][IO.Directory]::CreateDirectory($w14Scratch)
+try {
+    $w14Clean = & $w14RunSection $w14Whole $w14Images.Clean $false
+    $w14Refused = & $w14RunSection ($w14SetupText + "`n" + $w14ProofText) $w14Images.Clean $true
+    $w14SourceLink = & $w14RunSection $w14Whole $w14Images.SourceLink $false
+    $w14IdOnly = & $w14RunSection $w14Whole $w14Images.IdentityOnly $false
+    $w14Path = & $w14RunSection $w14Whole $w14Images.Planted $false
+    $w14NoOptions = & $w14RunSection $w14Whole $w14Images.NoOptions $false
+}
+finally {
+    try {
+        $w14ZipLeft = Join-Path $w14Scratch 'planted.zip'
+        if ([IO.File]::Exists($w14ZipLeft)) { [IO.File]::Delete($w14ZipLeft) }
+        if ([IO.Directory]::Exists($w14Scratch)) { [IO.Directory]::Delete($w14Scratch, $false) }
+    }
+    catch { $w14ScratchFault = $_.Exception.GetType().Name }
+}
+Assert-True ($w14Cut -and -not $w14Clean.Threw -and
+             $w14Clean.Printed -cmatch 'no CodeView path or absolute embedded-document name in 1 of our own published DLL\(s\) across 1 zip\(s\)' -and
+             $w14Clean.Printed -cmatch 'No build identity, 1 synthetic leg\(s\) proved first\.') (
     "w14-packaging-ci-1: WITNESS the shipped-DLL section, cut from the freshness check and run on a clean planted DLL, passes it ($($w14Clean.Message))")
-$w14Refused = & $w14RunSection ($w14SetupText + "`n" + $w14ProofText) (, $w14Images.Clean) $true
 Assert-True ($w14Refused.Threw -and $w14Refused.Message -cmatch 'failed its own proof on synthetic images \(1 of 2 leg\(s\)\)' -and
              $w14Refused.Printed -cmatch 'build-identity proof failed: stub failing leg') (
     "w14-packaging-ci-1: run with one proof leg of two failing, the freshness check refuses before the zip loop ($($w14Refused.Message))")
-$w14IdOnly = & $w14RunSection $w14Whole (, $w14Images.IdentityOnly) $false
+# ORDER AS IT HOLDS NOW (see the verdict check above): a Source Link record also trips master's SourceLink refusal, which
+# throws before the build-identity pass runs, so this run's verdict is master's sentence. N-bd-w14-review-06 makes it one
+# throw carrying both verdicts and must rewrite this expectation.
+Assert-True ($w14SourceLink.Threw -and
+             $w14SourceLink.Message -cmatch '^1 published DLL\(s\) outside the LEGACY_PRESERVED set carry a SourceLink record' -and
+             $w14SourceLink.Printed -cmatch 'SourceLink record: planted\.zip -> DesktopAICompanion\.ModuleKit\.dll : SourceLink record in 1 embedded PDB\(s\)' -and
+             $w14SourceLink.Printed -cnotmatch 'no CodeView path') (
+    'w14-packaging-ci-1: run on a DLL whose only finding is a Source Link record, the SourceLink refusal throws first and prints no success line, until N-bd-w14-review-06')
 Assert-True ($w14IdOnly.Threw -and $w14IdOnly.Message -cmatch '^1 build-identity finding\(s\) in published DLLs' -and
-             $w14IdOnly.Printed -cmatch 'build identity: planted\.zip -> lib/DesktopAICompanion\.ModuleKit\.dll : a Source Link record in the embedded PDB' -and
-             $w14IdOnly.Printed -cnotmatch 'no embedded build paths') (
-    "w14-packaging-ci-1: run on a DLL whose only finding is a Source Link record, the shipped-DLL section throws its verdict and prints no success line ($($w14IdOnly.Message))")
-$w14Path = & $w14RunSection $w14Whole (, $w14Images.Planted) $false
+             $w14IdOnly.Printed -cmatch 'build identity: planted\.zip -> lib/DesktopAICompanion\.ModuleKit\.dll : a user-profile path in the DLL bytes \(ASCII\)' -and
+             $w14IdOnly.Printed -cnotmatch 'no CodeView path' -and
+             ($w14IdOnly.Printed + "`n" + $w14IdOnly.Message).IndexOf($w14Planted, [StringComparison]::OrdinalIgnoreCase) -lt 0) (
+    'w14-packaging-ci-1: run on a DLL whose only finding is a user-profile path in its bytes, the build-identity pass throws its verdict, prints no success line and quotes none of the path')
 $w14PathSaid = $w14Path.Printed + "`n" + $w14Path.Message
 Assert-True ($w14Path.Threw -and
-             $w14Path.Printed -cmatch 'embedded build path: planted\.zip -> lib/DesktopAICompanion\.ModuleKit\.dll : a CodeView record naming an absolute \.pdb path' -and
-             $w14Path.Printed -cmatch 'embedded build path: planted\.zip -> lib/DesktopAICompanion\.ModuleKit\.dll : an absolute embedded PDB document name' -and
+             $w14Path.Message -cmatch '^2 embedded build path\(s\) found in published DLLs \(2 DLL finding\(s\)' -and
+             $w14Path.Printed -cmatch 'embedded build path: planted\.zip -> DesktopAICompanion\.ModuleKit\.dll : 1 CodeView build path\(s\)' -and
+             $w14Path.Printed -cmatch 'embedded build path: planted\.zip -> DesktopAICompanion\.ModuleKit\.dll : 1 absolute embedded PDB document name\(s\)' -and
              $w14PathSaid.IndexOf($w14Planted, [StringComparison]::OrdinalIgnoreCase) -lt 0) (
     'w14-packaging-ci-1: run on a DLL planted with a profile path, the shipped-DLL section reports it on the CodeView and document lines and prints none of it, in any spelling')
-$w14NoOptions = & $w14RunSection $w14Whole (, $w14Images.NoOptions) $false
 Assert-True ($w14NoOptions.Threw -and
              $w14NoOptions.Message -cmatch '^WITNESS failed: the embedded PDB of planted\.zip -> lib/DesktopAICompanion\.ModuleKit\.dll did not read back one C# compilation options record per PDB') (
     "w14-packaging-ci-1: run on a DLL whose embedded PDB reads back no compilation options record, the freshness check refuses it as a misread ($($w14NoOptions.Message))")
+Assert-True ($w14ScratchFault -eq '' -and -not [IO.Directory]::Exists($w14Scratch)) (
+    "w14-packaging-ci-1: the section runs wrote their planted zip under a scratch folder this file created, and the folder is gone$(if ($w14ScratchFault) { ' -- cleanup threw ' + $w14ScratchFault } else { '' })")
 # REAL INPUT for the CustomDebugInformation read (same review). The synthetic PDB holds only the Document and
 # CustomDebugInformation tables, so a width misread in any of the six tables between them (LocalScope's, sized from the
 # assembly's MethodDef count) passes every leg and shifts every record of a real PDB; with Source Link off, a clean scan

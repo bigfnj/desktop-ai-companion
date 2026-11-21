@@ -9,6 +9,7 @@ using ModelContextProtocol;
 // Advance while a blocking wait still ends on real elapsed time.
 internal sealed class ToolFixture : IAsyncDisposable
 {
+    private readonly OwnedScratch scratch;
     internal ManualClock Clock { get; } = new();
     internal string Root { get; }
     internal BrokerStore Store { get; }
@@ -17,21 +18,45 @@ internal sealed class ToolFixture : IAsyncDisposable
     internal BrokerTools Tools { get; }
     // A real clock (TimeProvider.System) instead of the manual one, for checks that a wait wakes at a real deadline.
     // Adapters and a caller resolver are for the whoami checks; every other check runs with neither.
+    // Lane F: attachments null wires no attachment store (every pre-1.10.5 check); true or false wires one under Root\data,
+    // enabled or not, so caller files can live elsewhere under Root.
+    internal AgentBroker.Worker.Attachments.AttachmentStore? Attachments { get; }
     internal ToolFixture(string name, BrokerLimits? limits = null, TimeProvider? clock = null,
-        IReadOnlyList<ILocalAgentAdapter>? adapters = null, ICallerProcessResolver? callers = null)
+        IReadOnlyList<ILocalAgentAdapter>? adapters = null, ICallerProcessResolver? callers = null,
+        IPeerFederation? federation = null, bool? attachments = null, AgentBroker.Worker.Attachments.AttachmentLimits? attachmentLimits = null)
     {
-        Root = Path.Combine(AppContext.BaseDirectory, "scratch", name + "-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(Root);
+        scratch = OwnedScratch.Create(name);
+        Root = scratch.Root;
         Store = new BrokerStore(Path.Combine(Root, "store"), limits, clock ?? Clock);
-        Runtime = new BrokerRuntime(Store, new NoPeers(), adapters ?? [], new SessionPreferences(Root), clock ?? Clock, callers);
+        Attachments = attachments is { } enabled
+            ? new AgentBroker.Worker.Attachments.AttachmentStore(Path.Combine(Root, "data"), Store, enabled, clock ?? Clock, attachmentLimits) : null;
+        Runtime = new BrokerRuntime(Store, federation ?? new NoPeers(), adapters ?? [], new SessionPreferences(Root), clock ?? Clock, callers)
+            { Attachments = Attachments };
         Context.Items["agentbroker.identity"] = Store.BrokerId;
-        Tools = new BrokerTools(Runtime, new HttpContextAccessor { HttpContext = Context });
+        Tools = new BrokerTools(Runtime, new FixedHttpContextAccessor { HttpContext = Context });
+    }
+    // Each concurrent request owns its transport metadata. HttpContextAccessor uses a static
+    // AsyncLocal holder, so separate instances still interfere when tests share one execution flow.
+    internal (DefaultHttpContext Context, BrokerTools Tools) NewRequest()
+    {
+        var context = new DefaultHttpContext();
+        if (Context.Items.TryGetValue("agentbroker.identity", out var identity))
+            context.Items["agentbroker.identity"] = identity;
+        return (context, new BrokerTools(Runtime, new FixedHttpContextAccessor { HttpContext = context }));
+    }
+    private sealed class FixedHttpContextAccessor : IHttpContextAccessor
+    {
+        public HttpContext? HttpContext { get; set; }
     }
     internal BrokerSession Register(string label) => Runtime.RegisterPollingAgent(Guid.NewGuid(), Guid.NewGuid(), label, false);
     internal BrokerSession? Current(SessionAddress address) => Store.Directory().SingleOrDefault(session => session.Address == address);
     internal BrokerSession Native(string id) => new(new(Store.BrokerId, id, Guid.NewGuid()), "Synthetic native " + id, "codex",
         SessionCapabilities.Receive | SessionCapabilities.WakeIdle | SessionCapabilities.Reply, SessionActivity.Idle, Clock.GetUtcNow().AddMinutes(1));
-    public async ValueTask DisposeAsync() { await Runtime.DisposeAsync(); Store.Dispose(); }
+    public async ValueTask DisposeAsync()
+    {
+        try { await Runtime.DisposeAsync(); }
+        finally { try { Store.Dispose(); } finally { scratch.Dispose(); } }
+    }
 
     internal static bool Refused(Action action, string code)
     {

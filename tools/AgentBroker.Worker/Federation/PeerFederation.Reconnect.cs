@@ -10,6 +10,7 @@ public sealed partial class PeerFederation
     private CancellationTokenSource? reconnectStop;
     private Task? reconnect;
     private int nextReconnectPeer;
+    internal Task ReconnectCompletion => reconnect ?? Task.CompletedTask;
 
     private void StartReconnect(CancellationToken token)
     {

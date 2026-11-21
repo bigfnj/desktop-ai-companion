@@ -73,7 +73,7 @@ internal static class CodexTrustPolicyChecks
                 check(verified.Capabilities.HasFlag(SessionCapabilities.WakeIdle | SessionCapabilities.NativeIdleGuard) &&
                     store.BeginDelivery()?.Message.Id == waiting.Id,
                     File + "TRANSIENT_DISCOVERY_DEFERS WITNESS: once a pass completes the check the waiting message is claimed (" + mode + ")");
-                store.CompleteDelivery(waiting.Id, MessageStatus.Submitted, "synthetic_submitted");
+                store.CompleteDelivery(store.FindReceipt(waiting.Id)!, MessageStatus.Submitted, "synthetic_submitted");
 
                 // The bound: an engine check that never completes must not hold the queue for the message lifetime.
                 ioFailure = true;
@@ -414,7 +414,7 @@ internal static class CodexTrustPolicyChecks
         foreach (var (native, admission, reason) in new[]
         {
             (DesktopSubmissionOutcome.Rejected, AdapterAdmission.Refused, "native_admission_refused"),
-            (DesktopSubmissionOutcome.DeferredNotSubmitted, AdapterAdmission.DeferredNotSubmitted, "native_context_busy"),
+            (DesktopSubmissionOutcome.DeferredNotSubmitted, AdapterAdmission.DeferredNotSubmitted, "native_not_submitted"),
             (DesktopSubmissionOutcome.Uncertain, AdapterAdmission.Uncertain, "native_submission_uncertain"),
         })
         {

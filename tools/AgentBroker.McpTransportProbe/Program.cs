@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Headers;
+using System.Net.NetworkInformation;
 using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Hosting.Server;
@@ -27,7 +28,8 @@ WebApplication? app = null;
 McpClient? sdkClient = null;
 HttpClientTransport? transport = null;
 using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(35));
-bool cleanShutdown = false;
+bool clientSessionCompletedAfterDispose = false;
+bool listenerClosedAfterDispose = false;
 try
 {
     // Empty builder: no appsettings files, environment configuration, broker services,
@@ -62,6 +64,7 @@ try
     var endpoint = new Uri(addresses.Addresses.Single() + "/mcp");
     Require(endpoint.Host == "127.0.0.1" && endpoint.Port != 7432 && endpoint.Port > 0,
         "listener_is_own_ephemeral_loopback", checks);
+    Require(OwnListenerListed(endpoint), "own_listener_is_listed_by_os_before_stop", checks);
     using var audit = new LoopbackAuditHandler(endpoint);
     using var http = new HttpClient(audit) { Timeout = Timeout.InfiniteTimeSpan };
 
@@ -126,22 +129,32 @@ try
     // This observation is never used to claim valid negotiation or migrate a client.
 
     phase = "shutdown";
+    Task<ClientCompletionDetails> completion = sdkClient.Completion;
+    Require(!completion.IsCompleted, "sdk_session_is_live_before_dispose", checks);
     await sdkClient.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
     sdkClient = null;
+    await Task.WhenAny(completion, Task.Delay(TimeSpan.FromSeconds(2), deadline.Token));
+    clientSessionCompletedAfterDispose = completion.IsCompletedSuccessfully && completion.Result.Exception is null;
+    Require(clientSessionCompletedAfterDispose, "disposed_sdk_session_completes_gracefully", checks);
+    phase = "transport_dispose";
     await transport.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
     transport = null;
+    phase = "listener_stop";
     using var shutdown = new CancellationTokenSource(TimeSpan.FromSeconds(5));
     await app.StopAsync(shutdown.Token).WaitAsync(TimeSpan.FromSeconds(5));
     await app.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
     app = null;
-    cleanShutdown = true;
+    phase = "listener_closed_observation";
+    listenerClosedAfterDispose = !OwnListenerListed(endpoint);
+    Require(listenerClosedAfterDispose, "disposed_listener_is_absent_from_os_list", checks);
     Console.WriteLine(JsonSerializer.Serialize(new
     {
         Status = "PASS", SdkVersion = "2.2.0", Checks = checks, RequestCount = observed.Requests,
         MixedInitializeHttpStatus = observed.MixedStatus, MixedInitializeResultRevision = observed.MixedResultRevision,
         MixedInitializeSessionIssued = observed.MixedSessionIssued, MixedRevisionUsedForNegotiation = false,
-        NoExistingBrokerAccessed = true, ClientConfigurationRead = false, ProductChanged = false,
-        ListenerAndClientDisposed = cleanShutdown
+        AuditedRequestCount = audit.RequestCount,
+        ClientSessionCompletedAfterDispose = clientSessionCompletedAfterDispose,
+        ListenerAbsentAfterDispose = listenerClosedAfterDispose
     }));
     return 0;
 }
@@ -149,8 +162,8 @@ catch (Exception ex)
 {
     Console.WriteLine(JsonSerializer.Serialize(new { Status = "FAIL", Phase = phase,
         FailureType = ex.GetType().Name, FailedCheck = (ex as ProbeCheckException)?.Check,
-        PassedChecks = checks, NoExistingBrokerAccessed = true,
-        ClientConfigurationRead = false, ProductChanged = false }));
+        PassedChecks = checks, ClientSessionCompletedAfterDispose = clientSessionCompletedAfterDispose,
+        ListenerAbsentAfterDispose = listenerClosedAfterDispose }));
     return 1;
 }
 finally
@@ -170,6 +183,9 @@ static void Require(bool condition, string name, List<string> checks)
     if (!condition) throw new ProbeCheckException(name);
     checks.Add(name);
 }
+
+static bool OwnListenerListed(Uri endpoint) => IPGlobalProperties.GetIPGlobalProperties().GetActiveTcpListeners()
+    .Any(listener => listener.Address.Equals(IPAddress.Loopback) && listener.Port == endpoint.Port);
 
 static async Task<RawObservation> PostAsync(HttpClient http, Uri endpoint, string revision,
     string method, string? headerName, bool methodHeader, CancellationToken cancellation,
@@ -261,10 +277,13 @@ sealed class LoopbackAuditHandler(Uri endpoint) : DelegatingHandler(new SocketsH
 {
     public bool SessionIssued { get; private set; }
     public int LegacyGetCount { get; private set; }
+    private int requestCount;
+    public int RequestCount => Volatile.Read(ref requestCount);
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         if (request.RequestUri is not { } uri || uri.Scheme != endpoint.Scheme || uri.Host != endpoint.Host ||
             uri.Port != endpoint.Port || uri.AbsolutePath != "/mcp") throw new InvalidOperationException("own_endpoint_only");
+        Interlocked.Increment(ref requestCount);
         if (request.Method == HttpMethod.Get && request.Headers.Contains("Mcp-Session-Id")) LegacyGetCount++;
         var response = await base.SendAsync(request, cancellationToken);
         if (response.Headers.Contains("Mcp-Session-Id")) SessionIssued = true;

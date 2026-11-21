@@ -1118,8 +1118,10 @@ CASES = (
         # F044: the target list was fetched once per agent. Fetch it a second time again.
         "the sweep fetches /json/list twice again",
         CDP,
-        "            List<KeyValuePair<string, string>> work = AgentTargets(port, timeoutMs);\n            if (work.Count == 0) return null;",
-        "            List<KeyValuePair<string, string>> work = AgentTargets(port, timeoutMs);\n            work.AddRange(AgentTargets(port, timeoutMs)); work.RemoveRange(work.Count / 2, work.Count / 2);\n            if (work.Count == 0) return null;",
+        # Re-pointed in the step 11 merge (master 1003063b rewrote the sweep: an out targetsComplete and a
+        # braced empty-list block). Same intent: a second fetch, trimmed back so only the request count moves.
+        "            List<KeyValuePair<string, string>> work = AgentTargets(port, timeoutMs, out targetsComplete);\n            if (work.Count == 0)\n",
+        "            List<KeyValuePair<string, string>> work = AgentTargets(port, timeoutMs, out targetsComplete);\n            work.AddRange(AgentTargets(port, timeoutMs, out targetsComplete)); work.RemoveRange(work.Count / 2, work.Count / 2);\n            if (work.Count == 0)\n",
         "one sweep fetches /json/list ONCE, not once per agent",
     ),
     (

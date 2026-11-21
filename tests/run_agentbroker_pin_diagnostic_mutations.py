@@ -29,6 +29,7 @@ import json
 import os
 from pathlib import Path
 import re
+import stat
 import subprocess
 import sys
 import time
@@ -64,6 +65,13 @@ SOURCES = {
     "claudeadapter": "tools/AgentBroker.Worker/Adapters/ClaudeNativeAdapter.cs",
     "claudetrust": "tools/AgentBroker.Worker/Adapters/WindowsClaudePublicImageTrust.cs",
     "workeroptions": "tools/AgentBroker.Worker/WorkerOptions.cs",
+    "recoveryguidance": "tools/AgentBroker.Worker/BrokerRecoveryGuidance.cs",
+    "toolfixture": "tests/AgentBroker.Worker.Tests/ToolFixture.cs",
+    # 1.10.1 client hardening (post-push audit of e398eba2): request readers and the handoff codec.
+    "handoffpacket": "tools/AgentBroker.Worker/HandoffPacket.cs",
+    "handoffprepare": "tools/AgentBroker.Worker/HandoffPrepareClient.cs",
+    "mcpcall": "tools/AgentBroker.Worker/McpCallClient.cs",
+    "stdiobridge": "tools/AgentBroker.Worker/McpStdioBridge.cs",
 }
 PROJECTS = {
     "worker": "tests/AgentBroker.Worker.Tests/AgentBroker.Worker.Tests.csproj",
@@ -73,6 +81,48 @@ ASSEMBLIES = {
     family: ROOT / Path(project).parent / "bin/Release/net10.0-windows" / (Path(project).stem + ".dll")
     for family, project in PROJECTS.items()
 }
+ARTIFACT_NAMES = {
+    "worker": ("AgentBroker.Worker.dll", "AgentBroker.Core.dll",
+               "AgentBroker.ClaudeAdapter.dll", "AgentBroker.CodexDesktopAdapter.dll"),
+    "desktop": ("AgentBroker.CodexDesktopAdapter.dll",),
+}
+
+
+def artifact_snapshot(family: str, *, missing_ok: bool = False) -> dict:
+    result = {}
+    for name in (ASSEMBLIES[family].name, *ARTIFACT_NAMES[family]):
+        path = ASSEMBLIES[family].parent / name
+        refuse_links(path)
+        if missing_ok and not path.exists():
+            result[name] = None
+            continue
+        raw = path.read_bytes()
+        after = path.stat()
+        result[name] = {"path": path.relative_to(ROOT).as_posix(), "sha256": sha256(raw),
+                        "mtimeNs": after.st_mtime_ns, "bytes": len(raw)}
+    return result
+
+
+def require_rebuilt_artifacts(before: dict, after: dict, started_ns: int) -> None:
+    for name, current in after.items():
+        previous = before[name]
+        if current["mtimeNs"] < started_ns or (previous is not None and current["mtimeNs"] <= previous["mtimeNs"]):
+            raise RuntimeError("PIN_ARTIFACT_NOT_REBUILT: " + name)
+
+
+def mutation_artifact(source: str) -> str:
+    relative = SOURCES[source]
+    if relative.startswith("tests/AgentBroker.Worker.Tests/"):
+        return "AgentBroker.Worker.Tests.dll"
+    if relative.startswith("src/AgentBroker.Core/"):
+        return "AgentBroker.Core.dll"
+    if relative.startswith(("tools/AgentBroker.CodexDesktopAdapter/", "tools/AgentBroker.Pins/")):
+        return "AgentBroker.CodexDesktopAdapter.dll"
+    if relative.startswith("tools/AgentBroker.ClaudeAdapter/"):
+        return "AgentBroker.ClaudeAdapter.dll"
+    if relative.startswith("tools/AgentBroker.Worker/"):
+        return "AgentBroker.Worker.dll"
+    raise RuntimeError("PIN_MUTATION_ARTIFACT_UNKNOWN: " + source)
 # Worker 196 measured on 22b05e9 (feature/agentbroker-bus base): the folded 2026-10-26 preview put
 # peer diagnostics (24) and Claude observation (42) before the --existing-tests-only cut-off.
 # Re-measured 2026-10-29 by lane feature/broker-next-160 (N-modules-fixes-01): later lanes had added checks before the
@@ -81,7 +131,36 @@ ASSEMBLIES = {
 # lifecycle checks (N-agentbroker-native-flicker-01). Worker 213 and focused 81 after the review fixes: three more lifecycle
 # checks (adapter failure recorded, owner_discovery_rejected per row), and owner_discovery_rejected during owner
 # resolution now checked as a skipped row (two checks) instead of a failed pass (three).
-EXISTING_COUNTS = {"worker": 234, "desktop": 157}  # worker 213 -> 234: re-measured by lane broker-163; stale before it (no existing-suite check changed there)
+# Worker re-measured at 696 in the final 2026-11-08 seven-harness run; the complete Worker inventory was 1901.
+# That captured run identifies its product/test hashes. The older fixed 234 blocked a healthy baseline.
+# 696 -> 718 (2026-11-09, 1.10.1 client hardening): McpCallClientChecks and HandoffClientChecks run before the cut-off and
+# gained 13 named checks (request name, UTF-8 signature, request path: 8 handoff, 5 mcp-call including the in-process name
+# check) plus 9 FRAME checks, one per new child-process call (HANDOFF_PROCESS_FRAME x5, MCP_CALL_PROCESS_FRAME x4).
+# 717 was measured by diffing healthy existing runs, then +1 for MCP_CALL_REQUEST_NAME_UNICODE_IN_PROCESS.
+# This is the harness pin only; the public floors are set once by the final integrated run.
+# 718 -> 750 (2026-11-09, 1.10.1 LocalOutputFile v2.1, measured): LocalOutputFileChecks (--local-output-only, 36 checks)
+# runs before McpCallClientChecks, so before the cut-off; HandoffClientChecks.OutputPublicationChecks retired its two
+# POSTFLUSH checks under each prefix (HANDOFF_OUTPUT_ and MCP_OUTPUT_, 4 in all, RETIRED-REPLACED). 718 - 4 + 36 = 750.
+# 750 -> 755 (2026-11-09, LocalOutputFile review round 1, measured): --local-output-only 36 -> 41 (CASE_SENSITIVE_ANCESTOR,
+# HANDOFF_CLI_CLEANUP, MCP_CLI_CLEANUP, POST_CREATE_CHAIN, POST_CREATE_CASE), all before the cut-off.
+# 755 -> 757 (2026-11-09, post-push audit of 7ad9d901, C lane, measured): --local-output-only 41 -> 43 (PREFLIGHT_PIN,
+# MCP_PREFLIGHT_PIN), before the cut-off. Lane J's request-value group adds its own checks on top; re-measure when merged.
+# 757 -> 774 (2026-11-09, 1.10.2 integration, measured): McpCallClientChecks gains the request-value group (17: reader,
+# 3 ordinary, 6 malformed kinds x boundary + local command, fixture removal), which runs first in that group, before the cut-off.
+# 774 -> 780 (2026-11-10, 1.10.3, measured): RequestEnvelopeBoundaryChecksAsync (DEPTH_LIMIT, DEPTH_OVER, BODY_BOUND and one
+# WIRE_FRAME check per child process) runs right after the request-value group, before the cut-off.
+# 780 -> 784 (2026-11-10, 1.10.3 review round, measured): the NotificationRefused wire mode adds NOTIFICATION_REFUSED and that
+# mode's TOKEN_PRIVATE, AUTHENTICATION and WIRE_FRAME checks, before the cut-off.
+# 784 -> 788 (2026-11-10, closure of 1.10.3, measured): the body-bound boundary pair (BODY_AT_LIMIT, BODY_OVER_LIMIT and one
+# WIRE_FRAME check per child process), before the cut-off.
+# 788 -> 801 (2026-11-10, shipping cadence, measured): RuntimeLifecycleChecks gains 13 checks before the cut-off.
+# The complete seven-harness run measured Worker 2021 and 3718 total; the existing-suite subset marker was 801.
+# 2026-11-12, 1.10.5 G2: Worker 2234, seven-harness total 4057; the same full run reports existing subset 976.
+# 2026-11-14, D2 round 2: --existing-tests-only measured 986 (exit 0, 150.638 s), before pinning.
+# Evidence: E/lanes/D2/r2/checks/worker-existing-measured-20261114T105100028Z-6f80d159.stdout.log,
+# SHA256 53A58005EB6265895347FF5D850EB94BEF0464D81685EECBBAF5DA3ADD616B40; reported to the lead first.
+# The +10 comprises seven benchmark diagnostics and three pagination assertions before the cut-off.
+EXISTING_COUNTS = {"worker": 986, "desktop": 157}
 FOCUSED_COUNTS = {"worker": 92, "desktop": 23}  # desktop 15 -> 23: installed-version image-mismatch witnesses and layout controls
 CLAUDE_SCENARIOS = ("early-reject", "unsupported-version", "hash-mismatch", "mixed", "recovery", "bounded-snapshot")
 
@@ -96,8 +175,9 @@ class Witness:
     replacements: tuple[tuple[str, str], ...]
     replacement_counts: tuple[int, ...] = ()
     kind: str = "reporting"
-    # Existing checks this mutation necessarily breaks, by check text in suite order. Empty for every witness but one.
+    # Existing checks this mutation necessarily breaks, by check text in suite order. Empty for most witnesses.
     allowed_existing_failures: tuple[str, ...] = ()
+    failure_check: str | None = None
 
 
 WITNESSES = (
@@ -117,10 +197,23 @@ WITNESSES = (
         """        catch (DesktopAdapterException error)
         {
             bindings.Clear();
+            publishedBindings = new Dictionary<SessionAddress, BindingObservation>();
             throw new AdapterDiscoveryException(DescribeDiscoveryFailure(error), error);
         }""",
-        '        catch (DesktopAdapterException) { bindings.Clear(); throw new IOException("Native Codex directory is unavailable."); }',
-    ),)),
+        '        catch (DesktopAdapterException error) { bindings.Clear(); '
+        'publishedBindings = new Dictionary<SessionAddress, BindingObservation>(); '
+        'throw new AdapterDiscoveryException(new("native_discovery_failed", "Native Codex directory is unavailable."), error); }',
+    ),), failure_check="Codex unsupported_desktop_version survives the real adapter catch during directory observation"),
+    # The same mutant also breaks the EXISTING check CODEX_SLOW_ROW_LAST (RuntimeLifecycleChecks, before the cut-off), whose
+    # expected order the 1.10.0 delta rewrote to [T2,T0,T1]; without naming it, every default --apply aborted at this witness
+    # and never reached the wait witnesses below (post-push audit of e398eba2, 2026-11-09). Its label embeds Ids(second),
+    # which is "0,2" both healthy and mutated: the mutant changes the order, not which conversations renew.
+    Witness("codex-discovery-unreached-starved", "codex", "worker", ("--codex-discovery-fairness-only",), "CodexDiscoveryFairnessChecks.cs", ((
+        ".ThenBy(r => orderIndex.GetValueOrDefault(r.ConversationId, int.MaxValue)).ToArray();",
+        ".ThenBy(r => orderIndex.GetValueOrDefault(r.ConversationId, int.MaxValue) * 0).ToArray();",
+    ),), allowed_existing_failures=(
+        "CODEX_SLOW_ROW_LAST: the unreached healthy conversation goes first and the slow conversation last, so every other one is renewed (0,2)",
+    ), failure_check="CODEX_FAIR_BUDGET_TAIL_REACHED: a successful prefix cannot consume every later pass while a valid unreached tail is never attempted"),
     Witness("codex-profile-reporting", "provider", "worker", ("--codex-provider-diagnostics-only",), "CodexProviderDiagnosticChecks.cs", (
         ('                diagnostics.Add(profilePinDiagnostic);', "                _ = error;"),
         ('                diagnostics.Add(new("vscode_profile_unavailable",\n'
@@ -151,7 +244,7 @@ WITNESSES = (
         '                adapterErrors[adapter.Id] = e is BrokerException b ? b.Code : "adapter_unavailable";',
     ),)),
     Witness("deferred-claim-atomicity", "claims", "worker", ("--deferred-claim-only",), "DeferredClaimChecks.cs",
-            (("        lock (gate)", "        _ = gate;"),), replacement_counts=(2,), kind="concurrency"),
+            (("        lock (gate)", "        _ = gate;"),), replacement_counts=(3,), kind="concurrency"),
     # ---- lane feature/agentbroker-bus ----
     Witness("bus-mailbox-addressable-live", "store", "worker", ("--mailbox-only",), "MailboxChecks.cs", ((
         "sessions.TryGetValue(address, out var s) && (Live(s) || Retained(s));",
@@ -165,7 +258,7 @@ WITNESSES = (
     Witness("bus-signal-never-completed", "store", "worker", ("--wait-tools-only",), "WaitToolChecks.cs", ((
         "Interlocked.Exchange(ref changeSignal, NewSignal()).TrySetResult();",
         "Interlocked.Exchange(ref changeSignal, NewSignal());",
-    ),)),
+    ),), failure_check="wait_for_messages returns within two seconds of an arrival"),
     Witness("bus-send-compares-createdat", "store", "worker", ("--send-only",), "SendToolChecks.cs", ((
         "return Accept(sent, authenticatedBroker);",
         "return Accept(sent with { CreatedAt = Now }, authenticatedBroker);",
@@ -176,10 +269,221 @@ WITNESSES = (
         "            return state.Messages.Where(r => r.Message.Recipient == recipient && r.Status == MessageStatus.Accepted)",
         "            return state.Messages.Where(r => r.Message.Recipient == recipient)",
     ),)),
+    # Re-pointed by lane feature/agentbroker-wait-classes (2026-11-08): the slot key is now (session, class); same intent.
     Witness("bus-wait-per-session-unbounded", "runtime", "worker", ("--wait-tools-only",), "WaitToolChecks.cs", ((
-        'if (!waits.TryAdd(session, 0)) throw new BrokerException("wait_in_progress", "This session already has an active wait.");',
-        "waits.TryAdd(session, 0);",
-    ),)),
+        'if (!waits.TryAdd(slot, 0)) throw new BrokerException("wait_in_progress", "This session already has an active wait of this class.");',
+        "waits.TryAdd(slot, 0);",
+    ),), failure_check="a second concurrent wait for one session is refused as wait_in_progress"),
+    # ---- lane feature/agentbroker-wait-classes (AgentBroker next campaign, 2026-11-08) ----
+    # Each mutant breaks one rule of the two wait classes or the listening count; failure_check names the one check it
+    # must fail first. These checks remain after the --existing-tests-only cut-off; the recorded 1.10.4 pin was 801
+    # (EXISTING_COUNTS above, with each step from 696).
+    Witness("wait-class-receipt-joins-incoming", "tools", "worker", ("--receipt-wait-only",), "ReceiptWaitChecks.cs", ((
+        "var answered = await WaitAsync(original.Sender, WaitClass.Receipt, timeoutSeconds, () =>",
+        "var answered = await WaitAsync(original.Sender, WaitClass.Incoming, timeoutSeconds, () =>",
+    ),), failure_check="RECEIPT_WAIT_BESIDE_INCOMING: a receipt wait runs beside the same sender's wait_for_messages"),
+    Witness("wait-class-reply-leaves-incoming", "tools", "worker", ("--receipt-wait-only",), "ReceiptWaitChecks.cs", ((
+        "return WaitAsync(sender, WaitClass.Incoming, timeoutSeconds, () => runtime.Store.Messages(sender)",
+        "return WaitAsync(sender, WaitClass.Receipt, timeoutSeconds, () => runtime.Store.Messages(sender)",
+    ),), failure_check="REPLY_WAIT_SHARES_INCOMING: a reply wait beside the same sender's wait_for_messages is wait_in_progress"),
+    Witness("wait-listening-count-as-set", "store", "worker", ("--wait-tools-only",), "WaitToolChecks.cs", ((
+        """            if (count > 1) listening[address] = count - 1;
+            else listening.Remove(address);""",
+        "            listening.Remove(address);",
+    ),), failure_check="LISTENING_REFCOUNT: the mailbox stays Idle while its incoming wait continues after its receipt wait ends"),
+    Witness("wait-listening-before-admission", "runtime", "worker", ("--wait-tools-only",), "WaitToolChecks.cs", (
+        ("""        var slot = (session, waitClass);
+""", """        var slot = (session, waitClass);
+        store.EnterListening(session);
+"""),
+        ("""        store.EnterListening(session);
+        return new WaitSlot(this, slot);""", "        return new WaitSlot(this, slot);"),
+    ), failure_check="WAIT_REFUSED_IN_PROGRESS_NO_LEAK: after the first wait ends, the refused one has left nothing listening"),
+    Witness("wait-refusal-clears-listening", "runtime", "worker", ("--wait-tools-only",), "WaitToolChecks.cs", ((
+        'if (!waits.TryAdd(slot, 0)) throw new BrokerException("wait_in_progress", "This session already has an active wait of this class.");',
+        'if (!waits.TryAdd(slot, 0)) { store.LeaveListening(session); '
+        'throw new BrokerException("wait_in_progress", "This session already has an active wait of this class."); }',
+    ),), failure_check="WAIT_REFUSED_IN_PROGRESS_KEEPS_FIRST: a refused second wait leaves the first wait's mailbox Idle"),
+    Witness("wait-capacity-ignores-receipt", "runtime", "worker", ("--wait-tools-only",), "WaitToolChecks.cs", ((
+        "        if (Interlocked.Increment(ref activeWaits) > MaximumConcurrentWaits)",
+        "        if (waitClass == WaitClass.Incoming && Interlocked.Increment(ref activeWaits) > MaximumConcurrentWaits)",
+    ),), failure_check="WAIT_CAPACITY_COUNTS_RECEIPT: sixteen receipt waits fill the capacity an incoming wait is then refused by"),
+    # Lifecycle port atop the two-class lane. Root runs these serially in its reserved host build window.
+    Witness("wait-request-context-shared", "toolfixture", "worker", ("--wait-lifecycle-core-only",), "WaitLifecycleChecks.cs", ((
+        "var context = new DefaultHttpContext();", "var context = Context;",
+    ),), failure_check="WAIT_REQUEST_SCOPES_DISTINCT: requests own distinct contexts and metadata dictionaries and copy only transport identity"),
+    Witness("wait-request-accessor-ambient", "toolfixture", "worker", ("--wait-lifecycle-core-only",), "WaitLifecycleChecks.cs", ((
+        "return (context, new BrokerTools(Runtime, new FixedHttpContextAccessor { HttpContext = context }));",
+        "return (context, new BrokerTools(Runtime, new HttpContextAccessor { HttpContext = context }));",
+    ),), failure_check="WAIT_REQUEST_SCOPES_IDENTITY: changing one request's identity cannot change another request's caller or ambient holder"),
+    Witness("wait-lifecycle-stop-omitted", "runtime", "worker", ("--wait-lifecycle-core-only",), "WaitLifecycleChecks.cs", ((
+        "try { StopWaits(); }", "try { _ = waits; }",
+    ),), failure_check="WAIT_LIFECYCLE_SHUTDOWN: runtime disposal ends both tool waits with broker_stopping and clears listening"),
+    Witness("wait-lifecycle-stop-unlinked", "tools", "worker", ("--wait-lifecycle-core-only",), "WaitLifecycleChecks.cs", ((
+        "CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, runtime.WaitStopping)",
+        "CancellationTokenSource.CreateLinkedTokenSource(cancellationToken)",
+    ),), failure_check="WAIT_LIFECYCLE_SHUTDOWN: runtime disposal ends both tool waits with broker_stopping and clears listening"),
+    Witness("wait-lifecycle-quiet-disconnect", "store", "worker", ("--wait-lifecycle-core-only",), "WaitLifecycleChecks.cs", ((
+        "if (removed) SignalChange();", "_ = removed;",
+    ),), failure_check="WAIT_LIFECYCLE_DISCONNECT: quiet address loss promptly releases both twenty-second waits"),
+    Witness("wait-lifecycle-release-unlocked", "runtime", "worker", ("--wait-lifecycle-core-only",), "WaitLifecycleChecks.cs", ((
+        "lock (owner.waitGate)", "if (true)",
+    ),), failure_check="WAIT_LIFECYCLE_RELEASE_SERIALIZED: a release blocked at its listening decrement holds the admission gate"),
+    Witness("wait-lifecycle-release-repeated", "runtime", "worker", ("--wait-lifecycle-core-only",), "WaitLifecycleChecks.cs", ((
+        "if (Interlocked.Exchange(ref released, 1) != 0) return;", "_ = Interlocked.Exchange(ref released, 1);",
+    ),), failure_check="WAIT_LIFECYCLE_IDEMPOTENT_RELEASE: disposing an old slot again cannot remove its replacement"),
+    Witness("wait-lifecycle-admission-reopened", "runtime", "worker", ("--wait-lifecycle-core-only",), "WaitLifecycleChecks.cs", ((
+        'if (waitsClosed) throw new BrokerException("broker_stopping", "Broker waits are stopping.");',
+        'if (waitsClosed && activeWaits > MaximumConcurrentWaits) throw new BrokerException("broker_stopping", "Broker waits are stopping.");',
+    ),), failure_check="WAIT_LIFECYCLE_SHUTDOWN_FINAL: admission itself refuses broker_stopping before later tools can link a cached cancelled token"),
+    Witness("wait-lifecycle-stop-release-omitted", "runtime", "worker", ("--wait-lifecycle-registry-only",), "WaitLifecycleChecks.cs", ((
+        "foreach (var slot in waits.Keys) store.LeaveListening(slot.Session);", "_ = waits.Keys;",
+    ),), failure_check="WAIT_LIFECYCLE_REGISTRY_DISPOSE: runtime disposal itself releases direct slots before callers dispose their handles"),
+    Witness("wait-lifecycle-pending-polls", "tools", "worker", ("--wait-lifecycle-core-only",), "WaitLifecycleChecks.cs", ((
+        "long sleep = wakeWithin?.Invoke() is TimeSpan wake ? Math.Min(remaining, Math.Max(1, (long)Math.Ceiling(wake.TotalMilliseconds))) : remaining;",
+        "long sleep = wakeWithin?.Invoke() is TimeSpan wake ? Math.Min(remaining, Math.Max(1, (long)Math.Ceiling(wake.TotalMilliseconds))) : remaining;\n                sleep = Math.Min(sleep, 3000);",
+    ),), failure_check="WAIT_LIFECYCLE_QUIET_NO_POLL: a complete quiet four-second wait reads pending exactly twice and releases both bounded maps"),
+    Witness("wait-lifecycle-address-deadline-omitted", "tools", "worker", ("--wait-lifecycle-core-only",), "WaitLifecycleChecks.cs", ((
+        "var unavailableIn = runtime.Store.TimeUntilAddressUnavailable(session);", "var unavailableIn = TimeSpan.FromDays(1);",
+    ),), failure_check="WAIT_LIFECYCLE_ADDRESS_DEADLINE: a quiet exact native lease boundary ends its wait without periodic pending scans or another mutation"),
+    Witness("wait-host-stop-registration-omitted", "workerapp", "worker", ("--wait-host-stop-only",), "WaitHostShutdownChecks.cs", ((
+        "waitStopping = application.Lifetime.ApplicationStopping.Register(static state => ((BrokerRuntime)state!).StopWaits(), runtime);",
+        "waitStopping = default;",
+    ),), failure_check="WAIT_HOST_STOP_BEFORE_DRAIN: the actual lifetime exits below four seconds and the draining HTTP client receives broker_stopping"),
+    Witness("wait-host-stopping-code-omitted", "recoveryguidance", "worker", ("--wait-host-stop-only",), "WaitHostShutdownChecks.cs", ((
+        '"broker_stopping" => new(code, "list_sessions",', '"never_broker_stopping" => new(code, "list_sessions",',
+    ),), failure_check="WAIT_HOST_STOP_BEFORE_DRAIN: the actual lifetime exits below four seconds and the draining HTTP client receives broker_stopping"),
+    Witness("receipt-deadline-wake-omitted", "tools", "worker", ("--receipt-wait-only",), "ReceiptWaitChecks.cs", ((
+        "long sleep = wakeWithin?.Invoke() is TimeSpan wake ? Math.Min(remaining, Math.Max(1, (long)Math.Ceiling(wake.TotalMilliseconds))) : remaining;",
+        "long sleep = remaining;",
+    ),), failure_check="RECEIPT_WAKES_AT_DEADLINE: a waiting wait_for_receipt wakes at the message's own deadline"),
+    # Post-push audit of 7ad9d901 (C6): a wait_for_receipt that is REFUSED must reach the deadline fixture's named WITNESS
+    # check, not abort the group with an unlabelled McpException. Only the two deadline fixtures use timeoutSeconds 10,
+    # so the refusal reaches exactly them; RECEIPT_WAKES_AT_DEADLINE's fixture runs first.
+    Witness("receipt-deadline-wait-refused", "tools", "worker", ("--receipt-wait-only",), "ReceiptWaitChecks.cs", ((
+        "        RequireLocal();\n        // Wake at the message's own deadline too",
+        "        RequireLocal();\n        if (timeoutSeconds == 10) throw new McpException(\"wait_in_progress\");\n        // Wake at the message's own deadline too",
+    ),), failure_check="WITNESS RECEIPT_WAKES_AT_DEADLINE: the wait was admitted on an Accepted receipt before its deadline clock started"),
+    Witness("receipt-deadline-reread-omitted", "tools", "worker", ("--receipt-wait-only",), "ReceiptWaitChecks.cs", ((
+        "if (!rereadAfterDeadline) return null;", "if (!rereadAfterDeadline || original.ExpiresAt <= runtime.StoreNow) return null;",
+    ),), failure_check="RECEIPT_WAKE_STRADDLE: a deadline passing between the reread and the wake calculation ends the wait at once"),
+    Witness("receipt-expiry-signal-omitted", "store", "worker", ("--receipt-wait-only",), "ReceiptWaitChecks.cs", ((
+        "// Continuations run asynchronously, so completing under gate never runs a waiter here.\n            SignalChange();",
+        "// Continuations run asynchronously, so completing under gate never runs a waiter here.\n            if (!state.Messages.Any(receipt => receipt.Status == MessageStatus.Expired)) SignalChange();",
+    ),), failure_check="RECEIPT_WAIT_EXPIRED: an expiry during the wait ends it with Expired"),
+    # ---- 1.10.1 client hardening (post-push audit of e398eba2, 2026-11-09) ----
+    # McpCallClientChecks and HandoffClientChecks run before the --existing-tests-only cut-off, so each mutant also stops
+    # the existing suite at the same new check, named in allowed_existing_failures.
+    Witness("handoff-name-guard-omitted", "handoffpacket", "worker", ("--handoff-client-only",), "HandoffClientChecks.cs", ((
+        "            try { name = property.Name; }\n            catch (InvalidOperationException) { throw Invalid(); }",
+        "            name = property.Name;",
+    ),), allowed_existing_failures=("HANDOFF_STRICT_NAME-SURROGATE: malformed metadata is refused",),
+        failure_check="HANDOFF_STRICT_NAME-SURROGATE: malformed metadata is refused"),
+    Witness("mcpcall-name-guard-omitted", "mcpcall", "worker", ("--mcp-call-client-only",), "McpCallClientChecks.cs", ((
+        'catch (InvalidOperationException) { throw new InvalidDataException("invalid_request"); }',
+        "catch (InvalidOperationException) { throw; }",
+    # The child process would crash first at its generic one-JSON-line FRAME check, so the in-process check names the defect.
+    ),), allowed_existing_failures=("MCP_CALL_REQUEST_NAME_UNICODE_IN_PROCESS: a lone surrogate in a request property name returns invalid_request instead of escaping",),
+        failure_check="MCP_CALL_REQUEST_NAME_UNICODE_IN_PROCESS: a lone surrogate in a request property name returns invalid_request instead of escaping"),
+    # 1.10.2 (post-push audit of 7ad9d901, C1/J): request STRING VALUES are decoded inside the bounded walk. Removing that
+    # decode lets the first malformed value through the local reader.
+    Witness("mcpcall-value-decode-omitted", "mcpcall", "worker", ("--mcp-call-client-only",), "McpCallClientChecks.cs", ((
+        "                    try { _ = element.GetString(); }\n                    catch (InvalidOperationException error) { throw new InvalidDataException(\"invalid_request\", error); }",
+        "                    _ = element;",
+    ),), allowed_existing_failures=("MCP_CALL_REQUEST_VALUE_BOUNDARY_TOOL_HIGH: malformed text is refused by the actual local reader",),
+        failure_check="MCP_CALL_REQUEST_VALUE_BOUNDARY_TOOL_HIGH: malformed text is refused by the actual local reader"),
+    # J3: a catch narrowed to the surrogate case (no inner exception) still refuses escaped surrogates, but raw invalid
+    # UTF-8, which System.Text.Json reports with an inner DecoderFallbackException, escapes the reader.
+    Witness("mcpcall-value-catch-narrowed", "mcpcall", "worker", ("--mcp-call-client-only",), "McpCallClientChecks.cs", ((
+        "catch (InvalidOperationException error) { throw new InvalidDataException(\"invalid_request\", error); }",
+        "catch (InvalidOperationException error) when (error.InnerException is null) { throw new InvalidDataException(\"invalid_request\", error); }",
+    ),), allowed_existing_failures=("MCP_CALL_REQUEST_VALUE_BOUNDARY_TOOL_RAW: malformed text is refused by the actual local reader",),
+        failure_check="MCP_CALL_REQUEST_VALUE_BOUNDARY_TOOL_RAW: malformed text is refused by the actual local reader"),
+    Witness("handoff-signature-bypassed", "handoffprepare", "worker", ("--handoff-client-only",), "HandoffClientChecks.cs", ((
+        "HandoffPacket.Parse(McpStdioBridge.WithoutUtf8Signature(bytes).ToArray())", "HandoffPacket.Parse(bytes)",
+    ),), allowed_existing_failures=("HANDOFF_PROCESS_UTF8_SIGNATURE: a request file that starts with one UTF-8 signature is prepared normally",),
+        failure_check="HANDOFF_PROCESS_UTF8_SIGNATURE: a request file that starts with one UTF-8 signature is prepared normally"),
+    Witness("mcpcall-signature-bypassed", "mcpcall", "worker", ("--mcp-call-client-only",), "McpCallClientChecks.cs", ((
+        "JsonDocument.Parse(McpStdioBridge.WithoutUtf8Signature(bytes), new JsonDocumentOptions { MaxDepth = MaximumRequestDepth })",
+        "JsonDocument.Parse(bytes, new JsonDocumentOptions { MaxDepth = MaximumRequestDepth })",
+    ),), allowed_existing_failures=("MCP_CALL_REQUEST_UTF8_SIGNATURE: a request file with one leading UTF-8 signature is parsed and dispatched",),
+        failure_check="MCP_CALL_REQUEST_UTF8_SIGNATURE: a request file with one leading UTF-8 signature is parsed and dispatched"),
+    Witness("signature-dropped-repeatedly", "stdiobridge", "worker", ("--handoff-client-only",), "HandoffClientChecks.cs", ((
+        "? bytes.AsMemory(3) : bytes;",
+        "? (bytes.AsSpan(3).StartsWith((ReadOnlySpan<byte>)[0xEF, 0xBB, 0xBF]) ? bytes.AsMemory(6) : bytes.AsMemory(3)) : bytes;",
+    ),), allowed_existing_failures=("HANDOFF_PROCESS_UTF8_SIGNATURE_ONCE: only one leading signature is dropped; a second remains invalid JSON",),
+        failure_check="HANDOFF_PROCESS_UTF8_SIGNATURE_ONCE: only one leading signature is dropped; a second remains invalid JSON"),
+    Witness("handoff-request-extension-omitted", "handoffprepare", "worker", ("--handoff-client-only",), "HandoffClientChecks.cs", ((
+        '!Path.GetExtension(request).Equals(".json", StringComparison.OrdinalIgnoreCase) ||', "false ||",
+    ),), allowed_existing_failures=("HANDOFF_PROCESS_REQUEST_EXTENSION: a request file without the .json extension is refused before it is read",),
+        failure_check="HANDOFF_PROCESS_REQUEST_EXTENSION: a request file without the .json extension is refused before it is read"),
+    Witness("handoff-request-reparse-omitted", "handoffprepare", "worker", ("--handoff-client-only",), "HandoffClientChecks.cs", ((
+        'if ((File.GetAttributes(component) & FileAttributes.ReparsePoint) != 0) throw new InvalidDataException("invalid_handoff");',
+        "_ = component;",
+    ),), allowed_existing_failures=("HANDOFF_PROCESS_REQUEST_REPARSE: a request read through a junction is refused",),
+        failure_check="HANDOFF_PROCESS_REQUEST_REPARSE: a request read through a junction is refused"),
+    Witness("mcpcall-request-extension-omitted", "mcpcall", "worker", ("--mcp-call-client-only",), "McpCallClientChecks.cs", ((
+        ' || !Path.GetExtension(path).Equals(".json", StringComparison.OrdinalIgnoreCase))', ")",
+    ),), allowed_existing_failures=("MCP_CALL_REQUEST_EXTENSION: a request file without the .json extension is refused before dispatch",),
+        failure_check="MCP_CALL_REQUEST_EXTENSION: a request file without the .json extension is refused before dispatch"),
+    Witness("mcpcall-request-reparse-omitted", "mcpcall", "worker", ("--mcp-call-client-only",), "McpCallClientChecks.cs", ((
+        'if ((File.GetAttributes(component) & FileAttributes.ReparsePoint) != 0) throw new InvalidDataException("invalid_request");',
+        "_ = component;",
+    ),), allowed_existing_failures=("MCP_CALL_REQUEST_REPARSE: a request read through a junction is refused before dispatch",),
+        failure_check="MCP_CALL_REQUEST_REPARSE: a request read through a junction is refused before dispatch"),
+    # 1.10.3 (N-broker-next-request-depth-01): the query is encoded and bounded before connecting. Each witness breaks one
+    # invariant: the outbound depth allowance, the encoded body bound, and preparation before the request counts as validated.
+    Witness("mcpcall-envelope-allowance-removed", "mcpcall", "worker", ("--mcp-call-client-only",), "McpCallClientChecks.cs", ((
+        "MaxDepth = MaximumRequestDepth + 1 }", "MaxDepth = MaximumRequestDepth }",
+    ),), allowed_existing_failures=("MCP_CALL_ENVELOPE_DEPTH_LIMIT: a request at the parser's depth limit travels in the actual envelope and is confirmed",),
+        failure_check="MCP_CALL_ENVELOPE_DEPTH_LIMIT: a request at the parser's depth limit travels in the actual envelope and is confirmed"),
+    Witness("mcpcall-envelope-bound-removed", "mcpcall", "worker", ("--mcp-call-client-only",), "McpCallClientChecks.cs", ((
+        'if (query.Length > WorkerApplication.MaximumRequestBodyBytes) throw new InvalidDataException("invalid_request");',
+        "_ = query;",
+    # Closure of 1.10.3: the one-byte-over check (MCP_CALL_ENVELOPE_BODY_OVER_LIMIT) runs before BODY_BOUND and is the first to
+    # see a missing bound, because the oversized body then reaches the peer, which refuses it.
+    ),), allowed_existing_failures=("MCP_CALL_ENVELOPE_BODY_OVER_LIMIT: one byte over the worker's body limit is refused before any request reaches the peer",),
+        failure_check="MCP_CALL_ENVELOPE_BODY_OVER_LIMIT: one byte over the worker's body limit is refused before any request reaches the peer"),
+    # Preparing the query after the request counts as validated turns the local encoded-size refusal into transport_error
+    # (exit 69). DEPTH_OVER cannot see this: a depth-33 request is refused earlier, by the request parser itself.
+    Witness("mcpcall-envelope-prepared-late", "mcpcall", "worker", ("--mcp-call-client-only",), "McpCallClientChecks.cs", ((
+        'string prefix = "agentbroker-call-" + Guid.NewGuid().ToString("N");',
+        'requestValidated = true; string prefix = "agentbroker-call-" + Guid.NewGuid().ToString("N");',
+    # Closure of 1.10.3: the one-byte-over check runs before BODY_BOUND and is the first to see the late refusal (exit 69).
+    ),), allowed_existing_failures=("MCP_CALL_ENVELOPE_BODY_OVER_LIMIT: one byte over the worker's body limit is refused before any request reaches the peer",),
+        failure_check="MCP_CALL_ENVELOPE_BODY_OVER_LIMIT: one byte over the worker's body limit is refused before any request reaches the peer"),
+    # The query is encoded and bounded before the client asks for its broker connection: a client that connects first reports
+    # an oversized request, run against a data directory with no broker, as transport_error (final review of 1.10.3).
+    Witness("mcpcall-envelope-connect-first", "mcpcall", "worker", ("--mcp-call-client-only",), "McpCallClientChecks.cs", ((
+        'string prefix = "agentbroker-call-" + Guid.NewGuid().ToString("N");',
+        '_ = await McpStdioBridge.GetConnectionAsync(options.DataDirectory, deadline.Token); '
+        'string prefix = "agentbroker-call-" + Guid.NewGuid().ToString("N");',
+    ),), allowed_existing_failures=("MCP_CALL_ENVELOPE_BODY_BOUND: a request whose encoded envelope exceeds the worker's body limit is refused before connecting",),
+        failure_check="MCP_CALL_ENVELOPE_BODY_BOUND: a request whose encoded envelope exceeds the worker's body limit is refused before connecting"),
+    # The admitted side of the body bound (closure of 1.10.3): a bound halved, made inclusive or loosened by one byte moves the
+    # exact 128 KiB boundary, so the at-limit or the one-over check names it.
+    Witness("mcpcall-envelope-bound-halved", "mcpcall", "worker", ("--mcp-call-client-only",), "McpCallClientChecks.cs", ((
+        'if (query.Length > WorkerApplication.MaximumRequestBodyBytes) throw new InvalidDataException("invalid_request");',
+        'if (query.Length > WorkerApplication.MaximumRequestBodyBytes / 2) throw new InvalidDataException("invalid_request");',
+    ),), allowed_existing_failures=("MCP_CALL_ENVELOPE_BODY_AT_LIMIT: a request whose encoded query is exactly the worker's body limit is sent whole and confirmed",),
+        failure_check="MCP_CALL_ENVELOPE_BODY_AT_LIMIT: a request whose encoded query is exactly the worker's body limit is sent whole and confirmed"),
+    Witness("mcpcall-envelope-bound-inclusive", "mcpcall", "worker", ("--mcp-call-client-only",), "McpCallClientChecks.cs", ((
+        'if (query.Length > WorkerApplication.MaximumRequestBodyBytes) throw new InvalidDataException("invalid_request");',
+        'if (query.Length >= WorkerApplication.MaximumRequestBodyBytes) throw new InvalidDataException("invalid_request");',
+    ),), allowed_existing_failures=("MCP_CALL_ENVELOPE_BODY_AT_LIMIT: a request whose encoded query is exactly the worker's body limit is sent whole and confirmed",),
+        failure_check="MCP_CALL_ENVELOPE_BODY_AT_LIMIT: a request whose encoded query is exactly the worker's body limit is sent whole and confirmed"),
+    Witness("mcpcall-envelope-bound-loose", "mcpcall", "worker", ("--mcp-call-client-only",), "McpCallClientChecks.cs", ((
+        'if (query.Length > WorkerApplication.MaximumRequestBodyBytes) throw new InvalidDataException("invalid_request");',
+        'if (query.Length > WorkerApplication.MaximumRequestBodyBytes + 1) throw new InvalidDataException("invalid_request");',
+    ),), allowed_existing_failures=("MCP_CALL_ENVELOPE_BODY_OVER_LIMIT: one byte over the worker's body limit is refused before any request reaches the peer",),
+        failure_check="MCP_CALL_ENVELOPE_BODY_OVER_LIMIT: one byte over the worker's body limit is refused before any request reaches the peer"),
+    # The initialized notification never marks the tool as dispatched: marking it would report a refused notification,
+    # sent before any tool call, as dispatchState unknown (review of the 1.10.3 candidate).
+    Witness("mcpcall-notification-marks-dispatch", "mcpcall", "worker", ("--mcp-call-client-only",), "McpCallClientChecks.cs", ((
+        'await ExchangeAsync(Body("notifications/initialized", new { }, null), null, dispatchesTool: false);',
+        'await ExchangeAsync(Body("notifications/initialized", new { }, null), null, dispatchesTool: true);',
+    ),), allowed_existing_failures=("MCP_CALL_PROCESS_NOTIFICATION_REFUSED: a refused initialized notification exits twelve, not_dispatched, before the tool call",),
+        failure_check="MCP_CALL_PROCESS_NOTIFICATION_REFUSED: a refused initialized notification exits twelve, not_dispatched, before the tool call"),
     Witness("bus-instructions-removed", "workerapp", "worker", ("--instructions-only",), "InstructionsChecks.cs", ((
         "AddMcpServer(server => server.ServerInstructions = BrokerInstructions.Text)",
         "AddMcpServer()",
@@ -188,6 +492,19 @@ WITNESSES = (
         'session.Adapter != "mcp" || !Addressable(address))',
         'session.Adapter != "mcp" || !Live(address))',
     ),)),
+    # AgentBroker 1.10.5 marathon, lane T (A4, N-broker-mailbox-presence-cadence-01): the renewed presence lease made three
+    # minutes long. PRESENCE_CADENCE_180 runs first in PollingLeaseChecks, so it is the one failure; --polling-lease-only is
+    # 44 healthy assertions with it (43 before). No harness pins that group's count.
+    Witness("presence-cadence-lease-lengthened", "store", "worker", ("--polling-lease-only",), "PollingLeaseChecks.cs", ((
+        "            var until = now.AddMinutes(1);",
+        "            var until = now.AddMinutes(3);",
+    ),), failure_check="PRESENCE_CADENCE_180: a mailbox renewed every 180 s is peer-visible for exactly 60 of each 180 s and accepts a paired peer's send while it is not listed"),
+    # Lane T round 2 (T2-11): the lease SHORTENED to 51 s, which the old 10-second grid could not tell from 60 s. Only the
+    # one-second samples with the +59 s / +60 s boundary see it.
+    Witness("presence-cadence-lease-shortened", "store", "worker", ("--polling-lease-only",), "PollingLeaseChecks.cs", ((
+        "            var until = now.AddMinutes(1);",
+        "            var until = now.AddSeconds(51);",
+    ),), failure_check="PRESENCE_CADENCE_180: a mailbox renewed every 180 s is peer-visible for exactly 60 of each 180 s and accepts a paired peer's send while it is not listed"),
     Witness("bus-native-retained", "store", "worker", ("--polling-lease-only",), "PollingLeaseChecks.cs", (
         ('            if (session.Adapter == "mcp") mailboxActivity[session.Address] = Now;\n'
          '            else mailboxActivity.Remove(session.Address);',
@@ -379,11 +696,11 @@ WITNESSES = (
         "return knownName && (host.Port ?? 80) == listenerPort;", "return knownName;",
     ),)),
     Witness("broker-d-wait-returns-unaddressable", "tools", "worker", ("--wait-tools-only",), "WaitToolChecks.cs", ((
-        '            if (!runtime.Store.IsAddressable(session)) throw new McpException("session_unavailable");\n'
-        "            var result = pending();\n",
-        "            var result = pending();\n"
-        '            if (result.Length == 0 && !runtime.Store.IsAddressable(session)) throw new McpException("session_unavailable");\n',
-    ),)),
+        '                Run(() => { runtime.Store.RequireAddressable(session, availabilitySubject); return true; });\n'
+        "                var result = pending();\n",
+        "                var result = pending();\n"
+        '                if (result.Length == 0) Run(() => { runtime.Store.RequireAddressable(session, availabilitySubject); return true; });\n',
+    ),), failure_check="WAIT_PENDING_ADDRESS_LOSS: an in-flight wait refuses its disconnected address before returning the newly pending message"),
     # ---- lane feature/agentbroker-backlog-e ----
     # Tombstone on acknowledgement (N-broker-a-02, owner decision 2026-10-27), the rollback to 1.0.4 and the unchanged
     # federation wire. Each witness runs one TombstoneChecks group; the checks run after the --existing-tests-only
@@ -418,11 +735,13 @@ WITNESSES = (
     # Re-pointed by lane feature/broker-next-160 (N-modules-fixes-01): wait_for_receipt now reads its original the same
     # way, so the bare lookup line occurs twice; the anchor includes wait_for_reply's own signature (same intent).
     Witness("broker-e-wait-reply-skips-tombstone", "tools", "worker", ("--tombstone-case", "wait-reply"), "TombstoneChecks.cs", ((
-        "    public Task<IReadOnlyList<MessageReceipt>> WaitForReply(Guid messageId, CancellationToken cancellationToken, int timeoutSeconds = 20)\n"
+        "    public Task<IReadOnlyList<MessageReceipt>> WaitForReply(Guid messageId, CancellationToken cancellationToken, int timeoutSeconds = 20,\n"
+        "        bool unacknowledgedOnly = false)\n"
         "    {\n"
         "        ValidateTimeout(timeoutSeconds);\n"
         "        var original = runtime.Store.FindReceipt(messageId)?.Message",
-        "    public Task<IReadOnlyList<MessageReceipt>> WaitForReply(Guid messageId, CancellationToken cancellationToken, int timeoutSeconds = 20)\n"
+        "    public Task<IReadOnlyList<MessageReceipt>> WaitForReply(Guid messageId, CancellationToken cancellationToken, int timeoutSeconds = 20,\n"
+        "        bool unacknowledgedOnly = false)\n"
         "    {\n"
         "        ValidateTimeout(timeoutSeconds);\n"
         "        var original = runtime.Store.FindReceiptWithText(messageId)?.Message",
@@ -436,7 +755,7 @@ WITNESSES = (
         "    private bool Tombstoned(MessageReceipt receipt) => receipt.Status is MessageStatus.Delivered or MessageStatus.Refused or MessageStatus.Held &&",
     ),)),
     Witness("broker-e-acknowledged-count-toward-limit", "store", "worker", ("--tombstone-case", "capacity"), "TombstoneChecks.cs", ((
-        '            if (retained.Count >= limits.MaximumMessages) Fail("message_limit");',
+        '            if (retained.Count(receipt => !Tombstoned(receipt)) >= limits.MaximumMessages) Fail("message_limit");',
         '            if (retained.Count + tombstones.Count >= limits.MaximumMessages) Fail("message_limit");',
     ),)),
     Witness("broker-e-tombstone-cap-unbounded", "store", "worker", ("--tombstone-case", "capacity"), "TombstoneChecks.cs", ((
@@ -488,9 +807,11 @@ WITNESSES = (
     ),)),
     Witness("broker-e-wire-record-member-added", "models", "worker", ("--tombstone-case", "wire"), "TombstoneChecks.cs", ((
         """public sealed record MessageReceipt(BrokerMessage Message, MessageStatus Status,
-    DateTimeOffset UpdatedAt, string? Reason = null, int Attempts = 0);""",
+    DateTimeOffset UpdatedAt, string? Reason = null, int Attempts = 0)
+{""",
         """public sealed record MessageReceipt(BrokerMessage Message, MessageStatus Status,
-    DateTimeOffset UpdatedAt, string? Reason = null, int Attempts = 0, bool Tombstone = false);""",
+    DateTimeOffset UpdatedAt, string? Reason = null, int Attempts = 0, bool Tombstone = false)
+{""",
     ),)),
     # ---- lane feature/agentbroker-pin-automation ----
     # The exact pins moved into ONE embedded JSON document (lane broker-pins, owner decision 2026-10-27): its strict
@@ -750,6 +1071,44 @@ WITNESSES = (
         "            options.EnableClaudeUpdateTolerantDelivery));",
         "        if (options.EnableClaudeNativeDiscovery) adapters.Add(new ClaudeNativeAdapter(options.EnableClaudePeerCredentials));",
     ),)),
+    # 1.10.6 lane N round 1 (N-broker-native-confirmation-01): the library's typed pre-frame deferral. The scenarios run after
+    # the desktop --existing-tests-only cut-off (DiscoveryTimeoutChecks), so the existing pin stays 157 and each mutant must
+    # leave the existing suite passing. The worker half is in run_agentbroker_hygiene_mutations.py (NATIVE_R1_WITNESSES).
+    Witness("native-r1-preframe-rediscovery-raises", "desktopadapter", "desktop", ("--discovery-timeout-case", "preframe-rediscovery"),
+            "DiscoveryTimeoutChecks.cs", ((
+        "            try { current = await DiscoverCoreAsync(binding.ConversationId, binding.OwnerClientId, token); }\n"
+        "            catch (Exception error) when (externalPeer && error is OperationCanceledException or IOException)\n"
+        "            {\n"
+        "                return PreFrameDeferral(error is IOException ? \"rediscovery_io\"\n"
+        "                    : token.IsCancellationRequested ? \"attempt_cancelled\" : \"rediscovery_timeout\");\n"
+        "            }\n",
+        "            current = await DiscoverCoreAsync(binding.ConversationId, binding.OwnerClientId, token);\n",
+    ),), failure_check="DiscoveryTimeoutChecks.cs: CODEX_PREFRAME_REDISCOVERY_DEFERS: a timed-out owner rediscovery defers with nothing written and its closed connection named"),
+    Witness("native-r1-preframe-reservation-early", "desktopadapter", "desktop", ("--discovery-timeout-case", "preframe-token"),
+            "DiscoveryTimeoutChecks.cs", ((
+        "            if (externalPeer && token.IsCancellationRequested) return PreFrameDeferral(\"attempt_cancelled\");\n"
+        "            token.ThrowIfCancellationRequested();\n"
+        "            var uncertain = new DesktopSubmissionResult(DesktopSubmissionOutcome.Uncertain, ErrorCode: \"submission_unconfirmed\");\n"
+        "            // Reserve before the first write. A partial write or lost response is never retried automatically.\n"
+        "            receipts.Add(messageId, (binding.ConversationId, digest, uncertain));\n",
+        "            var uncertain = new DesktopSubmissionResult(DesktopSubmissionOutcome.Uncertain, ErrorCode: \"submission_unconfirmed\");\n"
+        "            // Reserve before the first write. A partial write or lost response is never retried automatically.\n"
+        "            receipts.Add(messageId, (binding.ConversationId, digest, uncertain));\n"
+        "            if (externalPeer && token.IsCancellationRequested) return PreFrameDeferral(\"attempt_cancelled\");\n"
+        "            token.ThrowIfCancellationRequested();\n",
+    ),), failure_check="DiscoveryTimeoutChecks.cs: CODEX_PREFRAME_TOKEN_DEFERS_OPEN: a pre-frame deferral reserves no message ID, so the same-ID retry submits once"),
+    Witness("native-r1-plaintext-preframe-defers", "desktopadapter", "desktop", ("--discovery-timeout-case", "plaintext-preframe"),
+            "DiscoveryTimeoutChecks.cs", ((
+        "            catch (Exception error) when (externalPeer && error is OperationCanceledException or IOException)\n",
+        "            catch (Exception error) when (error is OperationCanceledException or IOException)\n",
+    ),), failure_check="DiscoveryTimeoutChecks.cs: CODEX_PLAINTEXT_PREFRAME_UNCHANGED: the plaintext path keeps raising a timed-out rediscovery and never defers"),
+    # Deliberately NOT a witness here: the post-write timeout. Any mutant that lets it enter the pre-frame retry branch also
+    # breaks the EXISTING desktop checks "timeout never treated as safe to resend." and "timeout retry returns original
+    # uncertain receipt." (Program.cs, both paths, before the --existing-tests-only cut-off), and this runner can grade a
+    # desktop named overlap only after the desktop suite prints PASS lines, has unique labels per path and reports RESULT=FAIL
+    # (it does none of these today). Lane N round 1 grades that mutant with its own retained-output driver instead, which
+    # runs only the focused one-check case (marathon-1106 evidence: lanes/N/r01/killers/postframe_timeout_killer.py;
+    # CODEX_POSTFRAME_TIMEOUT_STAYS_UNCERTAIN in DiscoveryTimeoutChecks.cs is its label).
 )
 
 
@@ -764,7 +1123,13 @@ def sha256(raw: bytes) -> str:
 def refuse_links(path: Path) -> None:
     """Check only this explicit path and its parents, never a directory tree."""
     for item in (path, *path.parents):
-        if item.is_symlink() or (hasattr(item, "is_junction") and item.is_junction()):
+        try:
+            metadata = item.lstat()
+        except FileNotFoundError:
+            continue
+        # is_junction arrived in Python 3.12. The Windows reparse flag also covers junctions on
+        # supported 3.10/3.11 interpreters and tags other than a symbolic link or a mount point.
+        if stat.S_ISLNK(metadata.st_mode) or getattr(metadata, "st_file_attributes", 0) & 0x400:
             raise RuntimeError("Linked mutation/evidence path refused: " + str(item))
 
 
@@ -772,6 +1137,34 @@ def read_source(relative: str) -> bytes:
     path = ROOT / relative
     refuse_links(path)
     return path.read_bytes()
+
+
+def restore_owned_sources(root: Path, original: dict[str, bytes], current: dict[str, bytes]) -> None:
+    """Restore every owned file before reporting conflicts, without recreating absent sources.
+
+    These checks catch a path replaced since the initial capture, but are not an atomic defence
+    against a hostile concurrent rename. Run mutation harnesses in their reserved worktree.
+    """
+    left = []
+    for relative, raw_original in original.items():
+        path = root / relative
+        try:
+            refuse_links(path)
+            raw = path.read_bytes()
+        except (OSError, RuntimeError) as error:
+            left.append(relative + " (unreadable or linked: " + type(error).__name__ + ")")
+            continue
+        if raw not in (raw_original, current[relative]):
+            left.append(relative + " (differs from original and owned mutation)")
+            continue
+        try:
+            if raw != raw_original:
+                refuse_links(path)
+                path.write_bytes(raw_original)
+        except (OSError, RuntimeError) as error:
+            left.append(relative + " (could not be restored: " + type(error).__name__ + ")")
+    if left:
+        raise RuntimeError("Source not restored; manual recovery required: " + "; ".join(left))
 
 
 def replace_exact(raw: bytes, before: str, after: str, expected_count: int = 1) -> bytes:
@@ -790,6 +1183,7 @@ class Runner:
         self.owned_current = dict(self.original)
         self.serial = 0
         self.steps: list[dict] = []
+        self.built_artifacts: dict[str, dict] = {}
         backups = []
         for index, (relative, raw) in enumerate(self.original.items(), start=1):
             name = f"source-{index:02d}.bytes"
@@ -820,37 +1214,13 @@ class Runner:
             expected = witness.replacement_counts[index] if witness.replacement_counts else 1
             changed = replace_exact(changed, before, after, expected)
         self.owned_current[relative] = changed
+        refuse_links(ROOT / relative)
         (ROOT / relative).write_bytes(changed)
 
     def restore(self) -> None:
-        # EVERY SOURCE IS VISITED, whatever an earlier one did (N-codex-1102-02). The read of each source was unguarded, so
-        # a source that could not be read (missing, locked, or a link that read_source refuses) raised out of this loop and
-        # every source after it stayed mutated, while the refusal named only the first. The installer shutdown runner had
-        # the same shape until 80fee26 (restore_owned there); this is that fix: a source that cannot be read, holds a
-        # foreign edit, or cannot be written is left as found and named, and the loop goes on.
-        conflicts = []
-        for relative, original in self.original.items():
-            try:
-                current = read_source(relative)
-            except RuntimeError as error:
-                conflicts.append(relative + " (a link: " + str(error) + ")")
-                continue
-            except OSError as error:
-                conflicts.append(relative + " (unreadable: " + type(error).__name__ + ")")
-                continue
-            if current not in (original, self.owned_current[relative]):
-                conflicts.append(relative)
-                continue  # Never overwrite a concurrent edit by somebody else.
-            if current != original:
-                try:
-                    (ROOT / relative).write_bytes(original)
-                except OSError as error:
-                    conflicts.append(relative + " (could not be restored: " + type(error).__name__ + ")")
-                    continue
-            self.owned_current[relative] = original
-        if conflicts:
-            raise RuntimeError("Concurrent source edits prevent automatic restoration: " + ", ".join(conflicts))
+        restore_owned_sources(ROOT, self.original, self.owned_current)
         self.expect_restored()
+        self.owned_current = dict(self.original)
 
     @staticmethod
     def stop_owned_tree(process: subprocess.Popen) -> None:
@@ -900,6 +1270,8 @@ class Runner:
         return entry
 
     def build(self, family: str, label: str) -> None:
+        before = artifact_snapshot(family, missing_ok=True)
+        started_ns = time.time_ns()
         # Restore first, as build.ps1 does before its clean (N-audit-20261029-17). obj/project.assets.json names the
         # package folder of the restore that wrote it, and a passing isolated gate restores these projects into its
         # private dotnet home and then releases that home, so the --no-restore build read a folder that no longer
@@ -910,18 +1282,36 @@ class Runner:
         if restored["exitCode"] != 0:
             raise RuntimeError("Restore before a healthy/mutant build failed; this is not a killed reporting mutation: " + label)
         result = self.invoke(label, ["dotnet", "build", PROJECTS[family], "-c", "Release", "--no-restore",
-                                    "--disable-build-servers", "-warnaserror", "-p:UseSharedCompilation=false"], 600)
+                                    "--no-incremental", "--disable-build-servers", "-warnaserror", "-p:UseSharedCompilation=false"], 600)
         if result["exitCode"] != 0:
             raise RuntimeError("Healthy/mutant build failed; this is not a killed reporting mutation: " + label)
+        after = artifact_snapshot(family)
+        require_rebuilt_artifacts(before, after, started_ns)
+        self.built_artifacts[family] = after
+        result["artifactBuildProof"] = {"startedNs": started_ns, "before": before, "after": after,
+                                        "sourceSha256": {relative: sha256(read_source(relative)) for relative in self.owned_current}}
+        for name, identity in after.items():
+            print(f"ARTIFACT-BUILD-WITNESS {label} {name} SHA256={identity['sha256']} MTimeNs={identity['mtimeNs']}", flush=True)
 
     def test(self, family: str, label: str, args: tuple[str, ...], *, failure_file: str | None = None,
              existing: bool = False, focused: bool = False, expected_assertions: int | None = None,
-             named_failures: tuple[str, ...] = ()) -> dict:
+             named_failures: tuple[str, ...] = (), failure_check: str | None = None) -> dict:
+        expected_artifacts = self.built_artifacts.get(family)
+        if expected_artifacts is None or artifact_snapshot(family) != expected_artifacts:
+            raise RuntimeError("PIN_EXECUTION_ARTIFACTS_DIFFER_FROM_BUILD: " + label)
         result = self.invoke(label, ["dotnet", str(ASSEMBLIES[family].relative_to(ROOT)), *args], 180)
         output = result["output"]
+        if artifact_snapshot(family) != expected_artifacts:
+            raise RuntimeError("PIN_EXECUTION_ARTIFACTS_CHANGED_DURING_TEST: " + label)
+        result["executedArtifactProof"] = expected_artifacts
         if failure_file is not None:
             if result["exitCode"] != 1 or failure_file not in output:
                 raise RuntimeError("Mutation did not fail cleanly with exit 1 in its specific new test file: " + label)
+            if failure_check is not None:
+                failed = re.findall(r"(?m)^System\.InvalidOperationException: ([^\r\n]+)", output)
+                if "RESULT=FAIL" not in output.splitlines() or failed != [failure_check]:
+                    raise RuntimeError("PIN_INTENDED_ASSERTION_REQUIRED: " + label)
+                result["failedCheck"] = failure_check
             result["expectedFailureFile"] = failure_file
             result["expectedOutcome"] = "new_test_failed"
         elif named_failures:
@@ -948,9 +1338,11 @@ class Runner:
                 raise RuntimeError("Focused diagnostic assertion inventory changed unexpectedly: " + label)
             if expected_assertions is not None and result["assertions"] != expected_assertions:
                 raise RuntimeError("Focused concurrency assertion inventory changed unexpectedly: " + label)
+        for name, identity in expected_artifacts.items():
+            print(f"ARTIFACT-EXECUTION-WITNESS {label} {name} SHA256={identity['sha256']} MTimeNs={identity['mtimeNs']}", flush=True)
         return result
 
-    def healthy(self, prefix: str, families: tuple[str, ...]) -> None:
+    def healthy(self, prefix: str, families: tuple[str, ...], witnesses: tuple[Witness, ...]) -> None:
         for family in families:
             self.build(family, prefix + "-build-" + family)
         for family in families:
@@ -964,12 +1356,38 @@ class Runner:
                         raise RuntimeError("A named existing failure is not one passing existing check: " + witness.name)
         if "worker" in families:
             self.test("worker", prefix + "-deferred-claim", ("--deferred-claim-only",), expected_assertions=4)
+        # Every group a selected mutant will grade must first be green on these exact healthy sources.
+        # The diagnostic and existing cuts do not necessarily register later focused groups.
+        seen = {(family, args) for family in families
+                for args in (("--pin-diagnostics-only",), ("--existing-tests-only",))}
+        if "worker" in families:
+            seen.add(("worker", ("--deferred-claim-only",)))
+        for witness in witnesses:
+            group = (witness.family, witness.test_args)
+            if group in seen:
+                continue
+            seen.add(group)
+            healthy = self.test(witness.family, prefix + "-witness-group-" + str(len(seen)), witness.test_args)
+            if not healthy.get("assertions") or healthy["assertions"] < 1:
+                raise RuntimeError("Selected witness group proved no healthy assertions: " + witness.name)
 
     def witness(self, witness: Witness) -> dict:
         record = {"name": witness.name, "classification": witness.kind, "source": SOURCES[witness.source], "checks": []}
+        dependency = mutation_artifact(witness.source)
+        prior_artifact = artifact_snapshot(witness.family)[dependency]
+        relative = SOURCES[witness.source]
+        source_before = (ROOT / relative).stat().st_mtime_ns
         self.mutate(witness)
         try:
+            record["mutatedSourceProof"] = {"beforeSha256": sha256(self.original[relative]),
+                                            "afterSha256": sha256(read_source(relative)),
+                                            "beforeMtimeNs": source_before,
+                                            "afterMtimeNs": (ROOT / relative).stat().st_mtime_ns}
             self.build(witness.family, witness.name + "-build")
+            changed_artifact = self.built_artifacts[witness.family][dependency]
+            if changed_artifact["sha256"] == prior_artifact["sha256"]:
+                raise RuntimeError("PIN_MUTATED_DEPENDENCY_UNCHANGED: " + dependency)
+            record["mutatedDependencyProof"] = {"name": dependency, "before": prior_artifact, "after": changed_artifact}
             if witness.name == "claude-reporting":
                 for scenario in CLAUDE_SCENARIOS:
                     outcome = self.test("worker", witness.name + "-" + scenario,
@@ -979,11 +1397,12 @@ class Runner:
                                              "expectedOutcome": outcome["expectedOutcome"]})
             else:
                 outcome = self.test(witness.family, witness.name + "-new", witness.test_args,
-                                    failure_file=witness.failure_file)
-                record["checks"].append({"exitCode": outcome["exitCode"], "expectedOutcome": outcome["expectedOutcome"]})
+                                    failure_file=witness.failure_file, failure_check=witness.failure_check)
+                record["checks"].append({"exitCode": outcome["exitCode"], "expectedOutcome": outcome["expectedOutcome"],
+                                         "failedCheck": outcome.get("failedCheck")})
             if witness.kind == "concurrency":
                 record["existingRegression"] = {"runWhileMutated": False,
-                    "reason": "This witness intentionally restores the known legacy deferred-claim race; the old 130 checks run after source restoration."}
+                    "reason": "This witness intentionally restores the known legacy deferred-claim race; existing checks run after source restoration."}
             elif witness.allowed_existing_failures:
                 old = self.test(witness.family, witness.name + "-existing", ("--existing-tests-only",),
                                 named_failures=witness.allowed_existing_failures)
@@ -1018,7 +1437,10 @@ def main() -> int:
         print(json.dumps({"mode": "plan_only", "buildsStarted": False, "sourcesChanged": False,
                           "selectedFamilies": families, "expectedFailureExitCode": 1,
                           "witnesses": [{"name": item.name, "source": SOURCES[item.source],
+                                         "testArgs": item.test_args, "replacements": item.replacements,
+                                         "replacementCounts": item.replacement_counts,
                                          "classification": item.kind, "newFailureFile": item.failure_file,
+                                         "expectedFailureCheck": item.failure_check,
                                          "existingAssertions": EXISTING_COUNTS[item.family] if item.kind == "reporting" else None,
                                          "allowedExistingFailures": list(item.allowed_existing_failures)}
                                         for item in selected]}, indent=2))
@@ -1032,11 +1454,16 @@ def main() -> int:
     if evidence.parent != artifacts.resolve() or not re.fullmatch(r"pin-diagnostic-mutations-[A-Za-z0-9-]{1,80}", evidence.name):
         raise ValueError("Evidence must be a new artifacts/pin-diagnostic-mutations-<label> directory.")
     artifacts.mkdir(exist_ok=True)
-    evidence.mkdir(exist_ok=False)
     lock_path = artifacts / ".pin-diagnostics-mutation.lock"
     refuse_links(lock_path)
     lock = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-    os.write(lock, (str(os.getpid()) + "\n").encode("ascii"))
+    try:
+        os.write(lock, (str(os.getpid()) + "\n").encode("ascii"))
+        evidence.mkdir(exist_ok=False)
+    except BaseException:
+        os.close(lock)
+        lock_path.unlink()
+        raise
     report = {"schema": 1, "startedUtc": utc_now(), "evidence": evidence.relative_to(ROOT).as_posix(),
               "sourceBackupsManifest": "source-backups.json", "focusedAssertions": FOCUSED_COUNTS,
               "existingAssertions": EXISTING_COUNTS, "deferredClaimAssertions": 4, "selectedFamilies": families,
@@ -1047,7 +1474,7 @@ def main() -> int:
     try:
         runner = Runner(evidence)
         report["sourceSha256Before"] = {relative: sha256(raw) for relative, raw in runner.original.items()}
-        runner.healthy("baseline", families)
+        runner.healthy("baseline", families, tuple(selected))
         for witness in selected:
             report["witnesses"].append(runner.witness(witness))
         report["verdict"] = "PASS"
@@ -1063,7 +1490,7 @@ def main() -> int:
                 report["sourceBytesRestored"] = True
                 report["sourceSha256After"] = {relative: sha256(read_source(relative)) for relative in runner.original}
                 if not interrupted:
-                    runner.healthy("restored", families)
+                    runner.healthy("restored", families, tuple(selected))
                     report["restoredBuildAndRegression"] = "PASS"
             except BaseException as error:
                 failed = True

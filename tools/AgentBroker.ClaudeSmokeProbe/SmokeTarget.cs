@@ -7,8 +7,8 @@ namespace AgentBroker.ClaudeSmokeProbe;
 
 public sealed record SmokeTarget(NativeTarget Native, CredentialTarget Credential, NativeActivity Activity)
 {
-    public string Classification => Native.EngineVersion is "2.1.304" or "2.1.306"
-        ? "verified_vscode_bundled_runtime" : "verified_standalone_runtime";
+    // An exact executable profile establishes the runtime, not which product installed or hosts that same image.
+    public string Classification => "verified_native_runtime";
 }
 
 public static class SmokeTargets

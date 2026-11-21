@@ -81,10 +81,23 @@ public static class CodexEngineBinding
         return new(true, engine.Host == CodexEngineHost.Code ? CodeEngine : DesktopEngine);
     }
 
-    /// <summary>The lock file's path under a Codex home. Codex's own default home only: the worker cannot see what CODEX_HOME
-    /// an engine was started with, so a guess from the worker's environment could name another home's lock.</summary>
+    /// <summary>The lock file's path under a default or explicitly configured Codex home. The worker does not infer
+    /// what CODEX_HOME an engine was started with from its own environment.</summary>
     public static string LockPath(string codexHome, Guid threadId)
         => Path.Combine(codexHome, "thread-writer-locks", threadId.ToString("D") + ".lock");
+
+    /// <summary>Several explicit homes can carry the same thread ID. Conflicting occupied homes never pick a winner.</summary>
+    public static CodexEngineBindingVerdict ClassifyHomes(IReadOnlyList<WriterLockObservation> observations,
+        IReadOnlyList<CodexEngine> engines, IReadOnlySet<uint>? unreadable = null, bool incomplete = false)
+    {
+        if (observations.Any(o => o.State == WriterLockState.Reparse)) return new(false, "lock_path_reparse");
+        if (observations.Any(o => o.State == WriterLockState.Failed)) return new(false, "query_failed");
+        var occupied = observations.Where(o => o.State == WriterLockState.Queried && o.Holders.Count > 0).ToArray();
+        if (occupied.Length > 1) return new(false, "ambiguous_homes");
+        var observation = occupied.SingleOrDefault() ?? observations.FirstOrDefault(o => o.State == WriterLockState.Queried)
+            ?? WriterLockObservation.Missing;
+        return Classify(observation, engines, unreadable, incomplete);
+    }
 
     /// <summary>The lock path's state before any query: Reparse if the file or any directory above it is a reparse point
     /// (reported, never followed), Missing if it does not exist, Failed if its attributes cannot be read, else Queried. Walked
@@ -112,13 +125,16 @@ public static class CodexEngineBinding
 
 /// <summary>
 /// The production source: one process snapshot per call (only when some lock has exactly one holder), one Restart Manager
-/// session per thread (RmStartSession, RmRegisterResources, RmGetList, RmEndSession). Read-only: the lock file is never
+/// session per thread and configured home (RmStartSession, RmRegisterResources, RmGetList, RmEndSession). Read-only: the lock file is never
 /// opened, for write or otherwise, by this code, a stale lock file is never deleted, and a reparse point anywhere on the
 /// path is reported instead of followed.
 /// </summary>
 public sealed class WindowsCodexEngineBindingSource : ICodexEngineBindingSource
 {
     public static readonly WindowsCodexEngineBindingSource Instance = new();
+    private readonly string[] additionalHomes;
+    public WindowsCodexEngineBindingSource(IReadOnlyList<string>? additionalHomes = null)
+        => this.additionalHomes = CodexHomePaths.NormalizeAdditional(additionalHomes ?? []);
     // A lock held by more processes than this is reported as multiple_holders without reading them all.
     private const int MaximumHolders = 16;
 
@@ -132,27 +148,42 @@ public sealed class WindowsCodexEngineBindingSource : ICodexEngineBindingSource
             foreach (var thread in threadIds) result[thread] = new(false, "query_failed");
             return result;
         }
-        string home = Path.Combine(profile, ".codex");
+        string[] homes = new[] { Path.Combine(profile, ".codex") }.Concat(additionalHomes).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        return ObserveAtHomes(threadIds, homes, Query, WindowsClientProcesses.ReadCodexEngines, () => DateTimeOffset.UtcNow, token);
+    }
+
+    internal static IReadOnlyDictionary<Guid, CodexEngineBindingVerdict> ObserveAtHomes(IReadOnlyCollection<Guid> threadIds,
+        string[] homes, Func<string, WriterLockObservation> query, Func<CodexEngineSet> readEngines,
+        Func<DateTimeOffset> now, CancellationToken token)
+    {
+        var result = new Dictionary<Guid, CodexEngineBindingVerdict>();
         CodexEngineSet? engines = null;
         bool snapshotFailed = false;
         foreach (var thread in threadIds.Distinct())
         {
             // Each query costs about 0.1 s; the caller's budget ends the pass, and what was not reached is simply absent.
             if (token.IsCancellationRequested) break;
-            var observation = Query(CodexEngineBinding.LockPath(home, thread));
+            var observations = new List<WriterLockObservation>();
+            foreach (string home in homes)
+            {
+                if (token.IsCancellationRequested) break;
+                observations.Add(query(CodexEngineBinding.LockPath(home, thread)));
+            }
+            // An incomplete home scan cannot assert a unique owner. Keep the previous row observation until a full scan.
+            if (observations.Count != homes.Length) break;
             // The engines are read once, and only when a holder needs matching. Only the process snapshot itself failing
             // spoils every lock; a single unreadable process is in Unreadable and affects only a lock it holds.
-            if (observation is { State: WriterLockState.Queried, Holders.Count: 1 } && engines is null && !snapshotFailed)
+            if (observations.Any(o => o is { State: WriterLockState.Queried, Holders.Count: 1 }) && engines is null && !snapshotFailed)
             {
-                try { engines = WindowsClientProcesses.ReadCodexEngines(); }
+                try { engines = readEngines(); }
                 catch (Exception error) when (error is DesktopAdapterException or Win32Exception or IOException or UnauthorizedAccessException or InvalidOperationException)
                 { snapshotFailed = true; }
             }
             // Stamped per thread, when its own query ran (review of d9c2967, item 5): the observation can last its whole budget.
-            var verdict = observation is { State: WriterLockState.Queried, Holders.Count: 1 } && snapshotFailed
-                ? new(false, "query_failed") : CodexEngineBinding.Classify(observation, engines?.Engines ?? [], engines?.Unreadable,
+            var verdict = observations.Any(o => o is { State: WriterLockState.Queried, Holders.Count: 1 }) && snapshotFailed
+                ? new(false, "query_failed") : CodexEngineBinding.ClassifyHomes(observations, engines?.Engines ?? [], engines?.Unreadable,
                     engines?.Incomplete == true);
-            result[thread] = verdict with { ObservedAt = DateTimeOffset.UtcNow };
+            result[thread] = verdict with { ObservedAt = now() };
         }
         return result;
     }

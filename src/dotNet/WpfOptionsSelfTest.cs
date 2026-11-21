@@ -2651,6 +2651,7 @@ namespace DesktopAICompanion
                 ok &= CollapsibleCards(sb);
                 ok &= PathFields(sb);
                 ok &= ListCountsAndMasterToggle(sb);
+                ok &= HostA11y(sb);
                 ok &= ColouredEmptyHint(sb);
                 ok &= InertDefault(sb);
             }
@@ -3268,6 +3269,311 @@ namespace DesktopAICompanion
                 unknownBoxes.Count == 1 && !unknownBoxes[0].IsReadOnly && unknownBoxes[0].Text == WhisperExe &&
                 view.PathEditorFor("unknown") == null);
             return ok;
+        }
+
+        /// <summary>
+        /// AgentBroker 1.10.5 marathon lane H, host accessibility. B2 (N-broker-checkbox-focus-01): the dark theme's CheckBox
+        /// and RadioButton carry a keyboard focus cue in the theme's text colour, judged on the style AND on the drawn pixels,
+        /// because a stroke can read light on a property while what is drawn does not stand out. B3
+        /// (N-broker-row-accessibility-01): a list card row's box is named by its label and its detail, carries the detail as
+        /// its help text, and comes before the detail in the automation tree.
+        /// </summary>
+        private static bool HostA11y(StringBuilder sb)
+        {
+            bool ok = true;
+
+            // B2, judged on the EFFECTIVE value (lane H round 2, H-7): which focus cue a box actually resolves once it is laid out
+            // under the dark resources. A dictionary read said what the theme installs, not what a labelled box gets: the stock
+            // template's HasContent trigger outranks a Style setter. Each box is compared, by reference, with the cue installed
+            // in that same render's resources, since every AddDarkResources call builds its own cue.
+            var labelledBox = new System.Windows.Controls.CheckBox { Content = "Run at startup" };
+            var bareBox = new System.Windows.Controls.CheckBox();
+            var labelledRadio = new System.Windows.Controls.RadioButton { Content = "On this PC", GroupName = "host-a11y-focus" };
+            var boxes = new System.Windows.Controls.StackPanel();
+            boxes.Children.Add(labelledBox);
+            boxes.Children.Add(bareBox);
+            boxes.Children.Add(labelledRadio);
+            var boxRender = new PaneRender(boxes, true, 300);
+            System.Windows.Style checkCue = SetterValue(boxRender.Frame.Resources[typeof(System.Windows.Controls.CheckBox)] as System.Windows.Style,
+                System.Windows.FrameworkElement.FocusVisualStyleProperty) as System.Windows.Style;
+            System.Windows.Style radioCue = SetterValue(boxRender.Frame.Resources[typeof(System.Windows.Controls.RadioButton)] as System.Windows.Style,
+                System.Windows.FrameworkElement.FocusVisualStyleProperty) as System.Windows.Style;
+            System.Windows.Media.Color textColour = ImplicitForeground(boxRender.Frame.Resources, typeof(System.Windows.Controls.CheckBox));
+            string labelledShape, radioShape;
+            System.Windows.Shapes.Rectangle labelledRect = CueRectangleOf(labelledBox.FocusVisualStyle, out labelledShape);
+            System.Windows.Shapes.Rectangle radioRect = CueRectangleOf(labelledRadio.FocusVisualStyle, out radioShape);
+            ok &= Check(sb, "host-a11y: focus: a labelled dark CheckBox resolves the theme's focus cue (effective value: " +
+                (ReferenceEquals(labelledBox.FocusVisualStyle, checkCue) && checkCue != null ? "the theme's cue" : labelledShape) + ")",
+                checkCue != null && ReferenceEquals(labelledBox.FocusVisualStyle, checkCue));
+            ok &= Check(sb, "host-a11y: focus: a dark CheckBox's keyboard focus cue is a 1 px dashed rectangle in the theme text colour (" + labelledShape + ")",
+                IsThemeFocusCue(labelledRect, textColour));
+            string bareShape;
+            CueRectangleOf(bareBox.FocusVisualStyle, out bareShape);
+            ok &= Check(sb, "host-a11y: focus: a content-less dark CheckBox resolves the theme's focus cue (effective value: " +
+                (ReferenceEquals(bareBox.FocusVisualStyle, checkCue) && checkCue != null ? "the theme's cue" : bareShape) + ")",
+                checkCue != null && ReferenceEquals(bareBox.FocusVisualStyle, checkCue));
+            ok &= Check(sb, "host-a11y: focus: a dark RadioButton's keyboard focus cue is the theme's 1 px dashed rectangle (labelled, effective value: " + radioShape + ")",
+                radioCue != null && ReferenceEquals(labelledRadio.FocusVisualStyle, radioCue) && IsThemeFocusCue(radioRect, textColour));
+
+            // The light theme keeps the stock cue: no setter and no trigger for FocusVisualStyle in its CheckBox or RadioButton
+            // style, whatever such a cue would be rooted in (H-8: a Rectangle-only test passed a Border-rooted or empty cue).
+            var light = new System.Windows.ResourceDictionary();
+            DesktopAICompanion.Wpf.WpfTheme.AddLightResources(light);
+            bool lightCheckCue = SetsFocusCue(light[typeof(System.Windows.Controls.CheckBox)] as System.Windows.Style);
+            bool lightRadioCue = SetsFocusCue(light[typeof(System.Windows.Controls.RadioButton)] as System.Windows.Style);
+            ok &= Check(sb, "host-a11y: focus: WITNESS the light theme keeps the stock focus cue (a cue set on CheckBox " + lightCheckCue +
+                ", on RadioButton " + lightRadioCue + ")",
+                !lightCheckCue && !lightRadioCue);
+
+            // Drawn on the dark card from the labelled box's EFFECTIVE cue, the way the focus adorner draws it around that box.
+            var frame = new System.Windows.Controls.Border { Width = 120, Height = 22, Margin = new System.Windows.Thickness(12) };
+            if (labelledRect != null) frame.Child = labelledRect;
+            var holder = new System.Windows.Controls.StackPanel();
+            holder.Children.Add(frame);
+            var render = new PaneRender(holder, true, 200);
+            render.Save("dp-host-a11y-focus.png");
+            double ink = labelledRect != null ? render.Ink(labelledRect) : 0;
+            ok &= PixelCheck(sb, "host-a11y: focus: drawn on the dark card, the cue's dashes stand out from it (ink " + ink.ToString("0.00") + ", at least 0.50)",
+                ink >= 0.5, render);
+
+            // The lead's ruling Q6: INFO only. Lane H changes no other control's cue; these numbers go to the audit sheet. Each
+            // control is laid out under the dark resources, and the focus style it resolves is drawn and measured the same way.
+            var button = new System.Windows.Controls.Button { Content = "Apply", Width = 80 };
+            var combo = new System.Windows.Controls.ComboBox { Width = 120 };
+            combo.Items.Add("small");
+            combo.SelectedIndex = 0;
+            var expander = new System.Windows.Controls.Expander { Header = "Card", Content = new System.Windows.Controls.TextBlock { Text = "body" } };
+            var nav = new System.Windows.Controls.ListBox();
+            nav.Items.Add("Preferences");
+            var probes = new System.Windows.Controls.StackPanel();
+            probes.Children.Add(button);
+            probes.Children.Add(combo);
+            probes.Children.Add(expander);
+            probes.Children.Add(nav);
+            new PaneRender(probes, true, 300);
+            var toggles = new List<System.Windows.Controls.Primitives.ToggleButton>();
+            CollectAll(expander, toggles);
+            var others = new List<KeyValuePair<string, System.Windows.FrameworkElement>>
+            {
+                new KeyValuePair<string, System.Windows.FrameworkElement>("Button", button),
+                new KeyValuePair<string, System.Windows.FrameworkElement>("ComboBox", combo),
+                new KeyValuePair<string, System.Windows.FrameworkElement>("Expander header toggle", toggles.Count > 0 ? toggles[0] : null),
+                new KeyValuePair<string, System.Windows.FrameworkElement>("ListBox item (plain, as a nav list)",
+                    nav.ItemContainerGenerator.ContainerFromIndex(0) as System.Windows.FrameworkElement),
+            };
+            foreach (KeyValuePair<string, System.Windows.FrameworkElement> other in others)
+            {
+                string what;
+                double otherInk = DrawnCueInk(other.Value != null ? other.Value.FocusVisualStyle : null, out what);
+                sb.AppendLine("INFO: host-a11y: focus (left as it is in lane H): " + other.Key + ": " + what +
+                    (otherInk >= 0 ? ", ink " + otherInk.ToString("0.00") + " on the dark card" : ""));
+            }
+
+            // B3: a list card row with a detail, as an Awaiting broker row is, and one without.
+            const string awaitingDetail = "Awaiting, code 4821 7730";
+            var pane = new OptionsPane
+            {
+                Title = "Rows",
+                Load = delegate { return new Dictionary<string, string>(StringComparer.Ordinal); },
+                Lists = new[]
+                {
+                    new ListCard
+                    {
+                        Title = "Brokers",
+                        LoadItems = delegate
+                        {
+                            return new[]
+                            {
+                                new ListItem { Id = "a", Label = "Workstation B", Detail = awaitingDetail, Checked = false },
+                                new ListItem { Id = "p", Label = "Plain item", Checked = true },
+                                new ListItem { Id = "w", Label = "Whitespace item", Detail = " ", Checked = false },
+                            };
+                        },
+                        SetChecked = delegate { },
+                    },
+                },
+            };
+            var view = new DesktopAICompanion.Wpf.PaneView(pane, null, delegate { });
+            var root = view.Build() as System.Windows.FrameworkElement;
+            // Laid out (and kept for a person to look at), so every template exists for the automation walk below.
+            new PaneRender(root, true).Save("dp-host-a11y-rows.png");
+            System.Windows.Controls.CheckBox row = ItemBox(root, "a");
+            System.Windows.Controls.CheckBox plain = ItemBox(root, "p");
+            System.Windows.Automation.Peers.AutomationPeer rowPeer = PeerOf(row), plainPeer = PeerOf(plain);
+            string rowName = rowPeer != null ? rowPeer.GetName() ?? "" : "<no peer>";
+            string rowHelp = rowPeer != null ? rowPeer.GetHelpText() ?? "" : "<no peer>";
+            ok &= Check(sb, "host-a11y: list-card: a row's checkbox is named by its label and its detail (" + rowName + ")",
+                rowName == "Workstation B, " + awaitingDetail);
+            ok &= Check(sb, "host-a11y: list-card: a row's detail is its checkbox's help text (" + rowHelp + ")",
+                rowHelp == awaitingDetail);
+
+            var walked = new List<AutomationEntry>();
+            CollectAutomation(row != null ? row.Parent as System.Windows.Controls.Panel : null, walked);
+            int boxAt = walked.FindIndex(delegate(AutomationEntry e) { return ReferenceEquals(e.Owner, row); });
+            int detailAt = walked.FindIndex(delegate(AutomationEntry e)
+            {
+                var tb = e.Owner as System.Windows.Controls.TextBlock;
+                return tb != null && tb.Text == awaitingDetail;
+            });
+            ok &= Check(sb, "host-a11y: list-card: a row's checkbox precedes its detail in the automation tree (box at " + boxAt + ", detail at " + detailAt + ")",
+                boxAt >= 0 && detailAt > boxAt);
+
+            string plainName = plainPeer != null ? plainPeer.GetName() ?? "" : "<no peer>";
+            string plainHelp = plainPeer != null ? plainPeer.GetHelpText() ?? "" : "<no peer>";
+            // H-14: a Detail of only whitespace is no detail: no ", " on the name, no blank help text.
+            System.Windows.Automation.Peers.AutomationPeer whitePeer = PeerOf(ItemBox(root, "w"));
+            string whiteName = whitePeer != null ? whitePeer.GetName() ?? "" : "<no peer>";
+            string whiteHelp = whitePeer != null ? whitePeer.GetHelpText() ?? "" : "<no peer>";
+            ok &= Check(sb, "host-a11y: list-card: WITNESS a row without a detail keeps its bare label and no help text (" + plainName + " | " + plainHelp +
+                "; whitespace detail: " + whiteName + " | " + whiteHelp + ")",
+                plainName == "Plain item" && plainHelp.Length == 0 && whiteName == "Whitespace item" && whiteHelp.Length == 0);
+
+            // The lead's ruling Q7, INFO only: does Space toggle a row's box? WPF's own key events are raised on the box inside
+            // a message-only window (never shown, never focused, no real input), so the CheckBox's keyboard handling runs.
+            sb.AppendLine("INFO: host-a11y: list-card: " + SpaceOnRow());
+            return ok;
+        }
+
+        /// <summary>A Space key press raised as WPF events on a list card row's box, in a message-only HwndSource; what happened.</summary>
+        private static string SpaceOnRow()
+        {
+            // INFO only, so a probe that cannot run says so on its own line instead of failing the graded section (H-17).
+            try { return SpaceOnRowProbe(); }
+            catch (Exception ex) { return "Space probe threw " + ex.GetType().Name + ": " + ex.Message; }
+        }
+
+        private static string SpaceOnRowProbe()
+        {
+            var ticks = new List<string>();
+            var pane = new OptionsPane
+            {
+                Title = "Space",
+                Load = delegate { return new Dictionary<string, string>(StringComparer.Ordinal); },
+                Lists = new[]
+                {
+                    new ListCard
+                    {
+                        Title = "Brokers",
+                        LoadItems = delegate { return new[] { new ListItem { Id = "s", Label = "Workstation B", Detail = "Awaiting, code 4821 7730", Checked = false } }; },
+                        SetChecked = delegate(string id, bool on) { ticks.Add(id + "=" + (on ? "1" : "0")); },
+                    },
+                },
+            };
+            var view = new DesktopAICompanion.Wpf.PaneView(pane, null, delegate { });
+            var root = view.Build() as System.Windows.FrameworkElement;
+            var parameters = new System.Windows.Interop.HwndSourceParameters("host-a11y space probe")
+            {
+                ParentWindow = new IntPtr(-3),   // HWND_MESSAGE: a message-only window, which is never visible
+                WindowStyle = 0,
+                Width = 400,
+                Height = 200,
+            };
+            using (var source = new System.Windows.Interop.HwndSource(parameters))
+            {
+                source.RootVisual = root;
+                root.Measure(new System.Windows.Size(400, 200));
+                root.Arrange(new System.Windows.Rect(0, 0, 400, 200));
+                System.Windows.Controls.CheckBox box = ItemBox(root, "s");
+                if (box == null) return "Space on a row's box: no box found";
+                bool? before = box.IsChecked;
+                foreach (System.Windows.RoutedEvent routed in new[] { System.Windows.Input.Keyboard.KeyDownEvent, System.Windows.Input.Keyboard.KeyUpEvent })
+                    box.RaiseEvent(new System.Windows.Input.KeyEventArgs(System.Windows.Input.Keyboard.PrimaryDevice, source, 0, System.Windows.Input.Key.Space) { RoutedEvent = routed });
+                return "Space on a row's box (WPF key events, no real input): IsChecked " + before + " -> " + box.IsChecked +
+                    ", the module heard " + (ticks.Count == 0 ? "nothing" : string.Join(", ", ticks.ToArray()));
+            }
+        }
+
+        /// <summary>The Rectangle the implicit <paramref name="type"/> style in <paramref name="res"/> draws as its keyboard focus
+        /// cue, as a fresh instance of the cue's template; null when that style sets no cue. <paramref name="described"/> says what
+        /// was found, for the check's label.</summary>
+        private static System.Windows.Shapes.Rectangle FocusCueRectangle(System.Windows.ResourceDictionary res, Type type, out string described)
+        {
+            var style = res[type] as System.Windows.Style;
+            System.Windows.Style cue = SetterValue(style, System.Windows.FrameworkElement.FocusVisualStyleProperty) as System.Windows.Style;
+            if (cue == null) { described = style == null ? "no implicit style" : "no focus cue set"; return null; }
+            return CueRectangleOf(cue, out described);
+        }
+
+        /// <summary>Whether a style sets FocusVisualStyle at all, by a setter or by a trigger's setter. Judged by the setter's
+        /// PROPERTY, whatever its value (lane H round 3, R2-1): an explicit null-valued setter replaces the stock cue too.</summary>
+        private static bool SetsFocusCue(System.Windows.Style style)
+        {
+            if (style == null) return false;
+            foreach (System.Windows.SetterBase b in style.Setters)
+            {
+                var s = b as System.Windows.Setter;
+                if (s != null && s.Property == System.Windows.FrameworkElement.FocusVisualStyleProperty) return true;
+            }
+            foreach (System.Windows.TriggerBase trigger in style.Triggers)
+            {
+                var plain = trigger as System.Windows.Trigger;
+                if (plain == null) continue;
+                foreach (System.Windows.SetterBase b in plain.Setters)
+                {
+                    var s = b as System.Windows.Setter;
+                    if (s != null && s.Property == System.Windows.FrameworkElement.FocusVisualStyleProperty) return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>The Rectangle a focus cue Style's template draws, as a fresh instance; null when it draws none.</summary>
+        private static System.Windows.Shapes.Rectangle CueRectangleOf(System.Windows.Style cue, out string described)
+        {
+            if (cue == null) { described = "no focus cue at all"; return null; }
+            var template = SetterValue(cue, System.Windows.Controls.Control.TemplateProperty) as System.Windows.Controls.ControlTemplate;
+            var rect = template != null ? template.LoadContent() as System.Windows.Shapes.Rectangle : null;
+            if (rect == null) { described = "a cue that draws no rectangle"; return null; }
+            var stroke = rect.Stroke as System.Windows.Media.SolidColorBrush;
+            described = "stroke " + (stroke != null ? stroke.Color.ToString() : "none") + ", thickness " + rect.StrokeThickness +
+                ", dashes " + (rect.StrokeDashArray != null && rect.StrokeDashArray.Count > 0 ? string.Join(" ", rect.StrokeDashArray) : "none");
+            return rect;
+        }
+
+        /// <summary>The ink a focus cue Style's template draws on the dark card, or -1 when there is nothing to draw;
+        /// <paramref name="described"/> names what was found.</summary>
+        private static double DrawnCueInk(System.Windows.Style cue, out string described)
+        {
+            if (cue == null) { described = "no focus cue at all"; return -1; }
+            var template = SetterValue(cue, System.Windows.Controls.Control.TemplateProperty) as System.Windows.Controls.ControlTemplate;
+            if (template == null && cue.BasedOn != null)
+                template = SetterValue(cue.BasedOn, System.Windows.Controls.Control.TemplateProperty) as System.Windows.Controls.ControlTemplate;
+            var drawn = template != null ? template.LoadContent() as System.Windows.FrameworkElement : null;
+            if (drawn == null) { described = "a cue with no template to draw"; return -1; }
+            var shape = drawn as System.Windows.Shapes.Shape;
+            var frame = new System.Windows.Controls.Border { Width = 120, Height = 22, Margin = new System.Windows.Thickness(12), Child = drawn };
+            var holder = new System.Windows.Controls.StackPanel();
+            holder.Children.Add(frame);
+            var render = new PaneRender(holder, true, 200);
+            var stroke = shape != null ? shape.Stroke as System.Windows.Media.SolidColorBrush : null;
+            described = (render.Blank ? "render blank, " : "") + drawn.GetType().Name +
+                (stroke != null ? " stroke " + stroke.Color : shape != null ? " stroke not a solid colour" : "");
+            return render.Ink(drawn);
+        }
+
+        private static object SetterValue(System.Windows.Style style, System.Windows.DependencyProperty property)
+        {
+            if (style == null) return null;
+            foreach (System.Windows.SetterBase b in style.Setters)
+            {
+                var s = b as System.Windows.Setter;
+                if (s != null && s.Property == property) return s.Value;
+            }
+            return null;
+        }
+
+        /// <summary>The foreground colour the implicit <paramref name="type"/> style sets: the theme's text colour for a box.</summary>
+        private static System.Windows.Media.Color ImplicitForeground(System.Windows.ResourceDictionary res, Type type)
+        {
+            var brush = SetterValue(res[type] as System.Windows.Style, System.Windows.Controls.Control.ForegroundProperty) as System.Windows.Media.SolidColorBrush;
+            return brush != null ? brush.Color : System.Windows.Media.Colors.Transparent;
+        }
+
+        private static bool IsThemeFocusCue(System.Windows.Shapes.Rectangle rect, System.Windows.Media.Color text)
+        {
+            var stroke = rect == null ? null : rect.Stroke as System.Windows.Media.SolidColorBrush;
+            return stroke != null && text != System.Windows.Media.Colors.Transparent && stroke.Color == text && rect.StrokeThickness == 1 &&
+                rect.StrokeDashArray != null && rect.StrokeDashArray.Count == 2 && rect.StrokeDashArray[0] == 1 && rect.StrokeDashArray[1] == 2;
         }
 
         /// <summary>The list-card checkbox whose Tag is <paramref name="id"/>: an item's own box.</summary>

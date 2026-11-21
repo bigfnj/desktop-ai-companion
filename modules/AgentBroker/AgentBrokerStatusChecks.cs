@@ -14,7 +14,9 @@ public sealed partial class AgentBrokerModule
             [], [], [], [], new Dictionary<string, string>());
         var control = new StatusControl { Response = new(true, "ok", view) };
         var supervisor = new StatusSupervisor(view);
-        var module = new AgentBrokerModule(control, supervisor);
+        // A synthetic client command, as every other module check uses: a regression that checks client setup on a status
+        // poll is then caught by the control requests below without starting the real vendor CLIs.
+        var module = new AgentBrokerModule(control, supervisor) { ClientSetup = new(new TestClientCommand()) };
         try
         {
             module.Init(host);
@@ -112,11 +114,14 @@ public sealed partial class AgentBrokerModule
         internal Exception? Failure;
         internal TaskCompletionSource<ControlResponse>? Pending;
         internal List<string> Requests { get; } = [];
+        // Runs inside a request, before it answers, with the operation name: lets a check change module state mid-request.
+        internal Action<string>? OnRequest;
         public Task<ControlResponse> SendAsync(string directory, ControlRequest request,
             CancellationToken token, int? requiredServerPid = null)
         {
             token.ThrowIfCancellationRequested();
             Requests.Add(request.Operation);
+            OnRequest?.Invoke(request.Operation);
             if (Failure is not null) return Task.FromException<ControlResponse>(Failure);
             return Pending?.Task ?? Task.FromResult(Response);
         }

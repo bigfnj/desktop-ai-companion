@@ -10,7 +10,7 @@ public sealed partial class AgentBrokerModule
         var host = new TestHost();
         host.UseStorage(Id, new TestStorage(Path.Combine(Path.GetTempPath(), "agentbroker-lifetime-synthetic")));
         var supervisor = new TestSupervisor();
-        var module = new AgentBrokerModule(new TestControl(), supervisor);
+        var module = new AgentBrokerModule(new TestControl(), supervisor) { ClientSetup = new(new TestClientCommand()) };
         try
         {
             module.Init(host);
@@ -20,9 +20,10 @@ public sealed partial class AgentBrokerModule
             check(pane.Schema.Any(field => field.Id == "messageLifetimeHours" && field.Kind == SettingKind.Int &&
                 field.Min == 1 && field.Max == 24),
                 "message lifetime: options expose the bounded one-to-twenty-four-hour delivery window");
-            check(pane.Load()["messageLifetimeHelp"].Contains("explicit message deadlines stay unchanged", StringComparison.Ordinal) &&
-                pane.Load()["messageLifetimeHelp"].Contains("already received remain received", StringComparison.Ordinal),
-                "message lifetime: help distinguishes delivery deadlines from already received messages");
+            string guide = System.Text.Encoding.UTF8.GetString(GuideBytes() ?? []);
+            check(!pane.Load().ContainsKey("messageLifetimeHelp") && !pane.Schema.Any(field => field.Id == "messageLifetimeHelp") &&
+                guide.Contains("explicit message deadlines stay unchanged", StringComparison.Ordinal),
+                "message lifetime: delivery-deadline help remains in the guide without a duplicate pane row");
             int saves = host.SettingsFor(Id).SaveCount, generation = module.generation;
             foreach (string invalid in new[] { "0", "25", "-1", "1.5", "", " 2", "2 " })
                 check(!pane.Save(new Dictionary<string, string> { ["messageLifetimeHours"] = invalid }) &&

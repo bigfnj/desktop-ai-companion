@@ -51,7 +51,8 @@ $gateAst = Parse-PublicScript (Join-Path $repo 'tests\Invoke-IsolatedGate.ps1')
 . ([scriptblock]::Create((Get-ActualFunctions $gateAst @('New-IsolatedGateEnvironment', 'ConvertTo-WindowsProcessArgument'))))
 # Retain the production environment setup and finally verbatim. Replace ONLY
 # the SDK/test dispatch switch with a child probe, so the healthy and negative
-# witnesses cannot reach dotnet, package installation, registry tests or input.
+# witnesses cannot reach dotnet, package installation, registry tests or input. The finally's
+# tray cleanup is redirected to a synthetic script below, never the real registry helper.
 $gateTries = @($gateAst.EndBlock.Statements | Where-Object { $_ -is [Management.Automation.Language.TryStatementAst] })
 Check ($gateTries.Count -eq 1 -and $null -ne $gateTries[0].Finally) 'one actual gate try/finally'
 $gateTry = $gateTries[0]
@@ -70,6 +71,15 @@ $artifacts = Join-Path $repo 'artifacts'
 $scratch = Join-Path $artifacts ('dotnet-env-' + [guid]::NewGuid().ToString('N'))
 if ([IO.Directory]::Exists($scratch) -or [IO.File]::Exists($scratch)) { throw 'probe_root_already_exists' }
 [void][IO.Directory]::CreateDirectory($scratch)
+$repoRoot = Join-Path $scratch 'gate-fixture'
+[void][IO.Directory]::CreateDirectory((Join-Path $repoRoot 'tools'))
+$trayProbe = @'
+param([string]$UnderPath)
+$expected = [IO.Path]::GetFullPath((Split-Path $PSScriptRoot -Parent))
+if ([IO.Path]::GetFullPath($UnderPath) -cne $expected) { throw 'synthetic_tray_cleanup_root_wrong' }
+[IO.File]::AppendAllText((Join-Path $expected 'tray-cleanup-calls.txt'), "cleanup`n")
+'@
+[IO.File]::WriteAllText((Join-Path $repoRoot 'tools\Remove-TrayIconRecords.ps1'), $trayProbe, $utf8)
 $probePath = Join-Path $scratch 'child-probe.ps1'
 $probeSource = @'
 #requires -Version 5.1
@@ -158,6 +168,10 @@ try {
 }
 finally {
     foreach ($name in $caller.Keys) { Set-ProcessValue $name $caller[$name] }
+}
+if ($Case -ne 'Controller') {
+    $trayCalls = @(Get-Content -LiteralPath (Join-Path $repoRoot 'tray-cleanup-calls.txt'))
+    Check ($trayCalls.Count -eq $gateScenarios -and @($trayCalls | Where-Object { $_ -cne 'cleanup' }).Count -eq 0) 'gate finally reached only the synthetic tray cleanup for every outcome'
 }
 $result = [ordered]@{ Result = 'PASS'; Checks = $checks; GateScenarios = $gateScenarios; ControllerScenarios = $controllerScenarios;
     PowerShellMajor = $PSVersionTable.PSVersion.Major; RealSdkInvoked = $false; PersistentPathCleanupPerformed = $false }

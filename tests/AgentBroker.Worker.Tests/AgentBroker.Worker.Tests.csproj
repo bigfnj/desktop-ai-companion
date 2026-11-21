@@ -13,4 +13,8 @@
     <ProjectReference Include="..\..\tools\AgentBroker.Worker\AgentBroker.Worker.csproj" />
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
+  <ItemGroup>
+    <Compile Include="..\AgentBroker.TestSupport\OwnedScratch.cs" Link="TestSupport\OwnedScratch.cs" />
+    <Using Include="AgentBroker.TestSupport" />
+  </ItemGroup>
 </Project>

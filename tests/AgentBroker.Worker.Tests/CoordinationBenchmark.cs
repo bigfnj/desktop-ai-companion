@@ -11,8 +11,11 @@ using System.Text.Json;
 // interleaves configurations across processes. Not a check: it asserts only that each measured operation did what it
 // was timed doing, prints one BENCHMARK line of JSON and deletes everything it created (directories and CNG keys).
 // It measures the current store, runtime and MCP endpoint unmodified; no limit or code path is changed for it.
-internal static class CoordinationBenchmark
+internal static partial class CoordinationBenchmark
 {
+    internal static Action<string>? AfterTombstoneSeed;
+    internal static Action<IReadOnlyList<WorkerApplication>>? AfterDirectoryRegistration;
+    internal static Action<IReadOnlyList<WorkerApplication>>? AfterDirectoryMeasurement;
     private const int CommitSamples = 6;
 
     public static async Task<int> RunAsync(string[] args)
@@ -26,6 +29,9 @@ internal static class CoordinationBenchmark
                     int.Parse(args[4]), int.Parse(args[5]), args[6]),
                 "wake" when args.Length == 3 => await WakeAsync(args[1], int.Parse(args[2])),
                 "directory" when args.Length == 5 => await DirectoryAsync(int.Parse(args[1]), int.Parse(args[2]), args[3], int.Parse(args[4])),
+                "busy-idle" when args.Length == 4 => await BusyIdleAsync(int.Parse(args[1]), int.Parse(args[2]), args[3]),
+                "waiting-mail" when args.Length == 4 => WaitingMail(
+                    int.Parse(args[1], System.Globalization.CultureInfo.InvariantCulture), args[2], args[3]),
                 _ => throw new ArgumentException("Unknown benchmark arguments.")
             } : throw new ArgumentException("A benchmark scenario is required.");
             Console.WriteLine("BENCHMARK " + json);
@@ -37,6 +43,112 @@ internal static class CoordinationBenchmark
             Console.WriteLine("BENCHMARK-FAILED " + error.GetType().Name);
             return 1;
         }
+    }
+
+    // busy-idle (AgentBroker 1.10.5 marathon, lane T, A9): what the broker costs while N messages wait on one native row that
+    // stays Busy, the state whose recipient_busy directory observations A8 rate-limits. A real runtime with its loops and a
+    // fake native adapter that lists the one Busy row; nothing leaves the process. Reported, not asserted: the process CPU
+    // share over an idle window of `seconds`, and the directory observations per second summed over the N messages.
+    //
+    // Lane T round 2. T2-17: the seeded messages live SeededLifetimeMinutes (store.Send takes MINUTES, TimeSpan.FromMinutes in
+    // BrokerStore.Send), and the window is capped far inside that, so the "still Accepted" postcondition can fail only for a
+    // real delivery or refusal, never for expiry: the 120 s maximum is inside the 60-minute lifetime (round 5, D4/D10: the
+    // clause that restated this against `seconds` could never decide, so it was dropped). T2-12: a window of at least 3 s spans
+    // D2's A8 directory observation interval, 2 s, which sizes this floor (A8 lives in BrokerStore.WaitingMail.cs once the D2
+    // lane is merged; round 6, D11), so with messages waiting, fewer observations than messages means the window measured
+    // nothing for some of them: that is an error, not a rate of 0/s.
+    private const int SeededLifetimeMinutes = 60, MinimumIdleSeconds = 3, MaximumIdleSeconds = 120;
+
+    private static async Task<string> BusyIdleAsync(int pending, int seconds, string root)
+    {
+        if (pending is < 0 or > 4096) throw new ArgumentOutOfRangeException(nameof(pending));
+        if (seconds < MinimumIdleSeconds || seconds > MaximumIdleSeconds)
+            throw new ArgumentOutOfRangeException(nameof(seconds), "busy-idle windows are " + MinimumIdleSeconds + ".." + MaximumIdleSeconds +
+                " s, inside the seeded messages' " + SeededLifetimeMinutes + "-minute lifetime.");
+        string directory = NewDirectory(root, "");
+        try
+        {
+            var adapter = new BusyNativeAdapter();
+            using var store = new BrokerStore(Path.Combine(directory, "store"));
+            await using var federation = new IdlePeers();
+            await using var runtime = new BrokerRuntime(store, federation, [adapter]);
+            runtime.Start(default);
+            var listing = Stopwatch.StartNew();
+            BrokerSession? busy;
+            while ((busy = store.Directory().FirstOrDefault(session => session.Adapter == adapter.Id)) is null)
+            {
+                if (listing.Elapsed > TimeSpan.FromSeconds(15)) throw new TimeoutException("The Busy native row was never listed.");
+                await Task.Delay(20);
+            }
+            var sender = runtime.RegisterPollingAgent(Guid.NewGuid(), Guid.NewGuid(), "Benchmark sender", false);
+            var receipts = new List<MessageReceipt>(pending);
+            for (int index = 0; index < pending; index++)
+                receipts.Add(store.Send(sender.Address, busy.Address, Guid.NewGuid(), "busy-idle " + index, null, SeededLifetimeMinutes, store.BrokerId));
+            if (receipts.Any(receipt => receipt.Status != MessageStatus.Accepted)) throw new InvalidOperationException("A seeded message was not Accepted.");
+            long before = BusyObservations(store, receipts);
+            using var process = Process.GetCurrentProcess();
+            process.Refresh();
+            TimeSpan cpuBefore = process.TotalProcessorTime;
+            var wall = Stopwatch.StartNew();
+            await Task.Delay(TimeSpan.FromSeconds(seconds));
+            wall.Stop();
+            process.Refresh();
+            double cpuMs = (process.TotalProcessorTime - cpuBefore).TotalMilliseconds, wallMs = wall.Elapsed.TotalMilliseconds;
+            long observations = BusyObservations(store, receipts) - before;
+            // What was timed was a wait: every message must still be waiting, none delivered or refused.
+            if (store.Messages(busy.Address).Count(receipt => receipt.Status == MessageStatus.Accepted) != pending)
+                throw new InvalidOperationException("A message stopped waiting during the measured window.");
+            if (pending > 0 && observations < pending)
+                throw new InvalidOperationException("Only " + observations + " recipient_busy directory observation(s) for " + pending +
+                    " waiting message(s): the window measured nothing for some of them.");
+            return JsonSerializer.Serialize(new { scenario = "busy-idle", pending, seconds, wallMs, cpuMs, cpuShare = cpuMs / wallMs,
+                directoryObservations = observations, observationsPerSecond = observations / (wallMs / 1000), adapterSubmits = adapter.Submits });
+        }
+        finally { DeleteTree(root); }
+    }
+
+    private static long BusyObservations(BrokerStore store, IEnumerable<MessageReceipt> receipts) =>
+        receipts.Sum(receipt => store.ReadMessageWait(receipt)?.Waits
+            .Where(wait => wait.Reason == "recipient_busy" && wait.Source == "directory").Sum(wait => wait.Count) ?? 0);
+
+    // Named claude-native on purpose: the store observes waits only for a recipient whose adapter is claude-native or
+    // codex-native (BrokerStore.WaitingMail.cs Native), so any other id measures a broker that never observes anything.
+    private sealed class BusyNativeAdapter : ILocalAgentAdapter
+    {
+        private readonly Guid incarnation = Guid.NewGuid();
+        private readonly string sessionId = "claude:" + Guid.NewGuid();
+        private int submits;
+        internal int Submits => Volatile.Read(ref submits);
+        public string Id => "claude-native";
+        public IReadOnlyList<AdapterDiscoveryDiagnostic> DiscoveryDiagnostics => [];
+        public Task<IReadOnlyList<BrokerSession>> DiscoverAsync(Guid brokerId, CancellationToken token) =>
+            Task.FromResult<IReadOnlyList<BrokerSession>>([new(new(brokerId, sessionId, incarnation),
+                "Benchmark Busy native row", Id, SessionCapabilities.Receive | SessionCapabilities.WakeIdle, SessionActivity.Busy,
+                DateTimeOffset.UtcNow.AddSeconds(30))]);
+        public Task<AdapterResult> SubmitAsync(BrokerMessage message, CancellationToken token)
+        {
+            Interlocked.Increment(ref submits);
+            return Task.FromResult(new AdapterResult(AdapterAdmission.DeferredNotSubmitted, "recipient_busy"));
+        }
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    private sealed class IdlePeers : IPeerFederation
+    {
+        public IReadOnlyList<BrokerAdvertisement> Discovered => [];
+        public IReadOnlyList<PairingOffer> PairingOffers => [];
+        public BrokerAdvertisement LocalAdvertisement => new(Guid.NewGuid(), "Benchmark", "https://127.0.0.1:1", new string('A', 64), DateTimeOffset.UtcNow);
+        public Guid? AuthenticatePeer(Microsoft.AspNetCore.Http.HttpContext context) => null;
+        public void MapEndpoints(Microsoft.AspNetCore.Builder.WebApplication application) { }
+        public Task StartAsync(CancellationToken token) => Task.CompletedTask;
+        public Task RequestPairAsync(BrokerAdvertisement peer, CancellationToken token) => throw new NotSupportedException();
+        public Task ApprovePairAsync(Guid requestId, CancellationToken token) => throw new NotSupportedException();
+        public void RejectPair(Guid requestId) { }
+        public void RevokePeer(Guid brokerId) { }
+        public Task<PeerDirectory> GetDirectoryAsync(PeerTrust peer, CancellationToken token) => throw new NotSupportedException();
+        public Task<MessageReceipt> SubmitAsync(PeerTrust peer, BrokerMessage message, CancellationToken token) => throw new NotSupportedException();
+        public Task<MessageReceipt?> GetReceiptAsync(PeerTrust peer, Guid messageId, CancellationToken token) => Task.FromResult<MessageReceipt?>(null);
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
     // Accept + Commit (one store.Send, the path the send tool takes) at a retained-message count. The state is seeded
@@ -130,6 +242,7 @@ internal static class CoordinationBenchmark
                             RemainingReplies = 8, Status = (int)MessageStatus.Delivered, UpdatedAt = created, Reason = "recipient_receipt", Attempts = 1 });
                     }
                 }
+            AfterTombstoneSeed?.Invoke(storeDirectory);
             var limits = new BrokerLimits();
             var capProperty = typeof(BrokerLimits).GetProperty("MaximumTombstones");
             if (cap > 0 && capProperty is not null) capProperty.SetValue(limits, cap);
@@ -158,7 +271,8 @@ internal static class CoordinationBenchmark
             int listed = store.Messages(sender).Count;
             double messagesMs = scan.Elapsed.TotalMilliseconds;
             // The control keeps every seeded record; the tombstone build keeps the journal's live lines as well.
-            if (listed != acknowledged + CommitSamples && listed != acknowledged + tombstones + CommitSamples)
+            int expectedHistory = acknowledged + CommitSamples + (capProperty is null ? 0 : tombstones);
+            if (listed != expectedHistory)
                 throw new InvalidDataException("The store did not list the expected history.");
             // Lane broker-next (N-broker-e-02): one wait_for_messages pass for the sender, whose history every seeded record
             // shares, timed six times (the first in the process is the cold one). It runs the store's AcceptedIncoming query
@@ -266,6 +380,7 @@ internal static class CoordinationBenchmark
                 for (int index = 0; index < sessionsPerPeer; index++)
                     peer.Runtime.RegisterPollingAgent(Guid.NewGuid(), Guid.NewGuid(), "Benchmark peer session", false);
             int expected = peers * sessionsPerPeer;
+            AfterDirectoryRegistration?.Invoke(workers);
             List<double> runtime = [];
             int federated = 0;
             for (int index = 0; index < 3; index++)
@@ -274,21 +389,27 @@ internal static class CoordinationBenchmark
                 var all = await local.Runtime.DirectoryAsync(false, CancellationToken.None);
                 runtime.Add(watch.Elapsed.TotalMilliseconds);
                 federated = all.Count;
+                if (federated != expected) throw new InvalidDataException("The directory measurement did not return every expected session.");
             }
+            AfterDirectoryMeasurement?.Invoke(workers);
             using var http = Client(local.Application.Urls.First(url => url.StartsWith("http://127.0.0.1:", StringComparison.Ordinal)) + "/mcp");
             List<double> page = [];
             JsonElement? cursor = null;
             int returned = 0;
+            var seen = new HashSet<SessionAddress>();
             for (int index = 0; index < pages; index++)
             {
                 var watch = Stopwatch.StartNew();
                 var result = await CallAsync(http, "list_sessions", cursor is null ? new { limit = 16 } : new { limit = 16, afterAddress = cursor.Value });
                 page.Add(watch.Elapsed.TotalMilliseconds);
                 var sessions = Sessions(result);
+                if (sessions.Any(session => !seen.Add(session.GetProperty("address").Deserialize<SessionAddress>(new JsonSerializerOptions(JsonSerializerDefaults.Web))!)))
+                    throw new InvalidDataException("The directory page measurement repeated an address.");
                 returned += sessions.Length;
                 if (sessions.Length < 16) break;
                 cursor = sessions[^1].GetProperty("address").Clone();
             }
+            if (returned != Math.Min(expected, pages * 16)) throw new InvalidDataException("The directory page measurement did not return its expected prefix.");
             return JsonSerializer.Serialize(new { scenario = "directory", peers, sessionsPerPeer, expected, federated, returned, runtimeMs = runtime, pageMs = page });
         }
         finally

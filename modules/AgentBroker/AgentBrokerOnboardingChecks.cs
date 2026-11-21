@@ -75,6 +75,17 @@ public sealed partial class AgentBrokerModule
             System.Text.Json.JsonSerializer.Serialize(worker) + ",\"args\":[\"--mcp-stdio\",\"--data\"," + System.Text.Json.JsonSerializer.Serialize(data) + "]}}";
         check(Inspect("codex", () => new(0, codexStdio, "")) is { State: ClientConfiguration.Configured, Scope: "", Transport: "stdio" },
             "onboarding: the exact Codex stdio entry is configured, and Codex reports no scope");
+        string codexRequirements = codexStdio.Replace("\"enabled\":true", "\"enabled\":true,\"disabled_reason\":\"requirements\"", StringComparison.Ordinal);
+        check(Inspect("codex", () => new(0, codexRequirements, "")) is
+            { State: ClientConfiguration.PolicyBlocked, Health: "disabled_by_requirements" },
+            "CODEX_DISABLED_REQUIREMENTS: effective requirements block overrides enabled configuration");
+        var unknownReason = Inspect("codex", () => new(0, codexRequirements.Replace("requirements", privateMarker, StringComparison.Ordinal), ""));
+        check(unknownReason is { State: ClientConfiguration.Disabled, Health: "disabled_reason_reported" } &&
+            !unknownReason.ToString().Contains(privateMarker, StringComparison.Ordinal),
+            "CODEX_DISABLED_UNKNOWN: an unfamiliar disabled reason stays disabled and private");
+        check(Inspect("codex", () => new(0, codexRequirements.Replace("\"requirements\"", "17", StringComparison.Ordinal), "")).State == ClientConfiguration.Unrecognized &&
+            Inspect("codex", () => new(0, codexStdio.Replace("\"enabled\":true", "\"enabled\":\"yes\"", StringComparison.Ordinal), "")).State == ClientConfiguration.Unrecognized,
+            "CODEX_DISABLED_SHAPE: malformed enablement and reason fields cannot report configured");
         check(Inspect("codex", () => new(0, codexStdio.Replace("\"enabled\":true", "\"enabled\":false", StringComparison.Ordinal), "")).State == ClientConfiguration.Disabled &&
             Inspect("codex", () => new(0, "{\"transport\":{\"type\":\"streamable_http\",\"url\":\"" + endpoint + "\"}}", "")).State == ClientConfiguration.Configured &&
             Inspect("codex", () => new(0, "{\"transport\":{\"type\":\"streamable_http\",\"url\":\"http://127.0.0.1:1/mcp\"}}", "")).State == ClientConfiguration.DifferentEntry &&
@@ -88,8 +99,12 @@ public sealed partial class AgentBrokerModule
             [], [], [], [native], new Dictionary<string, string>(), Mcp: empty);
         var host = new TestHost();
         host.UseStorage(Id, new TestStorage(Path.Combine(Path.GetTempPath(), "agentbroker-onboarding-synthetic")));
-        var control = new StatusControl { Response = new(true, "ok", view) };
+        var control = new StatusControl { Response = new(true, "ok", Connection: new(endpoint, null)) };
         var module = new AgentBrokerModule(control, new StatusSupervisor(view)) { McpNow = () => now, ClientSetup = setup };
+        // PANE-TEXT (1.10.5): the pane folds an ok state into its client's summary line as a glyph and a token; the full
+        // sentence for every state stays in ClientStateLines, which the tray lists item by item. A healthy fact is
+        // asserted in both places: the token in the pane and the sentence in the state lines.
+        string Detail(string client) => string.Join("\n", module.ClientStateLines(client));
         try
         {
             module.Init(host);
@@ -105,14 +120,16 @@ public sealed partial class AgentBrokerModule
                 pane.Schema.Any(field => field.Id == "codexClient" && field.Kind == SettingKind.Info) &&
                 claude.StartsWith("Claude Code: configuration not checked yet.", StringComparison.Ordinal) &&
                 codex.StartsWith("Codex: configuration not checked yet.", StringComparison.Ordinal) &&
-                claude.Contains("\u2713 Broker: running.", StringComparison.Ordinal) && command.Calls.Count == 0,
+                claude.Contains("\u2713 broker", StringComparison.Ordinal) &&
+                Detail("claude").Contains("\u2713 Broker: running.", StringComparison.Ordinal) && command.Calls.Count == 0,
                 "onboarding: each client has its own row, unchecked until asked, and status polls launch no CLI");
 
             var traffic = empty with { LastToolsListUtc = now, Clients = [new(McpClientFamily.Other),
                 new(McpClientFamily.Claude, LastInitializeUtc: now, LastToolsListUtc: now.AddMinutes(-2)), new(McpClientFamily.Codex)] };
             module.ApplyStatus(new(true, true, "running", view with { Mcp = traffic }));
             claude = pane.Load()["claudeClient"]; codex = pane.Load()["codexClient"];
-            check(claude.Contains("\u2713 Tools: listed by this client 2 min ago.", StringComparison.Ordinal) &&
+            check(claude.Contains("\u2713 tools", StringComparison.Ordinal) &&
+                Detail("claude").Contains("\u2713 Tools: listed by this client 2 min ago.", StringComparison.Ordinal) &&
                 claude.Contains("\u2717 Inbox: none registered.", StringComparison.Ordinal),
                 "onboarding: Claude MCP traffic shows its tools without claiming an inbox");
             check(codex.Contains("\u26A0 Tools: no traffic from this client since the broker started.", StringComparison.Ordinal),
@@ -127,7 +144,8 @@ public sealed partial class AgentBrokerModule
             var attributed = traffic with { Inboxes = [new(away.SessionId, away.Incarnation, McpClientFamily.Claude)] };
             module.ApplyStatus(new(true, true, "running", view with { Mcp = attributed, Sessions = [native, away] }));
             claude = pane.Load()["claudeClient"]; codex = pane.Load()["codexClient"];
-            check(claude.Contains("\u2713 Inbox: 1 registered through this client (0 present, 1 away).", StringComparison.Ordinal) &&
+            check(claude.Contains("\u2713 inbox 1", StringComparison.Ordinal) &&
+                Detail("claude").Contains("\u2713 Inbox: 1 registered through this client (0 present, 1 away).", StringComparison.Ordinal) &&
                 codex.Contains("\u2717 Inbox: none registered.", StringComparison.Ordinal),
                 "onboarding: a verified Claude registration counts for Claude only, present and away separately");
             module.ApplyStatus(new(true, true, "running", view with { Mcp = attributed with { Inboxes = [new(away.SessionId, Guid.NewGuid(), McpClientFamily.Claude)] }, Sessions = [native, away] }));
@@ -145,8 +163,9 @@ public sealed partial class AgentBrokerModule
                 answer.Contains("Claude Code: configured, with an inbox registered through this client.", StringComparison.Ordinal) &&
                 answer.Contains("Codex: not configured.", StringComparison.Ordinal),
                 "onboarding: Check client setup runs one read-only get per client and answers per client");
-            check(claude.Contains("\u2713 Configuration: the exact entry for this broker, user scope (every project), local HTTP. Checked just now.", StringComparison.Ordinal) &&
-                claude.Contains("\u2713 Endpoint: reachable; the Claude CLI connected and listed tools during the check.", StringComparison.Ordinal) &&
+            check(claude.Contains("\u2713 config", StringComparison.Ordinal) && claude.Contains("\u2713 endpoint", StringComparison.Ordinal) &&
+                Detail("claude").Contains("\u2713 Configuration: the exact entry for this broker, user scope (every project), local HTTP. Checked just now.", StringComparison.Ordinal) &&
+                Detail("claude").Contains("\u2713 Endpoint: reachable; the Claude CLI connected and listed tools during the check.", StringComparison.Ordinal) &&
                 codex.Contains("\u2717 Configuration: absent. Use Connect Codex MCP", StringComparison.Ordinal),
                 "onboarding: configuration, scope and the CLI's own reachability are separate lines per client");
             var tray = host.TrayItems.Single().BuildChildren().ToArray();
@@ -193,28 +212,28 @@ public sealed partial class AgentBrokerModule
             check(!pane.Load()["codexClient"].Contains("Engine binding", StringComparison.Ordinal),
                 "ENGINE_BINDING_LINE_ABSENT: with no observation reported there is no engine line");
             // Review finding 5: an elevated Claude Code session is a note beside the healthy sessions' line, not an adapter error.
+            // One pane-rendering invariant owns these four scenarios. Every original condition is evaluated at its
+            // original snapshot; the exact failed-fixture signature identifies which client/mode a mutant broke.
+            var paneNoteRendering = new List<(string Fixture, bool Passed)>();
             const string elevated = "1 Claude Code session is elevated or another user's and cannot be woken; use register_agent or run unelevated.";
             module.ApplyStatus(new(true, true, "running", view with { AdapterNotes = new Dictionary<string, string> { ["claude-native"] = "claude_session_elevated: " + elevated } }));
             string noted = pane.Load()["claudeClient"];
-            check(noted.Contains("Native wake off: 1 open Claude session", StringComparison.Ordinal) && noted.Contains("\n\u26A0 " + elevated, StringComparison.Ordinal) &&
+            paneNoteRendering.Add(("claude-single", noted.Contains("Native wake off: 1 open Claude session", StringComparison.Ordinal) && noted.Contains("\n\u26A0 " + elevated, StringComparison.Ordinal) &&
                 !noted.Contains("\u2717 Native", StringComparison.Ordinal) && !pane.Load()["codexClient"].Contains("elevated", StringComparison.Ordinal) &&
-                pane.Load()["nativeStatus"].Contains("Notes: claude-native: claude_session_elevated", StringComparison.Ordinal),
-                "ELEVATED_NOTE_LINE: the elevated count is its own line beside the healthy Claude line, whole, and a note in Native adapters");
+                module.NativeStatusText() == "No adapter errors reported."));
             // Review of d9c2967, item 3: the plural at the 32-process bound keeps its final period.
             const string many = "32 Claude Code sessions are elevated or another user's and cannot be woken; use register_agent or run unelevated.";
             module.ApplyStatus(new(true, true, "running", view with { AdapterNotes = new Dictionary<string, string> { ["claude-native"] = "claude_session_elevated: " + many } }));
-            check(pane.Load()["claudeClient"].Contains("\n\u26A0 " + many, StringComparison.Ordinal),
-                "ELEVATED_NOTE_PLURAL_WHOLE: the plural note at the 32-session bound is shown whole, final period included");
+            paneNoteRendering.Add(("claude-plural", pane.Load()["claudeClient"].Contains("\n\u26A0 " + many, StringComparison.Ordinal)));
             // Lane claude-update-tolerant: two notes for one adapter used to share one 116-character cut and garble each other.
             const string tolerant = "Claude Code 2.1.314 is not a reviewed build; it is woken because Windows verified Anthropic's signature.";
             module.ApplyStatus(new(true, true, "running", view with { AdapterNotes = new Dictionary<string, string> { ["claude-native"] =
                 "claude_session_elevated: " + many + ControlProtocol.NoteSeparator + "claude_update_tolerant_delivery: " + tolerant } }));
             string both = pane.Load()["claudeClient"];
-            check(both.Contains("\n⚠ " + many + "\n⚠ " + tolerant, StringComparison.Ordinal) &&
-                !both.Contains("claude_update_tolerant_delivery", StringComparison.Ordinal),
-                "NOTES_EACH_WHOLE: two notes for one adapter are each shown whole, on a line of their own");
-            check(pane.Load()["nativeStatus"].Contains(many + "; claude_update_tolerant_delivery: " + tolerant, StringComparison.Ordinal),
-                "NOTES_NATIVE_STATUS_SEPARATED: Native adapters lists both notes, each whole and separated");
+            paneNoteRendering.Add(("claude-combined", both.Contains("\n⚠ " + many + "\n⚠ " + tolerant, StringComparison.Ordinal) &&
+                !both.Contains("claude_update_tolerant_delivery", StringComparison.Ordinal)));
+            check(pane.Load()["nativeStatus"] == "No adapter errors reported.",
+                "NOTES_NATIVE_STATUS_SEPARATED: Native adapters reports errors without repeating the separate whole client notes");
             const string codexTolerant = "Known unreviewed builds: Codex VS Code extension 26.1021.22027; VS Code router 1.144.0. " +
                 "Eligible sessions use Windows-verified publisher signatures.";
             const string codexOtherNote = "A separate Codex session note remains on its own line.";
@@ -223,13 +242,16 @@ public sealed partial class AgentBrokerModule
                     codexTolerant + ControlProtocol.NoteSeparator + "codex_synthetic_note: " + codexOtherNote } }));
             string codexNoted = pane.Load()["codexClient"];
             string[] codexNoteLines = codexNoted.Split('\n');
-            check(codexNoteLines.Contains("\u26A0 " + codexTolerant) && codexNoteLines.Contains("\u26A0 " + codexOtherNote) &&
+            paneNoteRendering.Add(("codex-combined", codexNoteLines.Contains("\u26A0 " + codexTolerant) && codexNoteLines.Contains("\u26A0 " + codexOtherNote) &&
                 codexNoted.Contains("Native wake off: 1 open Codex session", StringComparison.Ordinal) &&
                 !codexNoted.Contains("\u2717 Native", StringComparison.Ordinal) &&
                 !codexNoted.Contains("codex_update_tolerant_delivery", StringComparison.Ordinal) &&
                 !pane.Load()["claudeClient"].Contains("Known unreviewed builds", StringComparison.Ordinal) &&
-                pane.Load()["nativeStatus"].Contains(codexTolerant + "; codex_synthetic_note: " + codexOtherNote, StringComparison.Ordinal),
-                "CODEX_TOLERANT_NOTE_LINE: a combined Codex build note and a second note are whole on separate lines beside the healthy native line");
+                module.NativeStatusText() == "No adapter errors reported."));
+            string[] failedPaneNoteFixtures = paneNoteRendering.Where(fixture => !fixture.Passed).Select(fixture => fixture.Fixture).ToArray();
+            check(failedPaneNoteFixtures.Length == 0,
+                "CLIENT_NOTE_PANE_RENDERING[" + string.Join(",", failedPaneNoteFixtures) +
+                "]: each client's singular, plural and combined pane notes stay whole on separate lines without cross-client leakage");
             string[] codexTrayNotes = host.TrayItems.Single().BuildChildren()
                 .Single(item => item.Label.StartsWith("Codex: ", StringComparison.Ordinal)).BuildChildren()
                 .Select(item => item.Label).ToArray();
@@ -245,10 +267,15 @@ public sealed partial class AgentBrokerModule
                 "CODEX_TOLERANT_TRAY_NOTE_WHOLE: actual Codex tray children preserve both build names and the complete signature sentence in bounded continuation items");
             module.ApplyStatus(new(true, true, "running", view));
 
-            // A settings change restarts the worker; a check made against the old settings no longer applies.
+            // A settings change restarts the worker; a check made against the old settings no longer applies. Restart drops it at
+            // once. The first status after a restart can drop it too (Restart resets ownership, so an owned worker reads as a
+            // change, post-push audit U5), so the pane is read both right after the save and once the worker runs again.
+            const string notChecked = "Claude Code: configuration not checked yet.";
+            bool checkedBefore = !pane.Load()["claudeClient"].StartsWith(notChecked, StringComparison.Ordinal);
             pane.Save(new Dictionary<string, string> { ["loopbackPort"] = "7440" });
+            bool clearedAtRestart = pane.Load()["claudeClient"].StartsWith(notChecked, StringComparison.Ordinal);
             Pump(() => pane.Load()["status"].StartsWith("Running", StringComparison.Ordinal), dispatcher);
-            check(pane.Load()["claudeClient"].StartsWith("Claude Code: configuration not checked yet.", StringComparison.Ordinal),
+            check(checkedBefore && clearedAtRestart && pane.Load()["claudeClient"].StartsWith(notChecked, StringComparison.Ordinal),
                 "onboarding: a settings restart clears the previous configuration check");
         }
         finally
@@ -258,6 +285,60 @@ public sealed partial class AgentBrokerModule
         }
 
         RunLanProfileDisplayChecks(check, dispatcher, now);
+        RunClientUnavailableForeignChecks(check, dispatcher);
+    }
+
+    private static void RunClientUnavailableForeignChecks(Action<bool, string> check, TestDispatcher dispatcher)
+    {
+        const string privateDiagnostic = "SYNTHETIC_FOREIGN_CONNECTION_PRIVATE_VALUE";
+        string directory = Path.Combine(Path.GetTempPath(), "agentbroker-client-foreign-synthetic");
+        foreach (string client in new[] { "claude", "codex" })
+        foreach (string kind in new[] { "STDIO_WORKER", "STDIO_DATA", "OTHER" })
+        {
+            string worker = kind == "STDIO_WORKER" ? Path.Combine(directory, "foreign-worker.exe") : WorkerExecutable();
+            string data = kind == "STDIO_DATA" ? Path.Combine(directory, "foreign-data") : directory;
+            string transport = kind == "OTHER" ? "other" : "stdio";
+            string existing = client == "claude"
+                ? AgentClientSetup.ServerName + ":\n  Scope: User config\n  Status: √ Connected\n  Type: " +
+                    (kind == "OTHER" ? "sse" : "stdio") + "\n  Command: " + worker + "\n  Args: --mcp-stdio --data " + data + "\n"
+                : "{\"enabled\":true,\"transport\":{\"type\":\"" + (kind == "OTHER" ? "synthetic" : "stdio") +
+                    "\",\"command\":" + System.Text.Json.JsonSerializer.Serialize(worker) +
+                    ",\"args\":[\"--mcp-stdio\",\"--data\"," + System.Text.Json.JsonSerializer.Serialize(data) + "]}}";
+            var command = new HttpSetupCommand { Existing = existing };
+            var host = new TestHost();
+            host.UseStorage(Id, new TestStorage(directory)); host.SettingsFor(Id).Set("enabled", "true");
+            var view = new BrokerSnapshot(Guid.NewGuid(), "Synthetic", "http://127.0.0.1:7432", null,
+                [], [], [], [], new Dictionary<string, string>());
+            var control = new StatusControl { Failure = new IOException(privateDiagnostic) };
+            var module = new AgentBrokerModule(control, new StatusSupervisor(view)) { ClientSetup = new(command) };
+            try
+            {
+                module.Init(host); Pump(() => module.snapshot is not null, dispatcher);
+                Task<string> action = module.CheckClientSetupAsync(client); Pump(() => action.IsCompleted, dispatcher);
+                string result = action.GetAwaiter().GetResult();
+                string display = module.ClientDisplay(client);
+                var tray = module.ClientTrayItems().Single(item => item.Label.StartsWith(ClientName(client) + ":", StringComparison.Ordinal));
+                check(module.Inspection(client) is { State: ClientConfiguration.DifferentEntry } inspection && inspection.Transport == transport &&
+                    result.Contains("needs review", StringComparison.Ordinal) && display.Contains("does not match", StringComparison.Ordinal) &&
+                    tray.Label.Contains("needs review", StringComparison.Ordinal) &&
+                    !display.Contains("HTTP entry not verified", StringComparison.Ordinal) && !display.Contains(privateDiagnostic, StringComparison.Ordinal) &&
+                    command.Calls.Count == 1 && command.Calls[0][1] == "get" && control.Requests.Count(item => item == "connection") == 1,
+                    "CLIENT_CONNECTION_FOREIGN_" + client.ToUpperInvariant() + "_" + kind +
+                    ": an unavailable HTTP probe leaves a foreign stdio or unsupported entry needing review in pane and tray");
+                if (client == "codex")
+                {
+                    command.Calls.Clear(); control.Requests.Clear();
+                    action = module.ConnectAndCheckAsync(client); Pump(() => action.IsCompleted, dispatcher);
+                    string connected = action.GetAwaiter().GetResult();
+                    check(connected.Contains("Review it", StringComparison.Ordinal) &&
+                        !connected.Contains("Could not verify this HTTP entry", StringComparison.Ordinal) &&
+                        module.codexInspection?.State == ClientConfiguration.DifferentEntry && command.Calls.Count == 2 &&
+                        command.Calls.All(call => call[1] == "get"),
+                        "CLIENT_CONNECTION_FOREIGN_CODEX_CONNECT_" + kind + ": Connect preserves a foreign non-HTTP entry with review guidance and no add");
+                }
+            }
+            finally { module.Shutdown(); Pump(() => module.pending.IsCompleted, dispatcher); }
+        }
     }
 
     private static void RunLanProfileDisplayChecks(Action<bool, string> check, TestDispatcher dispatcher, DateTimeOffset now)
@@ -268,7 +349,7 @@ public sealed partial class AgentBrokerModule
         host.UseStorage(Id, new TestStorage(Path.Combine(Path.GetTempPath(), "agentbroker-lan-profile-synthetic")));
         host.SettingsFor(Id).Set("enabled", "true");
         var control = new StatusControl { Response = new(true, "ok", view) };
-        var module = new AgentBrokerModule(control, new StatusSupervisor(view)) { McpNow = () => now };
+        var module = new AgentBrokerModule(control, new StatusSupervisor(view)) { McpNow = () => now, ClientSetup = new(new TestClientCommand()) };
         var launcher = new TestFirewallLauncher(); module.FirewallLauncher = launcher;
         try
         {
@@ -282,7 +363,7 @@ public sealed partial class AgentBrokerModule
             }
             string text = Show(null);
             check(text.StartsWith("Network category: not reported by this worker.", StringComparison.Ordinal) &&
-                text.Contains("Private networks", StringComparison.Ordinal),
+                text.Contains("Allow LAN access can add a Private-network rule with administrator approval.", StringComparison.Ordinal),
                 "lan profile: an older worker without a reading says so and keeps the setup guidance");
             text = Show(new("public", "configured", 2, now, null));
             check(text.Contains("Network category: Public on the interface carrying this broker's LAN address.", StringComparison.Ordinal) &&

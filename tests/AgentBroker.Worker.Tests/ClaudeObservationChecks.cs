@@ -12,12 +12,14 @@ internal static class ClaudeObservationChecks
 
     internal static async Task RunAsync(Action<bool, string> check)
     {
+        Console.WriteLine("WITNESS: CLAUDE_OBSERVATION_EXECUTED");
         PublisherSubjectChecks(check);
         await SignedObservationAsync(check);
         await ImageLeaseAsync(check);
         await RefusalsAsync(check);
         await CapabilitiesAndSubmissionAsync(check);
         await PinnedBehaviorAsync(check);
+        await BoundedDiscoveryAsync(check);
     }
 
     internal static void RunPublicImageCheck(Action<bool, string> check, string image)
@@ -260,6 +262,129 @@ internal static class ClaudeObservationChecks
             "Claude observation: exact-pinned idle submission still reaches only the fake provider");
     }
 
+    internal static async Task RunBusyCausesAsync(Action<bool, string> check)
+    {
+        var source = new ObservationSource { Version = Pin21306.Version, Hash = Pin21306.Sha256 };
+        ClaudeNativeCandidate pinned;
+        await using (var provider = new ClaudeNativeProvider(source))
+            pinned = (await provider.DiscoverAsync(default)).Single();
+        var target = new CandidateProvider(pinned);
+        await using var adapter = new ClaudeNativeAdapter(target, true);
+        var session = (await adapter.DiscoverAsync(Guid.NewGuid(), default)).Single();
+        foreach (var (status, reason) in new (string? Status, string Reason)[] {
+            ("busy", "native_recipient_busy"), ("shell", "native_recipient_busy"),
+            ("waiting", "native_recipient_awaiting_approval"), (null, "native_recipient_activity_unknown") })
+        {
+            target.Current = pinned with { Status = status };
+            var result = await adapter.SubmitAsync(Message(session.Address), default);
+            check(result is { Outcome: AdapterAdmission.DeferredNotSubmitted } && result.Reason == reason && target.Submissions == 0,
+                "CLAUDE_BUSY_CAUSE: fresh " + (status ?? "unknown") + " activity defers with its truthful cause before credentials or input");
+        }
+    }
+
+    internal static async Task RunCensusAsync(Action<bool, string> check)
+    {
+        var source = new ObservationSource { Version = Pin21306.Version, Hash = Pin21306.Sha256 };
+        var provider = new ClaudeNativeProvider(source);
+        await using var adapter = new ClaudeNativeAdapter(provider);
+        Guid broker = Guid.NewGuid();
+        var healthy = await adapter.DiscoverAsync(broker, default);
+        var pinned = (await provider.DiscoverAsync(default)).Single();
+        check(healthy.Count == 1 && provider.DiscoveryCensusComplete && adapter.DiscoveryCensusComplete,
+            "CLAUDE_CENSUS_HEALTHY: actual pinned provider and adapter publish a complete one-row census");
+        foreach (var error in new Exception[] { new IOException("Synthetic metadata unavailable."), new UnauthorizedAccessException("Synthetic metadata access.") })
+        {
+            source.MetadataError = error;
+            check((await adapter.DiscoverAsync(broker, default)).Count == 0 && !provider.DiscoveryCensusComplete && !adapter.DiscoveryCensusComplete,
+                "CLAUDE_CENSUS_NULL_INCOMPLETE: skipped metadata or access failures cannot become a complete empty census");
+            source.MetadataError = null;
+            check((await adapter.DiscoverAsync(broker, default)).Count == 1 && provider.DiscoveryCensusComplete && adapter.DiscoveryCensusComplete,
+                "CLAUDE_CENSUS_RECOVERY: a next healthy pass replaces incomplete state");
+        }
+        source.Started++;
+        check((await adapter.DiscoverAsync(broker, default)).Count == 0 && !provider.DiscoveryCensusComplete && !adapter.DiscoveryCensusComplete,
+            "CLAUDE_CENSUS_IDENTITY_INCOMPLETE: an unclassified process identity cannot prove absence");
+        source.Started--;
+        source.ProcessIds = Enumerable.Range(source.Pid, 33).ToArray();
+        check((await adapter.DiscoverAsync(broker, default)).Count == 32 && !provider.DiscoveryCensusComplete && !adapter.DiscoveryCensusComplete,
+            "CLAUDE_CENSUS_TRUNCATION: the thirty-third source process makes a bounded pass incomplete");
+        source.ProcessIds = null;
+        check((await adapter.DiscoverAsync(broker, default)).Count == 1 && provider.DiscoveryCensusComplete && adapter.DiscoveryCensusComplete,
+            "CLAUDE_CENSUS_TRUNCATION_RECOVERY: an untruncated healthy pass is complete again");
+        source.ProcessIds = [];
+        check((await adapter.DiscoverAsync(broker, default)).Count == 0 && provider.DiscoveryCensusComplete && adapter.DiscoveryCensusComplete,
+            "CLAUDE_CENSUS_EMPTY_COMPLETE: a successfully observed empty process list proves an empty census");
+        source.ListError = new IOException("Synthetic enumeration unavailable.");
+        bool failed = false;
+        try { await adapter.DiscoverAsync(broker, default); }
+        catch (IOException) { failed = true; }
+        check(failed && !provider.DiscoveryCensusComplete && !adapter.DiscoveryCensusComplete,
+            "CLAUDE_CENSUS_FAILURE_RESET: a failed pass cannot retain an earlier complete snapshot");
+        source.ListError = null;
+        source.ProcessIds = null;
+        check((await adapter.DiscoverAsync(broker, default)).Count == 1 && adapter.DiscoveryCensusComplete,
+            "CLAUDE_CENSUS_FAILURE_RECOVERY: a later full pass recovers from enumeration failure");
+
+        var unpinned = new ObservationSource { Trust = new(ClaudePublicImageTrust.Unavailable) };
+        var unavailableProvider = new ClaudeNativeProvider(unpinned);
+        await using var unavailableAdapter = new ClaudeNativeAdapter(unavailableProvider);
+        check((await unavailableAdapter.DiscoverAsync(Guid.NewGuid(), default)).Count == 0 &&
+            !unavailableProvider.DiscoveryCensusComplete && !unavailableAdapter.DiscoveryCensusComplete,
+            "CLAUDE_CENSUS_UNPINNED_INCOMPLETE: unavailable public-image trust leaves an unclassified process");
+
+        var filtered = new CandidateProvider(pinned);
+        await using var filteringAdapter = new ClaudeNativeAdapter(filtered);
+        filtered.Rows = [pinned with { Target = pinned.Target with { SessionId = "invalid" } }];
+        check((await filteringAdapter.DiscoverAsync(Guid.NewGuid(), default)).Count == 0 && !filteringAdapter.DiscoveryCensusComplete,
+            "CLAUDE_CENSUS_INVALID_FILTER: adapter filtering cannot convert malformed candidates into complete absence");
+        filtered.Rows = [pinned, pinned];
+        check((await filteringAdapter.DiscoverAsync(Guid.NewGuid(), default)).Count == 1 && !filteringAdapter.DiscoveryCensusComplete,
+            "CLAUDE_CENSUS_DUPLICATE_FILTER: a duplicate candidate makes the adapter census incomplete");
+        filtered.Rows = null;
+        check((await filteringAdapter.DiscoverAsync(Guid.NewGuid(), default)).Count == 1 && filteringAdapter.DiscoveryCensusComplete,
+            "CLAUDE_CENSUS_FILTER_RECOVERY: a valid next candidate set restores completeness");
+    }
+
+    private static async Task BoundedDiscoveryAsync(Action<bool, string> check)
+    {
+        Console.WriteLine("WITNESS: CLAUDE_BOUNDED_DISCOVERY_EXECUTED");
+        var source = new ObservationSource();
+        source.ProcessIds = [source.Pid, source.Pid + 1];
+        await using var provider = new ClaudeNativeProvider(source);
+        check((await provider.DiscoverAsync(default)).Count == 2 && source.TrustReads == 1,
+            "CLAUDE_IMAGE_ONE_SAMPLE: two independently checked processes sharing a path use one held sample in this pass");
+        check((await provider.DiscoverAsync(default)).Count == 2 && source.TrustReads == 2,
+            "CLAUDE_IMAGE_NEXT_PASS_FRESH: a new discovery pass re-verifies public image trust and hash");
+        await provider.RefreshAsync(source.Pid, default);
+        check(source.TrustReads == 3,
+            "CLAUDE_IMAGE_REFRESH_FRESH: submission-side refresh cannot borrow a discovery sample");
+        source.ImageAt = pid => @"C:\Synthetic-Claude-Observation-" + pid + @"\claude.exe";
+        check((await provider.DiscoverAsync(default)).Count == 2 && source.TrustReads == 5,
+            "CLAUDE_IMAGE_DISTINCT_PATHS: distinct executable paths never share an image sample");
+        Console.WriteLine("CLAUDE_IMAGE_CALL_COUNTS: shared-path firstpass=1 nextpass=1 refresh=1 distinctpaths=2; no timing claim");
+
+        var scan = new ObservationSource { Version = Pin21306.Version, Hash = Pin21306.Sha256 };
+        scan.ProcessIds = Enumerable.Range(scan.Pid, 34).ToArray();
+        scan.MetadataAt = pid => pid == scan.Pid + 33 ? scan.Metadata with { ProcessId = pid }
+            : throw new IOException("Synthetic non-session process.");
+        await using var scanner = new ClaudeNativeProvider(scan);
+        var beyond = await scanner.DiscoverAsync(default);
+        check(beyond.Count == 1 && beyond[0].Target.ProcessId == scan.Pid + 33 && scan.MetadataReads == 34,
+            "CLAUDE_USABLE_SESSION_SCAN: non-session processes before the thirty-third slot cannot hide a later usable session");
+        scan.ProcessIds = Enumerable.Range(scan.Pid, 129).ToArray();
+        scan.MetadataAt = _ => throw new IOException("Synthetic non-session process.");
+        int before = scan.MetadataReads;
+        check((await scanner.DiscoverAsync(default)).Count == 0 && scan.MetadataReads - before == 128 && !scanner.DiscoveryCensusComplete,
+            "CLAUDE_SCAN_BOUNDED: the expanded usable-session search never performs more than128 expensive candidate inspections");
+        check(scanner.DiscoveryDiagnostics.Any(item => item.Code == "claude_discovery_truncated" && item.Note),
+            "CLAUDE_SCAN_TRUNCATION_NOTE: a capped census reports missing-session uncertainty without hiding healthy rows");
+        scan.ProcessIds = Enumerable.Range(scan.Pid, 33).ToArray();
+        scan.MetadataAt = null;
+        check((await scanner.DiscoverAsync(default)).Count == 32 && !scanner.DiscoveryCensusComplete &&
+            scanner.DiscoveryDiagnostics.Any(item => item.Code == "claude_discovery_truncated" && item.Note),
+            "CLAUDE_CANDIDATE_BOUND: at most32 usable sessions are returned and an unvisited tail is diagnosed");
+    }
+
     private static BrokerMessage Message(SessionAddress recipient)
         => new(Guid.NewGuid(), Guid.NewGuid(), null, new(Guid.NewGuid(), "synthetic-sender", Guid.NewGuid()),
             recipient, "Synthetic observation refusal witness.", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddMinutes(1));
@@ -267,9 +392,10 @@ internal static class ClaudeObservationChecks
     private sealed class CandidateProvider(ClaudeNativeCandidate current) : IClaudeNativeProvider
     {
         internal ClaudeNativeCandidate Current = current;
+        internal IReadOnlyList<ClaudeNativeCandidate>? Rows;
         internal int Refreshes, Submissions;
         public Task<IReadOnlyList<ClaudeNativeCandidate>> DiscoverAsync(CancellationToken token)
-            => Task.FromResult<IReadOnlyList<ClaudeNativeCandidate>>([Current]);
+            => Task.FromResult<IReadOnlyList<ClaudeNativeCandidate>>(Rows ?? [Current]);
         public Task<ClaudeNativeCandidate?> RefreshAsync(int processId, CancellationToken token)
         { Refreshes++; return Task.FromResult<ClaudeNativeCandidate?>(Current); }
         public Task<SubmissionResult> SubmitAsync(NativeTarget target, NativeMessage message, CancellationToken token)
@@ -280,6 +406,11 @@ internal static class ClaudeObservationChecks
     private sealed class ObservationSource : IClaudeDiscoverySource
     {
         internal int Pid = 41001;
+        internal IReadOnlyList<int>? ProcessIds;
+        internal Exception? MetadataError, ListError;
+        internal Func<int, NativeSessionMetadata>? MetadataAt;
+        internal Func<int, string>? ImageAt;
+        internal int MetadataReads;
         internal ulong Started = checked((ulong)DateTime.UtcNow.AddDays(-1).ToFileTimeUtc());
         internal string Image = @"C:\Synthetic-Claude-Observation\claude.exe";
         internal string Version = "2.1.309.0";
@@ -298,9 +429,11 @@ internal static class ClaudeObservationChecks
                 Started, "interactive", "idle", "vscode")
             { UpdatedAt = DateTimeOffset.UtcNow.AddHours(-12) };
         }
-        public IReadOnlyList<int> GetProcessIds() => [Pid];
-        public NativeSessionMetadata ReadMetadata(int processId) => Metadata;
-        public IClaudeDiscoveryProcess OpenProcess(int processId) => new ProcessView(this);
+        public IReadOnlyList<int> GetProcessIds()
+        { if (ListError is not null) throw ListError; return ProcessIds ?? [Pid]; }
+        public NativeSessionMetadata ReadMetadata(int processId)
+        { MetadataReads++; if (MetadataError is not null) throw MetadataError; return MetadataAt?.Invoke(processId) ?? Metadata with { ProcessId = processId }; }
+        public IClaudeDiscoveryProcess OpenProcess(int processId) => new ProcessView(this, processId);
         public void RejectReparseComponents(string image)
         { if (Reparse) throw new IOException("Synthetic reparse component."); }
         public string? ReadProductVersion(string image) => Version;
@@ -316,10 +449,10 @@ internal static class ClaudeObservationChecks
             LeaseRechecks++;
             LeaseHeldThroughoutRecheck &= !Lease.Disposed;
         }
-        private sealed class ProcessView(ObservationSource source) : IClaudeDiscoveryProcess
+        private sealed class ProcessView(ObservationSource source, int pid) : IClaudeDiscoveryProcess
         {
             public string ProcessName => "claude";
-            public string ImagePath { get { source.RecheckLease(); return source.Image; } }
+            public string ImagePath { get { source.RecheckLease(); return source.ImageAt?.Invoke(pid) ?? source.Image; } }
             public ulong StartFileTime { get { source.RecheckLease(); return source.Started; } }
             public bool IsCurrentUser { get { source.RecheckLease(); return source.SameUser; } }
             public bool HasExited { get { source.RecheckLease(); return source.Exited; } }

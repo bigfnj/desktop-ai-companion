@@ -8,6 +8,47 @@ internal static class PollingLeaseChecks
 {
     internal static async Task RunAsync(Action<bool, string> check)
     {
+        // N-broker-mailbox-presence-cadence-01 (AgentBroker 1.10.5 marathon, lane T, A4): what a peer sees of a mailbox
+        // whose owner calls every 180 seconds, measured rather than inferred from the lease arithmetic. FIRST on purpose:
+        // Check throws at the first failure, and this block's killing mutation (the renewed presence lease made longer
+        // than a minute, BrokerStore.RenewPollingSession) would otherwise be reported by the lease checks below it.
+        await using (var fixture = new Fixture())
+        {
+            var session = fixture.Register("Synthetic 180-second poller");
+            var peer = Guid.NewGuid();
+            fixture.Store.AuthorizePeer(new PeerTrust(peer, "Synthetic paired peer", "https://192.0.2.41/", new string('E', 64), fixture.Clock.GetUtcNow()));
+            // Sampled every second (lane T round 2, T2-11/T2-16): a 10-second grid pinned the lease only to (50 s, 60 s], and
+            // totals over three cycles let 0/6/12 pass for 6/6/6. Each cycle must show exactly 60 visible seconds, listed at
+            // +59 s and gone at +60 s, so a lease of 51 s (or 61 s) fails here. The check text stays word for word: the
+            // pin-diagnostic witnesses match it exactly.
+            var visiblePerCycle = new int[3];
+            var listedAt59 = new bool[3];
+            var listedAt60 = new bool[3];
+            int samples = 0;
+            MessageReceipt? whileUnlisted = null;
+            for (int cycle = 0; cycle < 3; cycle++)
+            {
+                fixture.Tools.ReadInbox(session.Address);   // the owner's one call per 180 s, which renews presence
+                for (int second = 0; second < 180; second++)
+                {
+                    samples++;
+                    bool listed = fixture.Store.PresentedDirectory(forPeer: true).Any(row => row.Address == session.Address);
+                    if (listed) visiblePerCycle[cycle]++;
+                    if (second == 59) listedAt59[cycle] = listed;
+                    if (second == 60) listedAt60[cycle] = listed;
+                    if (cycle == 0 && second == 170)
+                    {
+                        var sender = new SessionAddress(peer, "claude:" + Guid.NewGuid(), Guid.NewGuid());
+                        whileUnlisted = fixture.Store.Accept(fixture.Message(sender, session.Address), peer);
+                    }
+                    fixture.Clock.Advance(TimeSpan.FromSeconds(1));
+                }
+            }
+            check(samples == 540 && visiblePerCycle.All(count => count == 60) && listedAt59.All(listed => listed) &&
+                !listedAt60.Any(listed => listed) && whileUnlisted is { Status: MessageStatus.Accepted },
+                "PRESENCE_CADENCE_180: a mailbox renewed every 180 s is peer-visible for exactly 60 of each 180 s and accepts a paired peer's send while it is not listed");
+        }
+
         await using (var fixture = new Fixture())
         {
             var session = fixture.Register("Synthetic active poller");
@@ -207,6 +248,7 @@ internal static class PollingLeaseChecks
 
     private sealed class Fixture : IAsyncDisposable
     {
+        private readonly OwnedScratch scratch = OwnedScratch.Create("polling-lease");
         internal ManualClock Clock { get; } = new();
         internal BrokerStore Store { get; }
         internal BrokerRuntime Runtime { get; }
@@ -214,7 +256,7 @@ internal static class PollingLeaseChecks
         internal BrokerTools Tools { get; }
         internal Fixture()
         {
-            string root = Path.Combine(AppContext.BaseDirectory, "scratch", "polling-lease-" + Guid.NewGuid().ToString("N"));
+            string root = scratch.Root;
             Directory.CreateDirectory(root);
             Store = new BrokerStore(Path.Combine(root, "store"), clock: Clock);
             Runtime = new BrokerRuntime(Store, new NoPeers(), [], new SessionPreferences(root), Clock);
@@ -225,7 +267,11 @@ internal static class PollingLeaseChecks
         internal BrokerSession? Current(SessionAddress address) => Store.Directory().SingleOrDefault(session => session.Address == address);
         internal BrokerMessage Message(SessionAddress sender, SessionAddress recipient) => new(Guid.NewGuid(), Guid.NewGuid(), null,
             sender, recipient, "Synthetic polling message", Clock.GetUtcNow(), Clock.GetUtcNow().AddHours(1));
-        public async ValueTask DisposeAsync() { await Runtime.DisposeAsync(); Store.Dispose(); }
+        public async ValueTask DisposeAsync()
+        {
+            try { await Runtime.DisposeAsync(); }
+            finally { try { Store.Dispose(); } finally { scratch.Dispose(); } }
+        }
     }
 
     private sealed class NoPeers : IPeerFederation

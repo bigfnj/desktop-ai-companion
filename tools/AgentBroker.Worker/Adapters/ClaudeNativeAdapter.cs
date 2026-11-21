@@ -32,6 +32,7 @@ public sealed record ClaudeNativeCandidate(NativeTarget Target, string? Status)
 public interface IClaudeNativeProvider : IAsyncDisposable
 {
     IReadOnlyList<AdapterDiscoveryDiagnostic> DiscoveryDiagnostics => Array.Empty<AdapterDiscoveryDiagnostic>();
+    bool DiscoveryCensusComplete => true;
     Task<IReadOnlyList<ClaudeNativeCandidate>> DiscoverAsync(CancellationToken token);
     Task<ClaudeNativeCandidate?> RefreshAsync(int processId, CancellationToken token);
     Task<SubmissionResult> SubmitAsync(NativeTarget target, NativeMessage message, CancellationToken token);
@@ -49,8 +50,15 @@ public sealed class ClaudeNativeAdapter : ILocalAgentAdapter
     // The last discovery pass's process bindings, replaced whole so whoami reads it without the async gate.
     private volatile (SessionAddress Address, long ProcessId, ulong StartFileTime)[] processIndex = [];
     private bool disposed;
+    private bool discoveryCensusComplete;
+    // Report only (lane N round 2): the last completed pass's census, a fresh array written under gate just before renewedLastPass
+    // is replaced and the pass returns. renewedLastPass is the session IDs that pass returned, read and written only under gate.
+    private volatile IReadOnlyList<DiscoveryTraceRow>? lastDiscoveryTrace;
+    private Dictionary<string, Guid> renewedLastPass = new(StringComparer.Ordinal);
+    public IReadOnlyList<DiscoveryTraceRow>? LastDiscoveryTrace => lastDiscoveryTrace;
     public string Id => "claude-native";
     public IReadOnlyList<AdapterDiscoveryDiagnostic> DiscoveryDiagnostics => provider.DiscoveryDiagnostics;
+    public bool DiscoveryCensusComplete => discoveryCensusComplete;
 
     public ClaudeNativeAdapter(bool enablePeerCredentials = false, bool updateTolerantDelivery = false)
         : this(new ClaudeNativeProvider(enablePeerCredentials, updateTolerantDelivery), enablePeerCredentials,
@@ -72,22 +80,35 @@ public sealed class ClaudeNativeAdapter : ILocalAgentAdapter
         try
         {
             ObjectDisposedException.ThrowIf(disposed, this);
+            discoveryCensusComplete = false;
             var rows = await provider.DiscoverAsync(token);
+            bool complete = provider.DiscoveryCensusComplete;
             if (rows.Count > 32) throw new BrokerException("session_limit", "Native Claude directory exceeded its bound.");
             var found = new Dictionary<SessionAddress, ClaudeNativeCandidate>();
             var result = new List<BrokerSession>();
             foreach (var row in rows)
             {
                 token.ThrowIfCancellationRequested();
-                if (!Valid(row)) continue;
+                if (!Valid(row)) { complete = false; continue; }
                 var address = new SessionAddress(brokerId, "claude:" + row.Target.SessionId, row.NativeSessionIncarnation);
-                if (!found.TryAdd(address, row)) continue;
+                if (!found.TryAdd(address, row)) { complete = false; continue; }
                 result.Add(new(address, "Claude " + row.Target.SessionId[..8], Id, enablePeerCredentials && Deliverable(row)
                     ? SessionCapabilities.Receive | SessionCapabilities.WakeIdle | SessionCapabilities.Reply : SessionCapabilities.None,
                     Activity(row.Status), clock.GetUtcNow().AddSeconds(30)));
             }
             candidates.Clear(); foreach (var pair in found) candidates.Add(pair.Key, pair.Value);
             processIndex = found.Select(pair => (pair.Key, (long)pair.Value.Target.ProcessId, pair.Value.Target.StartFileTime)).ToArray();
+            discoveryCensusComplete = complete;
+            // Report only: each returned row renewed (by indexer, so the last row listed wins, as the store keeps it), and each
+            // session ID the previous completed pass returned and this one did not, once, as absent with its previous
+            // incarnation. A failed pass replaces neither, so it never uses an absence up.
+            var renewed = new Dictionary<string, Guid>(StringComparer.Ordinal);
+            foreach (var session in result) renewed[session.Address.SessionId] = session.Address.Incarnation;
+            lastDiscoveryTrace = renewed.Select(pair => new DiscoveryTraceRow(pair.Key, pair.Value, "renewed"))
+                .Concat(renewedLastPass.Where(pair => !renewed.ContainsKey(pair.Key))
+                    .Select(pair => new DiscoveryTraceRow(pair.Key, pair.Value, "absent")))
+                .OrderBy(row => row.SessionId, StringComparer.Ordinal).ToArray();
+            renewedLastPass = renewed;
             return result;
         }
         finally { gate.Release(); }
@@ -104,7 +125,9 @@ public sealed class ClaudeNativeAdapter : ILocalAgentAdapter
 
     public async Task<AdapterResult> SubmitAsync(BrokerMessage message, PeerSenderInfo? sender, CancellationToken token)
     {
-        await gate.WaitAsync(token);
+        try { await gate.WaitAsync(token); }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        { return Deferred("native_submission_wait_cancelled"); }
         try
         {
             ObjectDisposedException.ThrowIf(disposed, this);
@@ -122,7 +145,12 @@ public sealed class ClaudeNativeAdapter : ILocalAgentAdapter
             // An unpinned build is trusted for the image discovery attested, never for whatever the refresh found since.
             if (!fresh.CanDeliver && !string.Equals(fresh.Target.ImageSha256, previous.Target.ImageSha256, StringComparison.OrdinalIgnoreCase))
                 return new(AdapterAdmission.Refused, "claude_image_changed");
-            if (fresh.Status != "idle") return Deferred("native_recipient_not_idle");
+            if (fresh.Status != "idle") return Deferred(fresh.Status switch
+            {
+                "busy" or "shell" => "native_recipient_busy",
+                "waiting" => "native_recipient_awaiting_approval",
+                _ => "native_recipient_activity_unknown",
+            });
             // Immediate metadata refresh occurred before any credential handling. The native gate is
             // authoritative for actual mode/settings and the idle snapshot can race with GUI activity.
             var native = new NativeMessage(message.Id, fresh.Target.SessionId, PeerMessageFormatter.Format(message, sender), RecipientMode.Unknown,
@@ -134,10 +162,12 @@ public sealed class ClaudeNativeAdapter : ILocalAgentAdapter
                 {
                     SubmissionStatus.SubmittedUnconfirmed => new(AdapterAdmission.Submitted, "native_write_unconfirmed"),
                     SubmissionStatus.Held => Deferred("native_not_submitted"),
-                    _ => new(AdapterAdmission.Refused, "native_admission_refused"),
+                    SubmissionStatus.Refused when result.Reason == "native_transport_unavailable" => Deferred("native_transport_unavailable"),
+                    SubmissionStatus.Refused => new(AdapterAdmission.Refused, RefusalReason(result.Reason)),
+                    _ => new(AdapterAdmission.Uncertain, "native_admission_unconfirmed"),
                 };
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or OperationCanceledException)
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or OperationCanceledException or TimeoutException)
             { return new(AdapterAdmission.Uncertain, RaisedReason(ex)); }
         }
         finally { gate.Release(); }
@@ -145,16 +175,26 @@ public sealed class ClaudeNativeAdapter : ILocalAgentAdapter
 
     // An exception out of the native submission, recorded with its cause (N-broker-161-03), as 1.6.1 does for Codex
     // (CodexNativeAdapter.RaisedReason, A-broker-08): each one carried the generic native_submission_uncertain, which
-    // N-agentbroker-uncertain-parked-01 cannot diagnose. The outcome stays Uncertain. The library answers its own transport
-    // failures with a result and lets a cancellation out only before the user frame (NativePeerAdapter.SendAsync), but
-    // IClaudeNativeProvider.SubmitAsync promises neither, so deferring would rest on library internals. The library raises
+    // N-agentbroker-uncertain-parked-01 cannot diagnose. The outcome stays Uncertain. Only the library's typed
+    // native_transport_unavailable result proves that no user frame was started. An arbitrary
+    // IClaudeNativeProvider.SubmitAsync exception promises no such boundary. The library raises
     // no coded exception, so there is no _<code> form; access is Claude's own case.
     private static string RaisedReason(Exception error) => error switch
     {
         IOException => "native_uncertain_raised_io",
         UnauthorizedAccessException => "native_uncertain_raised_access",
         OperationCanceledException => "native_uncertain_raised_cancelled",
+        TimeoutException => "native_uncertain_raised_timeout",
         _ => "native_submission_uncertain",
+    };
+
+    private static string RefusalReason(string reason) => reason switch
+    {
+        "unsupported_engine_profile" or "invalid_native_message" or "native_inbound_denied" or
+        "invalid_native_target" or "native_identity_mismatch" or "native_publisher_unverified" or
+        "credential_start_mismatch" or "native_identity_changed" or "native_image_path_mismatch" or
+        "invalid_credential" => reason,
+        _ => "native_admission_refused",
     };
 
     private static bool Valid(ClaudeNativeCandidate candidate) => candidate.Target.ProcessId > 1 && candidate.Target.StartFileTime > 0 &&

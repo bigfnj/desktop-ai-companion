@@ -1,18 +1,16 @@
-# Claude native peer adapter, Phase 0
+# Claude native peer adapter
 
-This package-free library is a protocol and identity prototype. It has no installer, executable entry
-point, MCP server, discovery loop, or user configuration writer. The separately built metadata diagnostic
-reads only explicit numeric registry JSON targets. Tests use fake connections and in-memory
-synthetic credentials only. They do not contact Claude, open a native pipe, create a credential fixture,
-or invoke the protected production credential reader.
+This package-free protocol/identity library is used by the shipped AgentBroker worker. Its enabled Claude
+submission path constructs the protected production credential source; discovery does not. The library has
+no installer, executable entry point, MCP server, discovery loop or user configuration writer. The separate
+metadata diagnostic reads only explicit numeric registry JSON targets. Deterministic checks use fake
+connections and in-memory credentials; the pipe-security check opens only its own random synthetic Windows
+pipe. They do not contact Claude or read native credentials.
 
-Three exact public native executable profiles are supported:
-
-| Public runtime | SHA-256 |
-| --- | --- |
-| Standalone `2.1.292` | `EB95BB65955F8B1702E800815F9A2C0388A5DE0F196C354C7EE1DD5CB9A2BA23` |
-| VS Code Windows x64 `2.1.304` | `019E5174D5D954585EDB1A946FE280E44A973050B4897034ADF0E16306F85FDD` |
-| VS Code Windows x64 `2.1.306` | `F6BC9DE38F507C36C9A3BB0085A59A27E32156E2208252BF1707C4E3EF309114` |
+Exact reviewed executable versions and SHA-256 values come from the embedded
+[pin document](../AgentBroker.Pins/agentbroker-pins.json), exposed by `EngineProfile.Verified` in
+[NativePeerModels.cs](NativePeerModels.cs). The smoke probe reports `verified_native_runtime`: the same executable
+may be shipped by a CLI or an editor extension, so its version does not establish who hosts it.
 
 These profiles do not establish the version or behavior of a Desktop-bundled runtime.
 Source equivalence and reproducible static inspection are recorded in [VERIFICATION.md](VERIFICATION.md).
@@ -28,7 +26,7 @@ canonical `\\.\pipe\...` path before SHA-256. The credential filename is the ser
 and the native suffix; its directory is NFC-normalized `CLAUDE_CONFIG_DIR/sessions`, or
 `<explicit user home>/.claude/sessions`. Derivation is pure and neither enumerates nor accesses files.
 
-The prepared production transport uses a current-user-only named pipe and checks the connected server's
+The production transport requests identification-only client SQOS and explicitly checks the connected server's
 PID, kernel executable path, current-user SID, image hash, and native creation FILETIME. The adapter then requires
 an exact reviewed profile or the caller's update-tolerant publisher check before credentials.
 FILETIME is the unsigned result of Win32 `GetProcessTimes`, not `.NET DateTime.Ticks`. Identity is checked

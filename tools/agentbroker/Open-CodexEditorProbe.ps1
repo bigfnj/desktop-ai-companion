@@ -141,6 +141,9 @@ if ($Launch -and [string]::IsNullOrWhiteSpace($PreparedWorkspace)) {
     throw 'Launch requires a separately prepared and reviewed workspace; default preparation opens no GUI.'
 }
 if ($Launch -and [string]::IsNullOrWhiteSpace($ExpectedTargetThreadId)) { throw 'Launch requires an explicit expected authorized thread UUID.' }
+function Resolve-ProbePreparation([string]$TargetThreadId, [string]$PreparedWorkspace,
+    [string]$ExpectedTargetThreadId, [scriptblock]$CodeImageResolver = { Get-CodeCli }) {
+$cli = $null
 if (-not [string]::IsNullOrWhiteSpace($PreparedWorkspace)) {
     if (-not [string]::IsNullOrWhiteSpace($TargetThreadId)) { throw 'Do not replace the target of an existing prepared workspace.' }
     $prepared = Confirm-Prepared $PreparedWorkspace $ExpectedTargetThreadId
@@ -151,7 +154,7 @@ if (-not [string]::IsNullOrWhiteSpace($PreparedWorkspace)) {
         throw 'A nonempty canonical authorized test-thread UUID is required.'
     }
     $null = Assert-ProbePath $artifactRoot $repoRoot
-    $cli = Get-CodeCli
+    $cli = & $CodeImageResolver
     $id = [guid]::NewGuid().ToString('N')
     $root = Assert-ProbePath (Join-Path $artifactRoot ('editor-probe-' + $id)) $repoRoot
     if ([IO.Directory]::Exists($root) -or [IO.File]::Exists($root)) { throw 'Unique preparation path already exists.' }
@@ -181,8 +184,16 @@ if (-not [string]::IsNullOrWhiteSpace($PreparedWorkspace)) {
     Write-ProbeNew (Join-Path $root 'prepared.json') ($manifest | ConvertTo-Json -Depth 8) $root
     $prepared = Confirm-Prepared $workspace
 }
-if ($null -eq $cli) { $cli = Get-CodeCli }
-$arguments = @('--new-window', ('--extensionDevelopmentPath=' + $prepared.Extension), $prepared.Workspace)
+if ($null -eq $cli) { $cli = & $CodeImageResolver }
+return [pscustomobject]@{ Prepared=$prepared; Cli=$cli }
+}
+function Get-ProbeLaunchArguments($Prepared) {
+    return @('--new-window', ('--extensionDevelopmentPath=' + $Prepared.Extension), $Prepared.Workspace)
+}
+$resolved = Resolve-ProbePreparation $TargetThreadId $PreparedWorkspace $ExpectedTargetThreadId
+$prepared = $resolved.Prepared
+$cli = $resolved.Cli
+$arguments = @(Get-ProbeLaunchArguments $prepared)
 $launched = $false
 if ($Launch) {
     # Mirror the installed public code.cmd without batch parsing; only this child receives the two wrapper variables.
@@ -207,9 +218,12 @@ if ($Launch) {
         $launched = $true
     } finally { $process.Dispose() }
 }
+function Get-ProbePreparationReport($prepared, $cli, [string[]]$arguments, [bool]$launched) {
 [ordered]@{
     Status = $(if ($launched) { 'launch_requested' } else { 'prepared_only' })
     Launched = $launched; Workspace = $prepared.Workspace; Manifest = $prepared.Manifest
     ExtensionDevelopmentPath = $prepared.Extension; Result = (Join-Path $prepared.Root 'result.json')
     CodeCli = $cli.Cmd; Arguments = $arguments
 } | ConvertTo-Json -Depth 5
+}
+Get-ProbePreparationReport $prepared $cli $arguments $launched

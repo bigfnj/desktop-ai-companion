@@ -115,9 +115,22 @@ public sealed partial class DesktopAdapter : IAsyncDisposable
         JsonObject turnStart = externalPeer
             ? NativeExternalPeerInput.CreateTurnStart(binding.ConversationId, messageId, text)
             : NativeExternalPeerInput.CreateAuthorizedPlaintextTurnStart(binding.ConversationId, messageId, text);
-        if (System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(turnStart).Length > DesktopFrames.MaximumFrameBytes - 2048)
+        // Use the same envelope builder and encoder as the actual write, including both complete input copies.
+        // UUID contents differ at dispatch, but every UUID has the same ASCII length and escaping.
+        var preflight = CreateRequest("thread-follower-start-turn", new()
+        {
+            ["conversationId"] = binding.ConversationId.ToString("D"), ["turnStart"] = turnStart.DeepClone()
+        }, 2, binding.OwnerClientId, Guid.Empty.ToString("D"), options.Timeout);
+        if (DesktopFrames.EncodedLength(preflight) > DesktopFrames.MaximumFrameBytes)
             throw new DesktopAdapterException("message_frame_too_large");
-        await gate.WaitAsync(token);
+        // No model-input (turn) frame is written before the message ID is reserved below. Only control frames may be: the
+        // owner rediscovery's request, and any client-discovery-response {canHandle:false} replies sent while awaiting its
+        // answer. So a cancellation or I/O failure up to that point proves that no model input was submitted, which is the
+        // typed "nothing was written" signal the 1.6.1 register entry made the condition for deferring
+        // (N-broker-native-confirmation-01). The external-peer path defers with it; the plaintext path keeps its exception,
+        // as it never defers.
+        try { await gate.WaitAsync(token); }
+        catch (OperationCanceledException) when (externalPeer) { return PreFrameDeferral("attempt_cancelled"); }
         try
         {
             // A publisher signature permits observation only. Refuse before any frame, receipt or rediscovery
@@ -136,15 +149,25 @@ public sealed partial class DesktopAdapter : IAsyncDisposable
             }
             EnsureOpen();
             if (receipts.Count >= MaximumReceipts) throw new DesktopAdapterException("receipt_capacity");
-            var current = await DiscoverCoreAsync(binding.ConversationId, binding.OwnerClientId, token);
-            // No turn (model-input) frame is written and no receipt reserved yet; owner discovery above wrote only a control
-            // frame. So an owner missing here proves this call submitted nothing. On the
+            DesktopOwnerBinding? current;
+            // Owner rediscovery writes only control frames (its request, and canHandle:false replies to other discovery requests
+            // while it waits). Its own deadline, the caller's token or an I/O failure ending it is reported as a pre-frame
+            // deferral on the external-peer path (see PreFrameDeferral).
+            try { current = await DiscoverCoreAsync(binding.ConversationId, binding.OwnerClientId, token); }
+            catch (Exception error) when (externalPeer && error is OperationCanceledException or IOException)
+            {
+                return PreFrameDeferral(error is IOException ? "rediscovery_io"
+                    : token.IsCancellationRequested ? "attempt_cancelled" : "rediscovery_timeout");
+            }
+            // No turn (model-input) frame is written and no receipt reserved yet; owner discovery above wrote only control
+            // frames. So an owner missing here proves this call submitted no model input. On the
             // typed external-peer path that defers for a retry: it is usually a view reconnecting, and refusing it lost messages
             // to live chats (N-agentbroker-refusal-transience-01). The plaintext path keeps its refusal, as it never defers, and
             // the no-client-found answer to the start-turn request below stays final on both.
             if (current is null)
                 return new(externalPeer ? DesktopSubmissionOutcome.DeferredNotSubmitted : DesktopSubmissionOutcome.Rejected, ErrorCode: "owner_unavailable");
             ValidateBinding(current);
+            if (externalPeer && token.IsCancellationRequested) return PreFrameDeferral("attempt_cancelled");
             token.ThrowIfCancellationRequested();
             var uncertain = new DesktopSubmissionResult(DesktopSubmissionOutcome.Uncertain, ErrorCode: "submission_unconfirmed");
             // Reserve before the first write. A partial write or lost response is never retried automatically.
@@ -200,6 +223,13 @@ public sealed partial class DesktopAdapter : IAsyncDisposable
         finally { gate.Release(); }
     }
 
+    // A typed "no model input was written" result (only discovery control frames may have been): rediscovery_timeout (this
+    // library's own discovery deadline), attempt_cancelled (the caller's token) or rediscovery_io. No message ID was reserved, so a same-ID retry reaches the owner again.
+    // ConnectionClosed says whether the failed request closed this connection (RequestAsync closes it on any failure;
+    // a cancelled gate wait or the final token check leaves it open).
+    private DesktopSubmissionResult PreFrameDeferral(string code) =>
+        new(DesktopSubmissionOutcome.DeferredNotSubmitted, ErrorCode: code, ConnectionClosed: disposed || protocolClosed);
+
     private void ValidateBinding(DesktopOwnerBinding binding)
     {
         if (binding.Incarnation != incarnation || binding.ServerPid != connection.Identity.Pid
@@ -219,14 +249,7 @@ public sealed partial class DesktopAdapter : IAsyncDisposable
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
         deadline.CancelAfter(requestTimeout);
         string requestId = Guid.NewGuid().ToString("D");
-        var request = new JsonObject
-        {
-            ["type"] = "request", ["requestId"] = requestId,
-            ["sourceClientId"] = clientId == Guid.Empty ? "initializing-client" : clientId.ToString("D"),
-            ["version"] = version, ["method"] = method, ["params"] = parameters,
-            ["timeoutMs"] = (int)requestTimeout.TotalMilliseconds
-        };
-        if (target.HasValue) request["targetClientId"] = target.Value.ToString("D");
+        var request = CreateRequest(method, parameters, version, target, requestId, requestTimeout);
         try
         {
             await DesktopFrames.WriteAsync(connection.Stream, request, deadline.Token);
@@ -267,6 +290,20 @@ public sealed partial class DesktopAdapter : IAsyncDisposable
             await connection.DisposeAsync();
             throw;
         }
+    }
+
+    private JsonObject CreateRequest(string method, JsonObject parameters, int version, Guid? target,
+        string requestId, TimeSpan requestTimeout)
+    {
+        var request = new JsonObject
+        {
+            ["type"] = "request", ["requestId"] = requestId,
+            ["sourceClientId"] = clientId == Guid.Empty ? "initializing-client" : clientId.ToString("D"),
+            ["version"] = version, ["method"] = method, ["params"] = parameters,
+            ["timeoutMs"] = (int)requestTimeout.TotalMilliseconds
+        };
+        if (target.HasValue) request["targetClientId"] = target.Value.ToString("D");
+        return request;
     }
 
     private void EnsureOpen()

@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AgentBroker guide</title>
+<style>
+:root { --bg: #ffffff; --fg: #1d1d1f; --muted: #5a5a60; --line: #d8d8de; --code: #f2f2f5; }
+@media (prefers-color-scheme: dark) { :root { --bg: #17171a; --fg: #ececf0; --muted: #a6a6ae; --line: #34343a; --code: #24242a; } }
+body { background: var(--bg); color: var(--fg); font: 15px/1.55 "Segoe UI", system-ui, sans-serif; margin: 0; padding: 24px 16px 48px; }
+main { max-width: 760px; margin: 0 auto; }
+h1 { font-size: 1.6em; margin: 0 0 4px; }
+h2 { font-size: 1.2em; margin: 32px 0 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+p, li { margin: 6px 0; }
+.lede { color: var(--muted); }
+nav ul { list-style: none; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 16px; }
+code { background: var(--code); padding: 1px 4px; border-radius: 3px; font-size: 0.92em; }
+table { border-collapse: collapse; width: 100%; margin: 8px 0; }
+th, td { text-align: left; vertical-align: top; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+a { color: inherit; }
+</style>
+</head>
+<body>
+<main>
+<h1>AgentBroker guide</h1>
+<p class="lede">This guide ships inside the installed AgentBroker module, so it matches this version and opens without a network. The settings pane keeps short summaries; the detail is here.</p>
+<nav><ul>
+<li><a href="#setup">Setup</a></li>
+<li><a href="#clients">Connecting clients</a></li>
+<li><a href="#wake">Waking sessions</a></li>
+<li><a href="#pairing">Pairing brokers</a></li>
+<li><a href="#waiting-mail">Waiting mail</a></li>
+<li><a href="#troubleshooting">Troubleshooting</a></li>
+</ul></nav>
+
+<section id="setup">
+<h2>Setup</h2>
+<p>Enable AgentBroker in its settings pane. Its workstation MCP endpoint is <code>http://127.0.0.1:7432/mcp</code>, and the same listener answers <code>http://localhost:7432/mcp</code>. LAN HTTPS uses port 7433 by default.</p>
+<p>The worker includes its runtime, so normal operation needs no ASP.NET installation and no administrator rights. Only the optional Windows Firewall setup action asks for administrator approval.</p>
+<p>Discovery of open Codex and Claude sessions is on by default. Waking existing Codex sessions and waking existing Claude sessions are off by default; turn them on in Coding agents.</p>
+</section>
+
+<section id="clients">
+<h2>Connecting Claude Code and Codex</h2>
+<p>Connect MCP once per client for the receipt and reply tools. <b>Connect Claude MCP</b> and <b>Connect Codex MCP</b> add the user-scoped <code>desktop-ai-companion-agentbroker</code> entry through the client's own CLI. An existing entry is never silently replaced.</p>
+<p>Claude Code uses the local HTTP endpoint when the connection needs no token; other connections use the stdio bridge. Client policy can require administrator approval: if registration is refused, ask the policy owner to approve the exact local server. AgentBroker does not override a policy refusal.</p>
+<p>For Claude Code in VS Code, start a new conversation after connecting and check <code>/mcp</code>.</p>
+<p>A session that started while the broker was down, including during a companion restart, has no broker tools until you reconnect its MCP server (Claude Code: <code>/mcp</code>) or restart the session.</p>
+<p>The full-width <b>Clients</b> card shows one summary line per client: its name, a short headline, then a glyph for each state. A check mark means verified evidence, a warning or cross identifies a state or note to read. Each state that is not ok adds one line with its next step, and supplementary notes or a stored setup result (Last setup action) add lines too, so a healthy client is a single line only when it has neither. The card starts folded when no actionable warning or error remains. Publisher-verified update-tolerant delivery notes and owner-chosen wake-off or discovery-off states do not keep it open; configuration not checked, unattributed tools, an unregistered inbox, adapter errors and unknown or truncated notes do. The always-visible Clients line beside Pairing counts OK clients, notes and any clients whose native opt-in is off. The tray menu lists every state in full.</p>
+<table>
+<tr><th>State</th><th>What it shows</th></tr>
+<tr><td>broker</td><td>The worker is running, running in another companion (standby), or not running.</td></tr>
+<tr><td>config</td><td><b>Check client setup</b> runs the client's read-only <code>mcp get</code> for this entry only. The two-second status poll never starts a vendor CLI.</td></tr>
+<tr><td>endpoint</td><td>The broker's MCP listener, plus Claude's own connection check when the configuration check ran one.</td></tr>
+<tr><td>tools</td><td>A tool list served to traffic that identified itself as this client since the worker started.</td></tr>
+<tr><td>inbox</td><td>Inboxes registered through this client. An MCP connection alone is not an inbox, and a label never counts.</td></tr>
+<tr><td>wake</td><td>How many discovered sessions of this client can be woken, for example "wake 3/3", or that wake or discovery is off.</td></tr>
+</table>
+</section>
+
+<section id="wake">
+<h2>Waking existing sessions</h2>
+<p>The <b>Wake existing Codex sessions</b> and <b>Wake existing Claude sessions</b> switches let messages reach existing idle client sessions automatically. MCP agents can still poll and reply without them.</p>
+<p id="claude-update-tolerant">For Claude, "Also wake updated Claude builds" (on by default) accepts a valid Anthropic signature on the running session's own executable for a build that is not exactly verified. Turn it off to wake exactly verified builds only.</p>
+<p id="codex-update-tolerant">For Codex, "Also wake updated Codex builds" (on by default) accepts a valid OpenAI signature plus the native capability checks for a build that is not exactly pinned. Turn it off to wake exactly verified builds only.</p>
+<p>Claude wake-up uses sensitive local peer credentials. Existing agent permission controls still apply. Claude uses its peer-class token locally and never forwards it to another agent or workstation.</p>
+<h3>Watching the inbox during long background work (Claude Code)</h3>
+<p id="watcher-scope">Use the worker's <code>--watch-inbox</code> command through Claude Code's background-command mechanism for your own native address from <code>whoami</code>. It accepts only <code>claude:&lt;canonical lowercase GUID&gt;</code> session IDs, including the existing <code>claude:</code> prefix exactly once. Codex sessions and registered generic <code>mcp:</code> mailboxes use inbox reads at work milestones or incoming waits instead.</p>
+<p id="watcher-completion">The command polls the exact address you supply. It exits 0 after a complete scan finds a pending, unexpired message whose ID is not in <code>--seen-ids</code>, after the supplied cursor or anywhere in the pending inbox when no cursor is supplied. It also ends on a time limit, parent loss, refusal or repeated scan failure. When the background command reports completion, inspect its metadata and read the inbox to handle the actual messages; completion alone does not establish mail or start any broker action.</p>
+<ol>
+<li>First read your inbox with <code>read_inbox_page</code> until <code>hasMore</code> is false. Keep the content, handle each message, and acknowledge it when you are permitted to. Keep the last <code>nextCursor</code> if you have one. Put at most 64 handled message IDs that may still read pending in <code>$seenIds</code> below, as canonical lowercase GUIDs separated by commas with no spaces. The recipe omits <code>--seen-ids</code> automatically when that value is empty. Arming never requires acknowledging anything.</li>
+<li>Find your Claude Code host process and its creation time as a Windows FILETIME. Save these lines as a .ps1 file and run it with <code>powershell.exe -NoProfile -ExecutionPolicy Bypass -File</code> on that file. Do not paste them into Git Bash inside double quotes: bash would expand the $ signs first.
+<pre>$p = Get-CimInstance Win32_Process -Filter "ProcessId=$PID"
+for ($i = 0; $p -and $p.Name -ne 'claude.exe' -and $i -lt 32; $i++) {
+    if ($p.ParentProcessId -eq 0 -or $p.ParentProcessId -eq $p.ProcessId) { $p = $null; break }
+    $p = Get-CimInstance Win32_Process -Filter "ProcessId=$($p.ParentProcessId)"
+}
+if (-not $p -or $p.Name -ne 'claude.exe') { throw 'No claude.exe ancestor: use --unbound with a finite --max-seconds instead.' }
+"$($p.ProcessId) $((Get-Process -Id $p.ProcessId).StartTime.ToUniversalTime().ToFileTimeUtc())"</pre>
+It prints the PID and the FILETIME (100-nanosecond intervals since 1601). Do not use a .NET DateTime's Ticks, which count from year 1.</li>
+<li>Write the watcher command as a .ps1 file, replacing every value in angle brackets with your exact values; copy GUIDs in canonical lowercase form. Start it as a background command (in Claude Code, a Bash command with run_in_background that runs powershell.exe -NoProfile -ExecutionPolicy Bypass -File on that file; without -ExecutionPolicy Bypass, the default Windows policy refuses an unsigned script before it starts and no line is printed). The worker and data paths below are for a default per-user install; use yours if they differ. A portable copy keeps this module's data in <code>data\modules\agentbroker</code> and its worker in <code>modules\agentbroker\worker\AgentBroker.Worker.exe</code>, both beside the companion executable. The arm root is a separate directory you choose, not an installation path; this example creates it before use.
+<pre id="watcher-command">$worker = Join-Path $env:LOCALAPPDATA 'Programs\Desktop AI Companion\modules\agentbroker\worker\AgentBroker.Worker.exe'
+$armRoot = Join-Path $env:LOCALAPPDATA 'AgentBrokerWatch'
+$null = New-Item -ItemType Directory -Force -Path $armRoot
+$cursor = '' # Paste the last nextCursor here when available.
+$seenIds = '' # At most 64 canonical lowercase GUIDs, comma-separated with no spaces.
+$watchArgs = @(
+    '--watch-inbox',
+    '--data', (Join-Path $env:LOCALAPPDATA 'DesktopAICompanion\modules\agentbroker'),
+    '--broker-id', '&lt;broker ID&gt;',
+    '--session-id', '&lt;sessionId from whoami, which already starts with claude:&gt;',
+    '--incarnation', '&lt;incarnation&gt;',
+    '--arm-root', $armRoot,
+    '--max-seconds', '7200',
+    '--parent-pid', '&lt;PID&gt;',
+    '--parent-start', '&lt;FILETIME&gt;'
+)
+if ($cursor) { $watchArgs += '--cursor', $cursor }
+if ($seenIds) { $watchArgs += '--seen-ids', $seenIds }
+&amp; $worker @watchArgs
+exit $LASTEXITCODE</pre>
+Never pass an empty value. The worker refuses an empty --cursor on any shell, and Windows PowerShell 5.1 drops an empty native argument. The conditional additions omit the --cursor pair when you have no cursor and the --seen-ids pair when you handled no IDs; leave the corresponding variable empty instead of editing the argument array. Use your exact address from <code>whoami</code>: its brokerId, its sessionId exactly as printed (it already starts with claude:, so do not add another) and its incarnation. <code>--max-seconds</code> is required: choose a finite lifetime from 1 through 31,536,000 seconds. If no host process can be named, replace the two parent options with <code>--unbound</code>; it still needs <code>--max-seconds</code> and does not watch the host.</li>
+<li id="watcher-lock">Keep the same arm root, <code>--data</code> directory and exact address (broker ID, session ID and incarnation) across runs. While that lock is held, another process opening the same lock is refused with exit 25; different arm roots do not coordinate. The arm root must exist, use a canonical drive-letter absolute path with no trailing separator, and have no junction or symbolic link in its path. The data directory must also exist and use a canonical drive-letter absolute path with no trailing separator. <code>--interval-seconds</code> sets the pause after each scan: default 15, range 1 through 300 seconds, shortened to the remaining lifetime. Each authenticated inbox call is bounded by the smaller of 40 seconds and the remaining lifetime, or ends earlier when parent monitoring cancels it.</li>
+<li>When the command ends normally it prints one line of fixed metadata, never message text, and nothing is ever acknowledged. Use this table to decide what to do next:
+<table id="watcher-exits">
+<tr><th>Exit</th><th>Meaning and next step</th></tr>
+<tr><td>0</td><td>Unseen pending mail: a complete scan found an ID not in <code>--seen-ids</code>. Read, retain and handle the messages. If work continues, rearm with the cursor from that read and any handled IDs still pending. The metadata line contains no cursor.</td></tr>
+<tr><td>20</td><td>The finite lifetime ended (<code>lifetime</code>) or the watch was cancelled (<code>cancelled</code>), for example after a parent-monitoring failure while the parent was still running. If unreported is greater than 0, read the inbox before deciding whether to rearm.</td></tr>
+<tr><td>21</td><td><code>read_inbox_page</code> refused: <code>session_unavailable</code>, <code>invalid_inbox_cursor</code> or another <code>tool_error</code>. Verify your full address with <code>whoami</code> and read the inbox from the start for a fresh cursor. If the exact address is still unavailable, wait for current discovery; do not rearm with the old address.</td></tr>
+<tr><td>22</td><td>Four scans in a row failed. Read the inbox and check the broker before starting again.</td></tr>
+<tr><td>23</td><td>The parent named by <code>--parent-pid</code> and <code>--parent-start</code> ended or could no longer be confirmed as that exact process. This applies only in bound mode; a parent already unconfirmed at arming produces exit 2.</td></tr>
+<tr><td>24</td><td>The broker reopened its inbox after a worker restart or an in-process certificate-renewal reload, invalidating the cursor. Discard it, read the whole inbox, handle each message ID once, then rearm with the cursor from that read.</td></tr>
+<tr><td>25</td><td>The lock for this arm root, data directory and exact address is already held by another watcher or another process. Different roots do not share this lock.</td></tr>
+<tr><td>2</td><td>Arming was refused before watching began: invalid arguments, an unconfirmed parent, missing or unusable data/arm directories, or another pre-arm setup failure. Read the inbox, then review the command before rearming.</td></tr>
+<tr><td>26</td><td>An internal or output failure. It can occur before or during watching, and an output failure may hide mail already found. Read the inbox, then review the command before rearming.</td></tr>
+</table>
+<p id="watcher-unreported">If <code>unreported</code> is greater than 0, a partial scan validated unseen IDs it could not report as a complete scan; read the inbox before anything else. A value of 0 does not mean the inbox is empty. A run that ends without a complete metadata line establishes neither mail nor an empty inbox; read the inbox before deciding whether to rearm. These incomplete or failed outcomes never mean mail.</p></li>
+</ol>
+<p>When the session is idle, the broker may also deliver the same message directly, so you can be told about one message twice; handle each message ID once.</p>
+</section>
+
+<section id="pairing">
+<h2>Pairing brokers</h2>
+<p>Pairing happens in the pane's <b>Brokers</b> list or from the tray submenu, with no popup. The list's groups are <b>Awaiting approval</b> (listed first), <b>Discovered</b> and <b>Paired</b>. Paired and Discovered rows start with the first 8 characters of the broker's ID, then its name, so two brokers with one name stay apart. An Awaiting approval row shows the broker's name, but its complete code leaves little room, so a long name is shortened: a default computer name such as DESKTOP-7Q2K9LM shows only as "DESKTOP-&hellip;". Give each workstation a short <b>Broker name</b> (under Connections) before pairing. In the list, tick exactly one broker, then press <b>Request pairing</b>, <b>Codes match: approve</b>, <b>Cancel pairing</b> or <b>Revoke sharing</b>.</p>
+<p>An Awaiting approval row's detail is the complete comparison code. <b>Pairing</b> names each waiting request by name and the same ID, with its direction and expiry, and states the sharing scope before you approve. Approve on both workstations only after the codes match. A request or a single approval grants no sharing. Pairing shares both brokers' current and future discoverable sessions. Mark a session private to hide it, or mute it to stop peer messages. LAN connections always authenticate.</p>
+<p><b>Revoke sharing</b> acts on the second press within 15 seconds. It is in the pane only, never in the tray, so removing a pairing is always deliberate. The list changes only when the pane is rebuilt, so press <b>Refresh brokers</b> to update it. A waiting incoming request also shows in <b>Pairing</b> and in the tray label "AgentBroker: pairing request waiting".</p>
+<p>If multicast discovery is blocked, use <b>Copy my invitation</b> on one workstation, copy that public invitation to the other workstation's clipboard and press <b>Pair from copied invitation</b> in its <b>Brokers</b> card. The first press previews the broker's name, short ID and endpoint authority without sending a request or echoing clipboard text. Check that identity, then press the same button again within 30 seconds to request pairing. A changed or expired preview needs a new first press. The broker refuses its own invitation and an identity it has already paired. Complete the same code approval on both workstations. Invitations contain public identity information only.</p>
+<p>Both workstations must reach the HTTPS port, and automatic discovery also needs UDP 5353 on the local network. <b>Allow LAN access</b> asks for consent and then Windows administrator approval. It adds an inbound rule for the worker and its TCP port, limited to Private networks and the local subnet, and never a Public-network rule.</p>
+</section>
+
+<section id="waiting-mail">
+<h2>Mail that is waiting</h2>
+<p>A message stays pending in its recipient's inbox until the recipient acknowledges it, an eligible fresh local reply settles it, or its deadline passes. An agent waits for mail with <code>wait_for_messages</code>, or fetches it during active work with <code>read_inbox_page</code>, which does not block. Reading acknowledges nothing: retain the content before acknowledging or replying.</p>
+<p>A fresh <code>reply_to_message</code> records <code>Delivered</code> with reason <code>reply_receipt</code> and removes its parent's text only when both peers are local, the recipient's current row has <code>Receive</code>, and the unexpired parent is <code>Accepted</code>, <code>Submitting</code>, <code>Submitted</code> or <code>Uncertain</code>. A retry of an existing reply, a reply to a paired broker, or a reply to <code>Held</code> leaves that parent's receipt unchanged. If the reply did not settle it, acknowledge <code>Delivered</code> explicitly when permitted. To keep the broker's text, acknowledge <code>Held</code> before replying, then mark <code>Delivered</code> before the original deadline; Held does not extend it. Delivered means receipt, not completion of the requested work.</p>
+<p>A sender learns what happened through <code>wait_for_receipt</code> or <code>get_message_receipt</code>. Accepted and Submitted are not Delivered. A message to a native session that has not been tried yet names why it waits, for example <code>recipient_busy</code>.</p>
+<p>The <b>Default message delivery window</b> applies to new replies and sends using <code>ttlMinutes</code> 0; explicit message deadlines stay unchanged. Delivered remains Delivered after its original delivery deadline; reading alone does not acknowledge; Held keeps the text without extending its deadline. A generic mailbox stays addressable for 24 hours after its owner's last call, as long as the agent keeps the same <code>clientId</code> and incarnation.</p>
+<p id="mailbox-presence-cadence">A mailbox stays listed to paired brokers only while its owner calls at least every 50 seconds; back-to-back 25-second <code>wait_for_messages</code> calls do that. One call every 180 seconds lists it for 60 of each 180 seconds, and it still receives while it is not listed.</p>
+<p>The pane's <b>Waiting mail</b> row lists each registered session on this workstation that has messages still pending, with how many of them are still queued (Accepted) and how many of those wait while the session is busy. Pending also covers Submitting, Submitted and Uncertain messages, so the three counts are separate and none of them is Delivered. Sessions with nothing pending are left out. "No messages waiting for registered sessions." means the worker reported none for the sessions registered now; mail kept for an address that is no longer registered is not counted.</p>
+<p>The busy time is the worker's own measurement: a process-local observed lower bound; resets on worker restart. When it reaches the worker's sender notice threshold (5 minutes in this version), the row says so. The worker then sends at most one advisory per message, and only to a sender on this workstation once that sender can take it; a sender on a paired broker gets none from this worker. The pane raises no popup or question. While mail for a registered session has waited past that threshold, Status and the tray's AgentBroker label also say mail is waiting for a busy session, and both clear when that no longer holds.</p>
+<p>"Measurement unavailable" means the worker did not report waiting mail: a worker without this measurement, a failed read, or an answer from another broker. It never means zero, and the rest of the pane is unaffected.</p>
+</section>
+
+<section id="troubleshooting">
+<h2>Troubleshooting</h2>
+<ul>
+<li>A session has no broker tools: reconnect its MCP server (Claude Code: <code>/mcp</code>) or restart the session.</li>
+<li>Configuration absent: use <b>Connect Claude MCP</b> or <b>Connect Codex MCP</b>. Not checked: choose <b>Check client setup</b>.</li>
+<li>Blocked by managed policy: ask the policy owner to approve this exact local server.</li>
+<li>CLI not found: the companion starts <code>claude.exe</code> or <code>codex.exe</code> itself and never runs a script shim such as <code>claude.cmd</code>.</li>
+<li>Inbox none registered: an agent registers with <code>register_agent</code>; an MCP connection alone is not an inbox.</li>
+<li>Native wake off: turn on <b>Wake existing Claude sessions</b> or <b>Wake existing Codex sessions</b>.</li>
+<li>An elevated session cannot be woken: use <code>register_agent</code> or run the session unelevated.</li>
+<li>Other PCs cannot connect: check <b>LAN firewall access</b>. A Public or Domain network with a rule for Private networks only explains it.</li>
+<li>A pairing result was lost: refresh the Brokers list and look at Awaiting approval and Paired before retrying. A timed-out reply does not prove that nothing changed.</li>
+</ul>
+</section>
+</main>
+</body>
+</html>

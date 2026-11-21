@@ -20,21 +20,36 @@ public sealed partial class AgentBrokerModule
         AgentBrokerModule? module = null;
         try
         {
-            AgentBrokerSupervisorChecks.RunAsync(Check).GetAwaiter().GetResult();
-            RunStatusChecks(Check, dispatcher);
-            RunMcpStatusChecks(Check, dispatcher);
-            RunLifetimeChecks(Check, dispatcher);
-            RunPairingChecks(Check, dispatcher);
-            RunFirewallChecks(Check, dispatcher);
-            RunOnboardingChecks(Check, dispatcher);
-            RunClientRouteChecks(Check);
+            // Group isolation (N-P4-wrong-declaration-outbound-offers-awaiting-01; 1105 DECISIONS 151/153, 1106 DECISIONS 121):
+            // a throw inside one check group is that group's own labelled failure and every later group still runs, so an
+            // early throw can no longer hide a later declared guard. The main fixture below is not a group: its catch is below.
+            RunGroup(Check, nameof(AgentBrokerSupervisorChecks), () => AgentBrokerSupervisorChecks.RunAsync(Check).GetAwaiter().GetResult());
+            RunGroup(Check, nameof(RunSupervisionRecoveryChecks), () => RunSupervisionRecoveryChecks(Check, dispatcher));
+            RunGroup(Check, nameof(RunMetadataChecks), () => RunMetadataChecks(Check));
+            RunGroup(Check, nameof(RunStatusChecks), () => RunStatusChecks(Check, dispatcher));
+            RunGroup(Check, nameof(RunMcpStatusChecks), () => RunMcpStatusChecks(Check, dispatcher));
+            RunGroup(Check, nameof(RunLifetimeChecks), () => RunLifetimeChecks(Check, dispatcher));
+            RunGroup(Check, nameof(RunPairingChecks), () => RunPairingChecks(Check, dispatcher));
+            RunGroup(Check, nameof(RunFirewallChecks), () => RunFirewallChecks(Check, dispatcher));
+            RunGroup(Check, nameof(RunOnboardingChecks), () => RunOnboardingChecks(Check, dispatcher));
+            RunGroup(Check, nameof(RunClientSetupChecks), () => RunClientSetupChecks(Check, dispatcher));
+            RunGroup(Check, nameof(RunClientRouteChecks), () => RunClientRouteChecks(Check));
+            RunGroup(Check, nameof(RunClientsSummaryChecks), () => RunClientsSummaryChecks(Check));
+            RunGroup(Check, nameof(RunDesktopChatChecks), () => RunDesktopChatChecks(Check, dispatcher));
+            RunGroup(Check, nameof(RunPeerClockChecks), () => RunPeerClockChecks(Check));
+            RunGroup(Check, nameof(RunPaneTextChecks), () => RunPaneTextChecks(Check, dispatcher));
+            RunGroup(Check, nameof(RunWaitingMailChecks), () => RunWaitingMailChecks(Check, dispatcher));
+            RunGroup(Check, nameof(RunAttachmentChecks), () => RunAttachmentChecks(Check, dispatcher));
             var host = new TestHost();
             string directory = Path.Combine(Path.GetTempPath(), "agentbroker-synthetic-" + Guid.NewGuid().ToString("N"));
             host.UseStorage(Id, new TestStorage(directory));
             var control = new TestControl();
             var supervisor = new TestSupervisor();
-            module = new(control, supervisor);
+            module = new(control, supervisor) { ClientSetup = new(new TestClientCommand()) };
             module.Init(host);
+            // Settle the disabled run before enabling another one, so its cleanup cannot
+            // race the later shutdown assertion and masquerade as that run's own stop.
+            Pump(() => module.pending.IsCompleted, dispatcher);
             OptionsPane pane = host.OptionsPanes.Single();
             var defaults = pane.Load();
             Check(defaults["enabled"] == "false" && defaults["codexPeerMessages"] == "false" &&
@@ -66,15 +81,13 @@ public sealed partial class AgentBrokerModule
             int tolerantFlag = start.ArgumentList.IndexOf("--codex-update-tolerant-delivery");
             Check(defaults["codexUpdateTolerantDelivery"] == "true" && tolerantFlag >= 0 && start.ArgumentList[tolerantFlag + 1] == "true",
                 "update-tolerant Codex delivery defaults on and reaches the default worker launch");
-            // N-agentbroker-client-reconnect-01 (1.6.0): the Client connection text says how a session started while the
-            // broker was down gets its tools back.
-            Check(defaults["clientSetup"].EndsWith(AgentBrokerModule.ReconnectAdvice, StringComparison.Ordinal) &&
-                AgentBrokerModule.ReconnectAdvice.Contains("(Claude Code: /mcp)", StringComparison.Ordinal) &&
-                AgentBrokerModule.ReconnectAdvice.Contains("restart the session", StringComparison.Ordinal),
-                "the Client connection text says a session started while the broker was down needs its MCP reconnected (/mcp) or a restart");
-            Check(defaults["nativePrivacy"].Contains("(on by default)", StringComparison.Ordinal) &&
-                !defaults["nativePrivacy"].Contains("off by default", StringComparison.Ordinal),
-                "the pane says updated Codex builds are woken by default, and how to turn that off");
+            string compiledGuide = System.Text.Encoding.UTF8.GetString(GuideBytes() ?? []);
+            Check(!defaults.ContainsKey("clientSetup") && !pane.Schema.Any(field => field.Id == "clientSetup") &&
+                compiledGuide.Contains("<p>A session that started while the broker was down, including during a companion restart, has no broker tools until you reconnect its MCP server (Claude Code: <code>/mcp</code>) or restart the session.</p>", StringComparison.Ordinal),
+                "the guide keeps MCP reconnect advice for a session started while the broker was down without a duplicate pane row");
+            Check(pane.Schema.SingleOrDefault(field => field.Id == "codexUpdateTolerantDelivery") is { Kind: SettingKind.Bool } codexSwitch &&
+                codexSwitch.Label.Contains("publisher verified", StringComparison.Ordinal),
+                "the pane keeps the publisher-verified Codex switch disclosure");
             var strictStart = new ProcessStartInfo("synthetic.exe");
             WorkerSupervisor.AddArguments(strictStart, launch with { Settings = launch.Settings with { CodexUpdateTolerantDelivery = false } });
             Check(!strictStart.ArgumentList.Contains("--codex-update-tolerant-delivery"),
@@ -94,9 +107,9 @@ public sealed partial class AgentBrokerModule
             Check(pane.Schema.SingleOrDefault(field => field.Id == "claudeUpdateTolerantDelivery") is { Kind: SettingKind.Bool, Group: "Coding agents",
                     EnabledWhen: "claudePeerCredentials=true" } claudeSwitch && claudeSwitch.Label.StartsWith("Also wake updated Claude builds", StringComparison.Ordinal),
                 "the pane offers \"Also wake updated Claude builds\" beside the Codex switch, enabled only while Claude wake is on");
-            Check(defaults["nativePrivacy"].Contains("For Claude, \"Also wake updated Claude builds\" (on by default)", StringComparison.Ordinal) &&
-                !defaults["nativePrivacy"].Contains("requires an exactly verified client version", StringComparison.Ordinal),
-                "the pane says updated Claude builds are woken by default, and how to turn that off");
+            Check(pane.Schema.SingleOrDefault(field => field.Id == "claudeUpdateTolerantDelivery") is { Kind: SettingKind.Bool } verifiedClaudeSwitch &&
+                verifiedClaudeSwitch.Label.Contains("publisher verified", StringComparison.Ordinal),
+                "the pane keeps the publisher-verified Claude switch disclosure");
 
             var peer = new PeerView(Guid.NewGuid(), "Peer&\nName" + new string('P', 70), "https://example.invalid:7433", new string('A', 64));
             var session = new SessionView("synthetic-session", Guid.NewGuid(), "Synthetic", "codex", "Unknown", false, false, false, false);
@@ -105,40 +118,65 @@ public sealed partial class AgentBrokerModule
             var view = new BrokerSnapshot(Guid.NewGuid(), "Synthetic", "http://127.0.0.1:7432", null,
                 [peer], [peer], [offer], [session], new Dictionary<string, string>());
             supervisor.View = view;
-            module.ApplyStatus(new(true, false, "attached_standby", view));
-            Check(host.Asks.Count == 1 && host.Asks[0].Question.Text.Length <= 240 &&
-                host.Asks[0].Question.Text.Contains("current and future", StringComparison.Ordinal) &&
-                host.Asks[0].Question.Text.Contains(comparisonCode, StringComparison.Ordinal), "pairing scope full 128-bit code and ABI bounds");
-            Check(host.Asks[0].Question.TimeoutChoiceId == "reject", "pairing safely rejects on timeout");
-            module.ApplyStatus(new(true, false, "attached_standby", view));
-            Check(host.Asks.Count == 1, "one question per pairing offer");
-            host.Asks[0].Completion.SetResult(new TrayAnswer { Outcome = TrayQuestionOutcome.Chosen, ChoiceId = "allow" });
-            Pump(() => control.Requests.Any(r => r.Operation == "pair-approve"), dispatcher);
-            Check(control.Requests.Single(r => r.Operation == "pair-approve").Id == offer.RequestId,
+            // PANE-POPUP (1.10.5): an offer raises no question however often status repeats. It is a passive signal, and the
+            // decision is an explicit press on one offer in the pane (or the tray) with the complete code beside it. This
+            // replaces the offer card's checks ("pairing scope full 128-bit code and ABI bounds", "one question per pairing
+            // offer"); the card's reject-on-timeout is CLOSED-VERIFIED: an unanswered offer lapses by worker expiry.
+            int requestsBeforeOffer = control.Requests.Count;
+            for (int poll = 0; poll < 3; poll++) module.ApplyStatus(new(true, false, "attached_standby", view));
+            Check(host.Asks.Count == 0 && control.Requests.Count == requestsBeforeOffer,
+                "NO_OFFER_POPUP: an incoming pairing offer raises no question and sends no control request by itself");
+            Check(pane.Load()["pairingStatus"].StartsWith("Pairing request waiting from ", StringComparison.Ordinal) &&
+                !pane.Load()["status"].Contains("Pairing request waiting", StringComparison.Ordinal) &&
+                host.TrayItems.Single().DynamicText?.Invoke() == TrayRootWaitingLabel,
+                "INBOUND_OFFER_SIGNAL: an incoming offer shows in Pairing and the tray without repeating Status");
+            ListCard brokers = pane.Lists!.Single();
+            var unpairedPeer = peer with { BrokerId = Guid.NewGuid(), CertificateSha256 = new string('C', 64) };
+            var unpairedOffer = offer with { RequestId = Guid.NewGuid(), Peer = unpairedPeer };
+            module.ApplyStatus(new(true, false, "attached_standby", view with { PairingOffers = [unpairedOffer] }));
+            // Total conditions (review P-CHK-3): a mutant that lists no Awaiting row fails these checks by label instead of
+            // throwing and skipping every check after it.
+            ListItem[] offerRows = brokers.LoadItems().Where(item => item.Group == AwaitingGroup).ToArray();
+            if (offerRows.Length == 1) brokers.SetChecked(offerRows[0].Id, true);
+            string approved = brokers.Actions.Single(action => action.Label == ApprovePairingLabel).InvokeAsync().GetAwaiter().GetResult();
+            Check(offerRows.Length == 1 && approved.Contains(comparisonCode, StringComparison.Ordinal) && approved.Contains("current and future", StringComparison.Ordinal) &&
+                approved.Contains("both workstations", StringComparison.Ordinal) && approved.Length <= 400,
+                "SCOPE_AT_DECISION: the approve result carries the full 128-bit code and the current-and-future sharing scope");
+            Check(control.Requests.Where(r => r.Operation == "pair-approve").ToArray() is [var approvedRequest] && approvedRequest.Id == unpairedOffer.RequestId,
                 "explicit allow approves exact offer");
-            int asked = host.Asks.Count;
+            foreach (var row in offerRows) brokers.SetChecked(row.Id, false);
+            int asked = host.Asks.Count, requestsBeforeOutbound = control.Requests.Count;
             var outbound = offer with { RequestId = Guid.NewGuid(), Outbound = true };
             module.ApplyStatus(new(true, false, "standby", view with { PairingOffers = [outbound] }));
-            Check(host.Asks.Count == asked + 1 && host.Asks.Last().Question.Text.Contains(comparisonCode, StringComparison.Ordinal) &&
+            Check(host.Asks.Count == asked && control.Requests.Count == requestsBeforeOutbound &&
+                brokers.LoadItems().Where(item => item.Group == AwaitingGroup).ToArray() is [{ } outboundRow] && outboundRow.Detail == comparisonCode &&
                 host.TrayItems.Single().BuildChildren().Any(t => t.Label.Contains(comparisonCode, StringComparison.Ordinal)),
-                "outgoing request requires separate final approval and displays the complete code");
-            host.Asks.Last().Completion.SetResult(new TrayAnswer { Outcome = TrayQuestionOutcome.Chosen, ChoiceId = "allow" });
-            Pump(() => control.Requests.Any(r => r.Operation == "pair-approve" && r.Id == outbound.RequestId), dispatcher);
-            asked = host.Asks.Count;
+                "PAIRING_FINISHES_IN_PANE: an outgoing request waits under Awaiting approval with the complete code for a separate final approval");
             module.ApplyStatus(new(true, false, "standby", view with { PairingOffers = [outbound with { LocalApproved = true }] }));
             Check(host.Asks.Count == asked && host.TrayItems.Single().BuildChildren().Single(t =>
                 t.Label.Contains(comparisonCode, StringComparison.Ordinal)).BuildChildren().First().Label.StartsWith("Waiting", StringComparison.Ordinal),
                 "local confirmation waits for authenticated remote approval without another consent prompt");
+            module.ApplyStatus(new(true, false, "standby", view with { PairingOffers = [] }));
+            var stoppedSignal = new AgentBrokerModule(new PaneControl(), new StatusSupervisor(view))
+            {
+                settings = launch.Settings with { Enabled = true }, snapshot = view with { PairingOffers = [offer] }
+            };
+            bool signalBeforeShutdown = stoppedSignal.TrayRootLabel() == TrayRootWaitingLabel;
+            stoppedSignal.Shutdown();
+            // Keep a late synthetic snapshot to exercise the tray's own shutdown guard, independently of ApplyStatus.
+            stoppedSignal.snapshot = view with { PairingOffers = [offer] };
+            Check(module.TrayRootLabel() == "AgentBroker" &&
+                !pane.Load()["status"].Contains("Pairing request waiting", StringComparison.Ordinal) &&
+                signalBeforeShutdown && stoppedSignal.TrayRootLabel() == "AgentBroker",
+                "INBOUND_OFFER_SIGNAL: the signal clears once no incoming offer waits");
 
+            // The discovery card is gone (its checks move to NO_DISCOVERY_POPUP in AgentBrokerPaneBrokerChecks.cs).
             var discovered = peer with { BrokerId = Guid.NewGuid() };
-            module.ApplyStatus(new(true, false, "standby", view with { PairingOffers = [], Discovered = [discovered] }));
-            Check(host.Asks.Count == asked + 1 && host.Asks.Last().Question.Text.Length <= 240 &&
-                host.Asks.Last().Question.Text.Contains("current and future", StringComparison.Ordinal),
-                "new broker discovery prompts explicit authorization within card bounds");
             int beforeDiscovery = control.Requests.Count;
-            host.Asks.Last().Completion.SetResult(new TrayAnswer { Outcome = TrayQuestionOutcome.TimedOut, ChoiceId = "later" });
-            Pump(() => !module.discoveryPromptOpen, dispatcher);
-            Check(control.Requests.Count == beforeDiscovery, "unanswered discovery never creates a pairing request");
+            module.ApplyStatus(new(true, false, "standby", view with { PairingOffers = [], Discovered = [discovered] }));
+            Check(host.Asks.Count == asked && control.Requests.Count == beforeDiscovery &&
+                brokers.LoadItems().Any(item => item.Group == DiscoveredGroup && item.Id.Contains(discovered.BrokerId.ToString("N"), StringComparison.Ordinal)),
+                "a newly discovered broker is listed under Discovered without a question or a pairing request");
             module.ApplyStatus(new(true, false, "standby", view with { PairingOffers = [] }));
 
             // N-agentbroker-notice-loss-signal-01 (1.5.0): dropped notices reach Status as counts by reason, naming nothing.
@@ -159,7 +197,8 @@ public sealed partial class AgentBrokerModule
             Check(!pane.Load()["status"].Contains("delivery notice", StringComparison.Ordinal),
                 "WITNESS: a snapshot with nothing dropped says nothing about notices");
 
-            Check(pane.Load()["manualPeer"] == "", "broker invitation is not persisted");
+            Check(!pane.Load().ContainsKey("manualPeer") && !pane.Schema.Any(field => field.Id == "manualPeer"),
+                "the copied broker invitation has no persisted field or text box in the pane");
             Check(module.PairInvitationAsync(new Dictionary<string, string> { ["manualPeer"] = "{" }).GetAwaiter().GetResult()
                 .Contains("invalid", StringComparison.Ordinal), "malformed manual invitation is rejected before networking");
             var manualPeer = peer with { BrokerId = Guid.NewGuid() };
@@ -176,8 +215,9 @@ public sealed partial class AgentBrokerModule
             var setup = new AgentClientSetup(setupCommand);
             string setupResult = setup.ConfigureAsync("codex", syntheticWorker, directory, CancellationToken.None).GetAwaiter().GetResult();
             Check(setupResult.Contains("added", StringComparison.Ordinal) && setupCommand.Calls.Count == 2 &&
-                setupCommand.Calls[1].Arguments.Contains("--mcp-stdio") && setupCommand.Calls[1].Arguments.Contains(directory) &&
-                !setupCommand.Calls[1].Arguments.Any(a => a.Contains("token", StringComparison.OrdinalIgnoreCase)),
+                setupCommand.Calls[1].Executable == "codex" && setupCommand.Calls[1].Arguments.SequenceEqual(
+                    new[] { "mcp", "add", AgentClientSetup.ServerName, "--", syntheticWorker,
+                        "--mcp-stdio", "--data", directory }),
                 "client setup adds typed stdio arguments without persisting connection tokens");
             setupCommand.Existing = "{}"; setupCommand.Calls.Clear();
             setup.ConfigureAsync("codex", syntheticWorker, directory, CancellationToken.None).GetAwaiter().GetResult();
@@ -271,25 +311,25 @@ public sealed partial class AgentBrokerModule
             }
             module.ClientSetup = setup;
             control.Connection = new("http://localhost:7432/mcp", null); setupCommand.Calls.Clear();
-            setupResult = module.ConfigureClientAsync("claude").GetAwaiter().GetResult();
+            setupResult = module.ConfigureClientAsync("claude").GetAwaiter().GetResult().Text;
             Check(control.Requests.Last().Operation == "connection" && setupCommand.Calls.Count == 0 &&
                 setupResult.Contains("Refresh status", StringComparison.Ordinal),
                 "module client action gets the live user-only control connection and rejects its invalid URL before CLI work");
             control.Success = false; control.Connection = new(httpEndpoint, null); setupCommand.Calls.Clear();
-            setupResult = module.ConfigureClientAsync("claude").GetAwaiter().GetResult();
+            setupResult = module.ConfigureClientAsync("claude").GetAwaiter().GetResult().Text;
             Check(setupCommand.Calls.Count == 0 && setupResult.Contains("Refresh status", StringComparison.Ordinal),
                 "refused connection-info response performs no client command or transport fallback");
             control.Success = true; control.Connection = null; setupCommand.Calls.Clear();
-            setupResult = module.ConfigureClientAsync("claude").GetAwaiter().GetResult();
+            setupResult = module.ConfigureClientAsync("claude").GetAwaiter().GetResult().Text;
             Check(setupCommand.Calls.Count == 0 && setupResult.Contains("Refresh status", StringComparison.Ordinal),
                 "successful response without connection-info performs no client command");
             control.FailTransport = true; setupCommand.Calls.Clear();
-            setupResult = module.ConfigureClientAsync("claude").GetAwaiter().GetResult();
+            setupResult = module.ConfigureClientAsync("claude").GetAwaiter().GetResult().Text;
             Check(setupCommand.Calls.Count == 0 && setupResult.Contains("Refresh status", StringComparison.Ordinal) &&
                 !setupResult.Contains(privateDiagnostic, StringComparison.Ordinal),
                 "failed connection-info transport returns fixed refresh guidance without client work or private errors");
             control.FailTransport = false; control.Connection = new(httpEndpoint, privateDiagnostic); setupCommand.Calls.Clear();
-            setupResult = module.ConfigureClientAsync("claude").GetAwaiter().GetResult();
+            setupResult = module.ConfigureClientAsync("claude").GetAwaiter().GetResult().Text;
             Check(setupResult.Contains("added", StringComparison.Ordinal) && setupCommand.Calls.Count == 2 &&
                 setupCommand.Calls[1].Arguments.Contains("stdio") && setupCommand.Calls[1].Arguments.Contains("--mcp-stdio") &&
                 !setupCommand.Calls[1].Arguments.Contains(httpEndpoint) && !setupCommand.Calls[1].Arguments.Contains(privateDiagnostic),
@@ -315,15 +355,24 @@ public sealed partial class AgentBrokerModule
             Check(control.Requests.Any(r => r.Operation == "session-private" && r.SessionId == session.SessionId && r.Value) &&
                 control.Requests.Any(r => r.Operation == "session-muted" && r.SessionId == session.SessionId && r.Value),
                 "private and mute exact session controls");
-            tray.Single(t => t.Label == "Paired brokers").BuildChildren().Single().BuildChildren().Single().Click();
-            Check(control.Requests.Last().Operation == "peer-revoke" && control.Requests.Last().Id == peer.BrokerId,
-                "revoke exact peer");
+            // No revoke in the tray (owner decision 2026-11-12, D10): revoking is the pane's deliberate two-press action. The
+            // paired summary line proves this tray was built with a paired broker, so a revoke item would be on the menu. Only
+            // actionable items count: a status line may quote a pane result such as "Sharing revoked for ...".
+            static IEnumerable<TrayItem> TrayTree(IEnumerable<TrayItem> items) => items.SelectMany(item =>
+                new[] { item }.Concat(item.BuildChildren is null ? Enumerable.Empty<TrayItem>() : TrayTree(item.BuildChildren())));
+            TrayItem[] trayTree = TrayTree(tray).ToArray();
+            Check(trayTree.Any(t => (t.Label ?? "").StartsWith("Paired with ", StringComparison.Ordinal)) &&
+                !trayTree.Any(t => (t.Click is not null || t.BuildChildren is not null) &&
+                    ((t.Label ?? "").Contains("revoke", StringComparison.OrdinalIgnoreCase) || t.Label == "Paired brokers")),
+                "TRAY_NO_REVOKE: the tray offers no revoke; removing a pairing is the pane's deliberate two-press action");
             var failedOffer = offer with { RequestId = Guid.NewGuid(), Peer = peer with { BrokerId = Guid.NewGuid() } };
             int requestsBeforeFault = control.Requests.Count;
             host.ThrowNextAsk = true;
             module.ApplyStatus(new(true, false, "standby", view with { PairingOffers = [failedOffer] }));
-            Check(control.Requests.Count == requestsBeforeFault && module.status.Contains("confirmation unavailable", StringComparison.Ordinal),
-                "throwing question service reports failure and never approves or rejects an offer implicitly");
+            // PANE-POPUP: an offer never reaches the question service now, so a failing one cannot approve or reject it.
+            Check(control.Requests.Count == requestsBeforeFault && host.ThrowNextAsk,
+                "an offer never calls the question service, so a failing one cannot approve or reject an offer implicitly");
+            host.ThrowNextAsk = false;
             var manualConfirmation = host.TrayItems.Single().BuildChildren().Single(t =>
                 t.Label.Contains(comparisonCode, StringComparison.Ordinal)).BuildChildren().First();
             manualConfirmation.Click();
@@ -331,16 +380,21 @@ public sealed partial class AgentBrokerModule
                 "failed confirmation keeps the full comparison code and explicit tray retry operable");
             var pendingOffer = offer with { RequestId = Guid.NewGuid() };
             module.ApplyStatus(new(true, false, "standby", view with { PairingOffers = [pendingOffer] }));
+            int stopsBeforeShutdown = supervisor.Stops;
             module.Shutdown();
             Pump(() => module.pending.IsCompleted, dispatcher);
-            Check(host.Asks.Last().Withdrawn && supervisor.Stops > 0, "shutdown withdraws questions and cleans owned worker off thread");
+            Check(host.Asks.Count == asked && supervisor.Stops > stopsBeforeShutdown,
+                "shutdown leaves no question behind and cleans owned worker off thread");
+            // CLOSED-VERIFIED in the lane P freeze record (review P-CHK-10): no question can be pending any more, and a late
+            // tray or pane press after shutdown is guarded in depth (the shutDown flag, the disposed run token, the cleared
+            // snapshot and ticks), so a single-site mutant removing the flag SURVIVED a late-press check. Kept as it was.
             int requests = control.Requests.Count;
             dispatcher.Drain();
             Check(control.Requests.Count == requests, "shutdown never approves late answers");
 
             var missingHost = new TestHost();
             var missingSupervisor = new TestSupervisor();
-            var missing = new AgentBrokerModule(new TestControl(), missingSupervisor);
+            var missing = new AgentBrokerModule(new TestControl(), missingSupervisor) { ClientSetup = new(new TestClientCommand()) };
             missingHost.SettingsFor(Id).Set("enabled", "true");
             missing.Init(missingHost);
             Pump(() => missing.pending.IsCompleted, dispatcher);
@@ -364,6 +418,20 @@ public sealed partial class AgentBrokerModule
         { dispatcher.Drain(); Thread.Sleep(5); }
         dispatcher.Drain();
         if (!complete()) throw new TimeoutException("Synthetic lifecycle did not complete.");
+    }
+
+    // Group isolation (lane G round 2, case 1664): runs one check group and records a throw as ONE failed check labelled
+    // SELFTEST_GROUP_ABORTED, a FAIL line the mutation harness grades like any other label (never an EXC line), so the groups
+    // after it still run. The message is one line and at most 200 characters, so the FAIL line stays whole.
+    private static void RunGroup(Action<bool, string> check, string name, Action run)
+    {
+        try { run(); }
+        catch (Exception ex)
+        {
+            string message = ex.Message.ReplaceLineEndings(" ");
+            check(false, "SELFTEST_GROUP_ABORTED: " + name + " threw " + ex.GetType().Name + ": " +
+                (message.Length > 200 ? message[..200] : message));
+        }
     }
     private sealed class TestDispatcher : SynchronizationContext
     {
@@ -408,8 +476,14 @@ public sealed partial class AgentBrokerModule
         internal ConcurrentQueue<WorkerLaunch> Launches { get; } = new();
         internal BrokerSnapshot? View;
         internal int Stops;
+        internal int RefreshFaults;
         public Task<WorkerStatus> RefreshAsync(WorkerLaunch launch, CancellationToken token)
-        { token.ThrowIfCancellationRequested(); Launches.Enqueue(launch); return Task.FromResult(new WorkerStatus(true, false, "standby", View)); }
+        {
+            token.ThrowIfCancellationRequested();
+            if (Interlocked.Exchange(ref RefreshFaults, 0) != 0) throw new IOException("Synthetic supervisor observation failed.");
+            Launches.Enqueue(launch);
+            return Task.FromResult(new WorkerStatus(true, false, "standby", View));
+        }
         public Task StopOwnedAsync(string directory, CancellationToken token)
         { Interlocked.Increment(ref Stops); return Task.CompletedTask; }
     }

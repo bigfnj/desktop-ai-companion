@@ -62,7 +62,7 @@ internal static class SenderNoticeChecks
                 !notice.Message.Text.Contains("undelivered", StringComparison.Ordinal),
                 "NOTICE_TEXT: the notice names the outcome, deadline and recipient without claiming the message went unseen");
             Check(store.BeginDelivery()?.Message.Id == noticeId, "NOTICE_DELIVERABLE: a native sender is woken with its notice");
-            store.CompleteDelivery(noticeId, MessageStatus.Delivered, "native_submitted");
+            store.CompleteDelivery(store.FindReceipt(noticeId)!, MessageStatus.Delivered, "native_submitted");
             store.Register(sender with { LeaseUntil = clock.GetUtcNow().AddMinutes(2) });
             clock.Advance(TimeSpan.FromSeconds(5));
             store.BeginDelivery();
@@ -99,7 +99,7 @@ internal static class SenderNoticeChecks
             clock.Advance(TimeSpan.FromMinutes(6));
             store.Register(Renewed(sender, clock)); store.Register(Renewed(mailbox, clock));
             Check(store.Accept(retried, store.BrokerId).Status == MessageStatus.Expired, "The Accept retry is the first call to see the expiry.");
-            Check(store.ReleaseUnsubmittedClaim(claimed.Id).Status == MessageStatus.Expired, "A released claim past its deadline expires.");
+            Check(store.ReleaseUnsubmittedClaim(store.FindReceipt(claimed.Id)!).Status == MessageStatus.Expired, "A released claim past its deadline expires.");
             var notices = Notices(store, sender.Address);
             Check(notices.Count(n => About(n, held)) == 1, "NOTICE_HELD: a Held message that expires yields one notice");
             Check(notices.Count(n => About(n, claimed)) == 1 && notices.Single(n => About(n, claimed)).Message.Text.Contains("(1 delivery attempts)", StringComparison.Ordinal),
@@ -552,6 +552,21 @@ internal static class SenderNoticeChecks
                 notices.Single(n => About(n, refusedAway)).Message.Text.Contains("was refused by its recipient", StringComparison.Ordinal),
                 "NOTICE_REBUILD_REFUSED: a Refused tombstone owed before the restart is rebuilt and admitted");
             Check(notices.Count == 3, "NOTICE_REBUILD_ONCE: the rebuild adds nothing beyond the three owed notices");
+        }
+        // Observe the consequence at the reserved notice sender, where a chained notice would actually be owed.
+        clock = new Clock();
+        using (var store = new BrokerStore(Path.Combine(root, "sender-notice-no-chain-obligations"), clock: clock))
+        {
+            var sender = Mailbox(store, clock, "no-chain-sender"); var recipient = Mailbox(store, clock, "no-chain-recipient");
+            store.Register(sender); store.Register(recipient);
+            var message = Message(sender, recipient, clock, TimeSpan.FromMinutes(1));
+            store.Accept(message, store.BrokerId);
+            store.RecordRecipientReceipt(message.Id, recipient.Address, store.BrokerId, MessageStatus.Refused);
+            Check(Notices(store, sender.Address).Count == 1, "NOTICE_NO_CHAIN_WITNESS: one actual broker notice exists before it expires");
+            clock.Advance(TimeSpan.FromMinutes(1441)); store.BeginDelivery();
+            clock.Advance(TimeSpan.FromMinutes(1441)); store.BeginDelivery();
+            Check(store.DroppedNotices().Total == 0,
+                "NOTICE_NO_CHAIN_OBLIGATIONS: expiry and retention of a notice never create an undeliverable obligation to the reserved sender");
         }
         return passed;
     }

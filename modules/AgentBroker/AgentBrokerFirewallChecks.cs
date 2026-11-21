@@ -38,7 +38,7 @@ public sealed partial class AgentBrokerModule
             host.SettingsFor(Id).Set("lanPort", "17433");
             var view = new BrokerSnapshot(Guid.NewGuid(), "Synthetic", "http://127.0.0.1:7432", "https://192.0.2.10:17433",
                 [], [], [], [], new Dictionary<string, string>());
-            var module = new AgentBrokerModule(new TestControl(), new StatusSupervisor(view));
+            var module = new AgentBrokerModule(new TestControl(), new StatusSupervisor(view)) { ClientSetup = new(new TestClientCommand()) };
             var launcher = new TestFirewallLauncher(); module.FirewallLauncher = launcher;
             module.Init(host);
             if (enabled) Pump(() => module.snapshot is not null, dispatcher);

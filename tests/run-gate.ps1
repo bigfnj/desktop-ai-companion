@@ -114,15 +114,18 @@ try {
     $coreTestsExe = Join-Path $repoRoot 'tests\DesktopAICompanion.CoreTests\bin\Release\DesktopAICompanion.CoreTests.exe'
     if ($coreTestsBuilt -and (Test-Path -LiteralPath $coreTestsExe)) {
         try {
-            & $coreTestsExe
+            $coreOutput = @(& $coreTestsExe)
             if ($LASTEXITCODE -ne 0) { $failures.Add("CoreTests (exit $LASTEXITCODE)") }
+            foreach ($line in $coreOutput) { Write-Host $line }
+            . (Join-Path $PSScriptRoot 'HarnessOutput.ps1')
+            $null = Assert-CoreRegressionSummary $coreOutput
         }
         catch { $failures.Add('CoreTests: ' + $_.Exception.Message) }
     }
     elseif ($coreTestsBuilt) { $failures.Add('CoreTests binary missing after a successful build') }
 
     Write-Host '=== AgentBroker deterministic harnesses' -ForegroundColor Cyan
-    try { & (Join-Path $repoRoot 'tests\Test-AgentBroker.ps1') -Configuration Release }
+    try { & (Join-Path $repoRoot 'tests\Test-AgentBroker.ps1') -Configuration Release -CheckPayload }
     catch { $failures.Add('Test-AgentBroker.ps1: ' + $_.Exception.Message) }
 
     # The two harnesses this gate never RUNS are COMPILED here (RA-340). tests\module-window-soak.ps1 and the
@@ -252,6 +255,12 @@ try {
     # then pointed at the wrong file, and a stale published payload behind it went unreported in that run.
     try { & (Join-Path $repoRoot 'tests\Test-ModuleSourceDiscovery.ps1') }
     catch { $failures.Add('Test-ModuleSourceDiscovery.ps1: ' + $_.Exception.Message) }
+    # The freshness rules' synthetic controls, the same try/catch form: they throw on the first failure. Once
+    # every LEGACY_PRESERVED zip is republished they are the only control left on the SourceLink reader.
+    try { & (Join-Path $repoRoot 'tests\Test-ModulePublishFreshnessRules.ps1') }
+    catch { $failures.Add('Test-ModulePublishFreshnessRules.ps1: ' + $_.Exception.Message) }
+    try { & (Join-Path $repoRoot 'tests\Test-NuGetPackagePrivacyRules.ps1') }
+    catch { $failures.Add('Test-NuGetPackagePrivacyRules.ps1: ' + $_.Exception.Message) }
     try { & (Join-Path $repoRoot 'packaging\Test-ModulePublishFreshness.ps1') }
     catch { $failures.Add('Test-ModulePublishFreshness.ps1: ' + $_.Exception.Message) }
 

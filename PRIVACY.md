@@ -195,6 +195,29 @@ DesktopAICompanion sends data only when a network feature is used:
   Treat the destination as third-party content and review it before selecting it.
 - The Help window itself is fully local. Selecting one of its online-documentation links asks the
   default browser to open that project-owned HTTPS repository page.
+- **Since AgentBroker 1.10.5 an agent can send files to a session on this broker or on a paired broker, and only if you turned that on.**
+  **Allow file attachments with paired brokers** in the AgentBroker pane is off by default. With it on, a coding
+  agent on this computer can call `send_with_attachments` to send up to 4 files (8 MiB each, 16 MiB per message)
+  that it names, to a session on this broker or on a broker you paired. Files for a paired broker go only to that broker,
+  over the same encrypted, certificate-pinned channel as broker messages, which reaches a paired broker only at a
+  private-network or loopback IPv4 address. Copies wait in `attachments\outbox` in the module's data
+  folder. Files arrive here only from a paired broker you allowed on the Brokers card; each is checked against the
+  size and SHA-256 its sender declared, kept in `attachments\inbox`, and marked as downloaded from the internet.
+  AgentBroker never runs or scans these files; it reads them only to check them, serve them, or copy
+  one that an agent forwards. While the broker runs, a check about once a minute deletes sent copies and received
+  files once their message's record ends or their folder is more than 48 hours old by the computer's clock, whichever
+  is first, and a sent copy once its message is marked Refused or Expired. Each file is deleted on its own, so a file
+  the check cannot delete then, such as one another program has locked, stays until a later check can delete it.
+  If the `attachments` folder itself is a junction or other reparse point, the check deletes nothing in it until it
+  is a plain folder again. While the broker is stopped nothing is deleted until it starts again.
+  Turning the switch on or off
+  takes effect in the broker when it next starts; saving stops a broker the module started, but not one it found
+  already running. The switch does not change which brokers you allowed, so turning it back on restores them, unless
+  one was paired again meanwhile or the saved allow list is gone or unreadable. While the pane has the running broker's
+  status you can stop an allowed broker listed under Paired on the Brokers card, also while the switch is off; if a
+  stop cannot be saved, the broker retries the save about once a minute, and a restart before that succeeds may undo
+  the stop. Revoking a pairing removes its permission. Nothing goes to any other
+  computer or service.
 
 Remote AI endpoints must use HTTPS. Plain HTTP is accepted only for the local loopback computer.
 Redirects are not followed. Sending screen context to a non-loopback provider requires the explicit
@@ -340,6 +363,25 @@ drive-relative, and current-drive-rooted overrides are rejected or ignored. Data
 - since Reminder 1.3.0, once you sign in on its Zoom card, the Zoom sign-in: Zoom's refresh token and your Zoom
   app's client ID, DPAPI-encrypted for your Windows user, in the Reminder module's folder as `zoom-signin.dpapi`.
   **Sign out of Zoom** deletes it.
+- since AgentBroker 1.10.6, a small report-only events file, `broker-events.jsonl`, in the broker's store folder
+  beside its message state. The broker writes it and never reads it. Each line holds an event name and the time
+  it was written, and sometimes a count of earlier lines that could not be written or were refused. An
+  `advisory_withheld` line records an uncertainty advisory held back because the message was settled first: the
+  message ID, the recipient's address, statuses, reasons and times. A `native_submission_stage` line records each
+  settled attempt to deliver a message into a Claude Code or Codex session on this computer: the message ID, the
+  recipient's address, two attempt counts, the outcome, its reason code, a stage name and how long the attempt
+  took. A `discovery_pass` line records what a discovery pass did with each session it considered (renewed,
+  absent, stale, missing, invalid or skipped), and a `session_forgotten` line the exact address of a discovered
+  session whose lease ran out without renewal. New local persistence in 1.10.6: a Codex `discovery_pass` line
+  holds the Codex conversation IDs the desktop lists, including conversations the broker never listed,
+  at most 256 changed rows plus at most 256 IDs an earlier pass listed and this one no longer does (dropped),
+  written in full once per worker start and then only on change. Every other session ID and address in the file
+  is one that message receipts or the session list have held. No line holds message text, a label or title, an
+  owner client ID, a process ID or a path. Each file is capped at 1 MiB and rotated once to
+  `broker-events.1.jsonl`, and no single line may exceed 64 KiB, so the two take at most about 2 MiB. A chat that
+  stays busy for hours fills it faster, so older lines are replaced sooner; the size cap is unchanged. Writing it
+  is best-effort, so it can miss events but never invents one. It never leaves this computer and goes when the
+  broker's data folder is removed.
 
 Questions by the clock (app 1.6.0) keep nothing on disk: the tray's "No answer" list is held in memory
 for the session and is gone when the app closes. The question card is excluded from screen capture, so

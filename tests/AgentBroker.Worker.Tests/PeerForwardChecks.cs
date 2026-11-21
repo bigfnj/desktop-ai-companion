@@ -10,7 +10,8 @@ internal static class PeerForwardChecks
 {
     internal static async Task RunAsync(Action<bool, string> check)
     {
-        string root = Path.Combine(AppContext.BaseDirectory, "scratch", "peer-forward-" + Guid.NewGuid().ToString("N"));
+        using var scratchOwner = OwnedScratch.Create("peer-forward");
+        string root = scratchOwner.Root;
         using var store = new BrokerStore(Path.Combine(root, "store"));
         Guid peerId = Guid.NewGuid();
         store.AuthorizePeer(new(peerId, "Synthetic paired broker", "https://192.0.2.11/", new string('B', 64), DateTimeOffset.UtcNow));

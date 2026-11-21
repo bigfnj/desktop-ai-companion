@@ -17,6 +17,7 @@ internal static class FirewallSetupChecks
             ("scope", () => Scope(check)), ("arguments", () => Arguments(check)),
             ("conflict", () => Conflict(check)), ("readback", () => Readback(check)),
             ("policy", () => Policy(check)), ("blocks", () => Blocks(check)),
+            ("native-blocks", () => NativeBlocks(check)),
         };
         if (only is not null && !cases.Any(item => item.Name == only)) throw new ArgumentException("Unknown firewall test case.");
         foreach (var item in cases) if (only is null || only == item.Name) item.Run();
@@ -158,6 +159,29 @@ internal static class FirewallSetupChecks
         backend = new FakeBackend { AddBlockAfterAdd = true };
         check(FirewallSetup.Apply(WorkerPath, 7433, backend) == FirewallSetupExitCode.ExistingBlock,
             "firewall block: a racing block is detected before success is reported");
+    }
+
+    private static void NativeBlocks(Action<bool, string> check)
+    {
+        var desired = FirewallSetup.CreateRule(WorkerPath, 7433);
+        dynamic native = new System.Dynamic.ExpandoObject();
+        native.ApplicationName = ""; native.Protocol = 6; native.LocalPorts = "7433";
+        native.Enabled = true; native.Action = 0; native.Direction = 1; native.Profiles = 2;
+        check(FirewallSetup.CouldBlock(WindowsFirewallPolicyBackend.ReadPotentialBlock((object)native, desired), desired),
+            "FirewallSetupChecks.cs: FIREWALL_ALL_PROGRAMS: an enabled Private TCP block for every program overlaps this worker");
+        var fields = (IDictionary<string, object>)native;
+        foreach (var variant in new (string Key, object Value, string Label)[]
+        {
+            ("Enabled", false, "DISABLED"), ("Action", 1, "ALLOW"), ("Direction", 2, "OUTBOUND"),
+            ("Profiles", 4, "PUBLIC"), ("Protocol", 17, "UDP")
+        })
+        {
+            object original = fields[variant.Key];
+            fields[variant.Key] = variant.Value;
+            check(!FirewallSetup.CouldBlock(WindowsFirewallPolicyBackend.ReadPotentialBlock((object)native, desired), desired),
+                "FirewallSetupChecks.cs: FIREWALL_NATIVE_" + variant.Label + ": production COM projection retains the actual rule field");
+            fields[variant.Key] = original;
+        }
     }
 
     private sealed class FakeBackend : IFirewallPolicyBackend

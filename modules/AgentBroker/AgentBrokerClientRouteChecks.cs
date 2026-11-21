@@ -67,6 +67,21 @@ public sealed partial class AgentBrokerModule
             Inspect("claude", Claude("http://LOCALHOST:7432/mcp")).State == ClientConfiguration.DifferentEntry &&
             Inspect("codex", Codex("http://localhost:7999/mcp")).State == ClientConfiguration.DifferentEntry,
             "client route: localhost for another port, or not in its canonical spelling, is a different entry");
+        foreach (string url in new[] { literal, localhost })
+        {
+            command.Get = new(0, Claude(url), "");
+            string existing = Configure();
+            check(existing.Contains("already configured", StringComparison.Ordinal) && command.Calls.Count == 1,
+                "CLAUDE_EXISTING_HTTP: connecting the exact existing Claude endpoint reports configured without adding it again");
+        }
+        command.Get = new(0, AgentClientSetup.ServerName + ":\n  Scope: " + user +
+            "\n  Status: √ Connected\n  Type: stdio\n  Command: " + worker + "\n  Args: --mcp-stdio --data " + data + "\n", "");
+        string existingStdio = setup.ConfigureAsync("claude", worker, data, CancellationToken.None).GetAwaiter().GetResult();
+        check(existingStdio.Contains("already configured", StringComparison.Ordinal),
+            "CLAUDE_EXISTING_STDIO: connecting the exact existing Claude stdio entry reports configured");
+        command.Get = new(0, Claude("http://localhost:7999/mcp"), "");
+        check(Configure().Contains("Review it", StringComparison.Ordinal) && command.Calls.Count == 1,
+            "CLAUDE_DIFFERENT_EXISTING: another endpoint stays a review request and is never overwritten");
         command.Get = null;
     }
 
@@ -99,8 +114,23 @@ public sealed partial class AgentBrokerModule
             check(AgentCliLocator.Locate("claude", new AgentCliEnvironment(AppData: root)) is { } fromAppData &&
                 string.Equals(fromAppData.Executable, claudeExe, StringComparison.OrdinalIgnoreCase),
                 "cli locator: with nothing on PATH, npm's default prefix under %APPDATA% is still found");
-            string driveRelative = npm.Length > 2 && npm[1] == ':' ? npm[2..] : npm;
-            check(AgentCliLocator.Locate("claude", new AgentCliEnvironment(PathValue: driveRelative)) is null,
+            // A PATH entry that is not drive-qualified ("C:folder", "\folder") resolves against a process-wide current
+            // directory. For this negative to test the drive-qualification rule rather than a missing file, the entry must land
+            // exactly on the owned npm prefix above, which the drive-qualified checks already resolve. It is written relative to
+            // that drive's own current directory ("C:" + the path from there), so it lands there whichever drive is current,
+            // nothing is created outside this fixture, and no process-wide directory changes. The landing is proved before and
+            // after the lookup; one that cannot be proved fails its own check, not this product check
+            // (N-broker-next-guard-harness-01, found while qualifying 1.10.2).
+            string? driveRelative = npm.Length > 2 && char.IsAsciiLetter(npm[0]) && npm[1] == ':'
+                ? npm[..2] + Path.GetRelativePath(Path.GetFullPath(npm[..2]), npm) : null;
+            bool Lands() => driveRelative is { Length: > 2 } && driveRelative[2] is not ('\\' or '/') &&
+                string.Equals(Path.GetFullPath(driveRelative), npm, StringComparison.OrdinalIgnoreCase) &&
+                File.Exists(Path.Combine(driveRelative, "claude.cmd"));
+            bool landedBefore = Lands();
+            var fromDriveRelative = landedBefore ? AgentCliLocator.Locate("claude", new AgentCliEnvironment(PathValue: driveRelative)) : null;
+            bool landed = landedBefore && Lands();
+            check(landed, "cli locator: the drive-relative PATH entry below lands on the owned npm install (precondition)");
+            check(!landed || fromDriveRelative is null,
                 "cli locator: a PATH entry that is not a drive-qualified local path is never trusted, even naming a real install");
             string direct = Path.Combine(root, "direct");
             Touch(Path.Combine(direct, "claude.exe"));

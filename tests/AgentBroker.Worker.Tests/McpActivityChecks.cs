@@ -13,7 +13,8 @@ internal static class McpActivityChecks
 {
     public static async Task RunAsync(Action<bool, string> check)
     {
-        string scratch = Path.Combine(AppContext.BaseDirectory, "scratch", "mcp-activity-" + Guid.NewGuid().ToString("N"));
+        using var scratchOwner = OwnedScratch.Create("mcp-activity");
+        string scratch = scratchOwner.Root;
         var options = new WorkerOptions(scratch, "Synthetic MCP activity", LoopbackPort: 0, LanPort: 0,
             EnableLan: true, AllowUnauthenticatedLoopback: false)
         { LanListenAddress = IPAddress.Loopback, EnableBrokerDiscovery = false };
@@ -62,7 +63,7 @@ internal static class McpActivityChecks
                 "verified Claude initialize name records only Claude and global request evidence");
 
             var tools = await Rpc(client, "tools/list", new { });
-            check(tools.GetProperty("result").GetProperty("tools").GetArrayLength() == 12, "passive MCP observation preserves all twelve tool schemas");
+            check(tools.GetProperty("result").GetProperty("tools").GetArrayLength() == 18, "passive MCP observation preserves all current tool schemas");
             await Until(() => worker.McpStatus.LastToolsListUtc is not null);
             check(Row(worker.McpStatus, McpClientFamily.Other).LastToolsListUtc is not null &&
                 Row(worker.McpStatus, McpClientFamily.Claude).LastToolsListUtc is null,
@@ -74,7 +75,7 @@ internal static class McpActivityChecks
                 "Codex initialize evidence does not overwrite Claude's independent timestamp");
 
             var perRequest = await Rpc(client, "tools/list", Metadata("codex-mcp-client"), modern: true);
-            check(perRequest.GetProperty("result").GetProperty("tools").GetArrayLength() == 12,
+            check(perRequest.GetProperty("result").GetProperty("tools").GetArrayLength() == 18,
                 "2026 per-request MCP client metadata works without adding a session or initialize handshake");
             await Until(() => Row(worker.McpStatus, McpClientFamily.Codex).LastToolsListUtc is not null);
             check(Row(worker.McpStatus, McpClientFamily.Claude).LastToolsListUtc is null,
@@ -149,6 +150,7 @@ internal static class McpActivityChecks
         if (response.Content.Headers.ContentType?.MediaType == "text/event-stream")
             text = string.Concat(text.Split('\n').Where(line => line.StartsWith("data: ", StringComparison.Ordinal)).Select(line => line[6..]));
         using var document = JsonDocument.Parse(text);
+        AdvisoryKindChecks.ObserveResponse(document.RootElement);
         return document.RootElement.Clone();
     }
     private static async Task Until(Func<bool> condition)

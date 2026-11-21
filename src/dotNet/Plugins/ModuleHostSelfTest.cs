@@ -134,6 +134,8 @@ namespace DesktopAICompanion.Plugins
                 ok &= ModuleSettingsDamage(sb);
                 // ---- burndown/w10-options-ui-1 ----
                 ok &= EnforcedFlagSentence(sb);
+                // ---- AgentBroker 1.10.5 marathon, lane H (host) ----
+                ok &= ModuleSettingsSafety(sb);
             }
             catch (Exception ex) { ok = false; sb.AppendLine("EXC: " + ex.GetType().Name + ": " + ex.Message); }
             finally
@@ -164,6 +166,317 @@ namespace DesktopAICompanion.Plugins
                     StringComparison.OrdinalIgnoreCase);
             }
             catch { return false; }
+        }
+
+        /// <summary>
+        /// A module's settings.json (N-audit-1106-234, AgentBroker 1.10.5 marathon lane H), driven on the shipped
+        /// <see cref="CompanionHost.ModuleSettings"/> over throwaway folders. A damaged file is kept as .corrupt-&lt;utc&gt;
+        /// before the next save; a save replaces the file instead of rewriting it in place; two handles loaded from one
+        /// damaged file (GetSettings hands out a new handle per call) set it aside once, and the second refuses rather than
+        /// overwrite the good file the first save wrote; a failed load never saves over a file that reads as healthy again;
+        /// and a healthy file round-trips with nothing beside it.
+        /// </summary>
+        private static bool ModuleSettingsSafety(StringBuilder sb)
+        {
+            string root = SelfTestScratch.Create("module-settings");
+            bool ok = true;
+            FileStream held = null;
+            try
+            {
+                const string truncated = @"{""volume"":""7"",""vo";
+                string damagedDir = Path.Combine(root, "damaged");
+                Directory.CreateDirectory(damagedDir);
+                string damaged = Path.Combine(damagedDir, "settings.json");
+                File.WriteAllText(damaged, truncated);
+                var repaired = new CompanionHost.ModuleSettings(damaged);
+                repaired.Set("volume", "3");
+                bool repairedSaved = repaired.Save();
+                string[] kept = Directory.GetFiles(damagedDir, "settings.json.corrupt-*");
+                ok &= Check(sb, "host-a11y: settings: an unreadable settings.json is kept as settings.json.corrupt-<utc> before the next save (saved " +
+                    repairedSaved + ", kept " + kept.Length + ")",
+                    repairedSaved && kept.Length == 1 && File.ReadAllText(kept[0]) == truncated &&
+                    new CompanionHost.ModuleSettings(damaged).Get("volume", "") == "3");
+
+                const string before = @"{""volume"":""7""}";
+                string liveDir = Path.Combine(root, "live");
+                Directory.CreateDirectory(liveDir);
+                string live = Path.Combine(liveDir, "settings.json");
+                File.WriteAllText(live, before);
+                var edited = new CompanionHost.ModuleSettings(live);
+                edited.Set("volume", "9");
+                // A reader that opened the file before the save, sharing everything. A rewrite in place changes the bytes
+                // under it; a replace swaps a new file in under the name and leaves this handle on the old one.
+                held = new FileStream(live, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                bool replaced = edited.Save();
+                held.Position = 0;
+                string throughHeld;
+                using (var reader = new StreamReader(held, new UTF8Encoding(false), false, 1024, true)) throughHeld = reader.ReadToEnd();
+                held.Dispose();
+                held = null;
+                ok &= Check(sb, "host-a11y: settings: a save replaces the file rather than rewriting it (a handle opened before the save still reads the old bytes: " +
+                    throughHeld + ", saved " + replaced + ")",
+                    replaced && throughHeld == before && new CompanionHost.ModuleSettings(live).Get("volume", "") == "9");
+
+                const string twinDamage = @"{""a"":";
+                string twinDir = Path.Combine(root, "twin");
+                Directory.CreateDirectory(twinDir);
+                string twin = Path.Combine(twinDir, "settings.json");
+                File.WriteAllText(twin, twinDamage);
+                var first = new CompanionHost.ModuleSettings(twin);
+                var second = new CompanionHost.ModuleSettings(twin);
+                first.Set("a", "1");
+                bool firstSaved = first.Save();
+                second.Set("b", "2");
+                bool secondSaved = second.Save();
+                string[] twinKept = Directory.GetFiles(twinDir, "settings.json.corrupt-*");
+                var twinNow = new CompanionHost.ModuleSettings(twin);
+                // The second handle finds the first one's good file at save time: it merges its own key over it (H-10) and never
+                // moves it aside.
+                ok &= Check(sb, "host-a11y: settings: a second handle on the same unreadable file does not set the first handle's good save aside (saved " +
+                    firstSaved + "/" + secondSaved + ", kept " + twinKept.Length + ")",
+                    firstSaved && secondSaved && twinKept.Length == 1 && File.ReadAllText(twinKept[0]) == twinDamage &&
+                    twinNow.Get("a", "") == "1" && twinNow.Get("b", "") == "2");
+
+                // H-10 (supersedes the round-1 refusal): a load that failed, then a file that reads healthy again before the save,
+                // as a transient sharing violation at load or another writer leaves it. The save keeps what is on disk and applies
+                // only the keys this handle Set.
+                string againDir = Path.Combine(root, "again");
+                Directory.CreateDirectory(againDir);
+                string again = Path.Combine(againDir, "settings.json");
+                File.WriteAllText(again, twinDamage);
+                var stale = new CompanionHost.ModuleSettings(again);
+                File.WriteAllText(again, @"{""theme"":""dark"",""volume"":""5""}");
+                stale.Set("volume", "1");
+                bool staleSaved = stale.Save();
+                var againNow = new CompanionHost.ModuleSettings(again);
+                // R2-4: the SAME repaired handle now holds the merged values, so its next save keeps the key it never Set.
+                string themeThroughHandle = stale.Get("theme", "<gone>");
+                stale.Set("size", "2");
+                bool staleSavedAgain = stale.Save();
+                var againLater = new CompanionHost.ModuleSettings(again);
+                ok &= Check(sb, "host-a11y: settings: a failed-load handle merges its own keys over a file that reads healthy again (saved " + staleSaved +
+                    ", theme " + againNow.Get("theme", "<gone>") + ", volume " + againNow.Get("volume", "<gone>") + ", " + Directory.GetFiles(againDir).Length +
+                    " file(s); the same handle then reads theme " + themeThroughHandle + " and saves again " + staleSavedAgain + ", keeping theme " +
+                    againLater.Get("theme", "<gone>") + ")",
+                    staleSaved && againNow.Get("theme", "") == "dark" && againNow.Get("volume", "") == "1" && Directory.GetFiles(againDir).Length == 1 &&
+                    themeThroughHandle == "dark" && staleSavedAgain && againLater.Get("theme", "") == "dark" &&
+                    againLater.Get("volume", "") == "1" && againLater.Get("size", "") == "2");
+
+                // ---- round 2 (X1's audit H-r1, the lead's 003-H-round2.md) ----
+                // H-1: the damaged file was set aside and the replacement write failed; a healthy file restored before the
+                // retry must not be replaced by this handle's dictionary. With the guard kept the retry merges over it (H-10);
+                // with the guard lifted by the failed write it would overwrite it.
+                string retryDir = Path.Combine(root, "retry");
+                Directory.CreateDirectory(retryDir);
+                string retry = Path.Combine(retryDir, "settings.json");
+                File.WriteAllText(retry, twinDamage);
+                var retrying = new CompanionHost.ModuleSettings(retry);
+                retrying.Set("volume", "1");
+                bool failedWrite;
+                CompanionHost.ModuleSettings.WriteForSelfTest = delegate { return false; };
+                try { failedWrite = retrying.Save(); }
+                finally { CompanionHost.ModuleSettings.WriteForSelfTest = null; }
+                File.WriteAllText(retry, @"{""theme"":""light"",""volume"":""8""}");
+                bool retried = retrying.Save();
+                var retryNow = new CompanionHost.ModuleSettings(retry);
+                ok &= Check(sb, "host-a11y: settings: a failed replacement write keeps the failed-load guard (first save " + failedWrite +
+                    ", retry " + retried + ", theme " + retryNow.Get("theme", "<gone>") + ")",
+                    !failedWrite && retried && retryNow.Get("theme", "") == "light" && retryNow.Get("volume", "") == "1" &&
+                    Directory.GetFiles(retryDir, "settings.json.corrupt-*").Length == 1);
+
+                // H-2: two handles that loaded the same damaged file. Inside the first handle's save, between its check and its
+                // move, the second handle's save starts on another thread: it must not finish while the first holds the lock.
+                string raceDir = Path.Combine(root, "race");
+                Directory.CreateDirectory(raceDir);
+                string race = Path.Combine(raceDir, "settings.json");
+                File.WriteAllText(race, twinDamage);
+                var firstHandle = new CompanionHost.ModuleSettings(race);
+                var secondHandle = new CompanionHost.ModuleSettings(race);
+                firstHandle.Set("first", "1");
+                secondHandle.Set("second", "2");
+                System.Threading.Tasks.Task<bool> secondSave = null;
+                bool secondDoneInside = false, secondStarted = false;
+                int seamCalls = 0;
+                var secondAboutToSave = new System.Threading.ManualResetEventSlim(false);
+                CompanionHost.ModuleSettings.BetweenCheckAndWriteForSelfTest = delegate
+                {
+                    if (System.Threading.Interlocked.Increment(ref seamCalls) != 1) return;   // the first handle's own pass only
+                    // R2-3: the second handle signals right before it calls Save, and so before it asks for the path's lock;
+                    // the 1.5 s window starts only once that signal is seen, so a slow pool cannot pass "not started" off as
+                    // "waiting". What remains assumed is that an unblocked Save finishes within those 1.5 s.
+                    secondSave = System.Threading.Tasks.Task.Run(() => { secondAboutToSave.Set(); return secondHandle.Save(); });
+                    secondStarted = secondAboutToSave.Wait(10000);
+                    secondDoneInside = secondSave.Wait(1500);
+                };
+                bool firstSavedRace;
+                try { firstSavedRace = firstHandle.Save(); }
+                finally { CompanionHost.ModuleSettings.BetweenCheckAndWriteForSelfTest = null; }
+                bool secondResult = secondSave != null && secondSave.Wait(10000) && secondSave.Result;
+                secondAboutToSave.Dispose();
+                int raceKept = Directory.GetFiles(raceDir, "settings.json.corrupt-*").Length;
+                var raceNow = new CompanionHost.ModuleSettings(race);
+                ok &= Check(sb, "host-a11y: settings: two handles saving the same damaged file are serialized (the second waits, then merges over the first's file; " +
+                    "second started before the window " + secondStarted + ", finished inside the first's save " + secondDoneInside +
+                    ", second saved " + secondResult + ", kept " + raceKept + "; assumes an unblocked Save ends within 1.5 s)",
+                    firstSavedRace && secondSave != null && secondStarted && !secondDoneInside && secondResult &&
+                    raceNow.Get("first", "") == "1" && raceNow.Get("second", "") == "2" && raceKept == 1);
+
+                // H-3: a settings.json this account may not read is a failed load, not an empty one. Denied on the FOLDER,
+                // inherited, as the marker fixtures above do: with only the file's own read rights denied, File.Exists still
+                // answers true (the first mutation run of this check SURVIVED on exactly that), so the defect needs the folder.
+                // Once access is back, the file reads healthy and the save merges over it instead of overwriting it.
+                string deniedDir = Path.Combine(root, "denied");
+                Directory.CreateDirectory(deniedDir);
+                string deniedFile = Path.Combine(deniedDir, "settings.json");
+                File.WriteAllText(deniedFile, @"{""theme"":""dark"",""volume"":""4""}");
+                var deniedSettingsInfo = new DirectoryInfo(deniedDir);
+                var readDeny = new System.Security.AccessControl.FileSystemAccessRule(
+                    System.Security.Principal.WindowsIdentity.GetCurrent().User,
+                    System.Security.AccessControl.FileSystemRights.ReadData | System.Security.AccessControl.FileSystemRights.ReadAttributes,
+                    System.Security.AccessControl.InheritanceFlags.ContainerInherit | System.Security.AccessControl.InheritanceFlags.ObjectInherit,
+                    System.Security.AccessControl.PropagationFlags.None,
+                    System.Security.AccessControl.AccessControlType.Deny);
+                bool denyApplied = false;
+                bool existsWhileDenied = true;
+                CompanionHost.ModuleSettings blind = null;
+                try
+                {
+                    System.Security.AccessControl.DirectorySecurity fileAcl = FileSystemAclExtensions.GetAccessControl(deniedSettingsInfo);
+                    fileAcl.AddAccessRule(readDeny);
+                    FileSystemAclExtensions.SetAccessControl(deniedSettingsInfo, fileAcl);
+                    denyApplied = true;
+                    existsWhileDenied = File.Exists(deniedFile);
+                    blind = new CompanionHost.ModuleSettings(deniedFile);
+                }
+                catch (Exception aclException)
+                {
+                    if (denyApplied) throw;
+                    sb.AppendLine("NOTE: DEGRADED: this account could not be denied a scratch settings.json's read access (" +
+                        aclException.GetType().Name + "), so an inaccessible settings.json was NOT exercised");
+                }
+                finally
+                {
+                    if (denyApplied)
+                    {
+                        System.Security.AccessControl.DirectorySecurity fileAcl = FileSystemAclExtensions.GetAccessControl(deniedSettingsInfo);
+                        fileAcl.RemoveAccessRule(readDeny);
+                        FileSystemAclExtensions.SetAccessControl(deniedSettingsInfo, fileAcl);
+                    }
+                }
+                if (denyApplied)
+                {
+                    blind.Set("volume", "0");
+                    bool blindSaved = blind.Save();
+                    var deniedNow = new CompanionHost.ModuleSettings(deniedFile);
+                    ok &= Check(sb, "host-a11y: settings: an inaccessible settings.json counts as a failed load (File.Exists while denied " + existsWhileDenied +
+                        ", saved " + blindSaved + ", theme " + deniedNow.Get("theme", "<gone>") + ")",
+                        !existsWhileDenied && blindSaved && deniedNow.Get("theme", "") == "dark" && deniedNow.Get("volume", "") == "0");
+                }
+
+                // H-6: a healthy file held open by someone sharing Delete but not Read cannot be read at save time, which says
+                // nothing about its content: it is left exactly where it is, never moved aside as damaged.
+                string heldDir = Path.Combine(root, "held");
+                Directory.CreateDirectory(heldDir);
+                string heldFile = Path.Combine(heldDir, "settings.json");
+                File.WriteAllText(heldFile, twinDamage);
+                var heldHandle = new CompanionHost.ModuleSettings(heldFile);
+                const string heldHealthy = @"{""volume"":""6""}";
+                File.WriteAllText(heldFile, heldHealthy);
+                heldHandle.Set("volume", "2");
+                bool heldSaved;
+                using (new FileStream(heldFile, FileMode.Open, FileAccess.Read, FileShare.Delete)) heldSaved = heldHandle.Save();
+                ok &= Check(sb, "host-a11y: settings: a healthy file that cannot be opened at save time is left in place (saved " + heldSaved + ", " +
+                    Directory.GetFiles(heldDir).Length + " file(s))",
+                    !heldSaved && Directory.GetFiles(heldDir).Length == 1 && File.ReadAllText(heldFile) == heldHealthy);
+
+                // H-9: a repaired handle (its damaged file set aside and a new one written) is an ordinary handle again: its
+                // guard is off and its next Save writes as any other does.
+                string repairDir = Path.Combine(root, "repair");
+                Directory.CreateDirectory(repairDir);
+                string repair = Path.Combine(repairDir, "settings.json");
+                File.WriteAllText(repair, twinDamage);
+                var repaired2 = new CompanionHost.ModuleSettings(repair);
+                repaired2.Set("one", "1");
+                bool repairSaved = repaired2.Save();
+                bool guardAfterRepair = repaired2.LoadFailedForSelfTest;
+                repaired2.Set("two", "2");
+                bool laterSaved = repaired2.Save();
+                var repairNow = new CompanionHost.ModuleSettings(repair);
+                ok &= Check(sb, "host-a11y: settings: a repaired handle saves again (saved " + repairSaved + "/" + laterSaved + ", guard after the repair " +
+                    guardAfterRepair + ", kept " + Directory.GetFiles(repairDir, "settings.json.corrupt-*").Length + ")",
+                    repairSaved && laterSaved && !guardAfterRepair && repairNow.Get("one", "") == "1" && repairNow.Get("two", "") == "2" &&
+                    Directory.GetFiles(repairDir, "settings.json.corrupt-*").Length == 1);
+
+                // H-11: a failed-load handle whose file is gone by save time writes a new one; nothing is set aside.
+                string goneDir = Path.Combine(root, "gone");
+                Directory.CreateDirectory(goneDir);
+                string gone = Path.Combine(goneDir, "settings.json");
+                File.WriteAllText(gone, twinDamage);
+                var orphan = new CompanionHost.ModuleSettings(gone);
+                File.Delete(gone);
+                orphan.Set("volume", "3");
+                bool goneSaved = orphan.Save();
+                ok &= Check(sb, "host-a11y: settings: a failed-load handle whose file is gone writes a new one (saved " + goneSaved + ")",
+                    goneSaved && File.Exists(gone) && new CompanionHost.ModuleSettings(gone).Get("volume", "") == "3" &&
+                    Directory.GetFiles(goneDir, "settings.json.corrupt-*").Length == 0);
+
+                // H-12: a damaged file that cannot be moved aside (held by someone sharing Read but not Delete) is not written over.
+                // The write seam releases the holder and then writes for real, so a save that went on to write after a failed move
+                // WOULD succeed and lose the damaged bytes; the correct code never reaches the write. Then, released, the next
+                // save sets it aside and writes.
+                string stuckDir = Path.Combine(root, "stuck");
+                Directory.CreateDirectory(stuckDir);
+                string stuck = Path.Combine(stuckDir, "settings.json");
+                File.WriteAllText(stuck, twinDamage);
+                var stuckHandle = new CompanionHost.ModuleSettings(stuck);
+                stuckHandle.Set("volume", "9");
+                FileStream stuckHolder = new FileStream(stuck, FileMode.Open, FileAccess.Read, FileShare.Read);
+                bool stuckSaved, wroteDespiteFailedMove = false;
+                CompanionHost.ModuleSettings.WriteForSelfTest = delegate(string p, string json)
+                {
+                    wroteDespiteFailedMove = true;
+                    if (stuckHolder != null) { stuckHolder.Dispose(); stuckHolder = null; }
+                    return DesktopAICompanion.ModuleKit.AtomicFile.TryWriteAllText(p, json, null);
+                };
+                try { stuckSaved = stuckHandle.Save(); }
+                finally
+                {
+                    CompanionHost.ModuleSettings.WriteForSelfTest = null;
+                    if (stuckHolder != null) { stuckHolder.Dispose(); stuckHolder = null; }
+                }
+                bool inPlace = File.ReadAllText(stuck) == twinDamage && Directory.GetFiles(stuckDir, "settings.json.corrupt-*").Length == 0;
+                bool releasedSaved = stuckHandle.Save();
+                string[] stuckKept = Directory.GetFiles(stuckDir, "settings.json.corrupt-*");
+                ok &= Check(sb, "host-a11y: settings: a failed move writes nothing (held: saved " + stuckSaved + ", wrote " + wroteDespiteFailedMove +
+                    ", in place " + inPlace + "; released: saved " + releasedSaved + ", kept " + stuckKept.Length + ")",
+                    !stuckSaved && !wroteDespiteFailedMove && inPlace && releasedSaved && stuckKept.Length == 1 &&
+                    File.ReadAllText(stuckKept[0]) == twinDamage && new CompanionHost.ModuleSettings(stuck).Get("volume", "") == "9");
+
+                string healthyDir = Path.Combine(root, "healthy");
+                Directory.CreateDirectory(healthyDir);
+                string healthy = Path.Combine(healthyDir, "settings.json");
+                File.WriteAllText(healthy, @"{""mode"":""dark""}");
+                var kept2 = new CompanionHost.ModuleSettings(healthy);
+                kept2.Set("size", "2");
+                bool healthySaved = kept2.Save();
+                var back = new CompanionHost.ModuleSettings(healthy);
+                string[] beside = Directory.GetFiles(healthyDir);
+                ok &= Check(sb, "host-a11y: settings: WITNESS a healthy settings.json round-trips and nothing appears beside it (" + beside.Length + " file(s))",
+                    healthySaved && back.Get("mode", "") == "dark" && back.Get("size", "") == "2" && beside.Length == 1);
+            }
+            catch (Exception ex)
+            {
+                ok = false;
+                sb.AppendLine("EXC (module settings safety): " + ex.GetType().Name + ": " + ex.Message);
+            }
+            finally
+            {
+                if (held != null) { try { held.Dispose(); } catch { } }
+                string releaseDetail;
+                if (!SelfTestScratch.TryRelease(root, out releaseDetail))
+                    sb.AppendLine("NOTE: scratch left for the next sweep (" + releaseDetail + ")");
+            }
+            return ok;
         }
 
         /// <summary>
@@ -2576,11 +2889,13 @@ namespace DesktopAICompanion.Plugins
         }
 
         /// <summary>
-        /// A module's settings.json that cannot be read is reported, once, through the module's own log, and a damaged one
-        /// is kept beside itself before the module's next save replaces it (N-audit-1106-234). Load used to answer an empty
-        /// dictionary with no line, so every setting was silently back at its default. Driven through the host's own
-        /// ModuleSettings on a scratch folder; the atomic save is pinned as a source invariant, since no reachable input
-        /// makes an in-place write fail half-way.
+        /// A module's settings.json that exists and could not be loaded is reported, once per file per session, through the
+        /// module's own log (N-audit-1106-234): Load used to answer an empty dictionary with no line, so every setting was
+        /// silently back at its default. Since the master merge the class is master's lane H ModuleSettings, which sets a
+        /// damaged file aside only at the module's next save (ModuleSettingsSafety checks that side, the write included);
+        /// this group checks only the load-time report ported onto it. Driven through the host's own ModuleSettings on
+        /// scratch folders. Each mutant of the report fails exactly one check here: "a line at all" for both files is one
+        /// check, because one condition in the constructor decides both.
         /// </summary>
         private static bool ModuleSettingsDamage(StringBuilder sb)
         {
@@ -2588,42 +2903,55 @@ namespace DesktopAICompanion.Plugins
             bool ok = true;
             try
             {
-                string path = Path.Combine(root, "settings.json");
-                string damaged = "{\"greeting\":\"hello\",\"volume\":\"7";
+                const string damaged = @"{""greeting"":""hello"",""volume"":""7";
+                string damagedDir = Path.Combine(root, "damaged");
+                Directory.CreateDirectory(damagedDir);
+                string path = Path.Combine(damagedDir, "settings.json");
                 File.WriteAllText(path, damaged);
                 var lines = new List<string>();
                 var first = new CompanionHost.ModuleSettings(path, lines.Add);
+                // Taken now, before the second read below can add to it.
+                int linesAtLoad = lines.Count;
+                string lineAtLoad = lines.Count > 0 ? lines[0] : "no line";
                 ok &= Check(sb, "settings damage: a damaged settings.json starts the module from its defaults",
                     first.Get("greeting", "fallback") == "fallback");
-                ok &= Check(sb, "settings damage: a damaged settings.json is reported in the module's log, naming the kept copy (" +
-                        lines.Count + " line(s))",
-                    lines.Count == 1 && lines[0].Contains("damaged") && lines[0].Contains("settings.json.damaged"));
-                string copy = path + CompanionHost.ModuleSettings.DamagedSuffix;
-                ok &= Check(sb, "settings damage: the damaged bytes are kept as settings.json.damaged",
-                    File.Exists(copy) && File.ReadAllText(copy) == damaged);
+                // The burn-down copied the file at load; master's class moves it aside at the next save, so loading touches nothing.
+                string[] besideDamaged = Directory.GetFiles(damagedDir);
+                ok &= Check(sb, "settings damage: loading moves nothing: the damaged bytes are still settings.json and nothing is beside it (" +
+                        besideDamaged.Length + " file(s))",
+                    besideDamaged.Length == 1 && File.Exists(path) && File.ReadAllText(path) == damaged);
                 new CompanionHost.ModuleSettings(path, lines.Add);
                 ok &= Check(sb, "settings damage: a second read of the same damaged file in one session adds no line (" +
-                        lines.Count + " line(s))",
-                    lines.Count == 1);
+                        linesAtLoad + " then " + lines.Count + " line(s))",
+                    lines.Count == linesAtLoad);
 
-                first.Set("greeting", "hi");
-                ok &= Check(sb, "settings damage: WITNESS the module's next save writes a readable file",
-                    first.Save() && new CompanionHost.ModuleSettings(path, lines.Add).Get("greeting", "") == "hi");
-                ok &= Check(sb, "settings damage: a save leaves no temporary file beside settings.json (" +
-                        string.Join(", ", Array.ConvertAll(Directory.GetFiles(root), Path.GetFileName)) + ")",
-                    Directory.GetFiles(root).Length == 2);
-
-                // Unreadable is not damaged: a file held without read sharing is reported by its error type, not copied.
-                string lockedPath = Path.Combine(root, "locked", "settings.json");
-                Directory.CreateDirectory(Path.GetDirectoryName(lockedPath));
-                File.WriteAllText(lockedPath, "{\"greeting\":\"kept\"}");
+                // Unreadable is not damaged: a file held without read sharing says nothing about its content.
+                string lockedDir = Path.Combine(root, "locked");
+                Directory.CreateDirectory(lockedDir);
+                string lockedPath = Path.Combine(lockedDir, "settings.json");
+                File.WriteAllText(lockedPath, @"{""greeting"":""kept""}");
                 var lockedLines = new List<string>();
                 using (new FileStream(lockedPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
                     new CompanionHost.ModuleSettings(lockedPath, lockedLines.Add);
-                ok &= Check(sb, "settings damage: an unreadable settings.json is reported by its error, not called damaged (" +
-                        (lockedLines.Count > 0 ? lockedLines[0] : "no line") + ")",
-                    lockedLines.Count == 1 && lockedLines[0].Contains("IOException") && !lockedLines[0].Contains("damaged") &&
-                    !File.Exists(lockedPath + CompanionHost.ModuleSettings.DamagedSuffix));
+                ok &= Check(sb, "settings damage: a damaged settings.json is reported in the module's log, naming where it will be kept, " +
+                        "and so is an unreadable one (" + linesAtLoad + " and " + lockedLines.Count + " line(s): " + lineAtLoad + ")",
+                    linesAtLoad == 1 && lineAtLoad.Contains("damaged") && lineAtLoad.Contains("settings.json.corrupt-") &&
+                    lockedLines.Count == 1);
+                string[] besideLocked = Directory.GetFiles(lockedDir);
+                ok &= Check(sb, "settings damage: an unreadable settings.json is reported as unreadable, not called damaged (" +
+                        (lockedLines.Count > 0 ? lockedLines[0] : "no line") + "; " + besideLocked.Length + " file(s))",
+                    lockedLines.Count <= 1 && lockedLines.TrueForAll(line => line.Contains("could not be read") && !line.Contains("damaged")) &&
+                    besideLocked.Length == 1);
+
+                // The reporter answers a failed load, not every load.
+                string healthyDir = Path.Combine(root, "healthy");
+                Directory.CreateDirectory(healthyDir);
+                string healthyPath = Path.Combine(healthyDir, "settings.json");
+                File.WriteAllText(healthyPath, @"{""greeting"":""kept""}");
+                var healthyLines = new List<string>();
+                var healthy = new CompanionHost.ModuleSettings(healthyPath, healthyLines.Add);
+                ok &= Check(sb, "settings damage: WITNESS a healthy settings.json loads with no line (" + healthyLines.Count + " line(s))",
+                    healthyLines.Count == 0 && healthy.Get("greeting", "") == "kept");
             }
             catch (Exception ex) { ok = false; sb.AppendLine("EXC: settings damage: " + ex.GetType().Name + ": " + ex.Message); }
             finally

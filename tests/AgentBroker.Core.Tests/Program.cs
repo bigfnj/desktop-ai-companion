@@ -3,6 +3,9 @@ using System.Text.Json.Nodes;
 
 var root = Path.Combine(AppContext.BaseDirectory, "scratch", "agentbroker-core-" + Guid.NewGuid().ToString("N"));
 Directory.CreateDirectory(root);
+Console.WriteLine("WITNESS: POSTPUSH_CORE_EXECUTED");
+Console.WriteLine("CORE_PRODUCT_SHA256=" + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(typeof(BrokerStore).Assembly.Location))));
+Console.WriteLine("CORE_HARNESS_SHA256=" + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(System.Reflection.Assembly.GetExecutingAssembly().Location))));
 var passed = 0;
 void Check(bool value, string description)
 {
@@ -22,7 +25,7 @@ MessageReceipt? ClaimPeerMessage(BrokerStore store)
     while (store.BeginDelivery() is { } claimed)
     {
         if (claimed.Message.Sender.SessionId != BrokerStore.NoticeSessionId) return claimed;
-        store.CompleteDelivery(claimed.Message.Id, MessageStatus.Delivered);
+        store.CompleteDelivery(store.FindReceipt(claimed.Message.Id)!, MessageStatus.Delivered);
     }
     return null;
 }
@@ -33,12 +36,56 @@ BrokerSession Session(BrokerStore store, string id, bool isPrivate = false) => n
 BrokerMessage Message(BrokerSession from, BrokerSession to) => new(Guid.NewGuid(), Guid.NewGuid(), null,
     from.Address, to.Address, "A harmless synthetic test message.", clock.GetUtcNow(), clock.GetUtcNow().AddMinutes(30));
 
+bool reportedFailure = false;
 try
 {
+    if (args.SequenceEqual(["--waiting-mail-only"]))
+    {
+        passed += WaitingMailChecks.Run(root);
+        Console.WriteLine($"AgentBroker waiting-mail smoke: {passed} assertions passed.");
+        return 0;
+    }
+    if (args.Length > 0 && args[0] == "--uncertain-notices-only")
+    {
+        if (args.Length is not (1 or 3)) throw new ArgumentException("UNCERTAIN_NOTICE_LEGACY_ARGUMENTS: supply both the pinned baseline assembly path and its expected SHA-256, or neither.");
+        passed += UncertainNoticeChecks.Run(root, args.Length == 3 ? args[1] : null, args.Length == 3 ? args[2] : null);
+        Console.WriteLine($"AgentBroker uncertainty notice smoke: {passed} assertions passed.");
+        return 0;
+    }
+    if (args.SequenceEqual(["--notice-terminal-reuse-only"]))
+    {
+        passed += UncertainNoticeChecks.TerminalReuse(root);
+        Console.WriteLine($"AgentBroker terminal notice reuse smoke: {passed} assertions passed.");
+        return 0;
+    }
+    if (args.SequenceEqual(["--availability-diagnostics-only"]))
+    {
+        passed += AvailabilityDiagnosticChecks.Run(root);
+        Console.WriteLine($"AgentBroker availability diagnostics smoke: {passed} assertions passed.");
+        return 0;
+    }
+    if (args.SequenceEqual(["--native-recovery-only"]))
+    {
+        passed += NativeRecoveryChecks.Run(root);
+        Console.WriteLine($"AgentBroker native recovery smoke: {passed} assertions passed.");
+        return 0;
+    }
+    if (args.SequenceEqual(["--pending-inbox-only"]))
+    {
+        passed += PendingInboxChecks.Run(root);
+        Console.WriteLine($"AgentBroker pending-inbox smoke: {passed} assertions passed.");
+        return 0;
+    }
     if (args.SequenceEqual(["--reply-lifetime-only"]))
     {
         passed += ReplyLifetimeChecks.Run(root);
         Console.WriteLine($"AgentBroker reply lifetime smoke: {passed} assertions passed.");
+        return 0;
+    }
+    if (args.SequenceEqual(["--reply-receipt-only"]))
+    {
+        passed += ReplyReceiptChecks.Run(root);
+        Console.WriteLine($"AgentBroker reply receipt smoke: {passed} assertions passed.");
         return 0;
     }
     if (args.SequenceEqual(["--peer-receipt-only"]))
@@ -71,6 +118,24 @@ try
         Console.WriteLine($"AgentBroker sender notice smoke: {passed} assertions passed.");
         return 0;
     }
+    if (args.SequenceEqual(["--hygiene-only"]))
+    {
+        passed += HygieneChecks.Run(root);
+        Console.WriteLine($"AgentBroker hygiene smoke: {passed} assertions passed.");
+        return 0;
+    }
+    if (args.SequenceEqual(["--attachments-only"]))
+    {
+        passed += AttachmentEnvelopeChecks.Run(root);
+        Console.WriteLine($"AgentBroker attachment envelope smoke: {passed} assertions passed.");
+        return 0;
+    }
+    if (args.SequenceEqual(["--commit-timing-only"]))
+    {
+        passed += CommitTimingChecks.Run(root);
+        Console.WriteLine($"AgentBroker commit timing smoke: {passed} assertions passed.");
+        return 0;
+    }
     Guid identity;
     BrokerMessage uncertain;
     using (var store = new BrokerStore(root, clock: clock))
@@ -91,12 +156,12 @@ try
         var first = store.BeginDelivery();
         Check(first?.Message.Id == message.Id && first.Status == MessageStatus.Submitting, "Claim persists before submission.");
         Check(store.BeginDelivery() is null, "In-flight message cannot be claimed twice.");
-        Check(store.CompleteDelivery(message.Id, MessageStatus.Delivered).Status == MessageStatus.Delivered, "Delivery receipt persisted.");
-        Refuses("message_not_submitting", () => store.CompleteDelivery(message.Id, MessageStatus.Delivered));
+        Check(store.CompleteDelivery(store.FindReceipt(message.Id)!, MessageStatus.Delivered).Status == MessageStatus.Delivered, "Delivery receipt persisted.");
+        Refuses("message_not_submitting", () => store.CompleteDelivery(store.FindReceipt(message.Id)!, MessageStatus.Delivered));
         var reply = Message(recipient, sender) with { ConversationId = message.ConversationId, ReplyTo = message.Id, RemainingReplies = 7 };
         Check(store.Accept(reply, identity).Status == MessageStatus.Accepted, "Reply correlates reversed exact participants.");
         Refuses("invalid_reply", () => store.Accept(reply with { Id = Guid.NewGuid(), RemainingReplies = 8 }, identity));
-        store.BeginDelivery(); store.CompleteDelivery(reply.Id, MessageStatus.Delivered);
+        store.BeginDelivery(); store.CompleteDelivery(store.FindReceipt(reply.Id)!, MessageStatus.Delivered);
 
         store.Register(recipient with { Activity = SessionActivity.Busy });
         var busy = Message(sender, recipient);
@@ -108,7 +173,7 @@ try
         Check(store.BeginDelivery() is null, "Interrupted session is not forcibly resumed.");
         store.Register(recipient);
         Check(store.BeginDelivery()?.Message.Id == busy.Id, "Idle session claims queued message.");
-        store.CompleteDelivery(busy.Id, MessageStatus.Held, "native_inbound_policy");
+        store.CompleteDelivery(store.FindReceipt(busy.Id)!, MessageStatus.Held, "native_inbound_policy");
         Check(store.BeginDelivery() is null, "Held message is not automatically resent.");
 
         var peerId = Guid.NewGuid();
@@ -168,19 +233,28 @@ try
     AuditReceiptRecoveryQuery();
     AuditReceiptQueryFairness();
     AuditAtomicReplyRetries();
+    passed += ReplyReceiptChecks.Run(root);
     passed += ReplyLifetimeChecks.Run(root);
     passed += SenderNoticeChecks.Run(root);
+    passed += WaitingMailChecks.Run(root);
+    passed += UncertainNoticeChecks.Run(root);
     passed += DeliveryOrderChecks.Run(root);
     passed += PeerReceiptChecks.Run(root);
+    passed += HygieneChecks.Run(root);
+    passed += CommitTimingChecks.Run(root);
     passed += AcceptedIncomingChecks.Run(root);
+    passed += PendingInboxChecks.Run(root);
+    passed += NativeRecoveryChecks.Run(root);
+    passed += AvailabilityDiagnosticChecks.Run(root);
     passed += TombstoneSharingChecks.Run(root);
+    passed += AttachmentEnvelopeChecks.Run(root);
     using (var receipts = new BrokerStore(Path.Combine(root, "explicit-receipts"), clock: clock))
     {
         var from = Session(receipts, "from"); var to = Session(receipts, "to");
         receipts.Register(from); receipts.Register(to);
         var message = Message(from, to);
         receipts.Accept(message, receipts.BrokerId); receipts.BeginDelivery();
-        Check(receipts.CompleteDelivery(message.Id, MessageStatus.Submitted).Status == MessageStatus.Submitted,
+        Check(receipts.CompleteDelivery(receipts.FindReceipt(message.Id)!, MessageStatus.Submitted).Status == MessageStatus.Submitted,
             "Transport admission remains Submitted, separate from recipient delivery.");
         Check(receipts.BeginDelivery() is null, "Submitted messages are never blindly replayed.");
         Refuses("recipient_mismatch", () => receipts.RecordRecipientReceipt(message.Id, from.Address, receipts.BrokerId, MessageStatus.Delivered));
@@ -195,8 +269,14 @@ try
     Console.WriteLine($"AgentBroker core smoke and regression: {passed} assertions passed.");
     return 0;
 }
-catch (Exception e) { Console.Error.WriteLine(e); return 1; }
-finally { Directory.Delete(root, recursive: true); }
+catch (Exception e) { reportedFailure = true; Console.Error.WriteLine(e); return 1; }
+finally
+{
+    // A cleanup error never replaces a failure already reported (a mutant can leave a scratch file open, as the lane N
+    // events-writer-held witness does); after a run that passed, it still fails the run.
+    try { Directory.Delete(root, recursive: true); }
+    catch (Exception cleanup) when (reportedFailure) { Console.Error.WriteLine("CORE_SCRATCH_CLEANUP_DEFERRED: " + cleanup.GetType().Name); }
+}
 
 void AuditDurableState()
 {
@@ -294,9 +374,9 @@ void AuditWriteFailures()
         Check(store.BeginDelivery() is null && File.ReadAllBytes(durable).SequenceEqual(beforePoll) &&
             File.GetLastWriteTimeUtc(durable) == beforePollWrite,
             "An idle delivery poll makes no snapshot write, even when writes are explicitly blocked.");
-    RefuseWrite(() => store.CompleteDelivery(message.Id, MessageStatus.Delivered), "Failed completion");
+    RefuseWrite(() => store.CompleteDelivery(store.FindReceipt(message.Id)!, MessageStatus.Delivered), "Failed completion");
     Check(store.Messages(to.Address).Single().Status == MessageStatus.Submitting, "Failed completion does not advertise delivered.");
-    store.CompleteDelivery(message.Id, MessageStatus.Delivered);
+    store.CompleteDelivery(store.FindReceipt(message.Id)!, MessageStatus.Delivered);
     store.AuthorizePeer(peer);
     RefuseWrite(() => store.RevokePeer(peer.BrokerId), "Failed revocation");
     Check(store.Peers().Single().BrokerId == peer.BrokerId, "Failed revocation leaves prior trust consistently visible.");
@@ -313,9 +393,9 @@ void AuditQueueAndMutablePolicy()
     store.Accept(first, store.BrokerId); store.Accept(second, store.BrokerId);
     Check(store.BeginDelivery()?.Message.Id == first.Id && store.BeginDelivery() is null, "One recipient has at most one in-flight claim while its native state remains idle.");
     Refuses("recipient_queue_full", () => store.Accept(Message(from, to), store.BrokerId));
-    store.CompleteDelivery(first.Id, MessageStatus.Delivered);
+    store.CompleteDelivery(store.FindReceipt(first.Id)!, MessageStatus.Delivered);
     Check(store.BeginDelivery()?.Message.Id == second.Id, "Resolving the first claim releases recipient admission.");
-    store.CompleteDelivery(second.Id, MessageStatus.Delivered);
+    store.CompleteDelivery(store.FindReceipt(second.Id)!, MessageStatus.Delivered);
     store.Register(to with { Capabilities = SessionCapabilities.Receive | SessionCapabilities.WakeIdle });
     var reply = Message(to, from) with { ConversationId = first.ConversationId, ReplyTo = first.Id, RemainingReplies = 7 };
     Refuses("sender_cannot_reply", () => store.Accept(reply, store.BrokerId));
@@ -334,19 +414,19 @@ void AuditQueueAndMutablePolicy()
         "Becoming private after peer admission prevents the queued delivery.");
     var localPrivate = Message(from, to); store.Accept(localPrivate, store.BrokerId);
     Check(store.BeginDelivery()?.Message.Id == localPrivate.Id, "An explicitly allowed same-broker message can still reach a private local session.");
-    store.CompleteDelivery(localPrivate.Id, MessageStatus.Delivered);
+    store.CompleteDelivery(store.FindReceipt(localPrivate.Id)!, MessageStatus.Delivered);
     var muted = Message(from, to); store.Accept(muted, store.BrokerId);
     store.Register(to with { IsPrivate = true, Activity = SessionActivity.Interrupted });
     Check(store.BeginDelivery() is null, "Interrupted local mute blocks automatic claim even for an accepted local message.");
     store.Register(to);
-    store.BeginDelivery(); store.CompleteDelivery(muted.Id, MessageStatus.Refused);
+    store.BeginDelivery(); store.CompleteDelivery(store.FindReceipt(muted.Id)!, MessageStatus.Refused);
     store.Register(to);
     var revokedInFlight = Message(remote, to); store.Accept(revokedInFlight, peer.BrokerId);
     Check(ClaimPeerMessage(store)?.Message.Id == revokedInFlight.Id, "Peer message is claimed for revocation race test.");
     store.RevokePeer(peer.BrokerId);
     Check(store.Messages(to.Address).Single(r => r.Message.Id == revokedInFlight.Id).Status == MessageStatus.Uncertain,
         "Revoking an in-flight peer records uncertainty instead of claiming it never reached the adapter.");
-    Refuses("message_not_submitting", () => store.CompleteDelivery(revokedInFlight.Id, MessageStatus.Delivered));
+    Refuses("message_not_submitting", () => store.CompleteDelivery(store.FindReceipt(revokedInFlight.Id)!, MessageStatus.Delivered));
     Refuses("unpaired_peer", () => store.Accept(revokedInFlight, peer.BrokerId));
 
     var expiring = Message(from, to) with { ExpiresAt = clock.GetUtcNow().AddSeconds(1) }; store.Accept(expiring, store.BrokerId);
@@ -371,14 +451,14 @@ void AuditUnsubmittedClaims()
     byte[] before = File.ReadAllBytes(durable);
     using (var deny = new FileStream(durable + ".next", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None))
     {
-        try { store.ReleaseUnsubmittedClaim(message.Id); throw new Exception("Release write unexpectedly succeeded."); }
+        try { store.ReleaseUnsubmittedClaim(store.FindReceipt(message.Id)!); throw new Exception("Release write unexpectedly succeeded."); }
         catch (IOException) { Check(File.ReadAllBytes(durable).SequenceEqual(before), "Failed unsubmitted release preserves durable state."); }
     }
     Check(store.FindReceipt(message.Id)?.Status == MessageStatus.Submitting, "Failed unsubmitted release leaves the current claim intact.");
-    var released = store.ReleaseUnsubmittedClaim(message.Id);
+    var released = store.ReleaseUnsubmittedClaim(store.FindReceipt(message.Id)!);
     Check(released.Status == MessageStatus.Accepted && released.Attempts == 0 && released.Message.Id == message.Id,
         "Authoritatively unsubmitted release preserves the stable message ID without consuming its submission attempt.");
-    Refuses("message_not_submitting", () => store.ReleaseUnsubmittedClaim(message.Id));
+    Refuses("message_not_submitting", () => store.ReleaseUnsubmittedClaim(store.FindReceipt(message.Id)!));
     store.Register(to with { Activity = SessionActivity.Busy, Capabilities = to.Capabilities | SessionCapabilities.NativeIdleGuard });
     Check(store.BeginDelivery() is null, "Known busy activity stays queued even with an atomic idle capability.");
     store.Register(to with { Activity = SessionActivity.Idle });
@@ -391,19 +471,20 @@ void AuditUnsubmittedClaims()
     var unrelated = Message(bystander, to); store.Accept(unrelated, store.BrokerId);
     Check(store.BeginDelivery(new HashSet<Guid> { message.Id })?.Message.Id == unrelated.Id,
         "A deferred earliest message can be excluded so another sender's eligible messages still make progress.");
-    store.CompleteDelivery(unrelated.Id, MessageStatus.Delivered);
+    store.CompleteDelivery(store.FindReceipt(unrelated.Id)!, MessageStatus.Delivered);
     Check(store.BeginDelivery()?.Attempts == 1, "A proven unsubmitted claim can be retried once actual idle activity is observed.");
-    store.CompleteDelivery(message.Id, MessageStatus.Uncertain);
-    Refuses("message_not_submitting", () => store.ReleaseUnsubmittedClaim(message.Id));
+    store.CompleteDelivery(store.FindReceipt(message.Id)!, MessageStatus.Uncertain);
+    Refuses("message_not_submitting", () => store.ReleaseUnsubmittedClaim(store.FindReceipt(message.Id)!));
     Check(store.BeginDelivery()?.Message.Id == later.Id, "The held successor follows once the earlier message has gone.");
-    store.CompleteDelivery(later.Id, MessageStatus.Delivered);
-    Check(store.BeginDelivery() is null, "An uncertain submission can never use the unsubmitted-release path.");
+    store.CompleteDelivery(store.FindReceipt(later.Id)!, MessageStatus.Delivered);
+    Check(ClaimPeerMessage(store) is null && store.FindReceipt(message.Id) is { Status: MessageStatus.Uncertain, Attempts: 1 },
+        "An uncertain submission can never use the unsubmitted-release path, after independently settling its advisory.");
     var submitted = Message(from, to); store.Accept(submitted, store.BrokerId); store.BeginDelivery();
-    store.CompleteDelivery(submitted.Id, MessageStatus.Submitted);
-    Refuses("message_not_submitting", () => store.ReleaseUnsubmittedClaim(submitted.Id));
+    store.CompleteDelivery(store.FindReceipt(submitted.Id)!, MessageStatus.Submitted);
+    Refuses("message_not_submitting", () => store.ReleaseUnsubmittedClaim(store.FindReceipt(submitted.Id)!));
     var expiring = Message(from, to) with { ExpiresAt = clock.GetUtcNow().AddSeconds(1) };
     store.Accept(expiring, store.BrokerId); store.BeginDelivery(); clock.Advance(TimeSpan.FromSeconds(2));
-    Check(store.ReleaseUnsubmittedClaim(expiring.Id).Status == MessageStatus.Expired, "An expired proven-unsubmitted claim is never requeued.");
+    Check(store.ReleaseUnsubmittedClaim(store.FindReceipt(expiring.Id)!).Status == MessageStatus.Expired, "An expired proven-unsubmitted claim is never requeued.");
     Check(store.RecordRecipientReceipt(submitted.Id, to.Address, store.BrokerId, MessageStatus.Held).Status == MessageStatus.Held,
         "Explicit native held receipt preserves a submitted message without retrying it.");
     Check(store.RecordRecipientReceipt(submitted.Id, to.Address, store.BrokerId, MessageStatus.Delivered).Status == MessageStatus.Delivered,
@@ -420,7 +501,7 @@ void AuditReceiptRecoveryQuery()
         var from = Session(store, "from"); store.Register(from);
         var to = Session(store, "remote") with { Address = new(peerId, "remote", Guid.NewGuid()) };
         var message = Message(from, to); messageId = message.Id;
-        store.Accept(message, store.BrokerId); store.BeginDelivery(); store.CompleteDelivery(message.Id, MessageStatus.Submitted);
+        store.Accept(message, store.BrokerId); store.BeginDelivery(); store.CompleteDelivery(store.FindReceipt(message.Id)!, MessageStatus.Submitted);
         Check(store.OutboundAwaitingReceipt(peerId).Single().Status == MessageStatus.Submitted, "Persisted outbound query includes transport-only receipts.");
         Refuses("invalid_limit", () => store.OutboundAwaitingReceipt(peerId, 0));
         Refuses("invalid_limit", () => store.OutboundAwaitingReceipt(peerId, 65));
@@ -444,7 +525,7 @@ void AuditReceiptQueryFairness()
         var message = Message(from, to);
         if (i == 0) { firstId = message.Id; message = message with { ExpiresAt = clock.GetUtcNow().AddSeconds(1) }; }
         store.Accept(message, store.BrokerId); store.BeginDelivery();
-        store.CompleteDelivery(message.Id, i % 2 == 0 ? MessageStatus.Held : MessageStatus.Submitted);
+        store.CompleteDelivery(store.FindReceipt(message.Id)!, i % 2 == 0 ? MessageStatus.Held : MessageStatus.Submitted);
     }
     var first = store.OutboundAwaitingReceipt(peerId);
     var second = store.OutboundAwaitingReceipt(peerId, afterMessageId: first[^1].Message.Id);

@@ -1,13 +1,20 @@
 using AgentBroker.Core;
+using AgentBroker.Worker.Federation;
 using System.Collections.Concurrent;
 using System.Runtime.ExceptionServices;
 
 namespace AgentBroker.Worker;
 
-public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
+// The exclusion class of a blocking wait (BrokerRuntime.BeginWait): one active wait per session address and class.
+internal enum WaitClass { Incoming, Receipt }
+
+public sealed partial class BrokerRuntime(BrokerStore store, IPeerFederation federation,
     IReadOnlyList<ILocalAgentAdapter> adapters, SessionPreferences? sessionPreferences = null,
     TimeProvider? clock = null, ICallerProcessResolver? callerProcesses = null) : IAsyncDisposable
 {
+    // Lane F (1.10.5): set once at composition (WorkerApplication), before Start. Null when no attachment store was wired;
+    // the attachment tools then answer attachments_disabled and the receipt loop sweeps nothing.
+    internal AgentBroker.Worker.Attachments.AttachmentStore? Attachments { get; set; }
     private readonly ConcurrentDictionary<string, string> adapterErrors = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, string> adapterNotes = new(StringComparer.Ordinal);
     private readonly DeferredDeliveryClaims claims = new(store);
@@ -42,7 +49,10 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
     // same rule as list_sessions (review of 25a0c65, finding 2).
     internal SenderReceipt View(MessageReceipt receipt, bool includeText = false, bool forPeer = false) => forPeer
         ? SenderReceipt.From(receipt, Now, includeText)
-        : SenderReceipt.From(receipt, Now, includeText, observations.BusySince(receipt), observations.EngineAtAttempt(receipt.Message.Id));
+        : SenderReceipt.From(receipt, Now, includeText,
+            observations.BusySince(receipt, BrokerStore.ReceiptAdmissionEpoch(receipt)),
+            observations.EngineAtAttempt(receipt.Message, BrokerStore.ReceiptAdmissionEpoch(receipt)),
+            store.ReadMessageWait(receipt)?.Waits);
 
     public void SetSessionPreference(string sessionId, bool? isPrivate, bool? isMuted)
     {
@@ -95,33 +105,77 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
         }
     }
 
-    // Blocking MCP waits hold an HTTP request each. One per session address (a second would only race
-    // the first for the same messages) and sixteen per worker, well inside Kestrel's connection bound.
+    // Blocking MCP waits hold an HTTP request each. One per session address and wait class, and sixteen per worker across
+    // every class, well inside Kestrel's connection bound. wait_for_messages and wait_for_reply share the Incoming class:
+    // both return the same Accepted reply, so a second would only race the first for it. wait_for_receipt returns no
+    // message, so its Receipt class runs beside them.
     internal const int MaximumConcurrentWaits = 16;
-    private readonly ConcurrentDictionary<SessionAddress, byte> waits = new();
+    private readonly object waitGate = new();
+    private readonly ConcurrentDictionary<(SessionAddress Session, WaitClass Class), byte> waits = new();
     private int activeWaits;
-
-    internal IDisposable BeginWait(SessionAddress session)
+    private readonly CancellationTokenSource waitStop = new();
+    private CancellationToken waitStopToken;
+    private bool waitsClosed;
+    internal int ActiveWaitCount { get { lock (waitGate) return activeWaits; } }
+    // Cache before disposing the source, including when disposal precedes the first request.
+    internal CancellationToken WaitStopping
     {
-        if (!waits.TryAdd(session, 0)) throw new BrokerException("wait_in_progress", "This session already has an active wait.");
-        if (Interlocked.Increment(ref activeWaits) > MaximumConcurrentWaits)
-        {
-            Interlocked.Decrement(ref activeWaits); waits.TryRemove(session, out _);
-            throw new BrokerException("wait_capacity", "The broker's concurrent wait capacity is in use.");
-        }
-        store.SetListening(session, true);
-        return new WaitSlot(this, session);
+        get { lock (waitGate) return waitStopToken.CanBeCanceled ? waitStopToken : waitStopToken = waitStop.Token; }
     }
 
-    private sealed class WaitSlot(BrokerRuntime owner, SessionAddress session) : IDisposable
+    internal IDisposable BeginWait(SessionAddress session, WaitClass waitClass)
+    {
+        lock (waitGate)
+        {
+            if (waitsClosed) throw new BrokerException("broker_stopping", "Broker waits are stopping.");
+            return BeginWaitCore(session, waitClass);
+        }
+    }
+
+    // Caller holds waitGate through admission and its listening increment.
+    private IDisposable BeginWaitCore(SessionAddress session, WaitClass waitClass)
+    {
+        var slot = (session, waitClass);
+        if (!waits.TryAdd(slot, 0)) throw new BrokerException("wait_in_progress", "This session already has an active wait of this class.");
+        if (Interlocked.Increment(ref activeWaits) > MaximumConcurrentWaits)
+        {
+            Interlocked.Decrement(ref activeWaits); waits.TryRemove(slot, out _);
+            throw new BrokerException("wait_capacity", "The broker's concurrent wait capacity is in use.");
+        }
+        store.EnterListening(session);
+        return new WaitSlot(this, slot);
+    }
+
+    private sealed class WaitSlot(BrokerRuntime owner, (SessionAddress Session, WaitClass Class) slot) : IDisposable
     {
         private int released;
         public void Dispose()
         {
             if (Interlocked.Exchange(ref released, 1) != 0) return;
-            owner.Store.SetListening(session, false);
-            Interlocked.Decrement(ref owner.activeWaits); owner.waits.TryRemove(session, out _);
+            lock (owner.waitGate)
+            {
+                // Runtime disposal already released every admitted slot and prevents a replacement.
+                if (!owner.waits.ContainsKey(slot)) return;
+                owner.Store.LeaveListening(slot.Session);
+                Interlocked.Decrement(ref owner.activeWaits); owner.waits.TryRemove(slot, out _);
+            }
         }
+    }
+
+    internal void StopWaits()
+    {
+        lock (waitGate)
+        {
+            if (waitsClosed) return;
+            waitsClosed = true;
+            _ = WaitStopping;
+            foreach (var slot in waits.Keys) store.LeaveListening(slot.Session);
+            waits.Clear();
+            activeWaits = 0;
+        }
+        // Cancellation callbacks may release their slots, so invoke them outside the admission gate.
+        try { waitStop.Cancel(); }
+        finally { waitStop.Dispose(); }
     }
 
     public void Start(CancellationToken stop)
@@ -140,7 +194,7 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
         Register(session); return sessionPreferences?.Apply(session) ?? session;
     }
 
-    public async Task<IReadOnlyList<BrokerSession>> DirectoryAsync(bool forPeer, CancellationToken token)
+    public async Task<IReadOnlyList<BrokerSession>> DirectoryAsync(bool forPeer, CancellationToken token, bool includePeers = true)
     {
         // The presented view: a mailbox nobody is waiting on reads Unknown, here and in /federation/directory alike.
         var result = store.PresentedDirectory(forPeer).ToList();
@@ -153,10 +207,14 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
             for (int index = 0; index < result.Count; index++)
                 if (result[index] is { Activity: SessionActivity.Unknown } row && observations.SeenBusy(row.Address))
                     result[index] = row with { Activity = SessionActivity.Busy };
+            if (!includePeers) return result;
             var peers = store.Peers();
             var authorizations = peers.ToDictionary(p => p.BrokerId, store.CapturePeerAuthorization);
             var directories = new ConcurrentDictionary<Guid, BrokerSession[]>();
-            using var budget = CancellationTokenSource.CreateLinkedTokenSource(token);
+            // The budget also ends when the broker starts stopping (ApplicationStopping -> StopWaits), so a paired broker that
+            // never answers cannot hold the host drain past the supervisor's 4-second kill (N4, AgentBroker next campaign
+            // 2026-11-08). Stopping returns what the budget would: the local rows and any peer directory already complete.
+            using var budget = CancellationTokenSource.CreateLinkedTokenSource(token, WaitStopping);
             budget.CancelAfter(TimeSpan.FromSeconds(5));
             try
             {
@@ -168,9 +226,19 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
                         // The outer wait preserves the whole-directory deadline even if a transport
                         // takes longer to observe cancellation. Late results cannot publish sessions.
                         var remote = await federation.GetDirectoryAsync(peer, peerToken).WaitAsync(peerToken);
-                        if (remote.BrokerId != peer.BrokerId || remote.Sessions.Count > 256) return;
+                        if (!PeerDirectoryPolicy.HasValidShape(remote, peer.BrokerId, PeerDirectoryPolicy.ListingMaximumSessions)) return;
+                        // Read after the response: its authenticated Date sample may be the newest observation.
+                        // "observed" already means <=2s RTT, <=5min monotonic age and no detected local clock change.
+                        var peerNow = Now;
+                        if (federation.ClockObservations.FirstOrDefault(view => view.BrokerId == peer.BrokerId) is
+                            { State: "observed", OffsetSeconds: { } offset })
+                        {
+                            try { peerNow += TimeSpan.FromSeconds(offset); }
+                            catch (ArgumentException) { } // An unusable/out-of-range offset contributes no adjustment.
+                            catch (OverflowException) { }
+                        }
                         directories[peer.BrokerId] = remote.Sessions.Where(s => s.Address.BrokerId == peer.BrokerId &&
-                            !s.IsPrivate && s.LeaseUntil > DateTimeOffset.UtcNow).Take(256).ToArray();
+                            !s.IsPrivate && s.LeaseUntil > peerNow).Take(256).ToArray();
                     }
                     // A paired broker's body the strict federation options refuse (an unknown member from a newer release, a
                     // truncated answer) is that peer's failure for this listing, as PeerDiagnostics already reads it
@@ -203,6 +271,9 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
     internal TimeSpan LoopRestartDelay { get; init; } = TimeSpan.FromSeconds(1);
     internal TimeSpan LoopRestartLimit { get; init; } = TimeSpan.FromMinutes(1);
     private readonly ConcurrentDictionary<string, int> loopFailures = new(StringComparer.Ordinal);
+    private int invalidAdapterResults;
+    private int durableStateUnavailable;
+    internal bool DurableStateUnavailable => Volatile.Read(ref durableStateUnavailable) != 0;
 
     private async Task GuardAsync(string name, Func<CancellationToken, Task> run, CancellationToken stop)
     {
@@ -219,7 +290,10 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
             catch (Exception e) when (e is IOException or InvalidDataException or BrokerException or UnauthorizedAccessException)
             {
                 adapterErrors["broker"] = "durable_state_unavailable";
-                lifetime?.Cancel(); FatalError?.Invoke();
+                if (Interlocked.Exchange(ref durableStateUnavailable, 1) == 0)
+                {
+                    lifetime?.Cancel(); FatalError?.Invoke();
+                }
                 return;
             }
             // Any other exception ended the loop in silence (N-broker-161-02): a receipt loop that stopped meant no outbound
@@ -242,8 +316,8 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
         }
     }
 
-    // Discovery timing: each adapter's pass deadline and the pause after it. Internal so the lifecycle checks can scale
-    // them down; production keeps ten seconds each, inside the 30-second native leases a pass renews.
+    // Discovery timing: each adapter's pass deadline and interval between pass starts. Internal so lifecycle checks
+    // can scale them down. A slow pass consumes the interval rather than adding another pause before lease renewal.
     internal TimeSpan DiscoveryPassDeadline { get; init; } = TimeSpan.FromSeconds(10);
     internal TimeSpan DiscoveryInterval { get; init; } = TimeSpan.FromSeconds(10);
 
@@ -256,17 +330,41 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
 
     private async Task DiscoverLoopAsync(ILocalAgentAdapter adapter, CancellationToken stop)
     {
+        var discoveryClock = clock ?? TimeProvider.System;
+        // Report only (BrokerRuntime.DiscoveryTrace.cs): what this loop last wrote to the events file, owned by this loop alone.
+        var trace = new DiscoveryTraceState();
         while (!stop.IsCancellationRequested)
         {
+            var passStarted = discoveryClock.GetTimestamp();
+            // This pass's report: its rows, census and diagnostic codes when it completes, or its failure code.
+            Dictionary<string, (Guid? Incarnation, string Outcome)>? passRows = null;
+            string[]? passDiagnostics = null;
+            bool? passCensus = null;
+            string? passFailure = null;
             try
             {
+                // An already-started reconnect gets at most the interval it previously overlapped.
+                // Count preparation in cadence, but give owner queries a fresh pass deadline afterwards.
+                await adapter.PrepareDiscoveryAsync(DiscoveryInterval, stop);
                 using var deadline = CancellationTokenSource.CreateLinkedTokenSource(stop);
                 deadline.CancelAfter(DiscoveryPassDeadline);
                 var sessions = await adapter.DiscoverAsync(store.BrokerId, deadline.Token);
                 // An adapter may now end a pass early with what it resolved (CodexNativeAdapter); at shutdown, nothing registers.
                 stop.ThrowIfCancellationRequested();
                 if (sessions.Count > 256) throw new BrokerException("session_limit", "Adapter directory exceeded its bound.");
-                foreach (var session in sessions) Register(session);
+                foreach (var session in sessions)
+                {
+                    Register(session);
+                    if ((adapter.Id is "claude-native" or "codex-native") && session.Adapter == adapter.Id)
+                    {
+                        store.ObserveNativeSession(session.Address, adapter.Id);
+                        observations.ObserveDirectory(session);
+                        RenewNativeLease(trace, session);
+                    }
+                }
+                // Missing rows end only report-only busy evidence, and only when this successful native pass was complete.
+                if (adapter.DiscoveryCensusComplete)
+                    observations.ObserveDirectoryCensus(adapter.Id, sessions);
                 var reported = adapter.DiscoveryDiagnostics.Take(8).ToArray();
                 var diagnostics = reported.Where(item => !item.Note).Select(item => item.ToStatusText()).Distinct().ToArray();
                 if (diagnostics.Length == 0) adapterErrors.TryRemove(adapter.Id, out _);
@@ -274,6 +372,11 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
                 var notes = reported.Where(item => item.Note).Select(item => item.ToStatusText()).Distinct().ToArray();
                 if (notes.Length == 0) adapterNotes.TryRemove(adapter.Id, out _);
                 else adapterNotes[adapter.Id] = string.Join(AgentBroker.Protocol.ControlProtocol.NoteSeparator, notes);
+                // Report only, read inside this try so a malformed adapter report fails this pass rather than the loop. Codes
+                // come from reported, as Status reads them, bounded the same way; never a description.
+                passRows = TraceRows(adapter.LastDiscoveryTrace, sessions);
+                passCensus = adapter.DiscoveryCensusComplete;
+                passDiagnostics = reported.Select(item => AdapterDiscoveryDiagnostic.CleanCode(item.Code)).Distinct().Order(StringComparer.Ordinal).ToArray();
             }
             catch (Exception e) when (e is IOException or InvalidDataException or BrokerException or
                 UnauthorizedAccessException or System.ComponentModel.Win32Exception or OperationCanceledException)
@@ -282,6 +385,8 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
                 adapterNotes.TryRemove(adapter.Id, out _); // A failed pass completed nothing to note.
                 adapterErrors[adapter.Id] = e is AdapterDiscoveryException diagnostic ? diagnostic.Diagnostic.ToStatusText()
                     : e is BrokerException b ? b.Code : "adapter_unavailable";
+                passFailure = e is AdapterDiscoveryException discoveryFailure ? AdapterDiscoveryDiagnostic.CleanCode(discoveryFailure.Diagnostic.Code)
+                    : e is BrokerException brokerFailure ? AdapterDiscoveryDiagnostic.CleanCode(brokerFailure.Code) : "adapter_unavailable";
             }
             // Any other failure is this adapter's alone. With one loop per adapter it used to end that adapter's discovery in
             // silence while the others went on (its rows lapsed, its status kept its last value, and nothing surfaced until
@@ -291,8 +396,34 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
             {
                 adapterNotes.TryRemove(adapter.Id, out _); // As above: a failed pass completed nothing to note.
                 adapterErrors[adapter.Id] = "adapter_failed";
+                passFailure = "adapter_failed";
             }
-            await Task.Delay(DiscoveryInterval, stop);
+            TraceDiscoveryPass(adapter.Id, trace, passRows, passCensus, passDiagnostics, passFailure);
+            var pause = DiscoveryInterval - discoveryClock.GetElapsedTime(passStarted);
+            if (pause >= TimeSpan.FromMilliseconds(1)) await Task.Delay(pause, stop);
+            else await Task.Yield(); // Task.Delay truncates sub-ms waits; synchronous adapters must still cooperate.
+        }
+    }
+
+    // Four delivery loops share one monotonic advisory retry budget; ordinary selection stays outside this gate.
+    private readonly object waitingMailGate = new();
+    private long? waitingMailFailedAt;
+    private void AdmitWaitingMailPass()
+    {
+        lock (waitingMailGate)
+        {
+            var observationClock = clock ?? TimeProvider.System;
+            if (waitingMailFailedAt is { } failed && observationClock.GetElapsedTime(failed) < TimeSpan.FromSeconds(5)) return;
+            try
+            {
+                store.AdmitDueWaitingMailNotices();
+                waitingMailFailedAt = null; adapterErrors.TryRemove("waiting_mail", out _);
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            {
+                waitingMailFailedAt = observationClock.GetTimestamp();
+                adapterErrors["waiting_mail"] = "waiting_mail_notice_write_failed";
+            }
         }
     }
 
@@ -300,16 +431,93 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
     {
         while (!stop.IsCancellationRequested)
         {
+            // Before selection: Unknown+NativeIdleGuard may otherwise spend every pass Submitting.
+            AdmitWaitingMailPass();
             var pending = claims.BeginDelivery();
-            if (pending is not null) await DeliverAsync(pending, stop);
+            if (pending is not null && !ForwardedInBackground(pending, stop)) await DeliverAsync(pending, stop);
             await Task.Delay(pending is null ? 500 : 50, stop);
+        }
+    }
+
+    // Lane F round 2 (F-20): forwarding an attachments envelope can take up to the recipient's 5 s inline wait, so it runs on
+    // its own task, at most two at a time, and no delivery loop waits on it. Its claim stays Submitting, so nothing else to
+    // that recipient overtakes it. With both slots busy the claim is released unsubmitted (nothing was sent) and retried
+    // after the usual 5 s backoff, again without holding a loop.
+    internal const int MaximumAttachmentForwards = 2;
+    private readonly ConcurrentDictionary<Guid, Task> attachmentForwards = new();
+    private int attachmentForwardCount;
+    private bool ForwardedInBackground(DeliveryClaim claim, CancellationToken stop)
+    {
+        if (claim.Message.Recipient.BrokerId == store.BrokerId ||
+            AttachmentEnvelope.TryParse(claim.Message.Text, out _) == AttachmentParse.NotEnvelope) return false;
+        if (Interlocked.Increment(ref attachmentForwardCount) > MaximumAttachmentForwards)
+        {
+            Interlocked.Decrement(ref attachmentForwardCount);
+            claims.ReleaseUnsubmittedClaim(claim, "attachment_forwards_busy");
+            return true;
+        }
+        attachmentForwards[claim.Message.Id] = ForwardAsync(claim, stop);
+        return true;
+    }
+
+    // Test seam (round 2b, M1), null in production: a fault thrown on the background forward path, where a settlement commit
+    // failure would surface.
+    internal Func<Exception?>? AttachmentForwardFault { get; set; }
+
+    // Test seam (lane G round 2, N-worker-check-busysince-wallclock-01), null in production. Called with the message ID and the
+    // adapter result for every settlement DeliverAsync makes that the store accepted (DeferredDeliveryClaims' release and
+    // completion returned true), after the store write and, for a local recipient, the observation record, under the claims
+    // gate. Not called for the forwards-busy release, which passes no observe, or the forward-fault completion, whose observe is
+    // empty; a background attachment forward settles through DeliverAsync and does call it. A handler may read the store
+    // synchronously (its lock nests inside the claims gate on every existing path); it must not await, block, throw, or call
+    // the runtime.
+    internal Action<Guid, AdapterResult>? DeliverySettled { get; set; }
+
+    private async Task ForwardAsync(DeliveryClaim claim, CancellationToken stop)
+    {
+        await Task.Yield(); // the caller records this task before its body runs
+        try
+        {
+            if (AttachmentForwardFault?.Invoke() is { } fault) throw fault;
+            await DeliverAsync(claim, stop);
+        }
+        // Round 2b (M1): this task has no loop around it, so it applies the delivery loop's own policy (GuardAsync). DeliverAsync
+        // settles every submission outcome itself; what escapes is its settlement's commit failing, which means the durable
+        // state is unavailable exactly as for a loop, so the worker stops instead of leaving the claim Submitting in silence.
+        catch (OperationCanceledException) when (stop.IsCancellationRequested) { }
+        catch (Exception e) when (e is IOException or InvalidDataException or BrokerException or UnauthorizedAccessException)
+        {
+            adapterErrors["broker"] = "durable_state_unavailable";
+            if (Interlocked.Exchange(ref durableStateUnavailable, 1) == 0)
+            {
+                lifetime?.Cancel(); FatalError?.Invoke();
+            }
+        }
+        catch (Exception) when (!stop.IsCancellationRequested)
+        {
+            int failures = loopFailures.AddOrUpdate("attachment_forward", 1, (_, count) => count + 1);
+            adapterErrors["attachment_forward"] = "loop_failed: " + failures + (failures == 1 ? " unexpected failure" : " unexpected failures") +
+                ", the last at " + Now.ToString("HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture) + " UTC.";
+            // The submission may have been written, so the message settles Uncertain like any unconfirmed one (N-broker-161-02).
+            try { claims.CompleteDelivery(claim, MessageStatus.Uncertain, "submission_failed", () => { }); }
+            catch (Exception settle) when (settle is IOException or InvalidDataException or BrokerException or UnauthorizedAccessException) { }
+        }
+        finally
+        {
+            Interlocked.Decrement(ref attachmentForwardCount);
+            attachmentForwards.TryRemove(claim.Message.Id, out _);
         }
     }
 
     private async Task ReceiptLoopAsync(CancellationToken stop)
     {
         while (!stop.IsCancellationRequested)
-        { await ReconcilePeersAsync(stop); await Task.Delay(TimeSpan.FromSeconds(5), stop); }
+        {
+            await ReconcilePeersAsync(stop);
+            // Attachment retention (lane F): at most once a minute; a sweep failure is that pass's alone (SweepIfDue).
+            Attachments?.SweepIfDue();
+            await Task.Delay(TimeSpan.FromSeconds(5), stop);
+        }
     }
 
     // whoami: the session owned by the nearest process in the caller's ancestry that an adapter binds to exactly one
@@ -351,8 +559,14 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
         : new(null, "paired broker \"" + (store.Peers().SingleOrDefault(peer => peer.BrokerId == sender.BrokerId)?.Name ?? "unknown") + "\" " +
             sender.BrokerId.ToString("D"));
 
-    private async Task DeliverAsync(MessageReceipt receipt, CancellationToken stop)
+    private async Task DeliverAsync(DeliveryClaim claim, CancellationToken stop)
     {
+        var receipt = claim.Receipt;
+        // Report only (BrokerRuntime.NativeStage.cs): the attempt's monotonic start on the runtime clock, and the native adapter
+        // that took it (none for a paired broker, an mcp row or another adapter, so those write no stage line).
+        var attemptClock = clock ?? TimeProvider.System;
+        long attemptStarted = attemptClock.GetTimestamp();
+        string? nativeAdapter = null;
         AdapterResult result;
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(stop);
         deadline.CancelAfter(TimeSpan.FromSeconds(20));
@@ -373,16 +587,36 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
                     _ => AdapterAdmission.Submitted,
                 // A paired broker that answers the forward itself with Expired: the same peer_expired reason and notice as
                 // the receipt loop's BrokerStore.RecordPeerReceipt (Codex 01a1855c's review of 3f6c2a3).
-                }, remote.Status == MessageStatus.Expired ? "peer_expired" : "peer_receipt");
+                }, remote.Status == MessageStatus.Expired ? "peer_expired" : remote.Status == MessageStatus.Refused
+                    ? PeerReceiptPolicy.KnownRefusalReason(remote.Reason) ?? "peer_receipt" : "peer_receipt");
             }
             else
             {
                 var target = store.Directory().SingleOrDefault(s => s.Address == receipt.Message.Recipient);
                 var adapter = adapters.SingleOrDefault(a => a.Id == target?.Adapter);
+                if (adapter?.Id is { } adapterId && adapterId is "codex-native" or "claude-native") nativeAdapter = adapterId;
                 result = adapter is null ? new(AdapterAdmission.Refused, "adapter_unavailable")
                     : await adapter.SubmitAsync(receipt.Message, DescribeSender(receipt.Message.Sender), deadline.Token);
             }
         }
+        catch (AgentBroker.Worker.Federation.PeerSubmissionNotStartedException notStarted) when
+            (receipt.Message.Recipient.BrokerId != store.BrokerId && notStarted.BrokerId == receipt.Message.Recipient.BrokerId)
+        { result = new(AdapterAdmission.DeferredNotSubmitted, "peer_connection_unavailable"); }
+        // Lane F (D-1): the recipient's broker is still fetching this message's attachments and admitted nothing, so it is
+        // released unsubmitted and retried after the same 5 s backoff. Round 2 (F-7): the sender keeps its OWN bound too,
+        // stamped beside its staging at the first such answer, so a recipient restart (which loses the recipient's clock)
+        // cannot hold this sender pair for a day: past the bound the message is refused attachment_fetch_failed here.
+        catch (AgentBroker.Worker.Federation.PeerAdmissionRefusedException pending) when
+            (receipt.Message.Recipient.BrokerId != store.BrokerId && pending.BrokerId == receipt.Message.Recipient.BrokerId &&
+             pending.Code == AttachmentCodes.FetchPending)
+        {
+            result = Attachments?.FetchPendingExpired(receipt.Message.Id, AgentBroker.Worker.Federation.PeerFederation.AttachmentDeferralBound) == true
+                ? new(AdapterAdmission.Refused, AttachmentCodes.FetchFailed)
+                : new(AdapterAdmission.DeferredNotSubmitted, AttachmentCodes.FetchPending);
+        }
+        catch (AgentBroker.Worker.Federation.PeerAdmissionRefusedException refused) when
+            (receipt.Message.Recipient.BrokerId != store.BrokerId && refused.BrokerId == receipt.Message.Recipient.BrokerId)
+        { result = new(AdapterAdmission.Refused, refused.Code); }
         catch (Exception e) when (e is IOException or InvalidDataException or HttpRequestException or BrokerException or
             UnauthorizedAccessException or System.ComponentModel.Win32Exception or OperationCanceledException)
         { result = new(AdapterAdmission.Uncertain, "submission_unconfirmed"); }
@@ -396,29 +630,31 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
         // submission may have been written, so it is Uncertain like any unconfirmed one, under its own reason; the type is
         // not recorded, as it could carry a vendor message.
         catch (Exception) { result = new(AdapterAdmission.Uncertain, "submission_failed"); }
-        // What this attempt learned about a local recipient, for the sender's receipt and the directory. Observation only.
-        if (receipt.Message.Recipient.BrokerId == store.BrokerId)
-            observations.Record(receipt.Message, result, id => store.FindReceipt(id) is { Status: MessageStatus.Accepted or MessageStatus.Submitting });
-        // A revocation may have resolved an in-flight claim while its IO was completing.
-        if (store.FindReceipt(receipt.Message.Id)?.Status != MessageStatus.Submitting) return;
-        try
+        result = AdapterResultPolicy.Normalize(result, out bool invalidResult);
+        if (invalidResult)
+            adapterErrors["adapter_result"] = "adapter_result_invalid: " + Interlocked.Increment(ref invalidAdapterResults) +
+                " malformed adapter results; affected claims use a fixed diagnostic instead of stopping delivery.";
+        // The adapter call and the exception mapping above; not the settlement commit or the claims-gate wait below.
+        long elapsedMs = (long)attemptClock.GetElapsedTime(attemptStarted).TotalMilliseconds;
+        // Publication shares selection's gate with successful atomic settlement. A rejected snapshot publishes nothing.
+        void Observe()
         {
-            if (result.Outcome == AdapterAdmission.DeferredNotSubmitted)
-            {
-                claims.ReleaseUnsubmittedClaim(receipt.Message.Id, result.Reason);
-                return;
-            }
-            store.CompleteDelivery(receipt.Message.Id, result.Outcome switch
+            if (receipt.Message.Recipient.BrokerId == store.BrokerId)
+                observations.Record(receipt.Message, result, claim.AdmissionEpoch);
+            if (nativeAdapter is not null) WriteNativeStage(nativeAdapter, claim, result, elapsedMs);
+            DeliverySettled?.Invoke(receipt.Message.Id, result);
+        }
+        if (result.Outcome == AdapterAdmission.DeferredNotSubmitted)
+            claims.ReleaseUnsubmittedClaim(claim, result.Reason, Observe);
+        else
+            claims.CompleteDelivery(claim, result.Outcome switch
             {
                 AdapterAdmission.Delivered => MessageStatus.Delivered,
                 AdapterAdmission.Held => MessageStatus.Held,
                 AdapterAdmission.Refused => MessageStatus.Refused,
                 AdapterAdmission.Submitted => MessageStatus.Submitted,
                 _ => MessageStatus.Uncertain,
-            }, result.Reason);
-        }
-        catch (BrokerException e) when (e.Code == "message_not_submitting")
-        { /* A concurrent acknowledgement or revocation already settled this claim. */ }
+            }, result.Reason, Observe);
     }
 
     private async Task ReconcilePeersAsync(CancellationToken stop)
@@ -446,7 +682,7 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
                     var remote = await federation.GetReceiptAsync(peer, message.Message.Id, deadline.Token);
                     if (remote?.Message != message.Message || remote.Status is not
                         (MessageStatus.Delivered or MessageStatus.Held or MessageStatus.Refused or MessageStatus.Expired)) continue;
-                    store.RecordPeerReceipt(message.Message.Id, message.Message.Recipient, peer.BrokerId, remote.Status);
+                    store.TryRecordPeerReceipt(message, message.Message.Recipient, peer.BrokerId, remote.Status, remote.Reason, out _);
                 }
                 // An unreadable receipt answer is that message's failure for this pass; it used to end the receipt loop, so
                 // no outbound message to any peer got its receipt again (A-broker-02).
@@ -465,9 +701,14 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
     private async Task DisposeCoreAsync()
     {
         var failures = new List<Exception>();
+        try { StopWaits(); }
+        catch (Exception error) { failures.Add(error); }
         try { lifetime?.Cancel(); }
         catch (Exception error) { failures.Add(error); }
         try { if (loop is not null) await loop; }
+        catch (Exception error) { failures.Add(error); }
+        // F-20: background attachment forwards end with the lifetime token; wait for them before the adapters go.
+        try { await Task.WhenAll(attachmentForwards.Values.ToArray()); }
         catch (Exception error) { failures.Add(error); }
         // Every adapter owns independent native resources. One failure cannot skip the others.
         foreach (var adapter in adapters)

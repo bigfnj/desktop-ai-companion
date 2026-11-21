@@ -39,6 +39,7 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
     public bool VerificationPending => enableDelivery &&
         (profileTrust == DesktopRouterTrust.Unverified ? profileUnavailable : adapter is null);
     public IReadOnlyList<AdapterDiscoveryDiagnostic> DiscoveryDiagnostics => discoveryDiagnostics;
+    public bool VerifiesDeliveryAtSubmission => true;
 
     public CodexNativeProvider(bool enableDelivery = false, bool updateTolerantDelivery = false)
         : this(enableDelivery, async token => new CodexOwnerConnection(await DesktopAdapter.ConnectAsync(
@@ -100,6 +101,7 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
             catch (DesktopAdapterException error)
             {
                 profileTrust = DesktopRouterTrust.Unverified;
+                profileUnavailable = IsVerificationUnavailable(error);
                 profilePinRefusal = error;
                 profilePinDiagnostic = CodexNativeAdapter.DescribeDiscoveryFailure(error);
                 diagnostics.Add(profilePinDiagnostic);
@@ -138,10 +140,29 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
         return observed;
     }
 
+    public Task PrepareDeliveryAsync(CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested();
+        // This provider belongs only to delivery. Preparing it neither enumerates rows nor resets discovery's state.
+        // SubmitAsync still verifies the profiles afresh before input.
+        profileTrust = DesktopRouterTrust.Unverified;
+        profileUnavailable = false;
+        if (enableDelivery)
+        {
+            try { verifyProfilesForDiscovery(); profileTrust = DesktopRouterTrust.ExactPinned; }
+            catch (DesktopAdapterException error)
+            { profileUnavailable = IsVerificationUnavailable(error); profileTrust = VerifyProfilesByPublisher(error, diagnostics: null, verifyByPublisherForDiscovery); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            { profileUnavailable = true; }
+        }
+        token.ThrowIfCancellationRequested();
+        return Task.CompletedTask;
+    }
+
     private static AdapterDiscoveryDiagnostic ObservationDiagnostic() => new("codex_observation_only",
             "Codex sessions on a publisher-signed build that is not exactly reviewed are listed read-only; delivery is refused.");
 
-    public void CompleteDiscovery(IReadOnlyList<DesktopOwnerBinding> carriedBindings, bool updateTolerantDelivery)
+    public void CompleteDiscovery(bool updateTolerantDelivery)
     {
         // Publisher success is reportable even with no open chat or a skipped owner lookup. Keep both mode gates: a
         // provider configured for tolerance cannot claim that the adapter enabled it. This never grants authority.
@@ -202,6 +223,7 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
         try { verify(); return DesktopRouterTrust.PublisherSigned; }
         catch (DesktopAdapterException error)
         {
+            profileUnavailable = IsVerificationUnavailable(error);
             diagnostics?.Add(CodexNativeAdapter.DescribeDiscoveryFailure(error));
             return DesktopRouterTrust.Unverified;
         }
@@ -238,6 +260,19 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
     // initialize request with its own five-second timeouts, so this bounds only what those leave.
     internal static readonly TimeSpan OwnerReconnectBudget = TimeSpan.FromSeconds(30);
 
+    public async Task PrepareDiscoveryAsync(TimeSpan maximumWait, CancellationToken stop)
+    {
+        stop.ThrowIfCancellationRequested();
+        var started = reconnecting;
+        if (started is null || started.IsCompleted || maximumWait <= TimeSpan.Zero) return;
+        // Waiting does not adopt, cancel, or detach this task. ResolveOwnerAsync or disposal still owns it.
+        // A timeout leaves the remainder to the established in-pass adopt/outlasted path.
+        try { await started.WaitAsync(maximumWait, stop); }
+        catch (OperationCanceledException) when (stop.IsCancellationRequested) { throw; }
+        catch (Exception) { } // As in AdoptReconnectAsync, an old reconnect failure is not a new pass failure.
+        stop.ThrowIfCancellationRequested();
+    }
+
     public async Task<DesktopOwnerBinding?> ResolveOwnerAsync(Guid conversationId, CancellationToken token)
     {
         // A reconnect that outlasted the pass deadline used to fail at its initialize request on the expired pass token
@@ -268,11 +303,11 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
                 ownerPins[(binding.ServerPid, binding.ServerCreationFileTime)] = pin;
             return binding;
         }
-        // The router's complete answer about one conversation leaves the protocol in step: the library throws these two
+        // The router's complete answer about one conversation leaves the protocol in step: the library throws these per-conversation errors
         // only after RequestAsync returned the response matching its request ID (DesktopAdapter.DiscoverCoreAsync), and
         // only RequestAsync's own failure closes the protocol. Discarding the connection here made every later pass pay a
         // full owner re-verification while that conversation kept answering with an error (A-broker-01).
-        catch (DesktopAdapterException error) when (error.Code is "owner_discovery_rejected" or "owner_capability_mismatch") { throw; }
+        catch (DesktopAdapterException error) when (error.Code is "owner_discovery_rejected" or "owner_capability_mismatch" or "invalid_protocol_identity") { throw; }
         catch
         {
             ownerPins.Clear();
@@ -283,13 +318,14 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
         }
     }
 
-    // The reconnect after a failed lookup starts at once, so it runs in the pause between passes (N-broker-161-01). It used
+    // The reconnect after a failed lookup starts at once. It overlaps the cadence interval or, when that was consumed,
+    // at most one interval of preparation before the next pass deadline (N-broker-161-01). It used
     // to run inside the next pass, charged to whichever conversation came first: with one conversation whose lookup times
     // out on every pass (and drops the connection each time) and a reconnect longer than a pass, the other rows were
     // renewed on every other pass at best, and with 10-second passes and pauses that exceeds the 30-second lease
     // (reproduced offline by CODEX_RECONNECT_BETWEEN_PASSES). The new connection is fully verified as before, and the
     // failed one is still discarded first: a connection a request failed on is never reused. Only code under the
-    // adapter's gate (every caller of this provider holds it) reads or writes these two fields; the task touches neither.
+    // owning role's gate reads or writes these fields; discovery and delivery use separate providers.
     private Task<ICodexOwnerConnection>? reconnecting;
     private CancellationTokenSource? reconnectBudget;
 
@@ -353,7 +389,7 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
 
     public async Task<DesktopSubmissionResult> SubmitAsync(DesktopOwnerBinding binding, Guid messageId, string text, CancellationToken token)
     {
-        if (!IsDeliveryAuthorized(binding) || adapter is null)
+        if (!enableDelivery || adapter is null)
             return new(DesktopSubmissionOutcome.Rejected, ErrorCode: "native_client_profile_unverified");
         // Advertisement uses only the verification from this discovery pass. Actual model input
         // always gets fresh full hashes and running-client validation; no metadata/hash cache is trusted.
@@ -372,10 +408,13 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
         catch (Exception error) when (error is DesktopAdapterException or IOException or UnauthorizedAccessException)
         {
             profileTrust = DesktopRouterTrust.Unverified;
-            profileUnavailable = error is not DesktopAdapterException;
+            profileUnavailable = error is not DesktopAdapterException desktop || IsVerificationUnavailable(desktop);
             forgetDiscovery();
             return Unverified();
         }
+        if (!IsDeliveryAuthorized(binding)) return Unverified();
+        if (token.IsCancellationRequested)
+            return new(DesktopSubmissionOutcome.DeferredNotSubmitted, ErrorCode: "native_not_submitted");
         DesktopSubmissionResult submitted;
         try { submitted = await adapter.SubmitAsync(binding, messageId, text, token); }
         catch (DesktopAdapterException exception) when (exception.Code == "receipt_capacity")
@@ -391,6 +430,10 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
             throw;
         }
         if (submitted.Outcome == DesktopSubmissionOutcome.Uncertain) await RetireOwnerConnectionAsync();
+        // A pre-frame deferral whose request failed closed the connection; one that no request failed on (a cancelled gate
+        // wait, or the final token check after a successful rediscovery) did not. A connection a request failed on is never
+        // reused, and one no request failed on is (N-broker-native-confirmation-01; the 1.6.1 register rule).
+        else if (submitted.Outcome == DesktopSubmissionOutcome.DeferredNotSubmitted && submitted.ConnectionClosed) await RetireOwnerConnectionAsync();
         return submitted;
     }
 
@@ -399,6 +442,9 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
     private DesktopSubmissionResult Unverified() => profileUnavailable
         ? new(DesktopSubmissionOutcome.DeferredNotSubmitted, ErrorCode: "native_verification_unavailable")
         : new(DesktopSubmissionOutcome.Rejected, ErrorCode: "native_client_profile_unverified");
+
+    private static bool IsVerificationUnavailable(DesktopAdapterException error)
+        => error.Code is "vscode_process_observation_expired" or "public_image_trust_unavailable";
 
     public async ValueTask DisposeAsync()
     {

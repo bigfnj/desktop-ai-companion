@@ -1,0 +1,79 @@
+# AgentBroker 1.9.1 audit follow-up
+
+The read-only audit of published `5232ed3ae3ddf24935527d9137cdab891e65c2f0` found two additional used-path defects. Its [CI run](https://github.com/bigfnj/desktop-ai-companion/actions/runs/42451466126) then exposed two supporting-test failures. All four engineering findings are now FIXED. The original 89 rows in the [disposition record](agentbroker-campaign-dispositions-20261107.md) and their accepted 1.9.0 evidence remain unchanged. The combined inventory is 93: 81 FIXED, 9 CLOSED-VERIFIED and 3 DECLINED-MEASURED. All 380 unrelated unique backlog IDs remain outside this campaign.
+
+This source record was prepared after actual 1.9.1 build, integrated regression and installed acceptance, and before final publication and hosted CI. Final hosted verification and the published-delta audit remain release steps. The failed 1.9.0 CI run remains failed; local repair evidence does not replace it.
+
+| Finding | Disposition or current status | Checkable evidence and remaining work |
+| --- | --- | --- |
+| N-broker-postpush-health-01 | FIXED | Explicit validated local/LAN ports reach the real request and metadata paths. The actual caller's 20 synthetic checks pass; four source controls fail their intended assertions and each exact restoration passes. The frozen helper passed installed read-only health, exit 0, with all five reported health booleans true. The new package's acceptance remains separate. |
+| N-broker-postpush-directory-01 | FIXED | The shared shape boundary rejects null directories, collections, rows and addresses before dereference. Focused 23 passed; removing the pure null-row guard failed `DIRECTORY_SHAPE_NULL_ROW`, exact restoration passed 23. The unchanged mixed-row fixture and new ordinary filtering contract preserve runtime semantics. Integrated Worker 1613 and actual 1.9.1 package/native acceptance passed. |
+| N-broker-postpush-repin-ci-01 | FIXED | The synthetic fixture now verifies owner/group/protection/exact DACL authority, then an actual restored write/readback and file removal. Focused 56 under Windows PowerShell 5.1 and 64 under PowerShell 7 passed; five controls per runtime failed their named checks and each restoration passed. No cause is attributed to the original CI descriptor mismatch. Hosted verification remains a release step. |
+| N-broker-postpush-module-counter-01 | FIXED | Shared output grading recognizes the exact module-tagged terse total, reconciles verbose counts and enforces AgentBroker's 385 floor at its real public caller. Pure/actual-caller 39 passed under both runtimes; seven controls per runtime failed their intended assertions and restoration passed. The actual public AgentBroker-only runner passed 385 against canonical 1.9.1 under Windows PowerShell 5.1. Hosted verification remains a release step. |
+
+## Health diagnostic
+
+The module supports custom local and LAN ports, but the published helper always requested port 7432 and required LAN metadata port 7433. A healthy installation using custom ports therefore failed its installed-health check. The old custom-port assertion tested Host formatting alone.
+
+[Test-LocalAgentBrokerHealth.ps1](../../tools/agentbroker/Test-LocalAgentBrokerHealth.ps1) now accepts `-LoopbackPort` and `-LanPort`, each bounded to 1 through 65535, retaining defaults 7432 and 7433. `Get-HealthHttpChecks` is the caller used by the live path and self-test. It supplies the expected LAN port to `Test-PublicInfo`; `Invoke-HealthGet` creates each real request with the configured local port, and the Host-alias refusal uses that same port. The helper reads no settings to infer these values. Its [documented invocation](../agentbroker.md) explains explicit custom ports.
+
+The 20-check self-test drives all four production HTTP-check paths with a synthetic client, real request/response objects and the bounded body reader, without sockets. Default 7432/7433 and custom 17432/17433 both pass. A mismatched advertised LAN port refuses. Both invalid bounds on each parameter refuse before script execution.
+
+Four cloned-source controls qualify propagation: hardcoding the actual request port fails `HEALTH_CONFIGURED_PORT_CALL_CHAIN`; hardcoding the metadata validator's expected port fails `HEALTH_CONFIGURED_LAN_PORT_ACCEPTANCE`; dropping the caller's LAN-port argument fails that same named acceptance assertion; hardcoding the caller's Host authority fails `HEALTH_CONFIGURED_PORT_CALL_CHAIN`. Each exact restoration passes 20. The integration source stayed unchanged during qualification and all cloned scripts were removed. A private controller initially expected the wrong wording for a parameter-binding error; that failed controller receipt remains retained and is not a product failure.
+
+The installed smoke used explicit default ports against the installed 1.9.0 worker. It exited 0 and reported `PublicInfoValid`, `UnpairedDirectoryRefused`, `BrowserOriginRefused`, `HostAliasRefused` and `ReadOnlyHealthPassed` true. It ran the frozen helper SHA-256 `EE39432A1DA26E881B5B43F90B2623859E7D5B060521906E80AA54B087F10AA9`. No live port setting was changed. Custom ports have synthetic actual-caller evidence, not a live configuration-change claim. Independent source review found no concrete regression or disposal issue in the repair.
+
+## Peer directory boundary
+
+At the published baseline, `PeerFederation.GetDirectoryAsync` dereferences each returned collection element without checking for null; `BrokerRuntime.DirectoryAsync` similarly renders remote rows, and its peer-local exception filter does not catch that null dereference. Nullable collection-element annotations do not impose a deserialization guarantee. The existing diagnostic directory path already validates rows and addresses and supplies a local pattern for a shared boundary check.
+
+This record preserves the source-confirmed finding and ordinary defensive validation scope. It does not claim a vulnerable-baseline or remote reproduction. The retired claim timing scaffold remains unexecuted and unrelated to this follow-up.
+
+The first full Worker regression of the directory repair failed because one validator was reused too broadly. The repair now separates shape validation from strict wire/diagnostic policy, preserving the runtime's existing mixed-row filtering. The original fixture remains unchanged and the failed full run is retained. Runtime listings retain eligible rows while filtering private, transitive and expired rows; the wire and diagnostic paths retain their stricter policy. The existing 512-row wire and 256-row presentation caps remain.
+
+The [shared policy](../../tools/AgentBroker.Worker/Federation/PeerDirectoryPolicy.cs) and [ordinary shape contracts](../../tests/AgentBroker.Worker.Tests/PeerDirectoryShapeChecks.cs) passed a fresh zero-warning/error build and 23 focused assertions, including mixed-row compatibility. The pure null-row control rebuilt and executed the changed Worker, failed exactly `DIRECTORY_SHAPE_NULL_ROW`, then restored the source exactly and passed 23. That altered-source qualification exercised an in-memory predicate only, with no store, federation or remote workflow. Independent read-only review matched all six frozen source hashes and found no further concrete regression. The subsequent integrated Worker 1613 and canonical 1.9.1 installed acceptance passed below.
+
+## Re-pin CI fixture
+
+The original hosted run failed `REPIN_FIXTURE_ACL_RESTORED` after its protected-owner check passed, while also reporting fixture cleanup. It recorded no before/after ACL, so the descriptor mismatch's cause is not established. Earlier local 44/52 passes do not qualify that CI result.
+
+[Test-AgentBrokerRepin.ps1](../../tools/agentbroker/Test-AgentBrokerRepin.ps1) now gives the owned synthetic file deterministic authority without changing its actual owner. Restoration checks owner SID, group SID, inheritance protection and exact ordered DACL bytes, then requires a real append/readback and file absence. A nondegenerate metadata-axis model permits different descriptor bookkeeping text with the same authority; this models an allowed distinction, not the historical mismatch's cause. Vendor protection policy and pin contents are unchanged.
+
+The final fixture passed 56 under Windows PowerShell 5.1 and 64 under PowerShell 7. Five cloned-source controls per runtime failed exactly one intended assertion: `REPIN_FIXTURE_AUTHORITY_OWNER`, `REPIN_FIXTURE_AUTHORITY_MASK`, `REPIN_FIXTURE_ACL_RESTORED`, `REPIN_FIXTURE_WRITE_RESTORED` and `REPIN_FIXTURE_INHERITED_METADATA`. Every exact restoration passed 56/64, with executed-clone hashes and a child witness. Source SHA-256 is `E2F86F6FB6ACE5BBB2E35E45DB8FFA7A4996DB7D6D1BC206C6E39F286ECA8069`. Owned fixture files and clone roots were removed. The first degenerate metadata pair's surviving control and private legacy-module-path launcher failures remain failed qualification receipts. No live vendor action or permission policy change occurred.
+
+## Public module counter
+
+The convention loader writes identical tagged detail lines to its marker and stdout. AgentBroker's actual summary is `[agentbroker] 385 checks passed`; the public runner counted only individual tagged `PASS:` lines. [HarnessOutput.ps1](../../tests/HarnessOutput.ps1) now recognizes the exact tagged total, reconciles it with verbose assertions when present, rejects duplicate/contradictory/invalid totals and excludes host or foreign-module evidence. [Test-ModuleSelfTests.ps1](../../tests/Test-ModuleSelfTests.ps1) supplies the 385 floor only for passing AgentBroker; other passing modules retain minimum 1. Optional `-Only` requires selected modules known and built, rejects uncatalogued built IDs and executes only selected loops. Default full catalog/build coverage remains unchanged.
+
+[The 39 contracts](../../tests/Test-ModuleAssertionContracts.ps1) exercise supported output and actual caller/catalog branches. They run automatically through [Test-HarnessOutputContracts.ps1](../../tests/Test-HarnessOutputContracts.ps1). Seven source controls per runtime remove the helper floor, lower the recorded floor, omit the actual caller's minimum, or disable count reconciliation, duplicate rejection, positive-total validation or selection membership. All 14 failed their intended assertions and exact restoration passed 39. A first control incorrectly disabled parsing too and failed the healthy terse assertion; that attempt remains failed and is excluded from the 14.
+
+Independent floor qualification passed the existing 25 plus new 39 contracts under both runtimes. Lowering the Worker floor from 1613 to 1612 failed `BROKER_FINAL_INVENTORY_FLOORS` on each, and exact restoration passed 25/39. The approved real public runner then passed 385 AgentBroker assertions in 14.1 seconds under Windows PowerShell 5.1 against canonical 1.9.1, with exactly one covered module and no known gaps executed. It ran hidden with real input disabled, stderr empty and private temporary storage removed. Canonical product/artifact hashes were unchanged; no other module was run.
+
+The first final source-invariant run after the scoped-runner change failed an existing text check that expected the old real-input notice condition. The scoped runner correctly emits that notice only when Blinking LED is selected. The corrected check verifies both conditions and their order against the actual comment-stripped caller. Five in-memory broken condition/order cases fail its intended assertion under each PowerShell runtime and restored input passes. The corrected full Windows PowerShell 5.1 source-invariant rerun passed. The original failed receipt is retained. This is part of the module-counter supporting repair, with no additional finding or product change.
+
+## Actual 1.9.1 validation and acceptance
+
+Fresh receipts share run ID `c1d723f2-54bf-4e2f-9dbf-4df072e48d61`; no 1.9.0 acceptance receipt was copied forward. Private receipt/version/path contracts passed 59 under each PowerShell runtime and reject advertised version 1.9.0. The Windows PowerShell 5.1 receipt-chain check passed against the actual fresh build/package/stage/loader/live receipts.
+
+The 3201 total covers the seven C# harnesses. The integrated gate's re-pin helper summary retains its earlier 44/52 inventory; the later 56/64 re-pin and 25/39 output-contract qualifications are separate focused runs against the final supporting scripts.
+
+| Record | Actual evidence |
+| --- | --- |
+| Canonical build | 204 watched product inputs; zero warnings/errors; self-contained Worker 354 files. |
+| Integrated regression | Seven harnesses, 3201 assertions: Core 408, Relay 40, Claude 212, Desktop 594, Adapter 84, Network 250 and Worker 1613. Final host source invariants passed after the qualified notice-condition correction; the failed initial attempt remains recorded above. |
+| ZIP | 357 entries, 51467892 bytes; SHA-256 `1C98FB2BB9BF22D69E6B999AE403A8A620C561E58B01891BE8B44D0D726A23B6`. |
+| Worker DLL | SHA-256 `683C34CC13CCEAED9A71E280F3538D95463E665DC1927577752B648138404F64`. |
+| Module DLL | SHA-256 `92F77B93838CC176D7BCA22CB29C2757C44A4C80D67D856A9157EFA5FEDFF219`. |
+| Bundled ModuleKit | SHA-256 `4902B8CB5C4EE06EA5D254E8ADA86990B3F8D316B70857D014EDF05FCEDCB334`. |
+| Version preflight | Official PE inspection verified advertised module 1.9.1 and expected MCP count 16; existing data unopened and external writes false. Recorded AssemblyInformationalVersion is separately `1.0.0+5232ed3ae3ddf24935527d9137cdab891e65c2f0`. |
+| Private loader | Real loader accepted the module; 385 checks, shutdown ownership checks, exit 0, stderr empty; owned temp removed. This and the public runner are separate 385-check runs, not a 770-assertion product inventory. |
+| Official installed upgrade | Installer exit 0, both listener owners verified, MCP initialized with 16 tools, Ready true, payload/settings/data preserved. Both modules' settings and all three AgentFlow public payload hashes match their fresh pre-stage state. |
+| Installed native operations | Directory, nonblocking native inbox and report-only recovery passed: 0 pending messages, 1 recovery entry. Temporary declaration cleared and owned request file absent. |
+
+These results close the four engineering findings. Final publication, hosted CI and the audit of the published delta are still release steps at this record's preparation. No retired timing replay, resource soak, configured title-hook event, fresh-chat MCP exposure, original-GUI acceptance or new physical two-PC acceptance is claimed. Exact-incarnation routing and the owner's recorded vendor limitations remain unchanged.
+
+## Addendum 5 usage guidance
+
+Use `read_inbox_page` for temporal, pending-only pages. [PendingInbox.cs](../../src/AgentBroker.Core/PendingInbox.cs#L24) assigns broker arrival ordinals and selects Accepted, Submitting, Submitted and Uncertain messages still needing receipt. Its store-opening cursor is suitable between polls and explicitly resets after restart. Legacy [read_inbox](../../tools/AgentBroker.Worker/BrokerTools.cs#L203) remains a UUID-ordered retained-history scan; start each new scan without its cursor.
+
+Successful participant-bound tool calls append pending-message hints. [The common tool filter](../../tools/AgentBroker.Worker/McpActivityTracker.cs#L139) appends them after successful calls, while [the request-local participant check](../../tools/AgentBroker.Worker/BrokerTools.Inbox.cs#L26) requires an exact participant established by that same successful local call. `list_sessions`, `get_message_receipt`, errors, anonymous calls and paired calls do not establish that participant and receive no guessed inbox hint. No process, client-label or last-caller cache substitutes for chat identity. This is the intended scope of the recommendation to include a hint on every response; it creates no further backlog item.

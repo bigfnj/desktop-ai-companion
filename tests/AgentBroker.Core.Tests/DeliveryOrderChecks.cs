@@ -32,7 +32,7 @@ internal static class DeliveryOrderChecks
         // The first delivery attempt defers (the recipient turned busy): the message returns to Accepted and backs off.
         var claimed = store.BeginDelivery();
         Check(claimed?.Message.Id == first.Id, "ORDER_FIRST_CLAIMED: the only pending message is claimed first");
-        store.ReleaseUnsubmittedClaim(first.Id, "native_recipient_not_idle");
+        store.ReleaseUnsubmittedClaim(store.FindReceipt(first.Id)!, "native_recipient_not_idle");
         var second = Message(sender, recipient, clock, "Synthetic second message.", TimeSpan.FromMinutes(10));
         var unrelated = Message(other, recipient, clock, "Synthetic message from another sender.", TimeSpan.FromMinutes(10));
         store.Accept(second, store.BrokerId);
@@ -42,13 +42,13 @@ internal static class DeliveryOrderChecks
         var pick = store.BeginDelivery(backingOff);
         Check(pick?.Message.Id == unrelated.Id,
             "ORDER_SAME_PAIR_WAITS: while the older message backs off, the newer one from the same sender waits and another sender's goes");
-        store.CompleteDelivery(unrelated.Id, MessageStatus.Submitted, "synthetic_submitted");
+        store.CompleteDelivery(store.FindReceipt(unrelated.Id)!, MessageStatus.Submitted, "synthetic_submitted");
         Check(store.BeginDelivery(backingOff) is null,
             "ORDER_NO_OVERTAKE: with only the backing-off message and its successor left, nothing is claimed");
         Check(store.BeginDelivery()?.Message.Id == first.Id, "ORDER_OLDER_FIRST: once the backoff ends, the older message is claimed before the newer");
-        store.CompleteDelivery(first.Id, MessageStatus.Submitted, "synthetic_submitted");
+        store.CompleteDelivery(store.FindReceipt(first.Id)!, MessageStatus.Submitted, "synthetic_submitted");
         Check(store.BeginDelivery()?.Message.Id == second.Id, "ORDER_THEN_NEWER: the newer message follows once the older one has gone");
-        store.CompleteDelivery(second.Id, MessageStatus.Submitted, "synthetic_submitted");
+        store.CompleteDelivery(store.FindReceipt(second.Id)!, MessageStatus.Submitted, "synthetic_submitted");
 
         // Expiry ends the wait: an older message that never becomes deliverable must not hold its successor forever.
         var stale = Message(sender, recipient, clock, "Synthetic message that will expire.", TimeSpan.FromMinutes(1));
@@ -62,7 +62,7 @@ internal static class DeliveryOrderChecks
         store.Register(recipient with { LeaseUntil = clock.GetUtcNow().AddMinutes(2) });
         Check(store.BeginDelivery(staleOnly)?.Message.Id == fresh.Id && store.FindReceipt(stale.Id)?.Status == MessageStatus.Expired,
             "ORDER_EXPIRY_RELEASES: once the older message expires, its successor is claimed");
-        store.CompleteDelivery(fresh.Id, MessageStatus.Submitted, "synthetic_submitted");
+        store.CompleteDelivery(store.FindReceipt(fresh.Id)!, MessageStatus.Submitted, "synthetic_submitted");
         passed += WaitReasons(store, clock, sender with { LeaseUntil = clock.GetUtcNow().AddMinutes(2) });
         return passed;
     }
@@ -81,7 +81,7 @@ internal static class DeliveryOrderChecks
             clock.GetUtcNow(), clock.GetUtcNow().AddMinutes(30));
         store.Register(sender);
         // The expired message above owes its sender a notice; deliver what is claimable so only this section's records remain.
-        while (store.BeginDelivery() is { } owed) store.CompleteDelivery(owed.Message.Id, MessageStatus.Submitted, "synthetic_submitted");
+        while (store.BeginDelivery() is { } owed) store.CompleteDelivery(store.FindReceipt(owed.Message.Id)!, MessageStatus.Submitted, "synthetic_submitted");
         var busy = new BrokerSession(new(store.BrokerId, "claude:wait-busy", Guid.NewGuid()), "Native busy", "claude-native",
             SessionCapabilities.Receive | SessionCapabilities.WakeIdle | SessionCapabilities.Reply, SessionActivity.Busy, clock.GetUtcNow().AddMinutes(2));
         store.Register(busy);
@@ -101,7 +101,7 @@ internal static class DeliveryOrderChecks
         Check(store.FindReceipt(waiting.Id)?.Reason is null && store.BeginDelivery()?.Message.Id == waiting.Id,
             "WAIT_REASON_FOLLOWS_STATE WITNESS: a Ready recipient shows no wait and the message is claimed");
         // A deferral's own reason is the better account of a message that was tried: it is kept.
-        store.ReleaseUnsubmittedClaim(waiting.Id, "native_recipient_not_idle");
+        store.ReleaseUnsubmittedClaim(store.FindReceipt(waiting.Id)!, "native_recipient_not_idle");
         store.Register(busy);
         Check(store.FindReceipt(waiting.Id)?.Reason == "native_recipient_not_idle",
             "WAIT_REASON_KEEPS_DEFERRAL: a message that was tried keeps its deferral reason (" + store.FindReceipt(waiting.Id)?.Reason + ")");

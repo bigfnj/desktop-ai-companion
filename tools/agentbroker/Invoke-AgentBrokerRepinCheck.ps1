@@ -11,7 +11,7 @@
     results.json, summary.md (for the run summary) and, for each eligible build, the drafted entry and a pull request
     body. Every download happens inside this one invocation.
 
-    Pull request phase (-OpenPullRequests): for each eligible build that has no open pull request yet (matched by its
+    Pull request phase (-OpenPullRequests): for each eligible build that has no prior pull request (open, closed or merged; matched by its
     branch, agentbroker-repin/<build>), creates that branch from the current commit with the entry merged into
     tools/AgentBroker.Pins/agentbroker-pins.json, pushes it and opens a DRAFT pull request. -DryRun prints the plan and
     changes nothing. It never merges, approves or pushes to the base branch.
@@ -349,19 +349,40 @@ function Invoke-PullRequestPhase {
     if ($errors.Count -gt 0) { throw ('Could not check: ' + (($errors | ForEach-Object { $_.package + ' (' + $_.error + ')' }) -join '; ')) }
 }
 
-function Open-PlannedPullRequests([string]$out, $planned) {
-    $open = @()
-    $gh = Get-Command gh -ErrorAction SilentlyContinue
-    if ($null -ne $gh -and ($env:GH_TOKEN -or -not $DryRun)) {
-        $open = @((& gh pr list --state open --limit 200 --json 'number,headRefName' | ConvertFrom-Json) | ForEach-Object { $_ })
-        if ($LASTEXITCODE -ne 0) { throw 'gh pr list failed; no pull request was opened.' }
+function ConvertTo-GitHubRepository([string]$Url) {
+    if ($Url -match '^(?:https://github\.com/|git@github\.com:)([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+?)(?:\.git)?$') { return $Matches[1] }
+    throw 'The re-pin origin must name an explicit GitHub repository.'
+}
+
+function Find-BuildPullRequest([string]$Branch, [string]$Repository, [scriptblock]$Query = $null) {
+    if ($null -eq $Query) {
+        $Query = {
+            param([string[]]$Arguments)
+            $text = @(& gh @Arguments)
+            return [pscustomobject]@{ ExitCode = $LASTEXITCODE; Text = ($text -join "`n") }
+        }
     }
-    elseif ($DryRun) { Write-Output 'DRY-RUN: gh is unavailable or unauthenticated here, so no open pull request is known.' }
+    $answer = & $Query -Arguments @('pr', 'list', '--repo', $Repository, '--state', 'all', '--head', $Branch,
+        '--limit', '1', '--json', 'number,headRefName,state')
+    if ($answer.ExitCode -ne 0) { throw 'gh pr list failed; no pull request was opened.' }
+    $parsed = ConvertFrom-Json -InputObject $answer.Text -NoEnumerate
+    if ($parsed -isnot [Array]) { throw 'gh pr list returned an invalid result; no pull request was opened.' }
+    return @($parsed | Where-Object { $_.headRefName -ceq $Branch })
+}
+
+function Open-PlannedPullRequests([string]$out, $planned) {
+    $gh = Get-Command gh -ErrorAction SilentlyContinue
+    $canQuery = $null -ne $gh -and ($env:GH_TOKEN -or -not $DryRun)
+    if (-not $canQuery -and $DryRun) { Write-Output 'DRY-RUN: gh is unavailable or unauthenticated here, so no prior pull request is known.' }
+    $origin = @(& git -C $script:RepoRoot remote get-url origin)
+    if ($LASTEXITCODE -ne 0 -or $origin.Count -ne 1) { throw 'Could not identify the re-pin origin repository.' }
+    $repository = ConvertTo-GitHubRepository ([string]$origin[0])
     $base = (& git -C $script:RepoRoot rev-parse HEAD).Trim()
-    if (-not $DryRun) { Invoke-Native 'gh' @('auth', 'setup-git') | Out-Null }
+    $gitAuthReady = $false
     foreach ($pr in $planned) {
-        $existing = @($open | Where-Object { [string]$_.headRefName -ceq [string]$pr.Branch })
-        if ($existing.Count -gt 0) { Write-Output ("Skipped $($pr.Id): pull request #" + $existing[0].number + ' is already open for this build.'); continue }
+        $existing = @(if ($canQuery) { Find-BuildPullRequest ([string]$pr.Branch) $repository })
+        if ($existing.Count -gt 0) { Write-Output ("Skipped $($pr.Id): pull request #" + $existing[0].number + ' already records this build; closed decisions are retained.'); continue }
+        if (-not $DryRun -and -not $gitAuthReady) { Invoke-Native 'gh' @('auth', 'setup-git') | Out-Null; $gitAuthReady = $true }
         $merge = Join-Path $out ('merge-' + $pr.Id)
         & pwsh -NoProfile -File $script:Helper -MergeEntry $pr.EntryFile -OutputDirectory $merge | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "The entry for $($pr.Id) could not be merged into the pin document." }
@@ -373,7 +394,7 @@ function Open-PlannedPullRequests([string]$out, $planned) {
         Invoke-Native 'git' @('-C', $script:RepoRoot, '-c', "user.name=$($script:BotName)", '-c', "user.email=$($script:BotEmail)", 'commit', '--quiet',
             '-m', [string]$pr.Title, '-m', 'Drafted by the scheduled AgentBroker re-pin check; see the pull request for the evidence and the review checklist.') | Out-Null
         Invoke-Native 'git' @('-C', $script:RepoRoot, 'push', '--force', 'origin', ('HEAD:refs/heads/' + [string]$pr.Branch)) | Out-Null
-        Invoke-Native 'gh' @('pr', 'create', '--draft', '--base', $BaseBranch, '--head', [string]$pr.Branch, '--title', [string]$pr.Title, '--body-file', [string]$pr.BodyFile) |
+        Invoke-Native 'gh' @('pr', 'create', '--repo', $repository, '--draft', '--base', $BaseBranch, '--head', [string]$pr.Branch, '--title', [string]$pr.Title, '--body-file', [string]$pr.BodyFile) |
             ForEach-Object { Write-Output $_ }
         Invoke-Native 'git' @('-C', $script:RepoRoot, 'switch', '--quiet', '--detach', $base) | Out-Null
     }
@@ -381,8 +402,35 @@ function Open-PlannedPullRequests([string]$out, $planned) {
 
 # ---- Self-test ----
 function Invoke-SelfTest {
+    Write-Output 'WITNESS: REPIN_HISTORY_EXECUTED'
     $script:checks = 0
     function Assert([bool]$Condition, [string]$Label) { if (-not $Condition) { throw "FAIL: $Label" }; $script:checks++; Write-Output "PASS: $Label" }
+
+    Assert ((ConvertTo-GitHubRepository 'https://github.com/synthetic-owner/synthetic-repo.git') -ceq 'synthetic-owner/synthetic-repo' -and
+        (ConvertTo-GitHubRepository 'git@github.com:synthetic-owner/synthetic-repo.git') -ceq 'synthetic-owner/synthetic-repo') 'REPIN_EXPLICIT_REPOSITORY: HTTPS and SSH origins identify the same explicit repository'
+    foreach ($priorState in @('OPEN', 'CLOSED', 'MERGED')) {
+        $branch = 'agentbroker-repin/synthetic-build'
+        $query = {
+            param([string[]]$Arguments)
+            $scopeMatches = ($Arguments -contains 'all') -or (($priorState -ceq 'OPEN') -and ($Arguments -contains 'open'))
+            $correct = $scopeMatches -and $Arguments -contains $branch -and
+                $Arguments -contains 'synthetic-owner/synthetic-repo' -and $Arguments -contains '--repo'
+            $text = if ($correct) { '[{"number":42,"headRefName":"' + $branch + '","state":"' + $priorState + '"}]' } else { '[]' }
+            [pscustomobject]@{ ExitCode = 0; Text = $text }
+        }
+        $prior = @(Find-BuildPullRequest $branch 'synthetic-owner/synthetic-repo' $query)
+        Assert ($prior.Count -eq 1 -and $prior[0].state -ceq $priorState) ('REPIN_BUILD_HISTORY_' + $priorState + ': an existing build decision is retained without reopening it')
+    }
+    $queryFailed = $false
+    try { $null = Find-BuildPullRequest 'agentbroker-repin/synthetic' 'synthetic-owner/synthetic-repo' { param($Arguments) [pscustomobject]@{ ExitCode = 1; Text = '[]' } } }
+    catch { $queryFailed = $_.Exception.Message -ceq 'gh pr list failed; no pull request was opened.' }
+    Assert $queryFailed 'REPIN_BUILD_HISTORY_UNAVAILABLE: a failed lookup never means no previous decision'
+    $nullRefused = $false
+    try { $null = Find-BuildPullRequest 'agentbroker-repin/synthetic' 'synthetic-owner/synthetic-repo' { param($Arguments) [pscustomobject]@{ ExitCode = 0; Text = 'null' } } }
+    catch { $nullRefused = $_.Exception.Message -ceq 'gh pr list returned an invalid result; no pull request was opened.' }
+    Assert $nullRefused 'REPIN_BUILD_HISTORY_NULL: a null response cannot mean an empty decision history'
+    $noPrior = @(Find-BuildPullRequest 'agentbroker-repin/synthetic' 'synthetic-owner/synthetic-repo' { param($Arguments) [pscustomobject]@{ ExitCode = 0; Text = '[]' } })
+    Assert ($noPrior.Count -eq 0) 'REPIN_BUILD_HISTORY_EMPTY_WITNESS: a real empty array can prove no prior decision'
 
     Assert ((Test-DownloadUrl 'https://registry.npmjs.org/@anthropic-ai/x/-/x-1.tgz' @('registry.npmjs.org')) -and
         -not (Test-DownloadUrl 'http://registry.npmjs.org/x.tgz' @('registry.npmjs.org')) -and

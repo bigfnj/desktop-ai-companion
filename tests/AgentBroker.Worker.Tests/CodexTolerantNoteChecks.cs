@@ -16,6 +16,7 @@ internal static class CodexTolerantNoteChecks
 
     internal static async Task RunAsync(Action<bool, string> check, string? only = null)
     {
+        Console.WriteLine("WITNESS: CODEX_COMPLETION_EXECUTED");
         if (only is not null && !Cases.Contains(only)) throw new ArgumentException("Unknown Codex tolerant-note case.", nameof(only));
         foreach (string name in Cases.Where(name => only is null || only == name))
             switch (name)
@@ -72,9 +73,24 @@ internal static class CodexTolerantNoteChecks
             f.ProfileFailure = new DesktopAdapterException("running_vscode_image_mismatch", ExtensionVersion);
             f.PublisherFailure = new DesktopAdapterException(code, ExtensionVersion);
             var rows = await f.DiscoverAsync();
-            check(rows.Count == 1 && rows[0].Capabilities == SessionCapabilities.None && NoCarriedNote(f.Diagnostics) &&
+            // Unavailable trust is an incomplete broker check, not a signature/publisher verdict. It retains only
+            // bounded Receive so the queue can wait; neither outcome permits native input or a carried-build note.
+            bool unavailable = code == "public_image_trust_unavailable";
+            var expected = unavailable ? SessionCapabilities.Receive : SessionCapabilities.None;
+            check(rows.Count == 1 && rows[0].Capabilities == expected && !HasWake(rows[0]) &&
+                !rows[0].Capabilities.HasFlag(SessionCapabilities.NativeIdleGuard) && NoCarriedNote(f.Diagnostics) &&
                 Error(f.Diagnostics, "running_vscode_image_mismatch") && Error(f.Diagnostics, code),
                 L + "failed publisher evidence retains both real errors and never becomes a carried note (" + code + ")");
+            int discoveries = f.Owner.Discoveries;
+            var recipient = rows[0].Address;
+            var message = new BrokerMessage(Guid.NewGuid(), Guid.NewGuid(), null,
+                new(recipient.BrokerId, "synthetic-note-sender", Guid.NewGuid()), recipient, "Synthetic unavailable trust check.",
+                DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddMinutes(1));
+            var result = await f.Adapter.SubmitAsync(message, default);
+            check(f.Owner.Submissions == 0 && f.Owner.Discoveries == discoveries &&
+                (unavailable ? result is { Outcome: AdapterAdmission.DeferredNotSubmitted, Reason: "native_verification_unavailable" }
+                    : result.Outcome == AdapterAdmission.Refused),
+                L + "failed publisher evidence never wakes, rediscovers or submits native input (" + code + ")");
         }
         await using (var f = new Fixture())
         {
@@ -229,25 +245,25 @@ internal static class CodexTolerantNoteChecks
         var spy = new CompletionProvider();
         await using var adapter = new CodexNativeAdapter(spy, enableDelivery: true, updateTolerantDelivery: true);
         var first = await adapter.DiscoverAsync(Guid.NewGuid(), default);
-        check(first.Count == 1 && HasWake(first[0]) && spy.Completions == 1 && spy.CompletedMode && spy.Completed.SequenceEqual([spy.Binding]),
-            L + "the real adapter completes discovery with its freshly resolved guarded update-tolerant binding");
+        check(first.Count == 1 && HasWake(first[0]) && spy.Completions == 1 && spy.CompletedMode && spy.Authorizations == 2,
+            L + "CODEX_NO_UNUSED_AUTHORITY: completion reports mode without another unused per-row authorization");
         spy.SkipOwner = true;
         await adapter.DiscoverAsync(Guid.NewGuid(), default);
-        check(spy.Completions == 2 && spy.Completed.Count == 0 && adapter.DiscoveryDiagnostics.Any(item => item.Code == "codex_owner_lookup_skipped"),
-            L + "a skipped lookup's retained old binding is never reported as a newly carried session");
+        check(spy.Completions == 2 && adapter.DiscoveryDiagnostics.Any(item => item.Code == "codex_owner_lookup_skipped"),
+            L + "a skipped lookup remains diagnosed when reporting completion");
         spy.SkipOwner = false; spy.Authority = CodexDeliveryAuthority.ExactPinned;
         spy.Binding = spy.Binding with { RouterTrust = DesktopRouterTrust.ExactPinned };
         var exact = await adapter.DiscoverAsync(Guid.NewGuid(), default);
-        check(exact.Count == 1 && HasWake(exact[0]) && spy.Completed.Count == 0,
-            L + "a guarded exact-pin session is never mislabeled as carried update-tolerant delivery");
+        check(exact.Count == 1 && HasWake(exact[0]) && spy.Completions == 3,
+            L + "a guarded exact-pin session remains deliverable through reporting completion");
         spy.Authority = CodexDeliveryAuthority.UpdateTolerant;
         spy.Binding = spy.Binding with { RouterTrust = DesktopRouterTrust.PublisherSigned, SupportsUntrustedAppInput = false };
         await adapter.DiscoverAsync(Guid.NewGuid(), default);
-        check(spy.Completed.Count == 0, L + "an unsupported native capability is excluded from carried completion evidence");
+        check(spy.Completions == 4, L + "an unsupported native capability still reaches reporting completion");
         spy.Threads = [];
         await adapter.DiscoverAsync(Guid.NewGuid(), default);
-        check(spy.Completions == 5 && spy.Completed.Count == 0,
-            L + "the real adapter finalizes even an empty completed pass with empty carried evidence");
+        check(spy.Completions == 5,
+            L + "the real adapter finalizes even an empty completed pass");
 
         await using var f = new Fixture();
         f.ProfileFailure = new DesktopAdapterException("unsupported_vscode_profile", ExtensionVersion);
@@ -373,7 +389,7 @@ internal static class CodexTolerantNoteChecks
             f.Observer.ReportingProof = true;
             await f.Provider.ObserveAsync(default);
             f.Observer.ReportingProof = false;
-            f.Provider.CompleteDiscovery([], true);
+            f.Provider.CompleteDiscovery(true);
             check(Error(f.Provider.DiscoveryDiagnostics, pin.Code) && NoCarriedNote(f.Provider.DiscoveryDiagnostics),
                 L + "an observer that loses live reporting proof after observation keeps its exact error at completion");
         }
@@ -384,7 +400,7 @@ internal static class CodexTolerantNoteChecks
             f.Observer.ReportingProof = true;
             await f.Provider.ObserveAsync(default);
             f.Observer.RouterIdentity = (f.Observer.RouterIdentity.Pid + 1, f.Observer.RouterIdentity.CreationFileTime);
-            f.Provider.CompleteDiscovery([], true);
+            f.Provider.CompleteDiscovery(true);
             check(Error(f.Provider.DiscoveryDiagnostics, pin.Code) && NoCarriedNote(f.Provider.DiscoveryDiagnostics),
                 L + "an observer whose live identity changes after observation cannot reuse the captured publisher verdict");
         }
@@ -466,15 +482,14 @@ internal static class CodexTolerantNoteChecks
         internal DesktopOwnerBinding Binding = new(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), 12345, 134000000000000000, true) { RouterTrust = DesktopRouterTrust.PublisherSigned };
         internal Guid[]? Threads;
         internal bool SkipOwner, FailCompletion, CompletedMode;
-        internal int Completions, Submissions;
+        internal int Completions, Submissions, Authorizations;
         internal CodexDeliveryAuthority Authority = CodexDeliveryAuthority.UpdateTolerant;
-        internal IReadOnlyList<DesktopOwnerBinding> Completed = [];
         public bool NativeIdleGuard => true;
         public bool IsDeliveryAuthorized(DesktopOwnerBinding binding) => true;
-        public CodexDeliveryAuthority Authorize(DesktopOwnerBinding binding) => Authority;
-        public void CompleteDiscovery(IReadOnlyList<DesktopOwnerBinding> carriedBindings, bool updateTolerantDelivery)
+        public CodexDeliveryAuthority Authorize(DesktopOwnerBinding binding) { Authorizations++; return Authority; }
+        public void CompleteDiscovery(bool updateTolerantDelivery)
         {
-            Completions++; Completed = carriedBindings.ToArray(); CompletedMode = updateTolerantDelivery;
+            Completions++; CompletedMode = updateTolerantDelivery;
             if (FailCompletion) throw new InvalidOperationException("Synthetic report failure.");
         }
         public Task<IReadOnlyList<DesktopDirectorySession>> ObserveAsync(CancellationToken token) =>

@@ -18,6 +18,12 @@ ping without a custom request handler. It also checks stateless 2026-07-28 calls
 required routing headers and per-request metadata, and refusal of legacy no-session
 raw calls. A failed assertion reports its fixed check name.
 
+Teardown is observed: the SDK's public session-completion task must change from
+live to gracefully completed after disposal. The OS TCP listener list must contain
+this probe's exact loopback endpoint before stop and omit it after disposal.
+Receipt fields report those observations and the audited request count.
+They do not certify the absence of unrelated file or process activity.
+
 The mixed old initialize-body/new HTTP-header case is reported separately. It is
 not used as evidence of valid negotiation or a supported migration technique.
 Output contains fixed verdicts/counts, not session IDs, HTTP bodies or endpoint

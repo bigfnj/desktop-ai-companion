@@ -15,8 +15,9 @@
 
     Two halves, and the second is the one that keeps this honest:
 
-      COVERED   must report RESULT=PASS, with at least one PASS: assertion line of the module's own (tagged
-                [<id>]; the host's convention lines do not count) and NO SKIP: line.
+      COVERED   must report RESULT=PASS, with tagged assertion evidence and NO SKIP: line.
+                Evidence is individual PASS: lines or the module's own "N checks passed" total.
+                Recorded module-specific floors also refuse an assertion inventory that shrank.
                 These are the modules whose module class exposes
                 `static bool SelfTest(out string detail)`, so the host runs their own assertions.
                 All three rules are graded: a PASS carrying no assertions is a check that ran nothing,
@@ -56,10 +57,13 @@
 param(
     [string]$RepoRoot = '',
     # The limit for every module that has none of its own in $ModuleTimeoutSeconds below.
-    [int]$TimeoutSeconds = 180
+    [int]$TimeoutSeconds = 180,
+    # All built ids must remain catalogued; a scoped run requires only its selected ids built.
+    [string[]]$Only = @()
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'HarnessOutput.ps1')
 
 # Resolved AFTER the param block, not as a default. Under Windows PowerShell 5.1 $PSScriptRoot is
 # empty while parameter defaults are being bound, so `Split-Path -Parent $PSScriptRoot` there throws
@@ -90,6 +94,8 @@ $Covered = @('agentbroker', 'agentflow', 'aibrain', 'blinkingled', 'fortunes', '
 # before it times out. A caller's larger -TimeoutSeconds still wins (Get-ModuleTimeoutSeconds), so this can only lengthen
 # a module's limit, never shorten it below what the caller asked for.
 $ModuleTimeoutSeconds = @{ 'fortunes' = 300 }
+# 2026-11-12: Root's unstamped G2 module measurement is 631; the historical 1.10.4 floor was 520.
+$moduleAssertionFloors = @{ 'agentbroker' = 632 }
 
 # The EXACT set of failures each uncovered module is expected to report -- not merely "it failed",
 # and not just its first failure. The first draft of this file matched the first FAIL line only, and
@@ -137,6 +143,17 @@ $realInputModules = @{
 $realInputRecordPattern = '^realKeypresses=(\d+) withheld=(\d+) started=(\d+) shutDown=(\d+)$'
 $noRealInputMeasured = @()
 
+function Select-ModuleTestIds([string[]]$Requested, [string[]]$Known) {
+    $selected = @($Requested | ForEach-Object {
+        if ([string]::IsNullOrWhiteSpace($_)) { throw 'Test-ModuleSelfTests.ps1: module selection contains an empty id.' }
+        $_.ToLowerInvariant()
+    } | Sort-Object -Unique)
+    if ($selected.Count -eq 0 -or @($selected | Where-Object { $Known -notcontains $_ }).Count -gt 0) {
+        throw 'Test-ModuleSelfTests.ps1: module selection must name known built modules.'
+    }
+    return $selected
+}
+
 $exe = Join-Path $RepoRoot 'build\DesktopAICompanionPortable\bin\Release\x64\DesktopAICompanion.exe'
 if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
     throw "The Release host is not built, so no module self-test can run: $exe"
@@ -150,8 +167,9 @@ if ($built.Count -eq 0) { throw "No built modules found under $modulesRoot" }
 # A NEW module must land in one list or the other. Without this the file would keep passing while
 # quietly testing a shrinking fraction of what ships.
 $known = @($Covered + @($Uncovered.Keys) | Sort-Object)
+$selected = if ($Only.Count -gt 0) { @(Select-ModuleTestIds $Only $known) } else { $known }
 $unlisted = @($built | Where-Object { $known -notcontains $_ })
-$missing = @($known | Where-Object { $built -notcontains $_ })
+$missing = @($selected | Where-Object { $built -notcontains $_ })
 if ($unlisted.Count -gt 0) {
     throw ("Built module(s) appear in neither the COVERED nor the UNCOVERED list in this file: " +
            ($unlisted -join ', ') + ". Add a SelfTest and put it in COVERED, or record it in UNCOVERED.")
@@ -161,9 +179,72 @@ if ($missing.Count -gt 0) {
            '. Remove them, or find out why build.ps1 stopped producing them.')
 }
 
+if ($Only.Count -gt 0) {
+    $Covered = @($Covered | Where-Object { $selected -contains $_ })
+    $selectedUncovered = [ordered]@{}
+    foreach ($id in $Uncovered.Keys) {
+        if ($selected -contains $id) { $selectedUncovered[$id] = $Uncovered[$id] }
+    }
+    $Uncovered = $selectedUncovered
+    Write-Host ('MODULE SELECTION: ' + ($selected -join ', ') + '; built ids are catalogued and all selected modules are built.')
+}
+
 function Get-ModuleTimeoutSeconds([string]$Id) {
     if ($ModuleTimeoutSeconds.ContainsKey($Id)) { return [Math]::Max([int]$ModuleTimeoutSeconds[$Id], $TimeoutSeconds) }
     return $TimeoutSeconds
+}
+
+function Get-AgentBrokerArtifactSnapshot([string]$ModulesRoot) {
+    $moduleRoot = Join-Path $ModulesRoot 'agentbroker'
+    $assembly = Join-Path $moduleRoot 'AgentBroker.dll'
+    $workerRoot = Join-Path $moduleRoot 'worker'
+    if (-not [IO.File]::Exists($assembly) -or
+        -not [IO.File]::Exists((Join-Path $workerRoot 'AgentBroker.Worker.exe')) -or
+        -not [IO.File]::Exists((Join-Path $workerRoot 'AgentBroker.Worker.dll'))) {
+        throw 'Test-ModuleSelfTests.ps1: MODULE_ARTIFACT_INPUT_MISSING: AgentBroker and its complete Worker payload must be built.'
+    }
+    # Match ModuleConventionSelfTest.WorkerPayloadSha256 exactly. This binds the copied payload witness,
+    # not Worker execution: ordinal full-path order, relative slash path, NUL, uppercase file SHA, LF, UTF-8.
+    $prefix = [IO.Path]::GetFullPath($workerRoot).TrimEnd([char[]]@([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)) + [IO.Path]::DirectorySeparatorChar
+    [string[]]$files = [IO.Directory]::GetFiles($prefix, '*', [IO.SearchOption]::AllDirectories)
+    [Array]::Sort($files, [StringComparer]::Ordinal)
+    $manifest = New-Object Text.StringBuilder
+    foreach ($file in $files) {
+        $relative = $file.Substring($prefix.Length).Replace([IO.Path]::DirectorySeparatorChar, [char]'/')
+        [void]$manifest.Append($relative).Append([char]0).Append((Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash).Append([char]10)
+    }
+    $hash = [Security.Cryptography.SHA256]::Create()
+    try { $payloadHash = [BitConverter]::ToString($hash.ComputeHash([Text.Encoding]::UTF8.GetBytes($manifest.ToString()))).Replace('-', '') }
+    finally { $hash.Dispose() }
+    return [pscustomobject]@{ LOADED = (Get-FileHash -LiteralPath $assembly -Algorithm SHA256).Hash; WORKER_PAYLOAD = $payloadHash }
+}
+
+function Get-ModuleArtifactWitnessLines([string]$Id, [string]$Result, [string[]]$Lines, $Expected) {
+    # A module that already failed keeps its original failure. Other module IDs have no new witness contract.
+    if ($Id -cne 'agentbroker' -or $Result -cne 'PASS') { return }
+    foreach ($kind in @('LOADED', 'WORKER_PAYLOAD')) {
+        $prefix = 'WITNESS: MODULE_SELFTEST_' + $kind + '_SHA256'
+        $rows = @($Lines | Where-Object { $_.StartsWith($prefix, [StringComparison]::Ordinal) })
+        if ($rows.Count -ne 1) {
+            throw ('Test-ModuleSelfTests.ps1: MODULE_ARTIFACT_WITNESS_' + $kind + '_COUNT: expected exactly one artifact witness.')
+        }
+        $parsed = [regex]::Match($rows[0], ('^' + [regex]::Escape($prefix) + ' agentbroker ([A-F0-9]{64})\z'), [Text.RegularExpressions.RegexOptions]::CultureInvariant)
+        if (-not $parsed.Success) {
+            throw ('Test-ModuleSelfTests.ps1: MODULE_ARTIFACT_WITNESS_' + $kind + '_FORMAT: expected the exact AgentBroker SHA-256 witness.')
+        }
+        if ($parsed.Groups[1].Value -cne $Expected.$kind) {
+            throw ('Test-ModuleSelfTests.ps1: MODULE_ARTIFACT_WITNESS_' + $kind + '_MISMATCH: the self-test did not identify the expected built artifact.')
+        }
+        Write-Output $rows[0]
+    }
+}
+
+function Assert-ModuleArtifactsUnchanged($Before, $After) {
+    foreach ($kind in @('LOADED', 'WORKER_PAYLOAD')) {
+        if ($Before.$kind -cne $After.$kind) {
+            throw ('Test-ModuleSelfTests.ps1: MODULE_ARTIFACT_INPUT_CHANGED: ' + $kind + ' changed while the self-test ran.')
+        }
+    }
 }
 
 # Each module's wall time and limit, by id, for its OK line and for environment.txt on a failure.
@@ -198,7 +279,7 @@ function Invoke-ModuleSelfTest([string]$Id) {
     # environment.txt say how close a module came to it.
     $limit = Get-ModuleTimeoutSeconds $Id
     $watch = [Diagnostics.Stopwatch]::StartNew()
-    $process = Start-Process -FilePath $exe -ArgumentList "--module-selftest=$Id" -PassThru
+    $process = Start-Process -FilePath $exe -ArgumentList "--module-selftest=$Id" -PassThru -WindowStyle Hidden
     $exited = $process.WaitForExit($limit * 1000)
     $watch.Stop()
     $moduleTimings[$Id] = [pscustomobject]@{ Seconds = [Math]::Round($watch.Elapsed.TotalSeconds, 1); Limit = $limit; Exited = $exited }
@@ -623,7 +704,7 @@ if ($documentsWatchSelfCheck.Count -eq 0) { Write-Host 'DOCUMENTS WATCH SELF-CHE
 # Said on every run that presses, before the first module runs, as tests\mutate-selftest-guards.py says it at its start:
 # a run without the variable makes Blinking LED's real presses, and until the final round of lane
 # feature/blinkingled-resume nothing here said so (with it at 1 the OK line, SELFTEST-NOT-RUN: and the summary say so).
-if (-not $noRealInputRequested) {
+if (-not $noRealInputRequested -and $Covered -contains 'blinkingled') {
     Write-Host "REAL INPUT: DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT is not 1, so blinkingled's self-test makes one pair of real Scroll Lock presses"
 }
 
@@ -633,7 +714,22 @@ try {
         $documentsWatch = $null
         if ($watchParent -and $realRemembranceWatched -contains $id) { $documentsWatch = Start-DocumentsWatch $watchParent $watchName }
         $r = $null
-        try { $r = Invoke-ModuleSelfTest $id }
+        try {
+            $artifactBefore = $null
+            if ($id -ceq 'agentbroker') { $artifactBefore = Get-AgentBrokerArtifactSnapshot $modulesRoot }
+            $r = Invoke-ModuleSelfTest $id
+            if ($id -ceq 'agentbroker' -and $r.Result -ceq 'PASS') {
+                Assert-ModuleArtifactsUnchanged $artifactBefore (Get-AgentBrokerArtifactSnapshot $modulesRoot)
+            }
+            $artifactWitnessLines = @(Get-ModuleArtifactWitnessLines $id $r.Result $r.Lines $artifactBefore)
+            foreach ($line in $artifactWitnessLines) { Write-Host $line }
+        }
+        catch {
+            if (-not $_.Exception.Message.StartsWith('Test-ModuleSelfTests.ps1: MODULE_ARTIFACT_', [StringComparison]::Ordinal)) { throw }
+            # Keep this module's artifact failure gradable and let the remaining modules run.
+            $problems += "$id : $($_.Exception.Message)"
+            continue
+        }
         finally {
             # Graded whatever the module's verdict, like the real-input rules below: it is about the owner's files, not the suite.
             $documentsProblem = $null
@@ -658,21 +754,11 @@ try {
         # success", in the file built to catch exactly that. It was that. Found by an audit the same
         # night it was written.
         #
-        # An assertion line is `PASS:` with the colon; `RESULT=PASS` has no colon and no longer counts.
-        #
-        # AND ONLY THE MODULE'S OWN, behind its `[<id>]` tag (N-audit-1106-056). The tag was optional here, so the host's
-        # untagged convention lines ("PASS: the real loader accepted the module", the Info, tray and Shutdown checks) counted
-        # as well: every module carried nine or more of them, a module SelfTest that returned true with an empty detail still
-        # printed OK with nine assertion lines, and the zero-assertion branch below was unreachable a second time. Those
-        # lines are the host's checks of the module, not the module's checks of itself, which is what this branch grades.
-        # One module reports a COUNT instead of a line per check: AgentBroker's SelfTest detail is "<N> checks passed"
-        # (modules/AgentBroker/AgentBrokerSelfTest.cs, the `detail =` line), so a tagged line in exactly that shape counts
-        # as its N. An empty detail, or one with neither shape, still counts zero.
-        $tagPattern = '^\s*\[' + [regex]::Escape($id) + '\]\s*'
-        $assertions = @($r.Lines | Where-Object { $_ -cmatch ($tagPattern + 'PASS:') }).Count
-        foreach ($summary in @($r.Lines | Where-Object { $_ -cmatch ($tagPattern + '([1-9][0-9]*) checks passed\s*$') })) {
-            $assertions += [int]([regex]::Match($summary, ($tagPattern + '([1-9][0-9]*) checks passed\s*$')).Groups[1].Value)
-        }
+        # Only this module's tagged assertions count. Host convention PASS lines also exist for an empty SelfTest.
+        # A module with no recorded floor gets 0, not 1 (N-audit-1106-056, step 11 master merge): with 1, a PASS carrying no
+        # tagged assertion threw out of this loop, the later modules never ran, and the zero-assertion branch below was dead.
+        $minimum = if ($r.Result -ne 'PASS') { 0 } elseif ($moduleAssertionFloors.ContainsKey($id)) { [int]$moduleAssertionFloors[$id] } else { 0 }
+        $assertions = Get-ModuleAssertionCount $r.Lines $id $minimum
         # The real-input rules first and on their own: a run that sent real input, or cannot show it sent none, is a problem
         # whatever else it reports, and is never also printed as OK.
         $realInputProblem = $null
@@ -731,7 +817,7 @@ try {
                 Write-Output "SELFTEST-NO-REAL-INPUT: $id : $measured"
             }
             $timing = $moduleTimings[$id]
-            Write-Host ("  OK   {0,-12} PASS ({1} assertion line(s)) in {2} s of its {3} s limit{4}" -f $id, $assertions,
+            Write-Host ("  OK   {0,-12} PASS ({1} assertion(s)) in {2} s of its {3} s limit{4}" -f $id, $assertions,
                         $timing.Seconds.ToString('0.0', [Globalization.CultureInfo]::InvariantCulture), $timing.Limit, $notRunNote)
         }
     }

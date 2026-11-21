@@ -99,6 +99,11 @@ def digest(raw: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
+def exact_failure(text: str, exit_code: int, rebuilt: bool, label: str | None) -> bool:
+    failures = re.findall(r"(?m)^FAIL[^\r\n]*", text)
+    return bool(label) and rebuilt and exit_code == 1 and failures == ["FAIL ShutdownChecks.cpp: " + label]
+
+
 def write_new(path: Path, raw: bytes) -> None:
     refuse_links(path)
     with path.open("xb") as stream:
@@ -119,6 +124,12 @@ def restore_owned(root: Path, sources: list[str], original: dict, current: dict)
     the first build; a link swapped in for a source during the run was then followed by this read and this write, so the
     restore wrote the original bytes through it to wherever it pointed. Each source is checked again immediately before it
     is read, and a link is left as found and named, like any other source this run does not own.
+
+    Two refinements from master's shared restore_owned_sources, ported at the step 11 merge (HAR-2; master's
+    tests/Test-MutationHarnessRestoration.py checks both): a link check that cannot read the metadata (a PermissionError
+    from lstat) leaves the source as found and named instead of raising out of the loop, and the original bytes are
+    written only when the source differs from them, after one more link check, so nothing is written through a link
+    swapped in after the read. The body stays this module's own, so --self-test's patched refuse_links reaches it.
     """
     left = []
     for relative in sources:
@@ -127,6 +138,9 @@ def restore_owned(root: Path, sources: list[str], original: dict, current: dict)
             refuse_links(path)
         except RuntimeError as error:
             left.append(relative + " (a link: " + str(error) + ")")
+            continue
+        except OSError as error:
+            left.append(relative + " (unreadable: " + type(error).__name__ + ")")
             continue
         try:
             raw = path.read_bytes()
@@ -137,8 +151,10 @@ def restore_owned(root: Path, sources: list[str], original: dict, current: dict)
             left.append(relative + " (differs from original and owned mutation)")
             continue
         try:
-            path.write_bytes(original[relative])
-        except OSError as error:
+            if raw != original[relative]:
+                refuse_links(path)
+                path.write_bytes(original[relative])
+        except (OSError, RuntimeError) as error:
             left.append(relative + " (could not be restored: " + type(error).__name__ + ")")
     if left:
         raise RuntimeError("Source not restored; manual recovery required: " + "; ".join(left))
@@ -489,24 +505,23 @@ def main(argv: list[str] | None = None) -> int:
         healthy("before-healthy")
         for name, suite, relative, before, after, label in selected:
             path = ROOT / relative
+            refuse_links(path)
             if path.read_bytes() != original[relative]:
                 raise RuntimeError("Concurrent source change refused before mutation.")
             current[relative] = replace_exact(original[relative], before, after)
+            refuse_links(path)
             path.write_bytes(current[relative])
             stamp = built_stamp()
             build(name + "-build")
             # A stale checker scores every mutant as survived; prove this one was rebuilt.
             rebuilt = built_stamp() > stamp
             result = command(name + "-negative", [str(CHECKS), "--case", suite])
-            fired = rebuilt and result["exitCode"] == 1 and "FAIL ShutdownChecks.cpp:" in result["text"] and \
-                bool(label) and label in result["text"]
+            fired = exact_failure(result["text"], result["exitCode"], rebuilt, label)
             report["witnesses"].append({"name": name, "suite": suite, "source": relative, "rebuilt": rebuilt,
                                         "fired": fired, "exitCode": result["exitCode"]})
             if not fired:
                 raise RuntimeError("Negative witness did not fail in the focused new check: " + name)
-            if path.read_bytes() != current[relative]:
-                raise RuntimeError("Concurrent source change refused during mutation.")
-            path.write_bytes(original[relative])
+            restore_owned(ROOT, [relative], original, current)
             current[relative] = original[relative]
     except Exception as error:
         primary = str(error)

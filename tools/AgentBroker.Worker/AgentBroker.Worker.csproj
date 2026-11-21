@@ -12,6 +12,7 @@
     <AssemblyName>AgentBroker.Worker</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="..\..\shared\AgentBroker\CodexApprovalObservation.cs" Link="Shared\CodexApprovalObservation.cs" />
     <InternalsVisibleTo Include="AgentBroker.Adapter.Tests" />
     <InternalsVisibleTo Include="AgentBroker.Network.Tests" />
     <ProjectReference Include="../../src/AgentBroker.Core/AgentBroker.Core.csproj" />
@@ -24,4 +25,5 @@
          (N-broker-b-02), compiled here as linked source; the adapter's own copy is internal to it. -->
     <Compile Include="..\AgentBroker.Pins\WindowsAuthenticode.cs" Link="Pins\WindowsAuthenticode.cs" />
   </ItemGroup>
+  <Import Project="..\..\packaging\AgentBrokerReleaseProvenance.props" />
 </Project>

@@ -1,0 +1,2457 @@
+"""Negative witnesses for the AgentBroker hygiene lane (AgentBroker next campaign, 2026-11-08).
+
+List the witnesses without changing files or starting processes:
+  python -X utf8 tests/run_agentbroker_hygiene_mutations.py
+
+Run them, in a worktree nobody else is building, and keep the evidence:
+  python -X utf8 tests/run_agentbroker_hygiene_mutations.py --apply --output artifacts/hygiene-mutations-<label>
+
+Each witness changes one exact anchor (its occurrence count is asserted), rebuilds the owning test project with
+--no-incremental, proves the mutated component DLL changed and was rebuilt after the mutation, runs its focused group,
+and requires exit 1 with exactly its named check as the one failure. The original bytes are restored in finally and
+verified by SHA-256; a final healthy rebuild must pass every group again. A missing or incorrect failure is unqualified and the run fails.
+Known equivalent mutant, not a witness: the byte check in ValidateMessage (BrokerStore.cs) alone is subsumed by the one in
+ValidMessageShape, which ValidateMessage calls first, so only the both-sites and load-only mutations can be killed.
+"""
+
+from __future__ import annotations
+
+import argparse
+from dataclasses import dataclass
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+import time
+
+ROOT = Path(__file__).resolve().parents[1]
+PROJECTS = {
+    "core": ("tests/AgentBroker.Core.Tests/AgentBroker.Core.Tests.csproj", "tests/AgentBroker.Core.Tests/bin/Release/net10.0",
+             "AgentBroker.Core.Tests.dll"),
+    "worker": ("tests/AgentBroker.Worker.Tests/AgentBroker.Worker.Tests.csproj",
+               "tests/AgentBroker.Worker.Tests/bin/Release/net10.0-windows", "AgentBroker.Worker.Tests.dll"),
+    # 1.10.5 lane F: real paired nodes over mutual TLS on loopback (AttachmentFederationChecks).
+    "network": ("tests/AgentBroker.Network.Tests/AgentBroker.Network.Tests.csproj",
+                "tests/AgentBroker.Network.Tests/bin/Release/net10.0-windows", "AgentBroker.Network.Tests.dll"),
+}
+STORE = "src/AgentBroker.Core/BrokerStore.cs"
+TOOLS = "tools/AgentBroker.Worker/BrokerTools.cs"
+GUIDANCE = "tools/AgentBroker.Worker/BrokerRecoveryGuidance.cs"
+CARD = "tools/AgentBroker.Worker/BrokerInstructions.cs"
+
+
+@dataclass(frozen=True)
+class Witness:
+    name: str
+    source: str
+    project: str
+    args: tuple[str, ...]
+    replacements: tuple[tuple[str, str, int], ...]
+    expected: str
+
+    @property
+    def component(self) -> str:
+        if self.source.startswith("tests/AgentBroker.Core.Tests/"):
+            return "AgentBroker.Core.Tests.dll"
+        return "AgentBroker.Worker.Tests.dll" if self.source.startswith("tests/AgentBroker.Worker.Tests/") else "AgentBroker.Core.dll" if self.source.startswith("src/AgentBroker.Core/") else "AgentBroker.Worker.dll"
+
+
+X1_GUARD = """            if (outcome == MessageStatus.Held && authenticatedBroker == state.BrokerId && previous.Message.ExpiresAt <= Now)
+                Fail("message_expired");
+"""
+X2_BRANCH = """            : m.Recipient.BrokerId != state.BrokerId
+                ? $"was refused by the recipient's paired broker {m.Recipient.BrokerId} before delivery ({ended.Reason ?? "refused"})."
+"""
+TIMINGS = "src/AgentBroker.Core/BrokerStore.CommitTimings.cs"
+
+# ---- 1.10.1 LocalOutputFile handle-owned publication (design v2 section 9, re-pinned to the implemented v2.1 file) ----
+# Labels were first reasoned against LocalOutputFileChecks.cs, which stops at its first failure, then measured:
+# all 46 FIRED at their labels in hygiene-mutations-localoutput2-20261109 (2026-11-09, sourcesRestored true).
+# The failed first run is retained. Pre-screening corrected the first label for temp-proof-skipped and made
+# handoff-null-cleanup-member compile before the authoritative run. Frozen recipes reproduce all recorded variants.
+# Re-run the witnesses a new change can reach, selected with --case. Review the current session's test-tier
+# authorization before repeating the full catalog; the prior result is not a reason to replay unaffected controls.
+# Equivalent in bounds under v2.1, so deliberately not witnesses:
+# - v2 W11/W12 (the held handle's reparse or directory attribute unchecked): step 2e re-walks canon from the held
+#   component itself and refuses the same shapes with the same code.
+# - 2e walking the typed parent instead of canon: the pin makes them differ in case only; when they differ, 2f either
+#   refuses (a case-sensitive component) or proves every lookup in the chain case-insensitive, so both walks see the
+#   same entries. LOCAL_OUTPUT_CANON_CHAIN_PLAIN therefore uses the ParentFinalPath seam, and its witness removes 2e.
+# - RootDirectory left NULL with the bare leaf: MS-FSA 2.1.5.15.12 renames inside the temporary's own directory, which
+#   the step-3 proof already pinned to the held one.
+# - The STATUS_PENDING retention (`if (!pending) Marshal.FreeHGlobal(ioStatus);` made unconditional): no in-bounds input
+#   makes a synchronous handle's rename return STATUS_PENDING, and RENAME_PENDING_REFUSED transforms the status AFTER a
+#   real completed call, where freeing is correct. The decision itself reads only the returned NTSTATUS (v2.1 D2
+#   correction), so there is no IO_STATUS_BLOCK clause left to mutate.
+# - The temporary created at the DOS path instead of the volume GUID path: the same file on a frozen NTFS chain.
+# - DangerousAddRef removed, FILE_FLAG_WRITE_THROUGH or FlushFileBuffers dropped, the IntPtr.Size guard, the outer
+#   TypeLoadException conversion, the \\?\ prefix on long paths (LongPathsEnabled=1 here): not observable in bounds.
+LOCAL = "tools/AgentBroker.Worker/LocalOutputFile.cs"
+LOCAL_GROUP = ("--local-output-only",)
+LOCAL_CHECKS = {
+    "CANON_PIN_CASE": "LOCAL_OUTPUT_CANON_PIN_CASE: the held directory's final path pins the validated parent whatever case the user typed",
+    "CANON_PIN_SHORT_NAME": "LOCAL_OUTPUT_CANON_PIN_SHORT_NAME: a final path that differs from the validated parent beyond case is refused",
+    "CANON_PIN_PREFIX": "LOCAL_OUTPUT_CANON_PIN_PREFIX: only a long-path drive-letter final path can pin the parent",
+    "FINAL_LEAF_CASE": "LOCAL_OUTPUT_FINAL_LEAF_CASE: a published leaf that differs only in case never matches, so a tunnel-cache rename is a safe refusal",
+    "FINAL_LONGER_LEAF": "LOCAL_OUTPUT_FINAL_LONGER_LEAF: a longer final name never matches a shorter leaf",
+    "FINAL_ROOT": "LOCAL_OUTPUT_FINAL_ROOT: an exact final path matches, directly under a volume root without a doubled separator too",
+    "HELD_PLAIN": "LOCAL_OUTPUT_HELD_PLAIN: an owned plain directory opens as the held directory, proves local and pins its own path",
+    "HELD_ANCESTOR_REPARSE": "LOCAL_OUTPUT_HELD_ANCESTOR_REPARSE: a held directory reached through an ancestor junction fails the pin",
+    "ANCESTOR_REPARSE": "LOCAL_OUTPUT_ANCESTOR_REPARSE: a junction above the parent is refused invalid_output_path by Validate and Save and its target is untouched",
+    "LOCAL_PROOF_UNAVAILABLE": "LOCAL_OUTPUT_LOCAL_PROOF_UNAVAILABLE: a held directory with no volume GUID path is refused invalid_output_path and nothing is created",
+    "NOT_NTFS": "LOCAL_OUTPUT_NOT_NTFS: a held directory whose file system is not NTFS is refused invalid_output_path and nothing is created",
+    "CANON_CHAIN_PLAIN": "LOCAL_OUTPUT_CANON_CHAIN_PLAIN: the canonical-chain re-walk refuses a reparse component above the held directory",
+    "PUBLISH": "LOCAL_OUTPUT_PUBLISH: exact bytes, retention and listing after a handle-owned publication; the file reopens exclusively",
+    "PUBLISH_BOUND": "LOCAL_OUTPUT_PUBLISH_BOUND: the temporary and the published file are proven at the held directory's volume GUID path plus their exact leaves",
+    "HELD_DENIES_DELETE": "LOCAL_OUTPUT_HELD_DENIES_DELETE: while publishing, a delete-access open of the parent is a sharing violation; after return it succeeds",
+    "CASE_VARIANT_PUBLISH": "LOCAL_OUTPUT_CASE_VARIANT_PUBLISH: a parent typed in another case over an all-insensitive canonical chain publishes",
+    "CASE_SENSITIVE_REFUSED": "LOCAL_OUTPUT_CASE_SENSITIVE_REFUSED: a case-sensitive directory reached through a case-variant typed path is refused invalid_output_path and nothing is created",
+    "CASE_SENSITIVE_EXACT": "LOCAL_OUTPUT_CASE_SENSITIVE_EXACT: the same case-sensitive directory typed exactly publishes",
+    "CASE_SENSITIVE_ANCESTOR": "LOCAL_OUTPUT_CASE_SENSITIVE_ANCESTOR: a case-sensitive ancestor above an insensitive held directory typed in another case is refused invalid_output_path and nothing is created",
+    "EXISTING_REFUSED": "LOCAL_OUTPUT_EXISTING_REFUSED: an existing destination is refused output_exists before any temporary is chosen",
+    "TEMP_NAME_TAKEN": "LOCAL_OUTPUT_TEMP_NAME_TAKEN: a file already at the temporary name is refused and left byte-identical",
+    "BEFORE_PUBLISH_FAILURE": "LOCAL_OUTPUT_BEFORE_PUBLISH_FAILURE: a failure before publication surfaces unchanged and the temporary is removed by POSIX delete through its handle",
+    "CLEANUP_REPORTED": "LOCAL_OUTPUT_CLEANUP_REPORTED: a refused discard leaves the primary exception unchanged, reports temporary_not_removed and both exit-74 bodies carry it",
+    "ERROR_BODY_UNCHANGED": "LOCAL_OUTPUT_ERROR_BODY_UNCHANGED: without a cleanup report both exit-74 bodies are byte-identical to 1.10.0, with no null member",
+    "HANDOFF_CLI_CLEANUP": "LOCAL_OUTPUT_HANDOFF_CLI_CLEANUP: --handoff-prepare reports a refused discard as cleanup temporary_not_removed in its exit-74 JSON",
+    "MCP_CLI_CLEANUP": "LOCAL_OUTPUT_MCP_CLI_CLEANUP: --mcp-call reports a refused discard as cleanup temporary_not_removed in its exit-74 JSON with the known response",
+    "ATOMIC_NO_REPLACE": "LOCAL_OUTPUT_ATOMIC_NO_REPLACE: a destination created after flush wins, the refusal is output_exists and no temporary remains",
+    "RENAME_FAILURE_TYPED": "LOCAL_OUTPUT_RENAME_FAILURE_TYPED: a non-collision rename status is IOException output_unavailable carrying the status and leaves nothing",
+    "RENAME_PENDING_REFUSED": "LOCAL_OUTPUT_RENAME_PENDING_REFUSED: a STATUS_PENDING rename result is output_unavailable, never success, and leaves nothing",
+    "FINAL_PATH_MISMATCH": "LOCAL_OUTPUT_FINAL_PATH_MISMATCH: a published file whose final path disagrees is removed by its own handle and a planted decoy is untouched",
+    "TEMP_OUTSIDE_HELD": "LOCAL_OUTPUT_TEMP_OUTSIDE_HELD: a temporary not proven at the held directory is removed by its own handle and a planted decoy is untouched",
+    "POST_CREATE_CHAIN": "LOCAL_OUTPUT_POST_CREATE_CHAIN: the definitive canonical-chain check runs once the owned temporary exists and before any payload byte, and its refusal leaves nothing",
+    "POST_CREATE_CASE": "LOCAL_OUTPUT_POST_CREATE_CASE: the definitive case-sensitivity check runs once the owned temporary exists and before any payload byte, and its refusal leaves nothing",
+    "SOURCE_NO_PATH_DESTRUCTION": "LOCAL_OUTPUT_SOURCE_NO_PATH_DESTRUCTION: LocalOutputFile.cs contains no path-based delete, move or replace call",
+    "PREFLIGHT_PIN": "LOCAL_OUTPUT_PREFLIGHT_PIN: Validate makes the held-directory proofs, so a parent whose final path names another volume is refused before any output exists",
+    "MCP_PREFLIGHT_PIN": "LOCAL_OUTPUT_MCP_PREFLIGHT_PIN: --mcp-call refuses a parent that fails the pin in its preflight, before dispatch, not after it at Save",
+}
+LOCAL_DISCARD = ("                DiscardOutcome outcome = Discard(temp, seams);\n                seams?.Discarded?.Invoke(outcome);\n"
+                 "                if (outcome == DiscardOutcome.NotDeleted) error.Data[CleanupDataKey] = TemporaryNotRemoved;\n                throw;")
+LOCAL_FINAL_PROOF = 'if (!IsFinalPathOf(published, volume, leaf)) throw new IOException("output_unavailable");'
+LOCAL_PIN_EQUALS = "string.Equals(finalPath[4..], parent, StringComparison.OrdinalIgnoreCase) ? finalPath[4..] : null;"
+LOCAL_CASE_STEP = "if (!string.Equals(canon, parent, StringComparison.Ordinal)) RequireCaseInsensitiveChain(canon, seams);"
+LOCAL_DEFINITIVE = "RequireChain(canon, parent, seams); // step 3b, post-create: our entry exists; last proof before any payload byte"
+HANDOFF = "tools/AgentBroker.Worker/HandoffPrepareClient.cs"
+MCP_CALL = "tools/AgentBroker.Worker/McpCallClient.cs"
+SAVE_VALIDATE = "            string full = ValidatePath(destination); // step 2 below makes the held-directory proofs on the handle it keeps\n"
+
+
+def local_witness(name: str, replacements, check: str, source: str = LOCAL) -> "Witness":
+    return Witness(name, source, "worker", LOCAL_GROUP, tuple(replacements), LOCAL_CHECKS[check])
+
+
+LOCAL_OUTPUT_WITNESSES = (
+    local_witness("local-output-final-proof-skipped", ((LOCAL_FINAL_PROOF, "", 1),), "FINAL_PATH_MISMATCH"),
+    # First failure measured by the 2026-11-09 pre-screen (kill_check.py on a scratch copy): HANDOFF_CLI_CLEANUP (#32) forces
+    # its refusal through this same step-3 proof and runs before TEMP_OUTSIDE_HELD (#38). The group stops at its first
+    # failure, so #38 catching this mutant too is reasoned, not measured. Fired at #32 in hygiene-mutations-localoutput2-20261109.
+    local_witness("local-output-temp-proof-skipped",
+                  (('if (!IsFinalPathOf(created, volume, tempLeaf)) throw new IOException("output_unavailable");', "", 1),), "HANDOFF_CLI_CLEANUP"),
+    # Post-push audit of 7ad9d901 (U9): step 3 weakened to a presence check. The null-path CLI checks (#32/#33) still refuse,
+    # so only the non-null path moved into another directory (TEMP_OUTSIDE_HELD) catches it.
+    local_witness("local-output-temp-proof-presence-only",
+                  (('if (!IsFinalPathOf(created, volume, tempLeaf)) throw new IOException("output_unavailable");',
+                    'if (created is null) throw new IOException("output_unavailable");', 1),), "TEMP_OUTSIDE_HELD"),
+    local_witness("local-output-replace-if-exists",
+                  (("info[0] = 0; // ReplaceIfExists = FALSE", "info[0] = 1; // ReplaceIfExists = FALSE", 1),), "ATOMIC_NO_REPLACE"),
+    # A path delete after closing: the temporary does go, but never through its handle, so Discarded is not observed.
+    local_witness("local-output-cleanup-close-then-path",
+                  ((LOCAL_DISCARD, "                temp.Dispose(); File.Delete(Join(volume, tempLeaf)); _ = error;\n                throw;", 1),),
+                  "BEFORE_PUBLISH_FAILURE"),
+    # Share mode 0 refuses the path delete, and the throwing catch replaces the caller's exception.
+    local_witness("local-output-cleanup-path-open-handle",
+                  ((LOCAL_DISCARD, "                File.Delete(Join(volume, tempLeaf)); _ = error;\n                throw;", 1),),
+                  "BEFORE_PUBLISH_FAILURE"),
+    local_witness("local-output-cleanup-skipped", ((LOCAL_DISCARD, "                _ = error;\n                throw;", 1),),
+                  "BEFORE_PUBLISH_FAILURE"),
+    local_witness("local-output-mismatch-deletes-observed-path",
+                  ((LOCAL_FINAL_PROOF, 'if (!IsFinalPathOf(published, volume, leaf)) { if (published is not null) File.Delete(published); '
+                    'throw new IOException("output_unavailable"); }', 1),), "FINAL_PATH_MISMATCH"),
+    # FileNameLength in characters: the kernel sees half the name ("out."), and step 7 discards the misnamed file.
+    local_witness("local-output-rename-length-chars",
+                  (("BinaryPrimitives.WriteUInt32LittleEndian(info.AsSpan(16), (uint)name.Length);",
+                    "BinaryPrimitives.WriteUInt32LittleEndian(info.AsSpan(16), (uint)leaf.Length);", 1),), "PUBLISH"),
+    local_witness("local-output-ansi-marshalling",
+                  (('[DllImport("kernel32.dll", CharSet = CharSet.Unicode, ExactSpelling = true, SetLastError = true)]\n'
+                    "    private static extern SafeFileHandle CreateFileW(",
+                    '[DllImport("kernel32.dll", CharSet = CharSet.Ansi, ExactSpelling = true, SetLastError = true)]\n'
+                    "    private static extern SafeFileHandle CreateFileW(", 1),), "HELD_PLAIN"),
+    # Falling back to the typed DOS path when no volume GUID path exists: the temporary lands in owned scratch, the GUID
+    # proof then refuses output_unavailable, and the check requires invalid_output_path with nothing created.
+    local_witness("local-output-local-proof-dropped",
+                  (('if (guid is null) throw new InvalidDataException("invalid_output_path");',
+                    r'if (guid is null) guid = @"\\?\" + parent;', 1),), "LOCAL_PROOF_UNAVAILABLE"),
+    local_witness("local-output-pin-dropped",
+                  (('canon = CanonicalDirectory(dos, parent) ?? throw new InvalidDataException("invalid_output_path");',
+                    'canon = dos?[4..] ?? throw new InvalidDataException("invalid_output_path");', 1),), "HELD_ANCESTOR_REPARSE"),
+    # Also valid against e398eba2, where the only junction fixtures were depth 1. Retargeted 2026-11-10 (post-push audit of
+    # 1.10.2): since Validate makes the held-directory proofs, the DOS pin refuses the ANCESTOR_REPARSE junction fixture first,
+    # whatever this walk does. CANON_CHAIN_PLAIN isolates the canonical ancestor re-walk (a real junction with the
+    # ParentFinalPath seam making canon equal the typed path), which is what a truncated walk breaks.
+    local_witness("local-output-ancestor-walk-truncated",
+                  (("for (string? component = directory; component is not null; component = Path.GetDirectoryName(component))",
+                    "for (string? component = directory; component is not null; component = null)", 1),), "CANON_CHAIN_PLAIN"),
+    local_witness("local-output-collision-uncoded",
+                  (("bool exists = status == StatusObjectNameCollision;", "bool exists = false;", 1),), "ATOMIC_NO_REPLACE"),
+    # The bare Win32Exception is converted to output_unavailable by the outer catch, so the collision loses output_exists.
+    local_witness("local-output-rename-error-untyped",
+                  (("if (status != 0) throw RenameFailure(status);", "if (status != 0) throw new Win32Exception(status);", 1),),
+                  "ATOMIC_NO_REPLACE"),
+    local_witness("local-output-ntstatus-dropped", (("        inner.Data[NtStatusDataKey] = text;\n", "", 1),), "RENAME_FAILURE_TYPED"),
+    local_witness("local-output-rename-pending-accepted",
+                  (("if (status != 0) throw RenameFailure(status);", "if (status < 0) throw RenameFailure(status);", 1),),
+                  "RENAME_PENDING_REFUSED"),
+    local_witness("local-output-temp-create-always",
+                  (("TempAccess, 0, IntPtr.Zero, CreateNew,", "TempAccess, 0, IntPtr.Zero, 2u,", 1),), "TEMP_NAME_TAKEN"),
+    local_witness("local-output-final-compare-ignore-case",
+                  (("finalPath is not null && string.Equals(finalPath, Join(directory, leaf), StringComparison.Ordinal);",
+                    "finalPath is not null && string.Equals(finalPath, Join(directory, leaf), StringComparison.OrdinalIgnoreCase);", 1),),
+                  "FINAL_LEAF_CASE"),
+    local_witness("local-output-final-compare-prefix",
+                  (("finalPath is not null && string.Equals(finalPath, Join(directory, leaf), StringComparison.Ordinal);",
+                    "finalPath is not null && finalPath.StartsWith(Join(directory, leaf), StringComparison.Ordinal);", 1),),
+                  "FINAL_LONGER_LEAF"),
+    local_witness("local-output-pin-ordinal",
+                  ((LOCAL_PIN_EQUALS, "string.Equals(finalPath[4..], parent, StringComparison.Ordinal) ? finalPath[4..] : null;", 1),),
+                  "CANON_PIN_CASE"),
+    local_witness("local-output-pin-always", ((LOCAL_PIN_EQUALS, "true ? finalPath[4..] : null;", 1),), "CANON_PIN_SHORT_NAME"),
+    local_witness("local-output-pin-prefix-dropped",
+                  ((r'finalPath is not null && finalPath.StartsWith(@"\\?\", StringComparison.Ordinal) &&', "finalPath is not null &&", 1),),
+                  "CANON_PIN_PREFIX"),
+    local_witness("local-output-join-naive",
+                  (("directory.EndsWith(Path.DirectorySeparatorChar) ? directory + name : directory + Path.DirectorySeparatorChar + name;",
+                    "directory + Path.DirectorySeparatorChar + name;", 1),), "FINAL_ROOT"),
+    # Without FILE_TRAVERSE the held handle takes no part in sharing (MS-FSA 2.1.5.1.2.2). If the run instead fails
+    # PUBLISH, the relative rename needs traverse on the root handle: record that, it is still a kill.
+    local_witness("local-output-traverse-dropped",
+                  (("HeldAccess = FileTraverse | FileReadAttributes | Synchronize;", "HeldAccess = FileReadAttributes | Synchronize;", 1),),
+                  "HELD_DENIES_DELETE"),
+    local_witness("local-output-share-delete-added",
+                  (("FileShareRead | FileShareWrite, IntPtr.Zero,", "FileShareRead | FileShareWrite | FileShareDelete, IntPtr.Zero,", 1),),
+                  "HELD_DENIES_DELETE"),
+    # Unreachable by construction; an unreachable path delete still violates the rule the source check states.
+    local_witness("local-output-source-path-delete",
+                  ((SAVE_VALIDATE,
+                    SAVE_VALIDATE + "            if (bytes.Length < 0) File.Delete(full);\n", 1),),
+                  "SOURCE_NO_PATH_DESTRUCTION"),
+    # Post-push audit of 7ad9d901 (U10): the same dormant delete in its instance spelling.
+    local_witness("local-output-source-fileinfo-delete",
+                  ((SAVE_VALIDATE, SAVE_VALIDATE + "            if (bytes.Length < 0) new FileInfo(full).Delete();\n", 1),),
+                  "SOURCE_NO_PATH_DESTRUCTION"),
+    # Post-push audit of 7ad9d901 (C2): the preflight makes no held-directory proof, so a SUBST-like parent passes it.
+    local_witness("local-output-preflight-proof-removed",
+                  (("try { using (OpenHeldDirectory(Path.GetDirectoryName(full)!, seams, out _, out _)) { } }", "try { _ = seams; }", 1),),
+                  "PREFLIGHT_PIN"),
+    # C2 at the caller: --mcp-call drops its preflight, so the pin refusal arrives only from Save, after the call.
+    local_witness("local-output-mcp-preflight-removed",
+                  (("        try { LocalOutputFile.Validate(options.OutputFile, seams); }", "        try { }", 1),),
+                  "MCP_PREFLIGHT_PIN", MCP_CALL),
+    # Classic semantics keeps the name visible while the check's own attribute-only observer handle is open.
+    local_witness("local-output-posix-flag-dropped",
+                  (("WriteUInt32LittleEndian(posix, DispositionDelete | DispositionPosixSemantics | DispositionIgnoreReadOnly);",
+                    "WriteUInt32LittleEndian(posix, DispositionDelete | DispositionIgnoreReadOnly);", 1),), "BEFORE_PUBLISH_FAILURE"),
+    local_witness("local-output-precheck-removed",
+                  (('try { _ = File.GetAttributes(full); throw new IOException("output_exists"); }', "try { }", 1),), "EXISTING_REFUSED"),
+    # ---- v2.1 additions ----
+    local_witness("local-output-ntfs-unchecked",
+                  (('            if (!string.Equals(fileSystem, "NTFS", StringComparison.Ordinal)) throw new InvalidDataException("invalid_output_path");\n',
+                    "", 1),), "NOT_NTFS"),
+    # 2e removed from RequireChain, so from the preflight and the definitive position alike.
+    local_witness("local-output-canon-chain-skipped", (("        RequireCanonicalChain(canon, seams);\n", "", 1),), "CANON_CHAIN_PLAIN"),
+    local_witness("local-output-case-sensitive-accepted",
+                  (("if ((observed & CaseSensitiveDirectory) != 0) throw new InvalidDataException(\"invalid_output_path\");", "_ = observed;", 1),),
+                  "CASE_SENSITIVE_REFUSED"),
+    local_witness("local-output-case-step-skipped", ((LOCAL_CASE_STEP, "_ = canon;", 1),), "CASE_SENSITIVE_REFUSED"),
+    local_witness("local-output-case-step-always", ((LOCAL_CASE_STEP, "RequireCaseInsensitiveChain(canon, seams);", 1),), "CASE_SENSITIVE_EXACT"),
+    # Review round 1: 2f walking the held directory only. The held directory's own flag governs only the leaf lookup, so
+    # CASE_SENSITIVE_REFUSED (whose flagged component IS the held directory) still refuses; the flagged ancestor does not.
+    local_witness("local-output-case-ancestors-unchecked",
+                  (("for (string? current = canon; current is not null; current = Path.GetDirectoryName(current))",
+                    "for (string? current = canon; current is not null; current = null)", 1),), "CASE_SENSITIVE_ANCESTOR"),
+    # Review round 1, design v2.1 D5. The preflight alone: CANON_CHAIN_PLAIN holds the directory without saving.
+    local_witness("local-output-preflight-skipped",
+                  (("            RequireChain(canon, parent, seams); // preflight (design v2.1 D5); Save repeats it once the temporary exists\n", "", 1),),
+                  "CANON_CHAIN_PLAIN"),
+    # The definitive position removed, moved after the payload write, or with its 2f half disabled (canon passed as parent).
+    local_witness("local-output-definitive-skipped", (("                " + LOCAL_DEFINITIVE + "\n", "", 1),), "POST_CREATE_CHAIN"),
+    local_witness("local-output-definitive-after-write",
+                  ((LOCAL_DEFINITIVE + "\n                Write(temp, bytes);", "Write(temp, bytes);\n                " + LOCAL_DEFINITIVE, 1),),
+                  "POST_CREATE_CHAIN"),
+    local_witness("local-output-definitive-case-skipped",
+                  ((LOCAL_DEFINITIVE, LOCAL_DEFINITIVE.replace("RequireChain(canon, parent, seams);", "RequireChain(canon, canon, seams);"), 1),),
+                  "POST_CREATE_CASE"),
+    # NOTE: LOCAL_OUTPUT_ROOT_SPELLING=exact in the healthy run, so no earlier check types a case variant.
+    local_witness("local-output-case-variant-refused",
+                  ((LOCAL_CASE_STEP, 'if (!string.Equals(canon, parent, StringComparison.Ordinal)) throw new InvalidDataException("invalid_output_path");', 1),),
+                  "CASE_VARIANT_PUBLISH"),
+    local_witness("local-output-cleanup-unreported",
+                  (("if (outcome == DiscardOutcome.NotDeleted) error.Data[CleanupDataKey] = TemporaryNotRemoved;", "_ = error;", 1),),
+                  "CLEANUP_REPORTED"),
+    local_witness("local-output-handoff-cleanup-unlisted",
+                  (('code = "output_unavailable", cleanup,\n', 'code = "output_unavailable", cleanupReport = cleanup,\n', 1),),
+                  "CLEANUP_REPORTED", "tools/AgentBroker.Worker/HandoffPrepareClient.cs"),
+    local_witness("local-output-mcp-cleanup-unlisted",
+                  (('code = "output_unavailable", cleanup, response,', 'code = "output_unavailable", cleanupReport = cleanup, response,', 1),),
+                  "CLEANUP_REPORTED", "tools/AgentBroker.Worker/McpCallClient.cs"),
+    local_witness("local-output-handoff-null-cleanup-member",
+                  (('retained = false, code = "output_unavailable",\n',
+                    'retained = false, code = "output_unavailable", cleanup = (string)null!,\n', 1),),  # (string?)null failed CS8619 under -warnaserror
+                  "ERROR_BODY_UNCHANGED", "tools/AgentBroker.Worker/HandoffPrepareClient.cs"),
+    # Review round 1: each CLI catch site reverted to its 1.10.0 inline body. CLEANUP_REPORTED and ERROR_BODY_UNCHANGED
+    # call OutputError directly and still pass; only the in-process CLI run through the catch site sees the dropped member.
+    local_witness("local-output-handoff-catch-inline",
+                  (("return await WriteAsync(OutputError(error), 74);",
+                    'return await WriteAsync(new { status = "output_error", dispatchState = "not_dispatched", retained = false, '
+                    'code = "output_unavailable", nextAction = "Choose a new local file in an existing plain directory; no broker was contacted." }, 74);', 1),),
+                  "HANDOFF_CLI_CLEANUP", HANDOFF),
+    local_witness("local-output-mcp-catch-inline",
+                  (("return await WriteAsync(output, OutputError(error, document.RootElement), 74, CancellationToken.None);",
+                    'return await WriteAsync(output, new { status = "output_error", dispatchState = document.RootElement.GetProperty("dispatchState").GetString(), '
+                    'retained = false, code = "output_unavailable", response = document.RootElement, nextAction = "Retain this response using a new local '
+                    'file. Do not repeat a confirmed operation because retention failed." }, 74, CancellationToken.None);', 1),),
+                  "MCP_CLI_CLEANUP", MCP_CALL),
+    # Step 7 regressed to the DOS final path: PUBLISH still passes (the DOS path matches), PUBLISH_BOUND does not.
+    local_witness("local-output-proof-dos-final-path",
+                  (("string? published = FinalPath(temp, VolumeNameGuid);", "string? published = FinalPath(temp, VolumeNameDos);", 1),
+                   ("if (!IsFinalPathOf(published, volume, leaf))", r'if (!IsFinalPathOf(published, @"\\?\" + canon, leaf))', 1)),
+                  "PUBLISH_BOUND"),
+)
+
+# 1.10.5 reply-receipt and instruction-card recipes. Earlier focused receipts are retained.
+# Lifecycle-guidance additions and retargeted anchors need their own focused qualification; registration is source-only.
+REPLY_RECEIPT_WITNESSES = (
+    Witness('stage-omitted', 'src/AgentBroker.Core/BrokerStore.cs', 'core', ('--reply-receipt-only',),
+            (('            if (implicitReplyParent is Guid parentId) StageLocalReplyReceipt(retained, parentId);', '', 1),),
+            'REPLY_RECEIPT_PENDING_Accepted: a fresh authorized local reply settles exactly its pending parent'),
+    Witness('receive-omitted', 'src/AgentBroker.Core/BrokerStore.cs', 'core', ('--reply-receipt-only',),
+            (('        if (!sessions[parent.Message.Recipient].Capabilities.HasFlag(SessionCapabilities.Receive)) return;', '', 1),),
+            'REPLY_RECEIPT_RECEIVE: lacking Receive skips only the implicit receipt, never existing Reply permission'),
+    Witness('local-recipient-omitted', 'src/AgentBroker.Core/BrokerStore.cs', 'core', ('--reply-receipt-only',),
+            (('        if (parent.Message.Sender.BrokerId != state.BrokerId || parent.Message.Recipient.BrokerId != state.BrokerId) return;', '        if (parent.Message.Sender.BrokerId != state.BrokerId) return;', 1),),
+            'REPLY_RECEIPT_PEER_RECIPIENT: either remote endpoint excludes implicit delivery'),
+    Witness('local-sender-omitted', 'src/AgentBroker.Core/BrokerStore.cs', 'core', ('--reply-receipt-only',),
+            (('        if (parent.Message.Sender.BrokerId != state.BrokerId || parent.Message.Recipient.BrokerId != state.BrokerId) return;', '        if (parent.Message.Recipient.BrokerId != state.BrokerId) return;', 1),),
+            'REPLY_RECEIPT_PEER_SENDER: either remote endpoint excludes implicit delivery'),
+    Witness('held-acknowledged', 'src/AgentBroker.Core/BrokerStore.cs', 'core', ('--reply-receipt-only',),
+            (('        if (!NeedsRecipientReceipt(parent, now)) return;', '        if (parent.Status != MessageStatus.Held && !NeedsRecipientReceipt(parent, now)) return;', 1),),
+            'REPLY_RECEIPT_PRESERVE_Held: replying never overwrites Held or a terminal receipt'),
+    Witness('deadline-omitted', 'src/AgentBroker.Core/BrokerStore.cs', 'core', ('--reply-receipt-only',),
+            (('        if (!NeedsRecipientReceipt(parent, now)) return;', '        if (parent.Status is not (MessageStatus.Accepted or MessageStatus.Submitting or MessageStatus.Submitted or MessageStatus.Uncertain)) return;', 1),),
+            'REPLY_RECEIPT_DEADLINE: a past-deadline Uncertain parent is not implicitly acknowledged'),
+    Witness('stage-after-text-cap', 'src/AgentBroker.Core/BrokerStore.cs', 'core', ('--reply-receipt-only',),
+            (('            if (implicitReplyParent is Guid parentId) StageLocalReplyReceipt(retained, parentId);', '', 1), ('            if (retained.Count(receipt => !Tombstoned(receipt)) >= limits.MaximumMessages) Fail("message_limit");', '            if (retained.Count(receipt => !Tombstoned(receipt)) >= limits.MaximumMessages) Fail("message_limit");\n            if (implicitReplyParent is Guid parentId) StageLocalReplyReceipt(retained, parentId);', 1)),
+            "REPLY_RECEIPT_TEXT_SLOT: capacity is evaluated after staging the local parent's tombstone"),
+    Witness('tombstone-counts-as-text', 'src/AgentBroker.Core/BrokerStore.cs', 'core', ('--reply-receipt-only',),
+            (('            if (retained.Count(receipt => !Tombstoned(receipt)) >= limits.MaximumMessages) Fail("message_limit");', '            if (retained.Count >= limits.MaximumMessages) Fail("message_limit");', 1),),
+            "REPLY_RECEIPT_TEXT_SLOT: capacity is evaluated after staging the local parent's tombstone"),
+    Witness('staged-ack-committed-early', 'src/AgentBroker.Core/BrokerStore.cs', 'core', ('--reply-receipt-only',),
+            (('        messages[index] = parent with { Status = MessageStatus.Delivered, UpdatedAt = now, Reason = "reply_receipt", Attempts = 1 };', '        messages[index] = parent with { Status = MessageStatus.Delivered, UpdatedAt = now, Reason = "reply_receipt", Attempts = 1 };\n        Commit(state with { Messages = messages });', 1),),
+            'REPLY_RECEIPT_ONE_COMMIT_Accepted: parent settlement, pending removal and reply share one commit'),
+    Witness('tombstone-index-guard-omitted', 'src/AgentBroker.Core/BrokerStore.cs', 'core', ('--reply-receipt-only',),
+            (('        if (index < 0) return; // An already acknowledged parent may be a tombstone.', '', 1),),
+            'REPLY_RECEIPT_PRESERVE_Delivered: replying never overwrites Held or a terminal receipt'),
+)
+
+CARD_1105_WITNESSES = (
+    Witness('card-client-cap-raised', 'tools/AgentBroker.Worker/BrokerInstructions.cs', 'worker', ('--instructions-only',),
+            (('public const int MaximumLength = 2048;', 'public const int MaximumLength = 4096;', 1),),
+            'CARD_CLIENT_LIMIT: the ceiling fits supported Claude builds before 2.1.296'),
+    Witness('card-first512-receive-omitted', 'tools/AgentBroker.Worker/BrokerInstructions.cs', 'worker', ('--instructions-only',),
+            (('both peers are local and Receive is authorized', 'the reply is admitted', 1),),
+            'CARD_FIRST512: the opening is complete and keeps authority, identity, routing and conditional receipts within the first512 characters'),
+    Witness('card-watcher-unconditional', 'tools/AgentBroker.Worker/BrokerInstructions.cs', 'worker', ('--instructions-only',),
+            ((', unless a documented watcher is armed on a supported host.', '. A watcher replaces these checks.', 1),),
+            'CARD_WATCHER_MILESTONES: only an armed supported watcher replaces active-work milestone and missing-response inbox checks'),
+    Witness('tool-reply-deadline-status-omitted', 'tools/AgentBroker.Worker/BrokerTools.cs', 'worker', ('--instructions-only',),
+            (('unexpired Accepted, Submitting, Submitted or Uncertain', 'Accepted or Submitted', 1),),
+            'TOOL_DESCRIPTION_REPLY_RECEIPT: tools/list states fresh local permission/deadline conditions, atomic text removal, Held and retry behavior'),
+    Witness('envelope-local-receive-omitted', 'tools/AgentBroker.Worker/PeerMessageFormatter.cs', 'worker', ('--instructions-only',),
+            (('when both sessions are on this broker and your recipient row has Receive, ', '', 1),),
+            'ENVELOPE_REPLY_RECEIPT_GUIDANCE: the quoted envelope allows conditional reply receipts while preserving explicit receipt and task boundaries'),
+    Witness('card-reply-ack-fallback-omitted', 'tools/AgentBroker.Worker/BrokerInstructions.cs', 'worker', ('--instructions-only',),
+            (('If not replying or reply does not acknowledge, ', 'Without replying ', 1),),
+            'CARD_REPLY_ACK_FALLBACK: remote or otherwise ineligible replies still need an explicit receipt without overriding Held'),
+    Witness('card-active-fetch-omitted', 'tools/AgentBroker.Worker/BrokerInstructions.cs', 'worker', ('--instructions-only',),
+            (('active turns fetch read_inbox_page on that address. ', '', 1),),
+            'CARD_WHOAMI_FIRST: native idle wake needs no mailbox or heartbeat and active work can fetch its exact inbox'),
+    Witness('card-held-finish-omitted', 'tools/AgentBroker.Worker/BrokerInstructions.cs', 'worker', ('--instructions-only',),
+            (('; mark Delivered before expiry', '', 1),),
+            'CARD_RECOVERY_AND_RETENTION: retain before reply or acknowledgement, Held preserves text and recovery grants no predecessor rights'),
+    Witness('card-held-deadline-omitted', 'tools/AgentBroker.Worker/BrokerInstructions.cs', 'worker', ('--instructions-only',),
+            (('Held does not extend the deadline. ', '', 1),),
+            'CARD_RECOVERY_AND_RETENTION: retain before reply or acknowledgement, Held preserves text and recovery grants no predecessor rights'),
+    Witness('card-preserve-held-restored', 'tools/AgentBroker.Worker/BrokerInstructions.cs', 'worker', ('--instructions-only',),
+            # Keep the positive ACK sentence intact and fit the final card's seven-character headroom: the unasserted
+            # tail keeps its 16 KiB/path/SHA guidance while restoring the forbidden Held instruction for this control.
+            (('Text <=16 KiB; use paths + SHA-256.', 'Text:16 KiB; paths+SHA-256; preserve Held.', 1),),
+            'CARD_REPLY_ACK_FALLBACK: remote or otherwise ineligible replies still need an explicit receipt without overriding Held'),
+    Witness('card-capability-paragraph-split', 'tools/AgentBroker.Worker/BrokerInstructions.cs', 'worker', ('--instructions-only',),
+            (('With no such row (none, or observation-only)', '\\nWith no such row (none, or observation-only)', 1),),
+            'CARD_CAPABILITY_GATE: no mailbox only for a row with Receive and WakeIdle; an observation-only row registers one; Codex uses CODEX_THREAD_ID'),
+    Witness('envelope-held-finish-omitted', 'tools/AgentBroker.Worker/PeerMessageFormatter.cs', 'worker', ('--instructions-only',),
+            ((', then mark Delivered before expiry', '', 1),),
+            'ENVELOPE_REPLY_RECEIPT_GUIDANCE: the quoted envelope allows conditional reply receipts while preserving explicit receipt and task boundaries'),
+    Witness('envelope-deadline-omitted', 'tools/AgentBroker.Worker/PeerMessageFormatter.cs', 'worker', ('--instructions-only',),
+            ((", before the message's deadline", '', 1),),
+            'ENVELOPE_REPLY_RECEIPT_GUIDANCE: the quoted envelope allows conditional reply receipts while preserving explicit receipt and task boundaries'),
+    Witness('envelope-explicit-receipt-fallback-omitted', 'tools/AgentBroker.Worker/PeerMessageFormatter.cs', 'worker', ('--instructions-only',),
+            (('If you do not reply, or the reply cannot record it, acknowledge actual receipt ', 'If you do not reply, acknowledge actual receipt ', 1),),
+            'ENVELOPE_REPLY_RECEIPT_GUIDANCE: the quoted envelope allows conditional reply receipts while preserving explicit receipt and task boundaries'),
+    Witness('tool-reply-held-finish-omitted', 'tools/AgentBroker.Worker/BrokerTools.cs', 'worker', ('--instructions-only',),
+            (('Held stays Held; acknowledge Held before replying to keep the text, then mark Delivered before expiry.', 'Held stays Held; acknowledge Held before replying to keep the text.', 1),),
+            'TOOL_DESCRIPTION_REPLY_RECEIPT: tools/list states fresh local permission/deadline conditions, atomic text removal, Held and retry behavior'),
+    Witness('card-ack-permission-omitted', 'tools/AgentBroker.Worker/BrokerInstructions.cs', 'worker', ('--instructions-only',),
+            (('acknowledge_message (Delivered) when permitted.', 'acknowledge_message (Delivered).', 1),),
+            'CARD_REPLY_ACK_FALLBACK: remote or otherwise ineligible replies still need an explicit receipt without overriding Held'),
+    Witness('envelope-ack-permission-omitted', 'tools/AgentBroker.Worker/PeerMessageFormatter.cs', 'worker', ('--instructions-only',),
+            (('outcome Delivered when permitted.', 'outcome Delivered.', 1),),
+            'ENVELOPE_REPLY_RECEIPT_GUIDANCE: the quoted envelope allows conditional reply receipts while preserving explicit receipt and task boundaries'),
+    Witness('inbox-description-atomic-reply-omitted', 'tools/AgentBroker.Worker/BrokerTools.Inbox.cs', 'worker', ('--instructions-only',),
+            (('removing its text atomically with the reply', 'removing its text later', 1),),
+            'TOOL_DESCRIPTION_REPLY_RECEIPT: tools/list states fresh local permission/deadline conditions, atomic text removal, Held and retry behavior'),
+    Witness('inbox-description-deadline-permission-omitted', 'tools/AgentBroker.Worker/BrokerTools.Inbox.cs', 'worker', ('--instructions-only',),
+            (('otherwise acknowledge Delivered explicitly when permitted. To keep text, acknowledge Held before replying, then Delivered when done. Held does not extend the original deadline; mark Delivered before it expires.',
+              'otherwise acknowledge Delivered explicitly. To keep text, acknowledge Held before replying, then Delivered when done.', 1),),
+            'TOOL_DESCRIPTION_REPLY_RECEIPT: tools/list states fresh local permission/deadline conditions, atomic text removal, Held and retry behavior'),
+)
+
+# 1.10.5 busy-mail recipes reproduce seven qualified private variants. The sender waits
+# value recipe is distinct from the unqualified attribute-omission survivor.
+BUSY_MAIL_1105_WITNESSES = (
+    Witness('busy-one-tick-early', 'src/AgentBroker.Core/BrokerStore.WaitingMail.cs', 'core', ('--waiting-mail-only',),
+            ((' < WaitingMailPolicy.NoticeAfter)', ' < WaitingMailPolicy.NoticeAfter - TimeSpan.FromTicks(1))', 1),),
+            'WAITING_BUSY_NOT_BEFORE_DUE'),
+    Witness('policy-episode-kept', 'src/AgentBroker.Core/BrokerStore.WaitingMail.cs', 'core', ('--waiting-mail-only',),
+            (('if (!busy || !WaitingPolicy(receipt.Message, target)) EndBusy(observation);', 'if (!busy) EndBusy(observation);', 1), ('            if (!WaitingPolicy(receipt.Message, target) && waitingMail.TryGetValue(receipt.Message.Id, out var invalidPolicy))\n                EndBusy(invalidPolicy);\n', '', 1)),
+            'WAITING_DIRECTORY_POLICY_REVOKED_WITHIN_INTERVAL'),
+    Witness('directory-unknown-kept', 'src/AgentBroker.Core/BrokerStore.WaitingMail.cs', 'core', ('--waiting-mail-only',),
+            (('            if (target.Activity == SessionActivity.Unknown && waitingMail.TryGetValue(receipt.Message.Id, out var unknown) &&\n                (unknown.AdapterBusyTimestamp is not { } adapterAt || !FreshWait(adapterAt))) EndBusy(unknown);\n', '', 1),),
+            'WAITING_DIRECTORY_TO_UNKNOWN_RESTARTS'),
+    Witness('metadata-reason-collapsed', 'src/AgentBroker.Core/BrokerStore.WaitingMail.cs', 'core', ('--waiting-mail-only',),
+            (('"native_metadata_unavailable" or ', '', 1),),
+            'WAITING_FIXED_REASON_DISTINCTIONS'),
+    Witness('batch-bound-removed', 'src/AgentBroker.Core/BrokerStore.WaitingMail.cs', 'core', ('--waiting-mail-only',),
+            (('                if (toLatch.Count == WaitingMailPolicy.MaximumNoticesPerPass) break;\n', '', 1),),
+            'WAITING_BATCH_ONE_COMMIT'),
+    Witness('peer-waits-exposed', 'tools/AgentBroker.Worker/BrokerRuntime.cs', 'worker', ('--waiting-mail-only',),
+            (('? SenderReceipt.From(receipt, Now, includeText)', '? SenderReceipt.From(receipt, Now, includeText, waits: store.ReadMessageWait(receipt)?.Waits)', 1),),
+            'WAITING_PEER_HISTORY_OMITTED'),
+    Witness('legacy-null-member-emitted', 'tools/AgentBroker.Worker/ControlProtocol.cs', 'worker', ('--waiting-mail-only',),
+            (('    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] WaitingMailView? WaitingMail = null);', '    WaitingMailView? WaitingMail = null);', 1),),
+            'WAITING_LEGACY_STATUS_SHAPE'),
+    Witness('sender-waits-empty-instead-of-null', 'tools/AgentBroker.Worker/SenderReceipt.cs', 'worker', ('--compact-receipts-only',),
+            (('held ? Encoding.UTF8.GetByteCount(message.Text) : null, readAt, busySince, engine, waits);', 'held ? Encoding.UTF8.GetByteCount(message.Text) : null, readAt, busySince, engine, waits ?? []);', 1),),
+            'COMPACT_JSON_OMITS: the serialized receipt has no text, busySince or waits while nothing was seen busy'),
+)
+
+
+# F9: real authenticated HTTP reply after background discovery and submission (focused healthy4).
+RUNTIME_REPLY_1105_WITNESSES = (
+    Witness("reply-http-runtime-stage-omitted", STORE, "worker", ("--reply-runtime-only",),
+            (('            if (implicitReplyParent is Guid parentId) StageLocalReplyReceipt(retained, parentId);', '            // F9 control: omit local reply settlement.', 1),),
+            'REPLY_HTTP_RUNTIME_SETTLED: an actual HTTP reply settles the runtime-submitted parent as Delivered/reply_receipt and clears pending mail without resubmission'),
+)
+
+# 1.10.5 r4 recipes bind Core receipt AF0F779D and Worker receipt A6A3EFDB.
+# Historical composed counts 83/25 bind C5159C80; the non-I/O follow-up measured Worker 26 (662A432D).
+# Installed/release acceptance is separate.
+WAITING_MAIL_R4_CORE_WITNESSES = (
+    Witness('directory-approvalrequired-counts-busy', 'src/AgentBroker.Core/BrokerStore.WaitingMail.cs', 'core', ('--waiting-mail-only',), (('reason == "recipient_busy"', 'reason is "recipient_busy" or "recipient_awaiting_approval"', 1),), 'WAITING_NONBUSY_THEN_BUSY_ApprovalRequired'),
+    Witness('directory-interrupted-counts-busy', 'src/AgentBroker.Core/BrokerStore.WaitingMail.cs', 'core', ('--waiting-mail-only',), (('reason == "recipient_busy"', 'reason is "recipient_busy" or "recipient_interrupted"', 1),), 'WAITING_NONBUSY_THEN_BUSY_Interrupted'),
+    Witness('directory-unknown-counts-busy', 'src/AgentBroker.Core/BrokerStore.WaitingMail.cs', 'core', ('--waiting-mail-only',), (('reason == "recipient_busy"', 'reason is "recipient_busy" or "recipient_activity_unknown"', 1),), 'WAITING_NONBUSY_THEN_BUSY_Unknown'),
+    Witness('adapter-native_recipient_awaiting_approval-counts-busy', 'src/AgentBroker.Core/BrokerStore.WaitingMail.cs', 'core', ('--waiting-mail-only',), (('reason is "native_context_busy" or "native_recipient_busy"', 'reason is "native_context_busy" or "native_recipient_busy" or "native_recipient_awaiting_approval"', 1),), 'WAITING_ADAPTER_NONBUSY_native_recipient_awaiting_approval'),
+    Witness('adapter-native_recipient_activity_unknown-counts-busy', 'src/AgentBroker.Core/BrokerStore.WaitingMail.cs', 'core', ('--waiting-mail-only',), (('reason is "native_context_busy" or "native_recipient_busy"', 'reason is "native_context_busy" or "native_recipient_busy" or "native_recipient_activity_unknown"', 1),), 'WAITING_ADAPTER_NONBUSY_native_recipient_activity_unknown'),
+    Witness('adapter-native_metadata_unavailable-counts-busy', 'src/AgentBroker.Core/BrokerStore.WaitingMail.cs', 'core', ('--waiting-mail-only',), (('reason is "native_context_busy" or "native_recipient_busy"', 'reason is "native_context_busy" or "native_recipient_busy" or "native_metadata_unavailable"', 1),), 'WAITING_ADAPTER_NONBUSY_native_metadata_unavailable'),
+    Witness('adapter-native_transport_unavailable-counts-busy', 'src/AgentBroker.Core/BrokerStore.WaitingMail.cs', 'core', ('--waiting-mail-only',), (('reason is "native_context_busy" or "native_recipient_busy"', 'reason is "native_context_busy" or "native_recipient_busy" or "native_transport_unavailable"', 1),), 'WAITING_ADAPTER_NONBUSY_native_transport_unavailable'),
+    Witness('directory-expired-lease-reason-omitted', 'src/AgentBroker.Core/BrokerStore.WaitingMail.cs', 'core', ('--waiting-mail-only',), (('!Live(target) ? "recipient_unavailable"', 'target.Activity == SessionActivity.Disconnected ? "recipient_unavailable"', 1),), 'WAITING_DIRECTORY_UNAVAILABLE_REASON'),
+    Witness('waiting-id-is-terminal-id', 'src/AgentBroker.Core/BrokerStore.WaitingMail.cs', 'core', ('--waiting-mail-only',), (('return new Guid(bytes);', 'return NoticeId(message.Id);', 1),), 'WAITING_NOTICE_DOMAIN_AND_TERMINAL'),
+    Witness('pending-expiry-ignored', 'src/AgentBroker.Core/BrokerStore.WaitingMail.cs', 'core', ('--waiting-mail-only',), (('NeedsRecipientReceipt(receipt, Now)', 'NeedsRecipientReceipt(receipt, DateTimeOffset.MinValue)', 1),), 'WAITING_EXPIRED_SOURCE_NOT_ADMITTED'),
+    Witness('codex-native-waiting-omitted', 'src/AgentBroker.Core/BrokerStore.WaitingMail.cs', 'core', ('--waiting-mail-only',), (('session.Adapter is "claude-native" or "codex-native"', 'session.Adapter is "claude-native"', 1),), 'WAITING_UNKNOWN_FRESH_ADAPTER_BUSY'),
+    Witness('unknown-code-not-collapsed', 'src/AgentBroker.Core/BrokerStore.WaitingMail.cs', 'core', ('--waiting-mail-only',), (('_ => "other_deferred"', '_ => reason ?? "other_deferred"', 1),), 'WAITING_UNKNOWN_CODE_MAPPED'),
+    Witness('expected-admission-epoch-omitted', 'src/AgentBroker.Core/BrokerStore.WaitingMail.cs', 'core', ('--waiting-mail-only',), (('current.AdmissionEpoch == expected.AdmissionEpoch &&', '', 1),), 'WAITING_EXPECTED_EPOCH_ONLY'),
+    Witness('first-observed-time-overwritten', 'src/AgentBroker.Core/BrokerStore.WaitingMail.cs', 'core', ('--waiting-mail-only',), (('previous with { LastObservedAtUtc = now,', 'previous with { FirstObservedAtUtc = now, LastObservedAtUtc = now,', 1),), 'WAITING_REASON_FIRST_LAST'),
+    Witness('pending-counted-as-queued', 'src/AgentBroker.Core/BrokerStore.WaitingMail.cs', 'core', ('--waiting-mail-only',), (("                if (receipt.Status != MessageStatus.Accepted) continue;\n", "", 1),), 'WAITING_PENDING_DIFFERS_FROM_QUEUED'),
+    Witness('youngest-busy-age-selected', 'src/AgentBroker.Core/BrokerStore.WaitingMail.cs', 'core', ('--waiting-mail-only',), (("                if (count.Age is null || elapsed > count.Age) { count.Age = elapsed; count.Oldest = observation.BusyAt; }\n", "                if (count.Age is null || elapsed < count.Age) { count.Age = elapsed; count.Oldest = observation.BusyAt; }\n", 1),), 'WAITING_OLDEST_BUSY_USES_OLDER_MESSAGE'),
+    Witness('read-approval-counted-busy', 'src/AgentBroker.Core/BrokerStore.WaitingMail.cs', 'core', ('--waiting-mail-only',), (('target.Activity == SessionActivity.Busy || target.Activity == SessionActivity.Unknown &&', 'target.Activity != SessionActivity.Idle || target.Activity == SessionActivity.Unknown &&', 1),), 'WAITING_READ_RECHECKS_APPROVAL'),
+    Witness('freshness-shortened-to-29', 'src/AgentBroker.Core/BrokerStore.WaitingMail.cs', 'core', ('--waiting-mail-only',), (('ObservationFreshFor = TimeSpan.FromSeconds(30)', 'ObservationFreshFor = TimeSpan.FromSeconds(29)', 1),), 'WAITING_FRESH_UNTIL_THIRTY_SECONDS'),
+    Witness('freshness-extended-to-300', 'src/AgentBroker.Core/BrokerStore.WaitingMail.cs', 'core', ('--waiting-mail-only',), (('ObservationFreshFor = TimeSpan.FromSeconds(30)', 'ObservationFreshFor = TimeSpan.FromSeconds(300)', 1),), 'WAITING_FRESH_EXACT_THIRTY_SECONDS_RESTARTS'),
+    Witness('notice-warning-omitted', 'src/AgentBroker.Core/BrokerStore.WaitingMail.cs', 'core', ('--waiting-mail-only',), (('Do not resend automatically. This is not delivery or work completion.', '', 1),), 'WAITING_NOTICE_REQUIRED_TEXT'),
+    Witness('busy-utc-seeded-from-created-at', 'src/AgentBroker.Core/BrokerStore.WaitingMail.cs', 'core', ('--waiting-mail-only',), (('observation.BusyAt ??= now;', 'observation.BusyAt ??= receipt.Message.CreatedAt;', 1),), 'WAITING_NO_RECIPIENT_AGE_BORROW'),
+    Witness('busy-clock-borrowed-from-recipient', 'src/AgentBroker.Core/BrokerStore.WaitingMail.cs', 'core', ('--waiting-mail-only',), (('observation.BusyTimestamp ??= timestamp;', 'observation.BusyTimestamp ??= waitingMail.Values.Where(other => other.Source.Recipient == receipt.Message.Recipient && other.BusyTimestamp is not null).Select(other => other.BusyTimestamp!.Value).DefaultIfEmpty(timestamp).Min();', 1),), 'WAITING_NO_RECIPIENT_AGE_BORROW'),
+    Witness('waiting-tombstone-dedup-omitted', 'src/AgentBroker.Core/BrokerStore.WaitingMail.cs', 'core', ('--waiting-mail-only',), ((' || tombstones.ContainsKey(id)', '', 1),), 'WAITING_RESTART_DURABLE_DEDUP'),
+)
+
+# D2 round 2: independent Ready, reason-transition, policy and freshness conditions.
+D2_R2_CORE_WITNESSES = (
+    Witness("a7-summary-ready-constant-false", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (('                    count.Ready ??= Ready(targets[index].Address);\n',
+              '                    count.Ready ??= false;\n', 1),), "WAITING_SUMMARY_READY_IS_PER_TARGET"),
+    Witness("a7-summary-ready-shared-across-targets", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (('            var counts = new WaitingMailCounts[targets.Length];\n',
+              '            var counts = new WaitingMailCounts[targets.Length];\n            bool? sharedReady = null;\n', 1),
+             ('                    count.Ready ??= Ready(targets[index].Address);\n',
+              '                    count.Ready ??= sharedReady ??= Ready(targets[index].Address);\n', 1)),
+            "WAITING_SUMMARY_READY_IS_PER_TARGET"),
+    Witness("a8-directory-historical-reason-key-throttled", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (('        bool throttledDirectory = source == "directory" && observation.LatestSource == source &&\n            observation.LatestReason == reason && clock.GetElapsedTime(observation.LastCountedTimestamp, timestamp) is var elapsed &&\n',
+              '        bool throttledDirectory = source == "directory" && observation.Reasons.ContainsKey((reason, source)) &&\n            clock.GetElapsedTime(observation.LastCountedTimestamp, timestamp) is var elapsed &&\n', 1),),
+            "WAITING_DIRECTORY_REASON_CHANGE_RESTARTS_BUSY"),
+    Witness("a8-directory-policy-revocation-rearms-count", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (('                EndBusy(invalidPolicy);\n',
+              '                { EndBusy(invalidPolicy); invalidPolicy.LatestReason = ""; }\n', 1),),
+            "WAITING_DIRECTORY_POLICY_REGAIN_RESTARTS"),
+    Witness("a8-directory-throttled-freshness-not-refreshed", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (('        observation.LastTimestamp = timestamp;\n',
+              '        if (!throttledDirectory) observation.LastTimestamp = timestamp;\n', 1),),
+            "WAITING_DIRECTORY_THROTTLED_REFRESHES_FRESHNESS"),
+)
+
+# D2 round 3: independently falsifiable history, both freshness readers, Ready directions and nullable schema.
+D2_R3_WITNESSES = (
+    Witness("a8-directory-receive-write-policy-ignored", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (('!WaitingPolicy(receipt.Message, target)', '!target.Capabilities.HasFlag(SessionCapabilities.WakeIdle)', 2),),
+            "WAITING_RECEIVE_REGAIN_RESTARTS"),
+    Witness("a8-directory-policy-revocation-discards-history", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (('                EndBusy(invalidPolicy);\n', '                waitingMail.Remove(receipt.Message.Id);\n', 1),),
+            "WAITING_DIRECTORY_POLICY_REGAIN_RESTARTS"),
+    Witness("a8-directory-summary-freshness-uses-count-anchor", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (('bool observed = waitingMail.TryGetValue(receipt.Message.Id, out var observation) && CurrentWait(receipt, observation) && FreshWait(observation.LastTimestamp);',
+              'bool observed = waitingMail.TryGetValue(receipt.Message.Id, out var observation) && CurrentWait(receipt, observation) && FreshWait(observation.LastCountedTimestamp);', 1),),
+            "WAITING_DIRECTORY_THROTTLED_SUMMARY_FRESHNESS"),
+    Witness("a8-directory-observe-freshness-uses-count-anchor", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (('        if (!FreshWait(observation.LastTimestamp)) EndBusy(observation);\n',
+              '        if (!FreshWait(observation.LastCountedTimestamp)) EndBusy(observation);\n', 1),),
+            "WAITING_DIRECTORY_THROTTLED_NEXT_PASS_KEEPS_EPISODE"),
+    Witness("a7-summary-ready-false-latched", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (('            var counts = new WaitingMailCounts[targets.Length];\n',
+              '            var counts = new WaitingMailCounts[targets.Length];\n            bool readySoFar = true;\n', 1),
+             ('                    count.Ready ??= Ready(targets[index].Address);\n',
+              '                    count.Ready ??= readySoFar &= Ready(targets[index].Address);\n', 1)),
+            "WAITING_SUMMARY_READY_IS_PER_TARGET"),
+    Witness("a7-nonbusy-freshness-write-omitted", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (('        observation.LastTimestamp = timestamp;\n',
+              '        if (busy) observation.LastTimestamp = timestamp;\n', 1),),
+            "WAITING_SUMMARY_FRESH_NONBUSY_IS_OBSERVED"),
+    Witness("a7-nonbusy-count-anchor-write-omitted", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (('observation.LastCountedTimestamp = timestamp;', 'if (busy) observation.LastCountedTimestamp = timestamp;', 1),),
+            "WAITING_SUMMARY_FRESH_NONBUSY_IS_OBSERVED"),
+    Witness("waiting-busy-episode-field-setup-control", "tests/AgentBroker.Core.Tests/WaitingMailChecks.cs", "core", ("--waiting-mail-only",),
+            (('new[] { "BusyTimestamp", "BusyAt", "AdapterBusyTimestamp" }',
+              'new[] { "BusyTimestamp", "BusyAt_missing_for_test", "AdapterBusyTimestamp" }', 1),),
+            "WAITING_BUSY_EPISODE_FIELD_SETUP: BusyAt_missing_for_test"),
+    Witness("a10-scope-schema-nullability-omitted", "tools/AgentBroker.Worker/BrokerTools.cs", "worker", ("--instructions-only",),
+            (('SessionAddress? afterAddress = null, string? scope = "federated")',
+              'SessionAddress? afterAddress = null, string scope = "federated")', 1),),
+            "LIST_SESSIONS_SCOPE_SCHEMA: real tools/list publishes optional nullable string scope and its default/local behavior"),
+)
+
+# AgentBroker 1.10.5 D2 A8: metadata throttling must preserve source and busy-policy semantics.
+A8_WAITING_DIRECTORY_WITNESSES = (
+    Witness("a8-directory-interval-1900ms", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("    public static readonly TimeSpan DirectoryObservationInterval = TimeSpan.FromSeconds(2);\n", "    public static readonly TimeSpan DirectoryObservationInterval = TimeSpan.FromMilliseconds(1900);\n", 1),),
+            "WAITING_DIRECTORY_BEFORE_INTERVAL"),
+    Witness("a8-directory-interval-zero", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("    public static readonly TimeSpan DirectoryObservationInterval = TimeSpan.FromSeconds(2);\n", "    public static readonly TimeSpan DirectoryObservationInterval = TimeSpan.Zero;\n", 1),),
+            "WAITING_DIRECTORY_RATE_BOUND"),
+    Witness("a8-directory-reason-change-guard-omitted", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("            observation.LatestReason == reason && clock.GetElapsedTime(observation.LastCountedTimestamp, timestamp) is var elapsed &&\n", "            clock.GetElapsedTime(observation.LastCountedTimestamp, timestamp) is var elapsed &&\n", 1),),
+            "WAITING_DIRECTORY_REASON_CHANGE_ENDS_BUSY"),
+    Witness("a8-directory-negative-elapsed-guard-omitted", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("            elapsed >= TimeSpan.Zero && elapsed < WaitingMailPolicy.DirectoryObservationInterval;\n", "            elapsed < WaitingMailPolicy.DirectoryObservationInterval;\n", 1),),
+            "WAITING_DIRECTORY_NEGATIVE_ELAPSED_REOBSERVED"),
+    Witness("a8-directory-throttled-timestamp-advanced", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("        if (!throttledDirectory)\n", "        if (throttledDirectory) observation.LastCountedTimestamp = timestamp;\n        if (!throttledDirectory)\n", 1),),
+            "WAITING_DIRECTORY_AT_INTERVAL"),
+    Witness("a8-directory-throttled-returns-before-policy", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("        if (!throttledDirectory)\n", "        if (throttledDirectory) return;\n        if (!throttledDirectory)\n", 1),),
+            "WAITING_DIRECTORY_POLICY_REGAIN_RESTARTS"),
+    Witness("a8-adapter-native-busy-throttled", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("        bool throttledDirectory = source == \"directory\" && observation.LatestSource == source &&\n", "        bool throttledDirectory = (source == \"directory\" || source == \"adapter\" && reason == \"native_context_busy\") && observation.LatestSource == source &&\n", 1),),
+            "WAITING_NON_DIRECTORY_NOT_THROTTLED"),
+    Witness("a8-directory-intervening-adapter-not-rearmed", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("        bool throttledDirectory = source == \"directory\" && observation.LatestSource == source &&\n            observation.LatestReason == reason && clock.GetElapsedTime(observation.LastCountedTimestamp, timestamp) is var elapsed &&\n            elapsed >= TimeSpan.Zero && elapsed < WaitingMailPolicy.DirectoryObservationInterval;\n", "        bool throttledDirectory = source == \"directory\" &&\n            (observation.LatestSource == source && observation.LatestReason == reason ||\n                observation.LatestSource == \"adapter\" && observation.Reasons.ContainsKey((reason, source))) &&\n            clock.GetElapsedTime(observation.LastCountedTimestamp, timestamp) is var elapsed &&\n            elapsed >= TimeSpan.Zero && elapsed < WaitingMailPolicy.DirectoryObservationInterval;\n", 1),),
+            "WAITING_DIRECTORY_ADAPTER_INTERLEAVING_REARMS_COUNT"),
+    Witness("a8-runtime-notice-io-mislabels-native-adapter", "tools/AgentBroker.Worker/BrokerRuntime.cs", "worker", ("--waiting-mail-only",),
+            (('                adapterErrors["waiting_mail"] = "waiting_mail_notice_write_failed";\n',
+              '                adapterErrors["waiting_mail"] = "waiting_mail_notice_write_failed";\n                adapterErrors["claude-native"] = "adapter_failed";\n', 1),),
+            "WAITING_RUNTIME_NOTICE_WRITE_FAILURE_ISOLATED_NO_SUBMISSION"),
+)
+
+# D2 A10 author self-review recipes: prior L2/A10 qualification records 36 executions / 34 source variants.
+# See E/lanes/D2/L2-A10-QUALIFICATION.md; catalogue registration alone never qualifies a witness.
+A10_DIRECTORY_SCOPE_WITNESSES = (
+    Witness("a10-null-scope-default-omitted", "tools/AgentBroker.Worker/BrokerTools.cs", "worker", ("--list-sessions-scope-only",),
+            (('        scope ??= "federated";\n', '', 1),),
+            "LIST_SESSIONS_NULL_SCOPE_DEFAULTS_FEDERATED: explicit null scope preserves omitted-scope ordered results and peer fetches"),
+    # The same source variant is also qualified through the authenticated wire group; two executions, one source variant.
+    Witness("a10-null-scope-wire-default-omitted", "tools/AgentBroker.Worker/BrokerTools.cs", "worker", ("--pagination-only",),
+            (('        scope ??= "federated";\n', '', 1),),
+            "LIST_SESSIONS_NULL_SCOPE_WIRE: explicit JSON null scope preserves the omitted-scope first page through authenticated MCP"),
+    Witness("a10-local-return-ignored", "tools/AgentBroker.Worker/BrokerRuntime.cs", "worker", ("--list-sessions-scope-only",),
+            (("            if (!includePeers) return result;\n", "", 1),),
+            "LIST_SESSIONS_LOCAL_SCOPE_EXCLUDES_PEERS: local scope returns within 500 ms without starting the two-second peer fetch"),
+    Witness("a10-local-return-before-busy-mapping", "tools/AgentBroker.Worker/BrokerRuntime.cs", "worker", ("--list-sessions-scope-only",),
+            (("            for (int index = 0; index < result.Count; index++)\n                if (result[index] is { Activity: SessionActivity.Unknown } row && observations.SeenBusy(row.Address))\n                    result[index] = row with { Activity = SessionActivity.Busy };\n            if (!includePeers) return result;\n", "            if (!includePeers) return result;\n            for (int index = 0; index < result.Count; index++)\n                if (result[index] is { Activity: SessionActivity.Unknown } row && observations.SeenBusy(row.Address))\n                    result[index] = row with { Activity = SessionActivity.Busy };\n", 1),),
+            "LIST_SESSIONS_LOCAL_SCOPE_PRESERVES_LOCAL_VIEW: the local caller retains private and Away rows and fresh native Busy presentation without any remote row"),
+    Witness("a10-local-uses-peer-filter", "tools/AgentBroker.Worker/BrokerRuntime.cs", "worker", ("--list-sessions-scope-only",),
+            (("        var result = store.PresentedDirectory(forPeer).ToList();\n", "        var result = store.PresentedDirectory(forPeer || !includePeers).ToList();\n", 1),),
+            "LIST_SESSIONS_LOCAL_SCOPE_PRESERVES_LOCAL_VIEW: the local caller retains private and Away rows and fresh native Busy presentation without any remote row"),
+    Witness("a10-local-pending-metadata-omitted", "tools/AgentBroker.Worker/BrokerTools.cs", "worker", ("--list-sessions-scope-only",),
+            (("                !forPeer && session.Address.BrokerId == runtime.Store.BrokerId ? pendingCounts!.GetValueOrDefault(session.Address) : null,\n", "                forPeer && session.Address.BrokerId == runtime.Store.BrokerId ? pendingCounts!.GetValueOrDefault(session.Address) : null,\n", 1),),
+            "LIST_SESSIONS_LOCAL_SCOPE_LOCAL_METADATA: zero pending counts remain available to the local caller"),
+    Witness("a10-local-cursor-ignored", "tools/AgentBroker.Worker/BrokerTools.cs", "worker", ("--list-sessions-scope-only",),
+            (("        if (afterAddress is not null) Run(() => { afterAddress.Validate(); return true; });\n", "        if (afterAddress is not null) Run(() => { afterAddress.Validate(); return true; });\n        if (scope == \"local\") afterAddress = null;\n", 1),),
+            "LIST_SESSIONS_LOCAL_SCOPE_PAGINATION: a bounded local scan returns all nineteen ordered addresses once across two pages"),
+    Witness("a10-default-local", "tools/AgentBroker.Worker/BrokerTools.cs", "worker", ("--list-sessions-scope-only",),
+            (("SessionAddress? afterAddress = null, string? scope = \"federated\")", "SessionAddress? afterAddress = null, string? scope = \"local\")", 1),),
+            "LIST_SESSIONS_DEFAULT_FEDERATED: omitting scope fetches the paired directory and includes its row"),
+    Witness("a10-federated-injected-clock-ignored", "tools/AgentBroker.Worker/BrokerRuntime.cs", "worker", ("--list-sessions-scope-only",),
+            (("                        var peerNow = Now;\n", "                        var peerNow = DateTimeOffset.UtcNow;\n", 1),),
+            "LIST_SESSIONS_DEFAULT_FEDERATED: omitting scope fetches the paired directory and includes its row"),
+    Witness("a10-federated-private-row-exposed", "tools/AgentBroker.Worker/BrokerRuntime.cs", "worker", ("--list-sessions-scope-only",),
+            (("                            !s.IsPrivate && s.LeaseUntil > peerNow).Take(256).ToArray();\n", "                            s.LeaseUntil > peerNow).Take(256).ToArray();\n", 1),),
+            "LIST_SESSIONS_DEFAULT_FEDERATED: omitting scope fetches the paired directory and includes its row"),
+    Witness("a10-scope-validation-omitted", "tools/AgentBroker.Worker/BrokerTools.cs", "worker", ("--list-sessions-scope-only",),
+            (("        if (scope is not (\"local\" or \"federated\")) throw ToolFailure(\"invalid_scope\");\n", "", 1),),
+            "LIST_SESSIONS_INVALID_SCOPE: exact scope values are required before any directory clock read or peer fetch"),
+    Witness("a10-scope-validation-after-directory", "tools/AgentBroker.Worker/BrokerTools.cs", "worker", ("--list-sessions-scope-only",),
+            (("        if (scope is not (\"local\" or \"federated\")) throw ToolFailure(\"invalid_scope\");\n", "", 1), ("        var sessions = await runtime.DirectoryAsync(forPeer, cancellationToken, includePeers: scope == \"federated\");\n", "        var sessions = await runtime.DirectoryAsync(forPeer, cancellationToken, includePeers: scope == \"federated\");\n        if (scope is not (\"local\" or \"federated\")) throw ToolFailure(\"invalid_scope\");\n", 1),),
+            "LIST_SESSIONS_INVALID_SCOPE: exact scope values are required before any directory clock read or peer fetch"),
+    Witness("a10-scope-case-folded", "tools/AgentBroker.Worker/BrokerTools.cs", "worker", ("--list-sessions-scope-only",),
+            (("        if (scope is not (\"local\" or \"federated\")) throw ToolFailure(\"invalid_scope\");\n", "        if (scope.ToLowerInvariant() is not (\"local\" or \"federated\")) throw ToolFailure(\"invalid_scope\");\n", 1),),
+            "LIST_SESSIONS_INVALID_SCOPE: exact scope values are required before any directory clock read or peer fetch"),
+    Witness("a10-scope-trimmed", "tools/AgentBroker.Worker/BrokerTools.cs", "worker", ("--list-sessions-scope-only",),
+            (("        if (scope is not (\"local\" or \"federated\")) throw ToolFailure(\"invalid_scope\");\n", "        if (scope.Trim() is not (\"local\" or \"federated\")) throw ToolFailure(\"invalid_scope\");\n", 1),),
+            "LIST_SESSIONS_INVALID_SCOPE: exact scope values are required before any directory clock read or peer fetch"),
+    Witness("a10-scope-overrides-peer-authority", "tools/AgentBroker.Worker/BrokerTools.cs", "worker", ("--list-sessions-scope-only",),
+            (("        bool forPeer = Caller != runtime.Store.BrokerId;\n        var sessions = await runtime.DirectoryAsync(forPeer, cancellationToken, includePeers: scope == \"federated\");\n", "        bool forPeer = false;\n        var sessions = await runtime.DirectoryAsync(forPeer, cancellationToken, includePeers: scope == \"federated\");\n", 1),),
+            "LIST_SESSIONS_SCOPE_PEER_PRIVACY: both scopes preserve private-row and local-metadata boundaries and forbid transitive peer fetches"),
+    Witness("a10-directory-caller-cancellation-detached", "tools/AgentBroker.Worker/BrokerRuntime.cs", "worker", ("--list-sessions-scope-only",),
+            (("            using var budget = CancellationTokenSource.CreateLinkedTokenSource(token, WaitStopping);\n", "            using var budget = CancellationTokenSource.CreateLinkedTokenSource(WaitStopping);\n", 1),),
+            "LIST_SESSIONS_SCOPE_CANCELLATION: cancelling a federated listing cancels its already-started peer fetch"),
+    Witness("a10-scope-tool-unpublished", "tools/AgentBroker.Worker/BrokerTools.cs", "worker", ("--instructions-only",),
+            (("[McpServerTool(Name = \"list_sessions\", ReadOnly = true, OpenWorld = false),", "[McpServerTool(Name = \"list_sessions_scope_mutant\", ReadOnly = true, OpenWorld = false),", 1),),
+            "LIST_SESSIONS_SCOPE_SCHEMA: real tools/list publishes optional nullable string scope and its default/local behavior"),
+    Witness("a10-scope-description-omitted", "tools/AgentBroker.Worker/BrokerTools.cs", "worker", ("--instructions-only",),
+            (("local returns this workstation only without fetching peers", "local returns this workstation", 1),),
+            "LIST_SESSIONS_SCOPE_SCHEMA: real tools/list publishes optional nullable string scope and its default/local behavior"),
+    Witness("a10-local-wire-cursor-ignored", "tools/AgentBroker.Worker/BrokerTools.cs", "worker", ("--pagination-only",),
+            (("        if (afterAddress is not null) Run(() => { afterAddress.Validate(); return true; });\n", "        if (afterAddress is not null) Run(() => { afterAddress.Validate(); return true; });\n        if (scope == \"local\") afterAddress = null;\n", 1),),
+            "LIST_SESSIONS_LOCAL_SCOPE_WIRE: explicit local scope traverses every local row once in the existing ordinal order"),
+    Witness("a10-scope-guidance-mapping-omitted", "tools/AgentBroker.Worker/BrokerRecoveryGuidance.cs", "worker", ("--pagination-only",),
+            (("        \"invalid_scope\" => new(code, \"list_sessions\",\n            \"Use scope local for this workstation only or federated for this workstation and explicitly paired brokers. Preserve caller permissions.\"),\n", "", 1),),
+            "LIST_SESSIONS_INVALID_SCOPE_GUIDANCE: real MCP preserves the SDK error and appends exactly one supported-scope recovery hint"),
+    Witness("a10-scope-error-untyped", "tools/AgentBroker.Worker/BrokerTools.cs", "worker", ("--pagination-only",),
+            (("throw ToolFailure(\"invalid_scope\")", "throw new McpException(\"invalid_scope\")", 1),),
+            "LIST_SESSIONS_INVALID_SCOPE_GUIDANCE: real MCP preserves the SDK error and appends exactly one supported-scope recovery hint"),
+)
+
+# AgentBroker 1.10.5 D2 A7: value identity and summary behavior, measured Core healthy count 113.
+# The 32 A7 cases were rebuilt and qualified with sole-exception evidence in E/lanes/D2/a7/mutations-r1; later changed checks are requalified in their own rounds.
+A7_WAITING_READ_WITNESSES = (
+    Witness("a7-identity-address-reference-equality", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("        receipt.AdmissionEpoch == observation.Admission && WaitIdentity.From(receipt.Message) == observation.Source;\n", "        receipt.AdmissionEpoch == observation.Admission && WaitIdentity.From(receipt.Message) == observation.Source && ReferenceEquals(receipt.Message.Sender, observation.Source.Sender) && ReferenceEquals(receipt.Message.Recipient, observation.Source.Recipient);\n", 1),),
+            "WAITING_IDENTITY_EQUAL_VALUES_KEEP_HISTORY"),
+    Witness("a7-identity-text-retained", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("        DateTimeOffset ExpiresAt, int RemainingReplies)\n", "        DateTimeOffset ExpiresAt, int RemainingReplies, string Text)\n", 1), ("        internal static WaitIdentity From(BrokerMessage message) => new(message.Id,\n            message.ConversationId, message.ReplyTo, message.Sender, message.Recipient,\n            message.CreatedAt, message.ExpiresAt, message.RemainingReplies);\n", "        internal static WaitIdentity From(BrokerMessage message) => new(message.Id,\n            message.ConversationId, message.ReplyTo, message.Sender, message.Recipient,\n            message.CreatedAt, message.ExpiresAt, message.RemainingReplies, message.Text);\n", 1),),
+            "WAITING_IDENTITY_TEXT_CHANGE_KEEPS_HISTORY"),
+    Witness("a7-expected-text-ignored", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("                current.Message == expected.Message && waitingMail.TryGetValue(current.Message.Id, out var observation) && CurrentWait(current, observation)\n", "                WaitIdentity.From(current.Message) == WaitIdentity.From(expected.Message) && waitingMail.TryGetValue(current.Message.Id, out var observation) && CurrentWait(current, observation)\n", 1),),
+            "WAITING_EXPECTED_OLD_TEXT_REFUSED"),
+    Witness("a7-actual-admission-omitted", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("        receipt.AdmissionEpoch == observation.Admission && WaitIdentity.From(receipt.Message) == observation.Source;\n", "        WaitIdentity.From(receipt.Message) == observation.Source;\n", 1),),
+            "WAITING_ACTUAL_ADMISSION_CHANGE_INVALIDATES_HISTORY"),
+    Witness("a7-identity-conversation-omitted", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("        internal static WaitIdentity From(BrokerMessage message) => new(message.Id,\n            message.ConversationId, message.ReplyTo, message.Sender, message.Recipient,\n            message.CreatedAt, message.ExpiresAt, message.RemainingReplies);\n", "        internal static WaitIdentity From(BrokerMessage message) => new(message.Id,\n            Guid.Empty, message.ReplyTo, message.Sender, message.Recipient,\n            message.CreatedAt, message.ExpiresAt, message.RemainingReplies);\n", 1),),
+            "WAITING_IDENTITY_CONVERSATION_INVALIDATES_HISTORY"),
+    Witness("a7-identity-reply-to-omitted", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("        internal static WaitIdentity From(BrokerMessage message) => new(message.Id,\n            message.ConversationId, message.ReplyTo, message.Sender, message.Recipient,\n            message.CreatedAt, message.ExpiresAt, message.RemainingReplies);\n", "        internal static WaitIdentity From(BrokerMessage message) => new(message.Id,\n            message.ConversationId, (Guid?)null, message.Sender, message.Recipient,\n            message.CreatedAt, message.ExpiresAt, message.RemainingReplies);\n", 1),),
+            "WAITING_IDENTITY_REPLY_TO_FROM_NULL_INVALIDATES_HISTORY"),
+    Witness("a7-identity-reply-to-value-collapsed", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("        internal static WaitIdentity From(BrokerMessage message) => new(message.Id,\n            message.ConversationId, message.ReplyTo, message.Sender, message.Recipient,\n            message.CreatedAt, message.ExpiresAt, message.RemainingReplies);\n", "        internal static WaitIdentity From(BrokerMessage message) => new(message.Id,\n            message.ConversationId, message.ReplyTo.HasValue ? Guid.Empty : (Guid?)null, message.Sender, message.Recipient,\n            message.CreatedAt, message.ExpiresAt, message.RemainingReplies);\n", 1),),
+            "WAITING_IDENTITY_REPLY_TO_CHANGED_INVALIDATES_HISTORY"),
+    Witness("a7-identity-sender-broker-omitted", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("        internal static WaitIdentity From(BrokerMessage message) => new(message.Id,\n            message.ConversationId, message.ReplyTo, message.Sender, message.Recipient,\n            message.CreatedAt, message.ExpiresAt, message.RemainingReplies);\n", "        internal static WaitIdentity From(BrokerMessage message) => new(message.Id,\n            message.ConversationId, message.ReplyTo, message.Sender with { BrokerId = Guid.Empty }, message.Recipient,\n            message.CreatedAt, message.ExpiresAt, message.RemainingReplies);\n", 1),),
+            "WAITING_IDENTITY_SENDER_BROKER_INVALIDATES_HISTORY"),
+    Witness("a7-identity-sender-session-omitted", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("        internal static WaitIdentity From(BrokerMessage message) => new(message.Id,\n            message.ConversationId, message.ReplyTo, message.Sender, message.Recipient,\n            message.CreatedAt, message.ExpiresAt, message.RemainingReplies);\n", "        internal static WaitIdentity From(BrokerMessage message) => new(message.Id,\n            message.ConversationId, message.ReplyTo, message.Sender with { SessionId = \"\" }, message.Recipient,\n            message.CreatedAt, message.ExpiresAt, message.RemainingReplies);\n", 1),),
+            "WAITING_IDENTITY_SENDER_SESSION_INVALIDATES_HISTORY"),
+    Witness("a7-identity-sender-incarnation-omitted", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("        internal static WaitIdentity From(BrokerMessage message) => new(message.Id,\n            message.ConversationId, message.ReplyTo, message.Sender, message.Recipient,\n            message.CreatedAt, message.ExpiresAt, message.RemainingReplies);\n", "        internal static WaitIdentity From(BrokerMessage message) => new(message.Id,\n            message.ConversationId, message.ReplyTo, message.Sender with { Incarnation = Guid.Empty }, message.Recipient,\n            message.CreatedAt, message.ExpiresAt, message.RemainingReplies);\n", 1),),
+            "WAITING_IDENTITY_SENDER_INCARNATION_INVALIDATES_HISTORY"),
+    Witness("a7-identity-recipient-session-omitted", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("        internal static WaitIdentity From(BrokerMessage message) => new(message.Id,\n            message.ConversationId, message.ReplyTo, message.Sender, message.Recipient,\n            message.CreatedAt, message.ExpiresAt, message.RemainingReplies);\n", "        internal static WaitIdentity From(BrokerMessage message) => new(message.Id,\n            message.ConversationId, message.ReplyTo, message.Sender, message.Recipient with { SessionId = \"\" },\n            message.CreatedAt, message.ExpiresAt, message.RemainingReplies);\n", 1),),
+            "WAITING_IDENTITY_RECIPIENT_SESSION_INVALIDATES_HISTORY"),
+    Witness("a7-identity-recipient-incarnation-omitted", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("        internal static WaitIdentity From(BrokerMessage message) => new(message.Id,\n            message.ConversationId, message.ReplyTo, message.Sender, message.Recipient,\n            message.CreatedAt, message.ExpiresAt, message.RemainingReplies);\n", "        internal static WaitIdentity From(BrokerMessage message) => new(message.Id,\n            message.ConversationId, message.ReplyTo, message.Sender, message.Recipient with { Incarnation = Guid.Empty },\n            message.CreatedAt, message.ExpiresAt, message.RemainingReplies);\n", 1),),
+            "WAITING_IDENTITY_RECIPIENT_INCARNATION_INVALIDATES_HISTORY"),
+    Witness("a7-identity-created-at-omitted", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("        internal static WaitIdentity From(BrokerMessage message) => new(message.Id,\n            message.ConversationId, message.ReplyTo, message.Sender, message.Recipient,\n            message.CreatedAt, message.ExpiresAt, message.RemainingReplies);\n", "        internal static WaitIdentity From(BrokerMessage message) => new(message.Id,\n            message.ConversationId, message.ReplyTo, message.Sender, message.Recipient,\n            default, message.ExpiresAt, message.RemainingReplies);\n", 1),),
+            "WAITING_IDENTITY_CREATED_AT_INVALIDATES_HISTORY"),
+    Witness("a7-identity-expires-at-omitted", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("        internal static WaitIdentity From(BrokerMessage message) => new(message.Id,\n            message.ConversationId, message.ReplyTo, message.Sender, message.Recipient,\n            message.CreatedAt, message.ExpiresAt, message.RemainingReplies);\n", "        internal static WaitIdentity From(BrokerMessage message) => new(message.Id,\n            message.ConversationId, message.ReplyTo, message.Sender, message.Recipient,\n            message.CreatedAt, default, message.RemainingReplies);\n", 1),),
+            "WAITING_IDENTITY_EXPIRES_AT_INVALIDATES_HISTORY"),
+    Witness("a7-identity-replies-omitted", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("        internal static WaitIdentity From(BrokerMessage message) => new(message.Id,\n            message.ConversationId, message.ReplyTo, message.Sender, message.Recipient,\n            message.CreatedAt, message.ExpiresAt, message.RemainingReplies);\n", "        internal static WaitIdentity From(BrokerMessage message) => new(message.Id,\n            message.ConversationId, message.ReplyTo, message.Sender, message.Recipient,\n            message.CreatedAt, message.ExpiresAt, 0);\n", 1),),
+            "WAITING_IDENTITY_REMAINING_REPLIES_INVALIDATES_HISTORY"),
+    Witness("a7-summary-incarnation-collapsed", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("            var indices = new Dictionary<SessionAddress, int>(targets.Length);\n", "            var indices = new Dictionary<string, int>(targets.Length, StringComparer.Ordinal);\n", 1), ("                indices.Add(targets[i].Address, i);\n", "                indices.Add(targets[i].Address.SessionId, i);\n", 1), ("                    !indices.TryGetValue(receipt.Message.Recipient, out int index)) continue;\n", "                    !indices.TryGetValue(receipt.Message.Recipient.SessionId, out int index)) continue;\n", 1),),
+            "WAITING_SUMMARY_RECIPIENT_INCARNATION_IS_EXACT"),
+    Witness("a7-summary-native-sender-routing", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("                    !indices.TryGetValue(receipt.Message.Recipient, out int index)) continue;\n", "                    !indices.TryGetValue(sessions.TryGetValue(receipt.Message.Sender, out var nativeSender) && Native(nativeSender) ? receipt.Message.Sender : receipt.Message.Recipient, out int index)) continue;\n", 1),),
+            "WAITING_SUMMARY_RECIPIENT_NOT_SENDER"),
+    Witness("a7-summary-submitted-omitted", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("                if (!NeedsRecipientReceipt(receipt, now) || receipt.Message.Recipient.BrokerId != state.BrokerId ||\n", "                if (receipt.Status == MessageStatus.Submitted || !NeedsRecipientReceipt(receipt, now) || receipt.Message.Recipient.BrokerId != state.BrokerId ||\n", 1),),
+            "WAITING_SUMMARY_MIXED_STATES_AND_EXPIRY"),
+    Witness("a7-summary-held-included", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("                if (!NeedsRecipientReceipt(receipt, now) || receipt.Message.Recipient.BrokerId != state.BrokerId ||\n", "                if (!(NeedsRecipientReceipt(receipt, now) || receipt.Status == MessageStatus.Held && receipt.Message.ExpiresAt > now) || receipt.Message.Recipient.BrokerId != state.BrokerId ||\n", 1),),
+            "WAITING_SUMMARY_MIXED_STATES_AND_EXPIRY"),
+    Witness("a7-summary-expiry-delayed", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("                if (!NeedsRecipientReceipt(receipt, now) || receipt.Message.Recipient.BrokerId != state.BrokerId ||\n", "                if (!NeedsRecipientReceipt(receipt, now - TimeSpan.FromTicks(2)) || receipt.Message.Recipient.BrokerId != state.BrokerId ||\n", 1),),
+            "WAITING_SUMMARY_MIXED_STATES_AND_EXPIRY"),
+    Witness("a7-summary-nonbusy-unobserved", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("                    if (!count.Ready.Value || isBusy) { count.Blocked++; if (!observed) count.Unobserved++; }\n", "                    if (!count.Ready.Value || isBusy) { count.Blocked++; if (!isBusy) count.Unobserved++; }\n", 1),),
+            "WAITING_SUMMARY_FRESH_NONBUSY_IS_OBSERVED"),
+    Witness("a7-summary-oldest-tie-overwritten", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("                if (count.Age is null || elapsed > count.Age) { count.Age = elapsed; count.Oldest = observation.BusyAt; }\n", "                if (count.Age is null || elapsed >= count.Age) { count.Age = elapsed; count.Oldest = observation.BusyAt; }\n", 1),),
+            "WAITING_SUMMARY_OLDEST_AGE_TIE_KEEPS_FIRST"),
+    Witness("a7-summary-oldest-by-utc", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (("                if (count.Age is null || elapsed > count.Age) { count.Age = elapsed; count.Oldest = observation.BusyAt; }\n", "                if (count.Oldest is null || observation.BusyAt < count.Oldest) { count.Age = elapsed; count.Oldest = observation.BusyAt; }\n", 1),),
+            "WAITING_SUMMARY_OLDEST_USES_MONOTONIC_AGE"),
+)
+
+# D2 A7: real benchmark fixtures and the complete-summary guard.
+def waiting_benchmark_fields(pending: int, cohort: str, samples: int) -> str:
+    maximum = 64 if pending == 4096 else 1 if pending == 16 else 0
+    observed_messages = pending if cohort == "fresh-busy" else 0
+    return (f"scenario=waiting-mail, pending={pending}, cohort={cohort}, sessions=65, recipients=64, "
+            f"maximumPerRecipient={maximum}, observedMessages={observed_messages}, samples={samples}, gapMilliseconds=500, "
+            "firstQuerySample=0, queryTimes=6 finiteNonnegative=True, hashes=6 allMatch=True, expectedHashMatches=True, summarySessions=65")
+
+
+def waiting_benchmark_shape_label(pending: int, cohort: str) -> str:
+    return (f"BENCHMARK_WAITING_{pending}_{cohort.replace('-', '_').upper()}: expected exit=0, " +
+            waiting_benchmark_fields(pending, cohort, 6) + "; observed exit=0, " +
+            waiting_benchmark_fields(pending, cohort, 5))
+
+
+A7_BENCHMARK_WAITING_WITNESSES = (
+    Witness("a7-benchmark-waiting-shape-0-pending-only", "tests/AgentBroker.Worker.Tests/CoordinationBenchmark.WaitingMail.cs", "worker", ("--benchmark-validation-only",),
+            (("                samples, gapMilliseconds, firstQuerySample = 0,\n", "                samples = samples - (pending == 0 && cohort == \"pending-only\" ? 1 : 0), gapMilliseconds, firstQuerySample = 0,\n", 1),),
+            waiting_benchmark_shape_label(0, "pending-only")),
+    Witness("a7-benchmark-waiting-shape-16-pending-only", "tests/AgentBroker.Worker.Tests/CoordinationBenchmark.WaitingMail.cs", "worker", ("--benchmark-validation-only",),
+            (("                samples, gapMilliseconds, firstQuerySample = 0,\n", "                samples = samples - (pending == 16 && cohort == \"pending-only\" ? 1 : 0), gapMilliseconds, firstQuerySample = 0,\n", 1),),
+            waiting_benchmark_shape_label(16, "pending-only")),
+    Witness("a7-benchmark-waiting-shape-4096-pending-only", "tests/AgentBroker.Worker.Tests/CoordinationBenchmark.WaitingMail.cs", "worker", ("--benchmark-validation-only",),
+            (("                samples, gapMilliseconds, firstQuerySample = 0,\n", "                samples = samples - (pending == 4096 && cohort == \"pending-only\" ? 1 : 0), gapMilliseconds, firstQuerySample = 0,\n", 1),),
+            waiting_benchmark_shape_label(4096, "pending-only")),
+    Witness("a7-benchmark-waiting-shape-0-fresh-busy", "tests/AgentBroker.Worker.Tests/CoordinationBenchmark.WaitingMail.cs", "worker", ("--benchmark-validation-only",),
+            (("                samples, gapMilliseconds, firstQuerySample = 0,\n", "                samples = samples - (pending == 0 && cohort == \"fresh-busy\" ? 1 : 0), gapMilliseconds, firstQuerySample = 0,\n", 1),),
+            waiting_benchmark_shape_label(0, "fresh-busy")),
+    Witness("a7-benchmark-waiting-shape-16-fresh-busy", "tests/AgentBroker.Worker.Tests/CoordinationBenchmark.WaitingMail.cs", "worker", ("--benchmark-validation-only",),
+            (("                samples, gapMilliseconds, firstQuerySample = 0,\n", "                samples = samples - (pending == 16 && cohort == \"fresh-busy\" ? 1 : 0), gapMilliseconds, firstQuerySample = 0,\n", 1),),
+            waiting_benchmark_shape_label(16, "fresh-busy")),
+    Witness("a7-benchmark-waiting-shape-4096-fresh-busy", "tests/AgentBroker.Worker.Tests/CoordinationBenchmark.WaitingMail.cs", "worker", ("--benchmark-validation-only",),
+            (("                samples, gapMilliseconds, firstQuerySample = 0,\n", "                samples = samples - (pending == 4096 && cohort == \"fresh-busy\" ? 1 : 0), gapMilliseconds, firstQuerySample = 0,\n", 1),),
+            waiting_benchmark_shape_label(4096, "fresh-busy")),
+    Witness("a7-benchmark-waiting-summary-guard-omitted", "tests/AgentBroker.Worker.Tests/CoordinationBenchmark.WaitingMail.cs", "worker", ("--benchmark-validation-only",),
+            (("                if (!actualBytes.AsSpan().SequenceEqual(expectedBytes))\n", "                if (!actualBytes.AsSpan().SequenceEqual(expectedBytes) && pending < 0)\n", 1),),
+            "BENCHMARK_WAITING_COUNTS_GUARD: fresh-busy pending=16 with one missing seeded message expects exit=1, "
+            "BENCHMARK-FAILED=True, summaryMismatch=True; observed exit=0, BENCHMARK-FAILED=False, summaryMismatch=False"),
+)
+
+D2_R2_WORKER_DIAGNOSTIC_WITNESSES = (
+    Witness("a8-runtime-write-loop-reflection-precondition", "tests/AgentBroker.Worker.Tests/WaitingMailToolChecks.cs", "worker", ("--waiting-mail-only",),
+            (('GetField("adapterErrors", System.Reflection.BindingFlags.Instance |\n',
+              'GetField("adapterErrors_missing_for_test", System.Reflection.BindingFlags.Instance |\n', 1),),
+            "WAITING_RUNTIME_WRITE_FAILURE_LOOP_REFLECTION_PRECONDITION: BrokerRuntime.adapterErrors resolves to the expected dictionary before the runtime starts."),
+    Witness("a8-runtime-write-loop-first-discovery-precondition", "tests/AgentBroker.Worker.Tests/WaitingMailToolChecks.cs", "worker", ("--waiting-mail-only",),
+            (('bool firstDiscoveryCompleted = await UntilAsync(() => adapter.Discoveries == 1 &&\n',
+              'bool firstDiscoveryCompleted = await UntilAsync(() => adapter.Discoveries == -1 &&\n', 1),),
+            "WAITING_RUNTIME_WRITE_FAILURE_LOOP_FIRST_DISCOVERY_PRECONDITION: the first discovery clears the seeded adapter error before the notice fault is armed."),
+    Witness("a8-runtime-write-loop-notice-precondition", "tests/AgentBroker.Worker.Tests/WaitingMailToolChecks.cs", "worker", ("--waiting-mail-only",),
+            (('        string fault = Path.Combine(fixture.Root, "store", "broker-state.json.next");\n        long failedBefore = fixture.Store.CommitTimings().Failed;\n        bool ownsFault = false;\n',
+              '        string fault = Path.Combine(fixture.Root, "store", "broker-state.json.unused-for-test");\n        long failedBefore = fixture.Store.CommitTimings().Failed;\n        bool ownsFault = false;\n', 1),),
+            "WAITING_RUNTIME_WRITE_FAILURE_LOOP_NOTICE_PRECONDITION: the real delivery loop reaches the armed write fault and records its waiting-mail error within the fixture deadline."),
+    Witness("a8-runtime-write-loop-discovery-barrier-precondition", "tests/AgentBroker.Worker.Tests/WaitingMailToolChecks.cs", "worker", ("--waiting-mail-only",),
+            (('            check(observedFailure,\n                "WAITING_RUNTIME_WRITE_FAILURE_LOOP_NOTICE_PRECONDITION: the real delivery loop reaches the armed write fault and records its waiting-mail error within the fixture deadline.");\n',
+              '            check(observedFailure,\n                "WAITING_RUNTIME_WRITE_FAILURE_LOOP_NOTICE_PRECONDITION: the real delivery loop reaches the armed write fault and records its waiting-mail error within the fixture deadline.");\n            await adapter.DiscoverAsync(fixture.Store.BrokerId, stop.Token);\n', 1),),
+            "WAITING_RUNTIME_WRITE_FAILURE_LOOP_DISCOVERY_BARRIER_PRECONDITION: the adapter completes exactly one discovery so later discovery cannot clear the injected error."),
+)
+
+
+WAITING_MAIL_R4_WORKER_WITNESSES = (
+    Witness('waiting-runtime-admission-omitted', 'tools/AgentBroker.Worker/BrokerRuntime.cs', 'worker', ('--waiting-mail-only',), (('AdmitWaitingMailPass();', '', 1),), 'WAITING_RUNTIME_LOOP_ADMITS_AT_DUE'),
+    Witness('waiting-runtime-error-key-omitted', 'tools/AgentBroker.Worker/BrokerRuntime.cs', 'worker', ('--waiting-mail-only',), (('adapterErrors["waiting_mail"] = "waiting_mail_notice_write_failed";', '', 1),), 'WAITING_RUNTIME_NOTICE_WRITE_FAILURE'),
+    Witness('waiting-runtime-error-clear-omitted', 'tools/AgentBroker.Worker/BrokerRuntime.cs', 'worker', ('--waiting-mail-only',), (('adapterErrors.TryRemove("waiting_mail", out _);', '', 1),), 'WAITING_RUNTIME_NOTICE_RETRY_CLEARS_ERROR'),
+    Witness('waiting-control-count-fields-swapped', 'tools/AgentBroker.Worker/LocalControlServer.cs', 'worker', ('--waiting-mail-only',), (('row.PendingCount, row.QueuedCount, row.BlockedCount, row.BusyCount, row.UnobservedBlockedCount,', 'row.QueuedCount, row.PendingCount, row.UnobservedBlockedCount, row.BusyCount, row.BlockedCount,', 1),), 'WAITING_CONTROL_DISTINCT_COUNTS'),
+    Witness('waiting-runtime-backoff-guard-omitted', 'tools/AgentBroker.Worker/BrokerRuntime.cs', 'worker', ('--waiting-mail-only',), (('            if (waitingMailFailedAt is { } failed && observationClock.GetElapsedTime(failed) < TimeSpan.FromSeconds(5)) return;', '            _ = waitingMailFailedAt;', 1),), 'WAITING_RUNTIME_NOTICE_BACKOFF_SHARED_GATE'),
+    Witness('waiting-runtime-backoff-timestamp-omitted', 'tools/AgentBroker.Worker/BrokerRuntime.cs', 'worker', ('--waiting-mail-only',), (('waitingMailFailedAt = observationClock.GetTimestamp();', '', 1),), 'WAITING_RUNTIME_NOTICE_BACKOFF_SHARED_GATE'),
+    Witness('waiting-runtime-backoff-uses-utc', 'tools/AgentBroker.Worker/BrokerRuntime.cs', 'worker', ('--waiting-mail-only',), (('    // Four delivery loops share one monotonic advisory retry budget; ordinary selection stays outside this gate.\n    private readonly object waitingMailGate = new();\n    private long? waitingMailFailedAt;\n    private void AdmitWaitingMailPass()\n    {\n        lock (waitingMailGate)\n        {\n            var observationClock = clock ?? TimeProvider.System;\n            if (waitingMailFailedAt is { } failed && observationClock.GetElapsedTime(failed) < TimeSpan.FromSeconds(5)) return;\n            try\n            {\n                store.AdmitDueWaitingMailNotices();\n                waitingMailFailedAt = null; adapterErrors.TryRemove("waiting_mail", out _);\n            }\n            catch (Exception error) when (error is IOException or UnauthorizedAccessException)\n            {\n                waitingMailFailedAt = observationClock.GetTimestamp();\n                adapterErrors["waiting_mail"] = "waiting_mail_notice_write_failed";\n            }\n        }\n    }\n\n', '    // Four delivery loops share one monotonic advisory retry budget; ordinary selection stays outside this gate.\n    private readonly object waitingMailGate = new();\n    private long? waitingMailFailedAt;\n    private void AdmitWaitingMailPass()\n    {\n        lock (waitingMailGate)\n        {\n            var observationClock = clock ?? TimeProvider.System;\n            if (waitingMailFailedAt is { } failed && TimeSpan.FromTicks(observationClock.GetUtcNow().UtcTicks - failed) < TimeSpan.FromSeconds(5)) return;\n            try\n            {\n                store.AdmitDueWaitingMailNotices();\n                waitingMailFailedAt = null; adapterErrors.TryRemove("waiting_mail", out _);\n            }\n            catch (Exception error) when (error is IOException or UnauthorizedAccessException)\n            {\n                waitingMailFailedAt = observationClock.GetUtcNow().UtcTicks;\n                adapterErrors["waiting_mail"] = "waiting_mail_notice_write_failed";\n            }\n        }\n    }\n\n', 1),), 'WAITING_RUNTIME_NOTICE_BACKOFF_SUPPRESSES_WRITES'),
+    Witness('waiting-runtime-backoff-one-second-early', 'tools/AgentBroker.Worker/BrokerRuntime.cs', 'worker', ('--waiting-mail-only',), (('            if (waitingMailFailedAt is { } failed && observationClock.GetElapsedTime(failed) < TimeSpan.FromSeconds(5)) return;', '            if (waitingMailFailedAt is { } failed && observationClock.GetElapsedTime(failed) < TimeSpan.FromSeconds(4)) return;', 1),), 'WAITING_RUNTIME_NOTICE_BACKOFF_SUPPRESSES_WRITES'),
+    Witness('waiting-runtime-backoff-one-second-late', 'tools/AgentBroker.Worker/BrokerRuntime.cs', 'worker', ('--waiting-mail-only',), (('            if (waitingMailFailedAt is { } failed && observationClock.GetElapsedTime(failed) < TimeSpan.FromSeconds(5)) return;', '            if (waitingMailFailedAt is { } failed && observationClock.GetElapsedTime(failed) < TimeSpan.FromSeconds(6)) return;', 1),), 'WAITING_RUNTIME_NOTICE_BACKOFF_RETRIES_AT_BOUNDARY'),
+    Witness('waiting-runtime-backoff-shared-lock-omitted', 'tools/AgentBroker.Worker/BrokerRuntime.cs', 'worker', ('--waiting-mail-only',), (('lock (waitingMailGate)', 'if (waitingMailGate is not null)', 1),), 'WAITING_RUNTIME_NOTICE_BACKOFF_SHARED_GATE'),
+)
+
+# CR4-4 isolated Worker26 smoke662A432D and two killing controls9A3362F4; integration test adoption is separate.
+NONIO_CR4_4_WITNESSES = (
+    Witness('waiting-runtime-nonio-caught-as-noncancel', 'tools/AgentBroker.Worker/BrokerRuntime.cs', 'worker', ('--waiting-mail-only',), (('catch (Exception error) when (error is IOException or UnauthorizedAccessException)', 'catch (Exception error) when (error is not OperationCanceledException)', 1),), 'WAITING_RUNTIME_NONIO_PROPAGATES_WITHOUT_BACKOFF'),
+    Witness('waiting-runtime-nonio-catch-all', 'tools/AgentBroker.Worker/BrokerRuntime.cs', 'worker', ('--waiting-mail-only',), (('catch (Exception error) when (error is IOException or UnauthorizedAccessException)', 'catch (Exception)', 1),), 'WAITING_RUNTIME_NONIO_PROPAGATES_WITHOUT_BACKOFF'),
+)
+
+# Adopted F18 v3 registration: guidance controls and restored groups qualified in FC427CCD.
+F18_V3_PROSPECTIVE_WITNESSES = (
+    Witness('channel-instructions-over-1800', 'tools/AgentBroker.Worker/McpChannelBridge.cs', 'worker', ('--channel-only',), (('        "\\nAfter 5 minutes of fresh observed Busy, local senders may get an advisory, not a failure. Observations reset on worker restart; waits metadata is local-only.";', '        "\\nAfter 5 minutes of fresh observed Busy, local senders may get an advisory, not a failure. Observations reset on worker restart; waits metadata is local-only." + "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx";', 1),), 'CARD_CHANNEL_BOUND: initialize carries the actual channel instructions within their separate 1800-character bound'),
+    Witness('channel-instructions-bound-raised', 'tools/AgentBroker.Worker/McpChannelBridge.cs', 'worker', ('--channel-only',), (('internal const int MaximumInstructionsLength = 1800;', 'internal const int MaximumInstructionsLength = 2048;', 1),), 'CARD_CHANNEL_BOUND: initialize carries the actual channel instructions within their separate 1800-character bound'),
+    Witness('channel-reply-local-receive-omitted', 'tools/AgentBroker.Worker/McpChannelBridge.cs', 'worker', ('--channel-only',), (('        "unexpired Accepted, Submitting, Submitted or Uncertain parent only when both peers are local and the recipient row has Receive: " +', '        "unexpired Accepted, Submitting, Submitted or Uncertain parent: " +', 1),), 'CARD_CHANNEL_REPLY_RECEIPT_GUIDANCE: actual initialize and tool descriptions explain conditional text removal, retention and Held completion'),
+    Witness('channel-held-completion-omitted', 'tools/AgentBroker.Worker/McpChannelBridge.cs', 'worker', ('--channel-only',), (('        "then Delivered when done. Held does not extend the original deadline; mark Delivered before it expires. " +', '        "Held does not extend the original deadline; mark Delivered before it expires. " +', 1),), 'CARD_CHANNEL_REPLY_RECEIPT_GUIDANCE: actual initialize and tool descriptions explain conditional text removal, retention and Held completion'),
+    Witness('channel-tool-reply-atomic-text-removal-omitted', 'tools/AgentBroker.Worker/McpChannelBridge.cs', 'worker', ('--channel-only',), (('Receive: Delivered/reply_receipt removes its text atomically with the reply. Retain content first;', 'Receive. Retain content first;', 1),), 'CARD_CHANNEL_REPLY_RECEIPT_GUIDANCE: actual initialize and tool descriptions explain conditional text removal, retention and Held completion'),
+    Witness('channel-held-deadline-omitted', 'tools/AgentBroker.Worker/McpChannelBridge.cs', 'worker', ('--channel-only',), (('        "then Delivered when done. Held does not extend the original deadline; mark Delivered before it expires. " +', '        "then Delivered when done. " +', 1),), 'CARD_CHANNEL_HELD_DEADLINE: actual initialize and tool descriptions require Delivered before the original Held deadline'),
+    Witness('channel-ack-permission-omitted', 'tools/AgentBroker.Worker/McpChannelBridge.cs', 'worker', ('--channel-only',), (('        "A reply leaves Held unchanged. If not replying or the reply is ineligible, acknowledge Delivered when permitted; " +', '        "A reply leaves Held unchanged. If not replying or the reply is ineligible, acknowledge Delivered; " +', 1),), 'CARD_CHANNEL_ACK_PERMISSION: fallback acknowledgement is conditional in actual initialize and tool descriptions'),
+    Witness('card-threshold-distorted', 'tools/AgentBroker.Worker/BrokerInstructions.cs', 'worker', ('--instructions-only',), (('After 5 minutes of fresh observed Busy', 'After 4 minutes of fresh observed Busy', 1),), 'CARD_WAITING_ADVISORY: actual initialize describes fresh observed Busy timing, an advisory rather than failure, restart reset and local-only waits metadata'),
+    Witness('card-freshness-omitted', 'tools/AgentBroker.Worker/BrokerInstructions.cs', 'worker', ('--instructions-only',), (('fresh observed Busy', 'Busy', 1),), 'CARD_WAITING_ADVISORY: actual initialize describes fresh observed Busy timing, an advisory rather than failure, restart reset and local-only waits metadata'),
+    Witness('card-advisory-is-failure', 'tools/AgentBroker.Worker/BrokerInstructions.cs', 'worker', ('--instructions-only',), (('an advisory, not a failure', 'a failure', 1),), 'CARD_WAITING_ADVISORY: actual initialize describes fresh observed Busy timing, an advisory rather than failure, restart reset and local-only waits metadata'),
+    Witness('card-restart-reset-omitted', 'tools/AgentBroker.Worker/BrokerInstructions.cs', 'worker', ('--instructions-only',), (('Observations reset on worker restart; ', '', 1),), 'CARD_WAITING_ADVISORY: actual initialize describes fresh observed Busy timing, an advisory rather than failure, restart reset and local-only waits metadata'),
+    Witness('card-local-only-waits-omitted', 'tools/AgentBroker.Worker/BrokerInstructions.cs', 'worker', ('--instructions-only',), (('waits metadata is local-only.', 'waits metadata is shared.', 1),), 'CARD_WAITING_ADVISORY: actual initialize describes fresh observed Busy timing, an advisory rather than failure, restart reset and local-only waits metadata'),
+    Witness('channel-threshold-distorted', 'tools/AgentBroker.Worker/McpChannelBridge.cs', 'worker', ('--channel-only',), (('After 5 minutes of fresh observed Busy', 'After 4 minutes of fresh observed Busy', 1),), 'CARD_CHANNEL_WAITING_ADVISORY: actual initialize describes fresh observed Busy timing, an advisory rather than failure, restart reset and local-only waits metadata'),
+    Witness('channel-freshness-omitted', 'tools/AgentBroker.Worker/McpChannelBridge.cs', 'worker', ('--channel-only',), (('fresh observed Busy', 'Busy', 1),), 'CARD_CHANNEL_WAITING_ADVISORY: actual initialize describes fresh observed Busy timing, an advisory rather than failure, restart reset and local-only waits metadata'),
+    Witness('channel-advisory-is-failure', 'tools/AgentBroker.Worker/McpChannelBridge.cs', 'worker', ('--channel-only',), (('an advisory, not a failure', 'a failure', 1),), 'CARD_CHANNEL_WAITING_ADVISORY: actual initialize describes fresh observed Busy timing, an advisory rather than failure, restart reset and local-only waits metadata'),
+    Witness('channel-restart-reset-omitted', 'tools/AgentBroker.Worker/McpChannelBridge.cs', 'worker', ('--channel-only',), (('Observations reset on worker restart; ', '', 1),), 'CARD_CHANNEL_WAITING_ADVISORY: actual initialize describes fresh observed Busy timing, an advisory rather than failure, restart reset and local-only waits metadata'),
+    Witness('channel-local-only-waits-omitted', 'tools/AgentBroker.Worker/McpChannelBridge.cs', 'worker', ('--channel-only',), (('waits metadata is local-only.', 'waits metadata is shared.', 1),), 'CARD_CHANNEL_WAITING_ADVISORY: actual initialize describes fresh observed Busy timing, an advisory rather than failure, restart reset and local-only waits metadata'),
+    Witness('card-churn-budget-omitted', 'tools/AgentBroker.Worker/BrokerInstructions.cs', 'worker', ('--instructions-only',), (('At remainingReplies 0, send with the same conversationId; replies count hops.', 'Keep using replies.', 1),), 'CARD_CHURN_AND_BUDGET: the card says how to recover from a changed incarnation and from a spent reply budget'),
+    Witness('card-wait-for-receipt-waits-description-omitted', 'tools/AgentBroker.Worker/BrokerTools.cs', 'worker', ('--instructions-only',), (('     Description("Wait up to timeoutSeconds (0..25, default 20) for the outcome of a message your session sent. Returns its receipt without text as soon as it is Delivered, Held, Refused, Expired or Uncertain, or the current receipt when the deadline passes. readAt is the broker\'s read time; updatedAt with reason recipient_receipt or reply_receipt is the recipient acknowledgement time. busySince is the first fresh busy observation from a local directory or native adapter, including a queued or Submitted message; it proves observed activity, not execution progress. Acknowledgement appears here or in get_message_receipt, not as incoming mail. Delivered means receipt, not work completion. This uses the sender\'s one receipt wait (wait_in_progress), which may run beside its incoming wait, and renews it. Local-only waits may include observed reasons, source, firstAt, lastAt and count; this process-local metadata resets on worker restart and proves neither delivery nor progress.")]', '     Description("Wait up to timeoutSeconds (0..25, default 20) for the outcome of a message your session sent. Returns its receipt without text as soon as it is Delivered, Held, Refused, Expired or Uncertain, or the current receipt when the deadline passes. readAt is the broker\'s read time; updatedAt with reason recipient_receipt or reply_receipt is the recipient acknowledgement time. busySince is the first fresh busy observation from a local directory or native adapter, including a queued or Submitted message; it proves observed activity, not execution progress. Acknowledgement appears here or in get_message_receipt, not as incoming mail. Delivered means receipt, not work completion. This uses the sender\'s one receipt wait (wait_in_progress), which may run beside its incoming wait, and renews it.")]', 1),), 'CARD_LOCAL_WAITS_DESCRIPTIONS: tools/list describes local observed wait reasons, source, first/last times and counts, restart reset and no delivery or progress claim'),
+    Witness('card-get-message-receipt-waits-description-omitted', 'tools/AgentBroker.Worker/BrokerTools.cs', 'worker', ('--instructions-only',), (('     Description("Look up a message receipt involving your authenticated broker. Once its deadline passes, an Accepted or Held message reads as Expired, and a Submitted one as Uncertain, at once. Once a message sent from this workstation is Delivered or Refused its receipt keeps the status, addresses and times without its text (textBytes null). The text is left out unless includeText is true; textBytes is its UTF-8 length and readAt the broker\'s time of reading. A delivered receipt does not establish that the agent completed the requested work. To wait for a receipt instead of polling, use wait_for_receipt. Local-only waits may include observed reasons, source, firstAt, lastAt and count; this process-local metadata resets on worker restart and proves neither delivery nor progress.")]', '     Description("Look up a message receipt involving your authenticated broker. Once its deadline passes, an Accepted or Held message reads as Expired, and a Submitted one as Uncertain, at once. Once a message sent from this workstation is Delivered or Refused its receipt keeps the status, addresses and times without its text (textBytes null). The text is left out unless includeText is true; textBytes is its UTF-8 length and readAt the broker\'s time of reading. A delivered receipt does not establish that the agent completed the requested work. To wait for a receipt instead of polling, use wait_for_receipt.")]', 1),), 'CARD_LOCAL_WAITS_DESCRIPTIONS: tools/list describes local observed wait reasons, source, first/last times and counts, restart reset and no delivery or progress claim'),
+)
+
+
+# D2 L2 peer-directory lease presentation. Source-only registration; root must retain rebuilt qualification.
+# Exact first/sole labels below follow the directory-shape group's unchanged assertion order.
+# WITNESS (positive/dominated): DIRECTORY_PEER_CLOCK_OFFSET_KEPT_AHEAD and DIRECTORY_PEER_CLOCK_ZERO_OFFSET.
+# WITNESS (null offset, direct observation-policy coverage elsewhere): UNUSABLE_IGNORED_not_checked,
+# UNUSABLE_IGNORED_missing_date, UNUSABLE_IGNORED_invalid_date, UNUSABLE_IGNORED_local_clock_changed,
+# UNUSABLE_IGNORED_transport_unavailable (all with DIRECTORY_PEER_CLOCK_ prefix).
+# Private/transitive aspects remain WITNESS of the earlier DIRECTORY_SHAPE_RUNTIME_FILTERING guard.
+# The composed --directory-shape-only group measured 45; see E/lanes/D2/checks/l2-a10-r2/workerdirectoryshape.stdout.log.
+L2_PEER_DIRECTORY_WITNESSES = (
+    Witness("l2-directory-real-clock", "tools/AgentBroker.Worker/BrokerRuntime.cs", "worker", ("--directory-shape-only",),
+            (("                        var peerNow = Now;\n", "                        var peerNow = DateTimeOffset.UtcNow;\n", 1),),
+            "DIRECTORY_PEER_CLOCK_INJECTED_NOW"),
+    Witness("l2-directory-offset-not-applied", "tools/AgentBroker.Worker/BrokerRuntime.cs", "worker", ("--directory-shape-only",),
+            (("                            try { peerNow += TimeSpan.FromSeconds(offset); }\n", "                            try { _ = offset; }\n", 1),),
+            "DIRECTORY_PEER_CLOCK_OFFSET_KEPT_BEHIND"),
+    Witness("l2-directory-offset-sign-reversed", "tools/AgentBroker.Worker/BrokerRuntime.cs", "worker", ("--directory-shape-only",),
+            (("                            try { peerNow += TimeSpan.FromSeconds(offset); }\n", "                            try { peerNow -= TimeSpan.FromSeconds(offset); }\n", 1),),
+            "DIRECTORY_PEER_CLOCK_OFFSET_KEPT_BEHIND"),
+    Witness("l2-directory-positive-offset-not-applied", "tools/AgentBroker.Worker/BrokerRuntime.cs", "worker", ("--directory-shape-only",),
+            (("                            try { peerNow += TimeSpan.FromSeconds(offset); }\n", "                            try { peerNow += TimeSpan.FromSeconds(Math.Min(offset, 0)); }\n", 1),),
+            "DIRECTORY_PEER_CLOCK_EXPIRED_DROPPED_AHEAD"),
+    Witness("l2-directory-exact-expiry-kept", "tools/AgentBroker.Worker/BrokerRuntime.cs", "worker", ("--directory-shape-only",),
+            (("s.LeaseUntil > peerNow", "s.LeaseUntil >= peerNow", 1),),
+            "DIRECTORY_PEER_CLOCK_EXPIRED_DROPPED_BEHIND"),
+    Witness("l2-directory-warning-required", "tools/AgentBroker.Worker/BrokerRuntime.cs", "worker", ("--directory-shape-only",),
+            (("{ State: \"observed\", OffsetSeconds: { } offset }", "{ State: \"observed\", Warning: true, OffsetSeconds: { } offset }", 1),),
+            "DIRECTORY_PEER_CLOCK_MEASURED_WITHOUT_WARNING"),
+    Witness("l2-directory-overflow-fallback-omitted", "tools/AgentBroker.Worker/BrokerRuntime.cs", "worker", ("--directory-shape-only",),
+            (("                            catch (OverflowException) { }\n", "", 1),),
+            "DIRECTORY_PEER_CLOCK_UNREPRESENTABLE_OFFSET_IGNORED"),
+    Witness("l2-directory-argument-fallback-omitted", "tools/AgentBroker.Worker/BrokerRuntime.cs", "worker", ("--directory-shape-only",),
+            (("                            catch (ArgumentException) { } // An unusable/out-of-range offset contributes no adjustment.\n", "", 1),),
+            "DIRECTORY_PEER_CLOCK_NAN_OFFSET_IGNORED"),
+    Witness("l2-directory-date-range-fallback-omitted", "tools/AgentBroker.Worker/BrokerRuntime.cs", "worker", ("--directory-shape-only",),
+            (("                            catch (ArgumentException) { } // An unusable/out-of-range offset contributes no adjustment.\n", "                            catch (ArgumentException error) when (error is not ArgumentOutOfRangeException) { } // An unusable/out-of-range offset contributes no adjustment.\n", 1),),
+            "DIRECTORY_PEER_CLOCK_DATE_RANGE_OFFSET_IGNORED"),
+    Witness("l2-directory-freshness-bound-exclusive", "tools/AgentBroker.Worker/Federation/PeerClockObservations.cs", "worker", ("--directory-shape-only",),
+            (("age > MaximumAge ? \"stale\" : sample.View.State", "age >= MaximumAge ? \"stale\" : sample.View.State", 1),),
+            "DIRECTORY_PEER_CLOCK_FRESH_AT_FIVE_MINUTES"),
+    Witness("l2-directory-rtt-bound-exclusive", "tools/AgentBroker.Worker/Federation/PeerClockObservations.cs", "worker", ("--directory-shape-only",),
+            (("roundTrip > MaximumRoundTrip ? \"high_latency\" : \"observed\"", "roundTrip >= MaximumRoundTrip ? \"high_latency\" : \"observed\"", 1),),
+            "DIRECTORY_PEER_CLOCK_MEASURED_AT_TWO_SECONDS"),
+    Witness("l2-directory-usable-state-omitted", "tools/AgentBroker.Worker/BrokerRuntime.cs", "worker", ("--directory-shape-only",),
+            (("{ State: \"observed\", OffsetSeconds: { } offset }", "{ OffsetSeconds: { } offset }", 1),),
+            "DIRECTORY_PEER_CLOCK_UNUSABLE_IGNORED_high_latency"),
+    Witness("l2-directory-stale-offset-applied", "tools/AgentBroker.Worker/BrokerRuntime.cs", "worker", ("--directory-shape-only",),
+            (("{ State: \"observed\", OffsetSeconds: { } offset }", "{ State: \"observed\" or \"stale\", OffsetSeconds: { } offset }", 1),),
+            "DIRECTORY_PEER_CLOCK_UNUSABLE_IGNORED_stale"),
+    Witness("l2-directory-wrong-peer-clock", "tools/AgentBroker.Worker/BrokerRuntime.cs", "worker", ("--directory-shape-only",),
+            (("federation.ClockObservations.FirstOrDefault(view => view.BrokerId == peer.BrokerId)", "federation.ClockObservations.FirstOrDefault()", 1),),
+            "DIRECTORY_PEER_CLOCK_OTHER_PEER_IGNORED"),
+    Witness("l2-directory-views-before-response", "tools/AgentBroker.Worker/BrokerRuntime.cs", "worker", ("--directory-shape-only",),
+            (("                        var remote = await federation.GetDirectoryAsync(peer, peerToken).WaitAsync(peerToken);\n", "                        var peerClockViews = federation.ClockObservations;\n                        var remote = await federation.GetDirectoryAsync(peer, peerToken).WaitAsync(peerToken);\n", 1), ("federation.ClockObservations.FirstOrDefault(view => view.BrokerId == peer.BrokerId)", "peerClockViews.FirstOrDefault(view => view.BrokerId == peer.BrokerId)", 1),),
+            "DIRECTORY_PEER_CLOCK_READ_AFTER_RESPONSE"),
+    Witness("l2-directory-local-now-before-response", "tools/AgentBroker.Worker/BrokerRuntime.cs", "worker", ("--directory-shape-only",),
+            (("                        var peerNow = Now;\n", "", 1), ("                        var remote = await federation.GetDirectoryAsync(peer, peerToken).WaitAsync(peerToken);\n", "                        var peerNow = Now;\n                        var remote = await federation.GetDirectoryAsync(peer, peerToken).WaitAsync(peerToken);\n", 1),),
+            "DIRECTORY_PEER_CLOCK_LOCAL_NOW_AFTER_RESPONSE"),
+)
+
+# ---- 1.10.5 lane F: file attachments between paired brokers (design: marathon-1105 ITEM-DESIGNS "Lane F" + lead decisions
+# D-1..D-9). Each recipe removes or weakens one guard and names the first check that must fail. The Network recipes run
+# real paired nodes over mutual TLS; four of them wait out a 40 s bounded state, so this set takes about 35-40 minutes.
+ATTACHMENT_FED = "tools/AgentBroker.Worker/Federation/PeerFederation.Attachments.cs"
+ATTACHMENT_GROUP = ("--attachments-only",)
+ATTACHMENT_WITNESSES = (
+    Witness("attachment-file-count", "src/AgentBroker.Core/AttachmentEnvelope.cs", "core", ATTACHMENT_GROUP,
+            (("    public const int MaximumFiles = 4;", "    public const int MaximumFiles = 5;", 1),),
+            "ATTACHMENT_ENVELOPE_BOUNDS: five files are Invalid"),
+    Witness("attachment-local-only", "tools/AgentBroker.Worker/BrokerTools.Attachments.cs", "worker", ATTACHMENT_GROUP,
+            (("        RequireLocalAttachments();\n        CheckParticipant(sender);", "        CheckParticipant(sender);", 1),),
+            "ATTACHMENT_TOOLS_LOCAL_ONLY: a paired broker's caller is refused both tools and no file is opened"),
+    Witness("attachment-envelope-reserved", TOOLS, "worker", ATTACHMENT_GROUP,
+            (("        RequireNotEnvelope(text);\n        return Run(() =>\n        {\n            var receipt = runtime.Store.Send(",
+              "        return Run(() =>\n        {\n            var receipt = runtime.Store.Send(", 1),),
+            "ATTACHMENT_ENVELOPE_RESERVED: send, send_message and reply refuse envelope text; ordinary JSON text still sends"),
+    Witness("attachment-source-reparse", "tools/AgentBroker.Worker/Attachments/AttachmentSource.cs", "worker", ATTACHMENT_GROUP,
+            (("                if ((File.GetAttributes(component) & FileAttributes.ReparsePoint) != 0) throw Invalid();",
+              "                _ = File.GetAttributes(component);", 1),),
+            # Round 2: F-9's final-path compare refuses a junction in a SOURCE path too, so the walk's isolating check is now
+            # the recipient's own read (fetch through a planted junction).
+            "ATTACHMENT_FETCH_NO_JUNCTION: fetch never follows a junction planted for a received folder; the file reports missing"),
+    Witness("attachment-deferral", "tools/AgentBroker.Worker/BrokerRuntime.cs", "worker", ATTACHMENT_GROUP,
+            (("             pending.Code == AttachmentCodes.FetchPending)", '             pending.Code == "attachment_fetch_pending_mutant")', 1),),
+            "ATTACHMENT_DEFERRAL_MAPPED: attachment_fetch_pending releases the message unsubmitted for a later forward"),
+    Witness("attachment-refusal-codes", "tools/AgentBroker.Worker/Federation/PeerAdmissionRefusal.cs", "worker", ATTACHMENT_GROUP,
+            (('                "recipient_queue_full" or "message_limit") && !AgentBroker.Core.AttachmentCodes.IsAdmissionCode(code)) return false;',
+              '                "recipient_queue_full" or "message_limit")) return false;', 1),),
+            "ATTACHMENT_REFUSAL_CODES_TRAVEL: the attachment admission codes are read as refusals; an unknown code stays unknown"),
+    Witness("attachment-policy-cert", "tools/AgentBroker.Worker/Attachments/AttachmentPolicy.cs", "worker", ATTACHMENT_GROUP,
+            (("            entry.CertificateSha256.Equals(peer.CertificateSha256, StringComparison.OrdinalIgnoreCase) &&", "            true &&", 1),),
+            "ATTACHMENT_POLICY_SIDECAR: an allow survives a restart and is pinned to the broker's current certificate"),
+    Witness("attachment-option-default", "tools/AgentBroker.Worker/WorkerOptions.cs", "worker", ATTACHMENT_GROUP,
+            (('            EnableAttachments = Bool("--attachments", false),', '            EnableAttachments = Bool("--attachments", true),', 1),),
+            "ATTACHMENT_OPTION_DEFAULT_OFF: attachments are off unless --attachments true is passed once"),
+    Witness("attachment-zone-write", "tools/AgentBroker.Worker/LocalOutputFile.cs", "worker", ATTACHMENT_GROUP,
+            (("                if (zoneIdentifier is not null) WriteZoneIdentifier(temp, zoneIdentifier);\n", "", 1),),
+            "ATTACHMENT_ZONE_BEFORE_PUBLISH: the zone stream exists on the temporary before the rename, survives it, and is written only when asked"),
+    Witness("attachment-revoke-clears", "tools/AgentBroker.Worker/Federation/PeerFederation.cs", "network", ATTACHMENT_GROUP,
+            (("        Attachments?.Policy.Remove(brokerId);\n", "", 1),),
+            "ATTACHMENT_REVOKE_CLEARS_ALLOW: revoking a broker removes its attachment permission"),
+    Witness("attachment-hash-compare", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (("        if (Convert.ToHexStringLower(SHA256.HashData(buffer)) != entry.Sha256) return PullOutcome.Mismatch;\n", "", 1),),
+            "ATTACHMENT_MISMATCH_REFUSED: the sender records the message whose staged file was altered as Refused (not reached within 40 s)"),
+    Witness("attachment-policy-allow", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (("        if (attachments is not { Enabled: true } || !attachments.Policy.Allows(peer))",
+              "        if (attachments is not { Enabled: true })", 1),),
+            # Round 2b: the pull's own allow rechecks still end the message Refused by policy, so the guard's isolating
+            # failure is "before any file request".
+            "ATTACHMENT_POLICY_REFUSED: attachments on without an allow for this sender refuse before any file request"),
+    Witness("attachment-recipient-only", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (("                receipt.Message.Recipient.BrokerId != caller ||\n", "", 1),),
+            "ATTACHMENT_ENDPOINT_RECIPIENT_ONLY: another paired broker cannot fetch a file addressed to someone else"),
+    Witness("attachment-content-length", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (("        if (response.Content.Headers.ContentLength != entry.Bytes) return PullOutcome.Mismatch;\n", "", 1),),
+            "ATTACHMENT_OVERSIZE_REFUSED_BEFORE_DOWNLOAD: a Content-Length other than the declared size is refused with no body byte read"),
+    Witness("attachment-slow-pull", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (("    internal static readonly TimeSpan AttachmentInlineWait = TimeSpan.FromSeconds(5);",
+              "    internal static readonly TimeSpan AttachmentInlineWait = TimeSpan.FromSeconds(30);", 1),),
+            "ATTACHMENT_SLOW_PULL_NO_UNCERTAIN: a pull longer than the inline wait defers and later admits, never Uncertain"),
+    Witness("attachment-head-of-line", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (("        if (first is null || clock.GetElapsedTime(first.Value) < AttachmentDeferralBound)",
+              "        if (first is null || clock.GetElapsedTime(first.Value) < AttachmentDeferralBound || clock.GetElapsedTime(first.Value) >= TimeSpan.Zero)", 1),),
+            "ATTACHMENT_HEAD_OF_LINE_BOUND: past the deferral bound the text message queued behind it reaches the recipient (not reached within 40 s)"),
+    Witness("attachment-unavailable", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (("        if (response.StatusCode == HttpStatusCode.NotFound) return PullOutcome.Unavailable;\n", "", 1),),
+            "ATTACHMENT_UNAVAILABLE_REFUSED: the sender records the message whose sender staged no file as Refused (not reached within 40 s)"),
+)
+
+# ---- lane F round 2 (003-F-round2.md): one recipe per new or changed guard, each naming the first check that must fail ----
+ATTACHMENT_STORE = "tools/AgentBroker.Worker/Attachments/AttachmentStore.cs"
+ATTACHMENT_POLICY = "tools/AgentBroker.Worker/Attachments/AttachmentPolicy.cs"
+ATTACHMENT_SOURCE = "tools/AgentBroker.Worker/Attachments/AttachmentSource.cs"
+ATTACHMENT_ENVELOPE = "src/AgentBroker.Core/AttachmentEnvelope.cs"
+ATTACHMENT_RUNTIME = "tools/AgentBroker.Worker/BrokerRuntime.cs"
+STAGE_SAVE = "                    LocalOutputFile.Save(destination, loaded[index].Bytes, zoneIdentifier: loaded[index].Zone);"
+OUTBOX_SWEEP = "            if (receipt is null && age > OrphanGrace || receipt?.Status is MessageStatus.Refused or MessageStatus.Expired || age > Retention)"
+RESERVE_FULL = "            if (admittedPeer + bytes > Limits.PerPeerAdmittedBytes || admitted + bytes > Limits.QuarantineBytes) return ReserveResult.RefuseFull;"
+RESERVE_DEFER = "            if (admitted + orphan + reserved + bytes > Limits.QuarantineBytes)"
+GET_STATUS = "                receipt.Status is not (MessageStatus.Accepted or MessageStatus.Submitting) || receipt.Message.ExpiresAt <= Now ||"
+PULL_CAPS = "            if (pulls.Count >= limits.MaximumPullStates || running >= limits.MaximumPulls || runningForPeer >= limits.MaximumPullsPerPeer)"
+CONTROL_OFF = "                if (worker.Runtime.Attachments is not { } attachments || (request.Value && !attachments.Enabled))"
+ATTACHMENT_R2_WITNESSES = (
+    # Core (T-1, T-14)
+    Witness("attachment-r2-exact-members", ATTACHMENT_ENVELOPE, "core", ATTACHMENT_GROUP,
+            (("        return count == names.Length && names.All(name => element.TryGetProperty(name, out _));",
+              "        return names.All(name => element.TryGetProperty(name, out _));", 1),),
+            "ATTACHMENT_ENVELOPE_STRICT: a duplicated member is Invalid"),
+    Witness("attachment-r2-file-bound", ATTACHMENT_ENVELOPE, "core", ATTACHMENT_GROUP,
+            (("!bytes.TryGetInt64(out long size) || size is < 0 or > MaximumFileBytes) return false;", "!bytes.TryGetInt64(out long size) || size is < 0) return false;", 1),),
+            "ATTACHMENT_ENVELOPE_BOUNDS: one byte over 8 MiB in a file is Invalid"),
+    Witness("attachment-r2-total-bound", ATTACHMENT_ENVELOPE, "core", ATTACHMENT_GROUP,
+            (("            if (total > MaximumTotalBytes) return false;\n", "", 1),),
+            "ATTACHMENT_ENVELOPE_BOUNDS: one byte over 16 MiB in total is Invalid"),
+    Witness("attachment-r2-envelope-bound", ATTACHMENT_ENVELOPE, "core", ATTACHMENT_GROUP,
+            (("        if (Encoding.UTF8.GetByteCount(text) > MaximumEnvelopeBytes || !ExactMembers(root, \"kind\", \"text\", \"attachments\")) return false;",
+              "        if (!ExactMembers(root, \"kind\", \"text\", \"attachments\")) return false;", 1),),
+            "ATTACHMENT_ENVELOPE_BOUNDS: an envelope over 16 KiB of text is Invalid"),
+    Witness("attachment-r2-sha-lowercase", ATTACHMENT_ENVELOPE, "core", ATTACHMENT_GROUP,
+            (("        value is { Length: 64 } && value.All(c => c is >= '0' and <= '9' or >= 'a' and <= 'f');",
+              "        value is { Length: 64 } && value.All(Uri.IsHexDigit);", 1),),
+            "ATTACHMENT_ENVELOPE_STRICT: sha256 is exactly 64 lowercase hex characters"),
+    Witness("attachment-r2-reserved-stem", ATTACHMENT_ENVELOPE, "core", ATTACHMENT_GROUP,
+            (("        return !ReservedStem(name);", "        return true;", 1),),
+            'ATTACHMENT_ENVELOPE_NAMES: "CON.txt" is not a broker name'),
+    # Worker: tools (T-2), source (T-3, T-7, F-9, F-17), store (F-2, F-3, F-5, F-18), policy (F-14, T-4), control (F-23),
+    # sender bound (F-7), forwards (F-20), zone order (T-9).
+    Witness("attachment-r2-fetch-local-only", "tools/AgentBroker.Worker/BrokerTools.Attachments.cs", "worker", ATTACHMENT_GROUP,
+            (("        RequireLocalAttachments();\n        CheckParticipant(session);", "        CheckParticipant(session);", 1),),
+            "ATTACHMENT_TOOLS_LOCAL_ONLY: a paired broker's caller is refused both tools and no file is opened"),
+    Witness("attachment-r2-reserved-send-message", TOOLS, "worker", ATTACHMENT_GROUP,
+            (("        RequireNotEnvelope(message?.Text);\n", "", 1),),
+            "ATTACHMENT_ENVELOPE_RESERVED: send, send_message and reply refuse envelope text; ordinary JSON text still sends"),
+    Witness("attachment-r2-reserved-reply", TOOLS, "worker", ATTACHMENT_GROUP,
+            (("        RequireNotEnvelope(text);\n        return Run(() =>\n        {\n            var receipt = runtime.Store.AcceptReply(",
+              "        return Run(() =>\n        {\n            var receipt = runtime.Store.AcceptReply(", 1),),
+            "ATTACHMENT_ENVELOPE_RESERVED: send, send_message and reply refuse envelope text; ordinary JSON text still sends"),
+    Witness("attachment-r2-file-reparse-mask", ATTACHMENT_SOURCE, "worker", ATTACHMENT_GROUP,
+            (("            if ((attributes & (FileAttributeReparsePoint | FileAttributeDirectory | FileAttributeDevice)) != 0) throw Invalid();",
+              "            if ((attributes & (FileAttributeDirectory | FileAttributeDevice)) != 0) throw Invalid();", 1),),
+            "ATTACHMENT_SOURCE_FILE_REPARSE_REFUSED: a regular file that is a reparse point (no directory bit), named as the source, is refused"),
+    Witness("attachment-r2-staged-split-read", ATTACHMENT_STORE, "worker", ATTACHMENT_GROUP,
+            ((STAGE_SAVE, "                    LocalOutputFile.Save(destination, File.ReadAllBytes(paths[index]), zoneIdentifier: loaded[index].Zone);", 1),),
+            "ATTACHMENT_STAGED_HASH_FROM_HANDLE: the source is opened once; the staged copy is the bytes that were hashed, even when the source changes between the read and the copy or afterwards"),
+    Witness("attachment-r2-final-path", ATTACHMENT_SOURCE, "worker", ATTACHMENT_GROUP,
+            (("            if (!IsFinalPathOf(handle, full)) throw Invalid();\n", "", 1),),
+            "ATTACHMENT_SOURCE_FINAL_PATH: a file reached through a SUBST drive letter is refused, because the opened handle's final path is not the validated path"),
+    Witness("attachment-r2-zone-kept", ATTACHMENT_STORE, "worker", ATTACHMENT_GROUP,
+            ((STAGE_SAVE, "                    LocalOutputFile.Save(destination, loaded[index].Bytes, zoneIdentifier: null);", 1),),
+            "ATTACHMENT_SOURCE_ZONE_KEPT: a marked source and a received file are staged still marked, and fetch reports internet"),
+    Witness("attachment-r2-staging-grace", ATTACHMENT_STORE, "worker", ATTACHMENT_GROUP,
+            ((OUTBOX_SWEEP, "            if (receipt is null || receipt?.Status is MessageStatus.Refused or MessageStatus.Expired || age > Retention)", 1),),
+            "ATTACHMENT_STAGING_GRACE: a staging whose message has not reached the store yet survives a sweep, and the message then serves its file"),
+    Witness("attachment-r2-sender-copy", ATTACHMENT_STORE, "worker", ATTACHMENT_GROUP,
+            ((OUTBOX_SWEEP, "            if (receipt is null && age > OrphanGrace || receipt?.Status is MessageStatus.Refused or MessageStatus.Expired || age > Retention ||\n"
+                            "                receipt is { Status: not (MessageStatus.Accepted or MessageStatus.Submitting) } && receipt.Message.Recipient.BrokerId != store.BrokerId)", 1),),
+            "ATTACHMENT_SENDER_COPY_KEPT: a paired recipient's message keeps the sender's copy through Submitted and Delivered until 48 h (47 h kept, 49 h gone)"),
+    Witness("attachment-r2-received-copy", ATTACHMENT_STORE, "worker", ATTACHMENT_GROUP,
+            (("                    if (!admitted && age > OrphanGrace || age > Retention)", "                    if (!admitted && age > OrphanGrace || age > OrphanGrace)", 1),),
+            "ATTACHMENT_RECEIVED_COPY_KEPT: an admitted received folder stays while its record does, up to 48 h (47 h kept, 49 h gone)"),
+    Witness("attachment-r2-outbox-quota", ATTACHMENT_STORE, "worker", ATTACHMENT_GROUP,
+            (("                if (outboxBytes + total > Limits.OutboxBytes)", "                if (outboxBytes + total > Limits.OutboxBytes * 1000)", 1),),
+            "ATTACHMENT_OUTBOX_QUOTA: a send that would pass the outbox quota is refused attachment_outbox_full and stages nothing"),
+    Witness("attachment-r2-quota-recount", ATTACHMENT_STORE, "worker", ATTACHMENT_GROUP,
+            # Round 6 (S-020) added the message's own folder to the orphan test; the mutant still drops the orphan bytes.
+            (("                else if (folder != key && !reservations.ContainsKey(folder)) { orphan += size;",
+              "                else if (folder != key && !reservations.ContainsKey(folder)) { orphan += 0;", 1),),
+            "ATTACHMENT_QUOTA_RECOUNT: a restarted store counts the folders on disk, an unadmitted orphan included, and defers a pull that does not fit beside them"),
+    Witness("attachment-r2-pressure-defers", ATTACHMENT_STORE, "worker", ATTACHMENT_GROUP,
+            ((RESERVE_DEFER + "\n                return ReserveResult.Defer;", RESERVE_DEFER + "\n                return ReserveResult.RefuseFull;", 1),),
+            "ATTACHMENT_QUOTA_PRESSURE_DEFERS: room taken by unadmitted files and running pulls defers a pull instead of refusing it"),
+    Witness("attachment-r2-full-refuses", ATTACHMENT_STORE, "worker", ATTACHMENT_GROUP,
+            ((RESERVE_FULL, "            if (admittedPeer + bytes > Limits.PerPeerAdmittedBytes) return ReserveResult.RefuseFull;", 1),),
+            "ATTACHMENT_QUOTA_FULL_REFUSES: a pull that the admitted files alone leave no room for is refused"),
+    Witness("attachment-r2-per-peer-admitted", ATTACHMENT_STORE, "worker", ATTACHMENT_GROUP,
+            ((RESERVE_FULL, "            if (admitted + bytes > Limits.QuarantineBytes) return ReserveResult.RefuseFull;", 1),),
+            "ATTACHMENT_PER_PEER_ADMITTED_CAP: one broker's admitted cap refuses that broker's next pull only; another broker's still fits"),
+    Witness("attachment-r2-in-flight", ATTACHMENT_STORE, "worker", ATTACHMENT_GROUP,
+            (("            if (reservedPeer + orphanPeer + bytes > Limits.PerPeerInFlightBytes) return ReserveResult.Defer;\n", "", 1),),
+            "ATTACHMENT_PER_PEER_IN_FLIGHT_CAP: one broker's in-flight share defers its next pull; another broker's still starts"),
+    Witness("attachment-r2-text-too-long", ATTACHMENT_STORE, "worker", ATTACHMENT_GROUP,
+            (('        catch (ArgumentException) when (WellFormed(text ?? ""))', '        catch (ArgumentException) when (text is null && WellFormed(""))', 1),),
+            "ATTACHMENT_TEXT_TOO_LONG: a note that leaves no room for its file list in 16 KiB is refused attachment_text_too_long, with nothing staged"),
+    Witness("attachment-r2-policy-pairing", ATTACHMENT_POLICY, "worker", ATTACHMENT_GROUP,
+            (("            entry.PairedAt == peer.PairedAt);", "            true);", 1),),
+            "ATTACHMENT_POLICY_PAIRING: an allow belongs to one pairing; the same broker and certificate paired again start denied"),
+    Witness("attachment-r2-policy-remove-first", ATTACHMENT_POLICY, "worker", ATTACHMENT_GROUP,
+            (("            entries = next;\n            Write(next);", "            Write(next);", 1),),
+            "ATTACHMENT_POLICY_REMOVE_FIRST: a removal whose write fails denies the broker at once, marks the sidecar dirty, and the retry brings the file in line"),
+    Witness("attachment-r2-policy-limit", ATTACHMENT_POLICY, "worker", ATTACHMENT_GROUP,
+            (("            if (next.Count > MaximumPeers) throw", "            if (next.Count > MaximumPeers + 1) throw", 1),),
+            "ATTACHMENT_POLICY_LIMIT: the sidecar holds at most 32 brokers; the next allow is refused attachment_policy_limit and the others stay"),
+    Witness("attachment-r2-control-remove-off", "tools/AgentBroker.Worker/LocalControlServer.cs", "worker", ATTACHMENT_GROUP,
+            ((CONTROL_OFF, "                if (worker.Runtime.Attachments is not { Enabled: true } attachments || (request.Value && !attachments.Enabled))", 1),),
+            "ATTACHMENT_ALLOW_REMOVAL_WHILE_OFF: with attachments off an allow persists and can be removed, but a new one is refused attachments_disabled"),
+    Witness("attachment-r2-control-add-off", "tools/AgentBroker.Worker/LocalControlServer.cs", "worker", ATTACHMENT_GROUP,
+            ((CONTROL_OFF, "                if (worker.Runtime.Attachments is not { } attachments)", 1),),
+            "ATTACHMENT_ALLOW_REMOVAL_WHILE_OFF: with attachments off an allow persists and can be removed, but a new one is refused attachments_disabled"),
+    Witness("attachment-r2-sender-bound", ATTACHMENT_RUNTIME, "worker", ATTACHMENT_GROUP,
+            (("            result = Attachments?.FetchPendingExpired(receipt.Message.Id, AgentBroker.Worker.Federation.PeerFederation.AttachmentDeferralBound) == true",
+              "            result = Attachments?.FetchPendingExpired(receipt.Message.Id, TimeSpan.MaxValue) == true", 1),),
+            "ATTACHMENT_SENDER_BOUND: a recipient that keeps deferring is refused attachment_fetch_failed by the sender once the bound passes from the FIRST deferral (not before), stamped beside the staging"),
+    Witness("attachment-r2-future-stamp", ATTACHMENT_STORE, "worker", ATTACHMENT_GROUP,
+            (("            if (ReadStamp(path) is { } first && first <= now) return first;", "            if (ReadStamp(path) is { } first) return first;", 1),),
+            "ATTACHMENT_SENDER_BOUND_FUTURE_STAMP: a stamp from a clock that moved back is replaced by now, so the bound still ends"),
+    Witness("attachment-r2-forward-on-loop", ATTACHMENT_RUNTIME, "worker", ATTACHMENT_GROUP,
+            (("            if (pending is not null && !ForwardedInBackground(pending, stop)) await DeliverAsync(pending, stop);",
+              "            if (pending is not null) await DeliverAsync(pending, stop);", 1),),
+            "ATTACHMENT_FORWARD_OFF_LOOP: while attachment forwards wait on slow pulls (at most two at a time), a local message is delivered within 4 s, long before a 10 s forward ends"),
+    Witness("attachment-r2-forward-cap", ATTACHMENT_RUNTIME, "worker", ATTACHMENT_GROUP,
+            (("        if (Interlocked.Increment(ref attachmentForwardCount) > MaximumAttachmentForwards)",
+              "        if (Interlocked.Increment(ref attachmentForwardCount) > MaximumAttachmentForwards * 1000)", 1),),
+            "ATTACHMENT_FORWARD_OFF_LOOP: while attachment forwards wait on slow pulls (at most two at a time), a local message is delivered within 4 s, long before a 10 s forward ends"),
+    Witness("attachment-zone-after-rename", "tools/AgentBroker.Worker/LocalOutputFile.cs", "worker", ATTACHMENT_GROUP,
+            (("                if (zoneIdentifier is not null) WriteZoneIdentifier(temp, zoneIdentifier);\n                beforePublish?.Invoke();\n"
+              "                int status = Rename(temp, held, leaf);\n                if (seams?.RenameStatus is { } observeRenamed) status = observeRenamed(status);\n"
+              "                if (status != 0) throw RenameFailure(status);\n",
+              "                beforePublish?.Invoke();\n                int status = Rename(temp, held, leaf);\n"
+              "                if (seams?.RenameStatus is { } observeRenamed) status = observeRenamed(status);\n                if (status != 0) throw RenameFailure(status);\n"
+              "                if (zoneIdentifier is not null) WriteZoneIdentifier(temp, zoneIdentifier);\n", 1),),
+            "ATTACHMENT_ZONE_BEFORE_PUBLISH: the zone stream exists on the temporary before the rename, survives it, and is written only when asked"),
+    # Network: the federation gate (F-1, F-6, F-7, F-8, F-15, F-19, F-21, F-22), the file endpoint (F-10, F-16, T-4), the
+    # pull caps (T-4), the revoke order (F-14), verified-only publication (T-8) and the T-12 branches.
+    Witness("attachment-r2-stale-recheck", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (("                    present = envelope!.Attachments.All(entry => attachments.HasVerified(caller, message.Id, entry));",
+              "                    present = envelope!.Attachments.All(entry => true);", 1),),
+            "ATTACHMENT_STALE_VERIFIED_REPULLS: a verified pull whose files were removed before admission pulls again; the message is never admitted without its files"),
+    Witness("attachment-r2-quarantine-unavailable", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (("UnauthorizedAccessException) { return PullOutcome.QuarantineUnavailable; }", "UnauthorizedAccessException) { return PullOutcome.Transient; }", 1),),
+            "ATTACHMENT_QUARANTINE_UNAVAILABLE: a quarantine that cannot hold files answers attachment_quarantine_unavailable on the first forward, and the recipient's status shows it"),
+    Witness("attachment-r2-deferral-evicts-oldest", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (("            if (!firstPull.ContainsKey(key) && firstPull.Count >= limits.MaximumDeferrals) return null;",
+              "            if (!firstPull.ContainsKey(key) && firstPull.Count >= limits.MaximumDeferrals) firstPull.Remove(firstPull.MinBy(pair => pair.Value).Key);", 1),),
+            "ATTACHMENT_DEFERRAL_TABLE_NO_EVICTION: with the deferral table full a new message waits without a file request, and the oldest entry keeps its bound"),
+    Witness("attachment-r2-pull-state-cleanup", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (("pulls.Where(pair => pair.Value.CompletedAt is { } done && clock.GetElapsedTime(done) > CompletedPullGrace).ToArray())",
+              "pulls.Where(pair => pair.Value.CompletedAt is { } done && clock.GetElapsedTime(done) > AttachmentDeferralBound).ToArray())", 1),),
+            "ATTACHMENT_PULL_STATES_BOUNDED: 50 aborted forwards never hold more than the pull-state cap, finished states go once their grace passes, and every linked source is released"),
+    Witness("attachment-r2-pull-state-cap", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            ((PULL_CAPS, "            if (running >= limits.MaximumPulls || runningForPeer >= limits.MaximumPullsPerPeer)", 1),),
+            "ATTACHMENT_PULL_STATES_BOUNDED: 50 aborted forwards never hold more than the pull-state cap, finished states go once their grace passes, and every linked source is released"),
+    Witness("attachment-r2-get-status", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            ((GET_STATUS, "                receipt.Message.ExpiresAt <= Now ||", 1),),
+            "ATTACHMENT_GET_STATUS: a file request for a message no longer Accepted or Submitting is 404, though its staging is kept"),
+    Witness("attachment-r2-get-index", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (("                index < 0 || index >= envelope!.Attachments.Count) return Results.NotFound();",
+              "                index < 0 || index >= envelope!.Attachments.Count + 1) return Results.NotFound();", 1),),
+            "ATTACHMENT_GET_INDEX: a file request for an index the envelope does not have is 404 (the same message's index 0 is served)"),
+    Witness("attachment-r2-get-manifest", ATTACHMENT_STORE, "network", ATTACHMENT_GROUP,
+            # Retargeted in round 5 (item 9 rewrote the line; the comparison it breaks is unchanged).
+            (("        if (manifest != text) return manifest is null && ManifestBusy(messageId) ? OutgoingState.Busy : OutgoingState.Missing;",
+              "        if (manifest is null) return manifest is null && ManifestBusy(messageId) ? OutgoingState.Busy : OutgoingState.Missing;", 1),),
+            "ATTACHMENT_GET_MANIFEST: a staging whose manifest no longer matches the message text is 404"),
+    Witness("attachment-r2-get-length", ATTACHMENT_STORE, "network", ATTACHMENT_GROUP,
+            (("            if (RandomAccess.GetLength(handle) == entry.Bytes) return OutgoingState.Ready;",
+              "            if (RandomAccess.GetLength(handle) >= 0) return OutgoingState.Ready;", 1),),
+            "ATTACHMENT_GET_LENGTH: a staged file whose length is not the declared size is 404"),
+    Witness("attachment-r2-get-expired", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            ((GET_STATUS, "                receipt.Status is not (MessageStatus.Accepted or MessageStatus.Submitting) ||", 1),),
+            "ATTACHMENT_GET_EXPIRED: a file request for a message past its deadline is 404"),
+    Witness("attachment-r2-get-disabled", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (("            if (attachments is not { Enabled: true } || receipt is null || receipt.Message.Sender.BrokerId != store.BrokerId ||",
+              "            if (attachments is null || receipt is null || receipt.Message.Sender.BrokerId != store.BrokerId ||", 1),),
+            "ATTACHMENT_GET_DISABLED: a sender broker with attachments off serves no file, even one it staged"),
+    Witness("attachment-r2-revoke-order", "tools/AgentBroker.Worker/Federation/PeerFederation.cs", "network", ATTACHMENT_GROUP,
+            (("        Attachments?.Policy.Remove(brokerId);\n        lock (gate) { foreach (var item in pending.Values.Where(p => p.Offer.Peer.BrokerId == brokerId).ToArray()) { Remember(item); pending.Remove(item.Offer.RequestId); } store.RevokePeer(brokerId); }\n",
+              "        lock (gate) { foreach (var item in pending.Values.Where(p => p.Offer.Peer.BrokerId == brokerId).ToArray()) { Remember(item); pending.Remove(item.Offer.RequestId); } store.RevokePeer(brokerId); }\n        Attachments?.Policy.Remove(brokerId);\n", 1),),
+            "ATTACHMENT_REVOKE_POLICY_FIRST: a revoke whose allow removal fails leaves the broker paired, and the owner's retry revokes it"),
+    # Round 6 (S-019): GetOrStartPull's text binding refuses the same swap while the pull's state is held, so the mutant drops
+    # that check too; on its own it would leave the swap refused and fail a later check instead.
+    Witness("attachment-r2-envelope-swap", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (("        lock (attachmentGate) held = pulls.TryGetValue(key, out var state) ? state.TextSha256 : null;", "        lock (attachmentGate) held = null;", 1),
+             ("                if (existing.TextSha256 != textSha256)\n                    throw new BrokerException(AttachmentCodes.EnvelopeInvalid, \"A different text was sent under a message ID whose attachments are pending.\");\n", "", 1)),
+            "ATTACHMENT_ONE_ENVELOPE_PER_ID: a second submission of the same message ID with a different envelope during its pull is refused attachment_envelope_invalid; the original is admitted"),
+    Witness("attachment-r2-busy-is-missing", ATTACHMENT_STORE, "network", ATTACHMENT_GROUP,
+            (("            return File.Exists(path) ? OutgoingState.Busy : OutgoingState.Missing;", "            return OutgoingState.Missing;", 1),),
+            "ATTACHMENT_STAGED_FILE_BUSY_DEFERS: a staged file the sender cannot open now answers 503, the message defers, and it is admitted once the file is free"),
+    Witness("attachment-r2-prevalidate", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (("        if (!PullStarted(key)) RequireAdmissible(caller, message);\n", "", 1),),
+            "ATTACHMENT_PREVALIDATED_NO_PULL: an envelope to a recipient the store would refuse is refused recipient_unavailable with no file request"),
+    Witness("attachment-r2-capacity-clock", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (("        lock (attachmentGate) first = firstPull.TryGetValue(key, out long started) ? started : null;",
+              "        lock (attachmentGate) { firstPull.TryAdd(key, clock.GetTimestamp()); first = firstPull[key]; }", 1),),
+            "ATTACHMENT_BOUND_FROM_FIRST_PULL: capacity waits start no clock (11 min of them still defer); the bound runs from the first actual pull"),
+    # F-22 split (round 2b): each pairing recheck has its own isolating case.
+    Witness("attachment-r2-revoke-after-headers", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (("        using var response = answer;\n        Current(authorization);\n", "        using var response = answer;\n", 1),),
+            "ATTACHMENT_REVOKED_MID_PULL: a pairing revoked before the file's answer arrives admits nothing, reads no body byte, keeps no file, and answers attachments_refused_by_policy"),
+    Witness("attachment-r2-revoked-403", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (('                // after that and nothing was admitted, so the sender ends Refused by policy.\n                Abandon(key, attachments);\n'
+              '                throw new BrokerException(AttachmentCodes.RefusedByPolicy, "This broker no longer accepts attachments from that broker.");',
+              '                // after that and nothing was admitted, so the sender ends Refused by policy.\n                Abandon(key, attachments);\n'
+              "                throw new UnauthorizedAccessException();", 1),),
+            "ATTACHMENT_REVOKED_MID_PULL: a pairing revoked before the file's answer arrives admits nothing, reads no body byte, keeps no file, and answers attachments_refused_by_policy"),
+    Witness("attachment-r2-serve-cap", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (("            if (!TryEnterServing(caller, attachments.Limits.MaximumServesPerPeer)) return Results.StatusCode(429);\n", "", 1),),
+            "ATTACHMENT_SERVE_CAP: a broker's third concurrent file request is answered 429 while two are being served"),
+    Witness("attachment-r2-pull-cap-per-peer", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            ((PULL_CAPS, "            if (pulls.Count >= limits.MaximumPullStates || running >= limits.MaximumPulls)", 1),),
+            "ATTACHMENT_PULL_CAP_PER_PEER: a broker's third concurrent pull waits (attachment_fetch_pending) without a file request"),
+    Witness("attachment-r2-pull-cap-total", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            ((PULL_CAPS, "            if (pulls.Count >= limits.MaximumPullStates || runningForPeer >= limits.MaximumPullsPerPeer)", 1),),
+            "ATTACHMENT_PULL_CAP_TOTAL: with the pool's pulls all running, another broker's next pull waits without a file request"),
+    Witness("attachment-r2-published-before-hash", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (("        if (Convert.ToHexStringLower(SHA256.HashData(buffer)) != entry.Sha256) return PullOutcome.Mismatch;\n",
+              "        try { attachments.PublishVerified(peer.BrokerId, messageId, entry, buffer, envelopeText); } catch (IOException) { }\n"
+              "        if (Convert.ToHexStringLower(SHA256.HashData(buffer)) != entry.Sha256) return PullOutcome.Mismatch;\n", 1),),
+            "ATTACHMENT_MISMATCH_REFUSED: a file that does not hash to its declared value is refused and nothing is kept"),
+    Witness("attachment-r2-transient-refuses", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (("                // Transient: the next forward starts a fresh pull (verified files are kept), within the deferral bound.\n"
+              "                Drop(key, state, attachments);\n                return Defer(key, message, caller);\n",
+              "                // Transient: the next forward starts a fresh pull (verified files are kept), within the deferral bound.\n"
+              "                Abandon(key, attachments);\n                throw new BrokerException(AttachmentCodes.Unavailable, \"Synthetic mutant.\");\n", 1),),
+            "ATTACHMENT_FETCH_FAILED_DEFERS_THEN_SUCCEEDS: the deferred message reaches Submitted on a later forward (not reached within 40 s)"),
+    Witness("attachment-r2-invalid-envelope", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (('        if (parse == AttachmentParse.Invalid)\n            throw new BrokerException(AttachmentCodes.EnvelopeInvalid, "The attachment envelope is invalid.");\n', "", 1),),
+            "ATTACHMENT_INVALID_ENVELOPE_REFUSED: an allowed sender's five-entry envelope is refused attachment_envelope_invalid; an unallowed sender's is refused by policy first"),
+    # DECISIONS 49 (F-4 as ruled) and F-25.
+    Witness("attachment-r2-manifest-record", ATTACHMENT_STORE, "network", ATTACHMENT_GROUP,
+            # Round 6: the publication runs inside the folder's gate, one level deeper.
+            (("            if (!File.Exists(manifest))\n                LocalOutputFile.Save(manifest, JsonSerializer.SerializeToUtf8Bytes(new InboxManifest(1, messageId, senderBroker, envelope),\n                    Protocol.ControlProtocol.Json));\n", "", 1),),
+            "ATTACHMENT_INBOX_MANIFEST_RECORD: a received folder keeps a manifest naming its message, its sender broker and its exact envelope"),
+    Witness("attachment-r2-paired-text", STORE, "network", ATTACHMENT_GROUP,
+            (("        receipt.Message.Sender.BrokerId == state.BrokerId;", "        receipt.Message.Sender.BrokerId != Guid.Empty;", 1),),
+            "ATTACHMENT_PAIRED_TEXT_KEPT: a paired sender's message keeps its text at the recipient after a reply and after acknowledge Delivered, so fetch still finds its file"),
+    Witness("attachment-r2-reservation-release", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (("                attachments.Release(peer.BrokerId, message.Id);\n                return outcome;", "                return outcome;", 1),),
+            "ATTACHMENT_SWEPT_PULL_STARTS_AFRESH: after the sweep removes an unadmitted verified folder, the next forward pulls afresh and admits with the file present"),
+)
+
+# ---- lane F round 2b (outbox/003-F-r2-audit-triage.md): the defects the round-2 completeness audit confirmed ----
+ATTACHMENT_R2B_WITNESSES = (
+    # Worker
+    Witness("attachment-r2b-forward-fault", ATTACHMENT_RUNTIME, "worker", ATTACHMENT_GROUP,
+            (("        catch (Exception e) when (e is IOException or InvalidDataException or BrokerException or UnauthorizedAccessException)\n"
+              "        {\n            adapterErrors[\"broker\"] = \"durable_state_unavailable\";\n            if (Interlocked.Exchange(ref durableStateUnavailable, 1) == 0)\n"
+              "            {\n                lifetime?.Cancel(); FatalError?.Invoke();\n            }\n        }\n        catch (Exception) when (!stop.IsCancellationRequested)\n"
+              "        {\n            int failures = loopFailures.AddOrUpdate(\"attachment_forward\"",
+              "        catch (Exception) when (!stop.IsCancellationRequested)\n        {\n            int failures = loopFailures.AddOrUpdate(\"attachment_forward\"", 1),),
+            "ATTACHMENT_FORWARD_FAULT_STOPS_WORKER: a fault on the background forward path is the delivery loop's: durable state unavailable, and the worker stops instead of holding the claim in silence"),
+    Witness("attachment-r2b-sender-bound-early", ATTACHMENT_RUNTIME, "worker", ATTACHMENT_GROUP,
+            (("            result = Attachments?.FetchPendingExpired(receipt.Message.Id, AgentBroker.Worker.Federation.PeerFederation.AttachmentDeferralBound) == true",
+              "            result = Attachments?.FetchPendingExpired(receipt.Message.Id, TimeSpan.FromMinutes(1)) == true", 1),),
+            "ATTACHMENT_SENDER_BOUND: a recipient that keeps deferring is refused attachment_fetch_failed by the sender once the bound passes from the FIRST deferral (not before), stamped beside the staging"),
+    Witness("attachment-r2b-unadmitted-share", ATTACHMENT_STORE, "worker", ATTACHMENT_GROUP,
+            (("            if (reservedPeer + orphanPeer + bytes > Limits.PerPeerInFlightBytes) return ReserveResult.Defer;",
+              "            if (reservedPeer + bytes > Limits.PerPeerInFlightBytes) return ReserveResult.Defer;", 1),),
+            "ATTACHMENT_PER_PEER_UNADMITTED_SHARE: a broker's unadmitted folders count toward its own in-flight share, so its next pull defers while another broker's starts"),
+    Witness("attachment-r2b-reserved-term", ATTACHMENT_STORE, "worker", ATTACHMENT_GROUP,
+            ((RESERVE_DEFER, "            if (admitted + orphan + bytes > Limits.QuarantineBytes)", 1),),
+            "ATTACHMENT_QUOTA_PRESSURE_DEFERS: room taken by unadmitted files and running pulls defers a pull instead of refusing it"),
+    Witness("attachment-r2b-admitted-needs-envelope", ATTACHMENT_STORE, "worker", ATTACHMENT_GROUP,
+            (("        AttachmentEnvelope.TryParse(receipt.Message.Text, out _) == AttachmentParse.Valid;", "        true;", 1),),
+            "ATTACHMENT_FOLDER_NEEDS_ENVELOPE_ADMISSION: a received folder counts as admitted only for a valid envelope from its own broker; under a plain text it is an orphan the sweep removes"),
+    Witness("attachment-r2b-policy-retry", ATTACHMENT_STORE, "worker", ATTACHMENT_GROUP,
+            (("        Policy.RetryIfDirty();\n", "", 1),),
+            "ATTACHMENT_POLICY_SAVE_RETRIED: an allow removal whose save failed is shown as not saved and is saved by the next sweep, so a restart keeps it removed"),
+    Witness("attachment-r2b-zone-fail-closed", ATTACHMENT_SOURCE, "worker", ATTACHMENT_GROUP,
+            (("            if (stream.Length is 0 or > 4096) return AttachmentStore.InternetZone;", "            if (stream.Length is 0 or > 4096) return null;", 1),),
+            "ATTACHMENT_SOURCE_ZONE_FAIL_CLOSED: a source whose Mark of the Web is too large to copy is still staged as downloaded from the internet"),
+    Witness("attachment-r2b-received-files-only", ATTACHMENT_SOURCE, "worker", ATTACHMENT_GROUP,
+            (("        return parts.Length == 3 && Guid.TryParseExact(parts[0], \"D\", out _) && Guid.TryParseExact(parts[1], \"D\", out _) &&\n"
+              "            parts[2].Length > 2 && parts[2][0] is >= '0' and <= '3' && parts[2][1] == '-' && AttachmentEnvelope.ValidName(parts[2][2..]);",
+              "        return parts.Length > 0;", 1),),
+            "ATTACHMENT_SOURCE_RECEIVED_FILES_ONLY: only a received file itself can be sent on from the broker's folders; the manifest beside it is refused"),
+    Witness("attachment-r2b-nul-note", ATTACHMENT_STORE, "worker", ATTACHMENT_GROUP,
+            ((' throw new BrokerException("invalid_message", "The note contains a NUL character.");', " { }", 1),),
+            "ATTACHMENT_NOTE_NUL_INVALID: a note with a NUL is refused invalid_message, not attachment_text_too_long, with nothing staged"),
+    Witness("attachment-r2b-double-load", ATTACHMENT_STORE, "worker", ATTACHMENT_GROUP,
+            (("            var file = AttachmentSource.Load(path, AttachmentEnvelope.MaximumTotalBytes - total, DataDirectory);",
+              "            var file = AttachmentSource.Load(path, AttachmentEnvelope.MaximumTotalBytes - total, DataDirectory); _ = AttachmentSource.Load(path, AttachmentEnvelope.MaximumTotalBytes, DataDirectory);", 1),),
+            "ATTACHMENT_STAGED_HASH_FROM_HANDLE: the source is opened once; the staged copy is the bytes that were hashed, even when the source changes between the read and the copy or afterwards"),
+    # Worker, after the check-coverage audit (wf_03b67994-abe): round-2b lines no recipe killed.
+    Witness("attachment-r2b-default-tables", ATTACHMENT_STORE, "worker", ATTACHMENT_GROUP,
+            (("    int MaximumPullStates = 128,\n    int MaximumDeferrals = 512,\n", "    int MaximumPullStates = 64,\n    int MaximumDeferrals = 256,\n", 1),),
+            "ATTACHMENT_DEFAULT_TABLES_COVER_SHARES: the default pull-state and deferral tables hold every allowed broker at its full share, so one broker can only ever defer itself"),
+    Witness("attachment-r2b-root-junction", ATTACHMENT_STORE, "worker", ATTACHMENT_GROUP,
+            (("            children = Directory.Exists(parent) && (File.GetAttributes(parent) & FileAttributes.ReparsePoint) == 0\n",
+              "            children = Directory.Exists(parent)\n", 1),),
+            "ATTACHMENT_SWEEP_ROOT_JUNCTION: an outbox root that is a junction is never enumerated, so the sweep deletes nothing behind it"),
+    Witness("attachment-r2b-recount-admitted", ATTACHMENT_STORE, "worker", ATTACHMENT_GROUP,
+            (("                if (AdmittedHere(senderBroker, messageId)) admitted.Add((senderBroker, messageId));\n",
+              "                if (store.FindReceipt(messageId) is not null) admitted.Add((senderBroker, messageId));\n", 1),),
+            "ATTACHMENT_PLAIN_TEXT_FOLDER_UNADMITTED_SHARE: a received folder under a plain-text message ID is recounted as unadmitted bytes in its broker's in-flight share, not as admitted bytes"),
+    Witness("attachment-r2b-unsaved-while-off", "tools/AgentBroker.Worker/LocalControlServer.cs", "worker", ATTACHMENT_GROUP,
+            (("            view.PolicyUnreadable || view.QuarantineUnavailable == true || view.PolicyUnsaved == true)\n",
+              "            view.PolicyUnreadable || view.QuarantineUnavailable == true)\n", 1),),
+            "ATTACHMENT_UNSAVED_SHOWN_WHILE_OFF: with attachments off, an allow removal the broker could not save is still reported as not saved, though no broker is allowed"),
+    Witness("attachment-r2b-zone-unreadable", "tools/AgentBroker.Worker/Attachments/AttachmentSource.cs", "worker", ATTACHMENT_GROUP,
+            (("        { return AttachmentStore.InternetZone; }\n", "        { return null; }\n", 1),),
+            "ATTACHMENT_SOURCE_ZONE_UNREADABLE_FAILS_CLOSED: a source whose Mark of the Web cannot be read is staged as downloaded from the internet"),
+    # F round 3 (DECISIONS 79): the zone read under the held source handle; one recipe per mutant of AttachmentSource.cs:38-41.
+    Witness("attachment-r3-zone-after-dispose", "tools/AgentBroker.Worker/Attachments/AttachmentSource.cs", "worker", ATTACHMENT_GROUP,
+            (("            zone = ZoneOf(full, dataDirectory);\n        }\n", "        }\n        zone = ZoneOf(full, dataDirectory);\n", 1),),
+            "ATTACHMENT_SOURCE_ZONE_WITH_BYTES: the Mark of the Web is read while the source's read handle is held, so a marked source replaced by an unmarked file after its bytes were read is still staged marked"),
+    Witness("attachment-r3-zone-reread", "tools/AgentBroker.Worker/Attachments/AttachmentSource.cs", "worker", ATTACHMENT_GROUP,
+            (("Convert.ToHexStringLower(SHA256.HashData(bytes)), zone);", "Convert.ToHexStringLower(SHA256.HashData(bytes)), ZoneOf(full, dataDirectory));", 1),),
+            "ATTACHMENT_SOURCE_ZONE_WITH_BYTES: the Mark of the Web is read while the source's read handle is held, so a marked source replaced by an unmarked file after its bytes were read is still staged marked"),
+    # Round-2b lines the coverage audit judged covered by an existing check: a recipe each, so the claim is executed.
+    Witness('attachment-r2b-received-shape-validate', 'tools/AgentBroker.Worker/Attachments/AttachmentSource.cs', 'worker', ATTACHMENT_GROUP,
+            (('        if (UnderDataFolder(full, dataDirectory) && !IsReceivedFile(full, dataDirectory)) throw Invalid();', '        if (UnderDataFolder(full, dataDirectory) && !full.StartsWith(Path.Combine(DataPrefix(dataDirectory), "attachments", "inbox") + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) throw Invalid();', 1),),
+            "ATTACHMENT_SOURCE_RECEIVED_FILES_ONLY: only a received file itself can be sent on from the broker's folders; the manifest beside it is refused"),
+    Witness('attachment-r2b-received-shape-zone', 'tools/AgentBroker.Worker/Attachments/AttachmentSource.cs', 'worker', ATTACHMENT_GROUP,
+            (('        if (IsReceivedFile(full, dataDirectory)) return AttachmentStore.InternetZone;\n', '', 1),),
+            'ATTACHMENT_SOURCE_ZONE_KEPT: a marked source and a received file are staged still marked, and fetch reports internet'),
+    Witness('attachment-r2b-admitted-in-memory', 'tools/AgentBroker.Worker/Attachments/AttachmentStore.cs', 'network', ATTACHMENT_GROUP,
+            (('            admittedFolders.Add((senderBroker, messageId));\n', '', 1),),
+            'ATTACHMENT_QUARANTINE_FULL_NO_GET: with admitted files filling the quarantine an envelope is refused attachment_quarantine_full before any file request'),
+    Witness('attachment-r2b-view-unsaved', 'tools/AgentBroker.Worker/Attachments/AttachmentStore.cs', 'worker', ATTACHMENT_GROUP,
+            (('        Policy.Dirty ? true : null);', '        null);', 1),),
+            'ATTACHMENT_POLICY_SAVE_RETRIED: an allow removal whose save failed is shown as not saved and is saved by the next sweep, so a restart keeps it removed'),
+    Witness('attachment-r2b-retry-body', 'tools/AgentBroker.Worker/Attachments/AttachmentPolicy.cs', 'worker', ATTACHMENT_GROUP,
+            (('            try { Write(entries); }', '            try { }', 1),),
+            'ATTACHMENT_POLICY_SAVE_RETRIED: an allow removal whose save failed is shown as not saved and is saved by the next sweep, so a restart keeps it removed'),
+    # Round 6 (S-019): as attachment-r2-envelope-swap, the GetOrStartPull text binding goes with the one-text check.
+    Witness('attachment-r2b-one-text-first', 'tools/AgentBroker.Worker/Federation/PeerFederation.Attachments.cs', 'network', ATTACHMENT_GROUP,
+            (('        if (attachments is not null) RequireOneText(key, textSha256, attachments);\n', '', 1),
+             ("                if (existing.TextSha256 != textSha256)\n                    throw new BrokerException(AttachmentCodes.EnvelopeInvalid, \"A different text was sent under a message ID whose attachments are pending.\");\n", "", 1)),
+            'ATTACHMENT_ONE_ENVELOPE_PER_ID: a second submission of the same message ID with a different envelope during its pull is refused attachment_envelope_invalid; the original is admitted'),
+    Witness('attachment-r2b-allow-abandon', 'tools/AgentBroker.Worker/Federation/PeerFederation.Attachments.cs', 'network', ATTACHMENT_GROUP,
+            (('                if (!allowed)\n                {\n                    Abandon(key, attachments);\n                    throw new BrokerException(AttachmentCodes.RefusedByPolicy, "This broker no longer accepts attachments from that broker.");\n                }\n', '', 1),),
+            'ATTACHMENT_ALLOW_STOPPED_BEFORE_ADMISSION: an allow withdrawn after the files arrived but before admission refuses the message and keeps nothing'),
+    Witness('attachment-r2b-stale-defer', 'tools/AgentBroker.Worker/Federation/PeerFederation.Attachments.cs', 'network', ATTACHMENT_GROUP,
+            # Round 6 moved the stale branch to the end of the Verified case. The mutant now drops the recheck from the admission
+            # condition, so a stale Verified admits without its file (the old mutant returned a null receipt); the same label
+            # catches it.
+            (('                    if (known || present && allowed && !otherText)\n', '                    if (known || allowed && !otherText)\n', 1),),
+            'ATTACHMENT_STALE_VERIFIED_REPULLS: a verified pull whose files were removed before admission pulls again; the message is never admitted without its files'),
+    Witness('attachment-r2b-linked-count', 'tools/AgentBroker.Worker/Federation/PeerFederation.Attachments.cs', 'network', ATTACHMENT_GROUP,
+            (('            Interlocked.Increment(ref AttachmentLinkedSourcesLive);\n', '', 1),),
+            'ATTACHMENT_PULL_STATES_BOUNDED: 50 aborted forwards never hold more than the pull-state cap, finished states go once their grace passes, and every linked source is released'),
+    # Network
+    Witness("attachment-r2b-one-text-manifest", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (("        held ??= attachments.ReceivedEnvelopeSha256(key.Peer, key.Message);\n", "", 1),),
+            "ATTACHMENT_ONE_TEXT_AFTER_DROP: after a transient drop, another envelope or plain text under the same message ID is refused while the received folder holds the first envelope's files"),
+    Witness("attachment-r2b-prevalidate-once", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (("        if (!PullStarted(key)) RequireAdmissible(caller, message);", "        RequireAdmissible(caller, message);", 1),),
+            "ATTACHMENT_PREVALIDATION_ONCE: once a pull runs, a forward during a recipient lease flicker defers instead of being refused, and the message is admitted when the recipient is back"),
+    Witness("attachment-r2b-pull-states-share", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (("            if (pulls.Values.Count(pull => pull.Peer == peer.BrokerId) >= limits.MaximumPullStatesPerPeer) return null;\n", "", 1),),
+            "ATTACHMENT_PER_PEER_PULL_STATES: a broker at its share of the pull-state table defers its own next message without a file request, while another broker's pull starts"),
+    Witness("attachment-r2b-deferrals-share", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (("            if (!firstPull.ContainsKey(key) && firstPull.Keys.Count(entry => entry.Peer == peer.BrokerId) >= limits.MaximumDeferralsPerPeer) return null;\n", "", 1),),
+            "ATTACHMENT_PER_PEER_DEFERRALS: a broker at its share of the deferral table defers its own next message without a file request, while another broker's is admitted"),
+    Witness("attachment-r2b-sweep-gate", ATTACHMENT_STORE, "network", ATTACHMENT_GROUP,
+            (("                lock (AdmissionGate)\n", "                lock (new object())\n", 1),),
+            "ATTACHMENT_SWEEP_WAITS_FOR_ADMISSION: a sweep that starts between the recheck and the admission waits for it, and the admitted message keeps its file"),
+    Witness("attachment-r2b-admission-gate", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (("                lock (attachments.AdmissionGate)\n", "                lock (new object())\n", 1),),
+            "ATTACHMENT_SWEEP_WAITS_FOR_ADMISSION: a sweep that starts between the recheck and the admission waits for it, and the admitted message keeps its file"),
+    Witness("attachment-r2b-cleanup-before-lookup", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            # Round 6 made the lookup a block (the text binding), so the cleanup moves to just after it: lookup first, as before.
+            (("            CleanupPulls(attachments);\n            if (pulls.TryGetValue(key, out var existing))\n",
+              "            if (pulls.TryGetValue(key, out var existing))\n", 1),
+             ("            int running = pulls.Values.Count(pull => !pull.Task.IsCompleted);\n",
+              "            CleanupPulls(attachments);\n            int running = pulls.Values.Count(pull => !pull.Task.IsCompleted);\n", 1)),
+            # The swept scenario moves the clock past the deferral bound, so it is the first check that depends on this order.
+            "ATTACHMENT_SWEPT_PULL_STARTS_AFRESH: after the sweep removes an unadmitted verified folder, the next forward pulls afresh and admits with the file present"),
+    Witness("attachment-r2b-revoke-before-publish", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (("        Current(authorization);\n        // Round 2b: the owner may have stopped this broker's attachments during the pull; nothing more is published then.\n"
+              "        if (!attachments.Policy.Allows(store.Peers().SingleOrDefault(candidate => candidate.BrokerId == peer.BrokerId))) return PullOutcome.Revoked;\n", "", 1),),
+            "ATTACHMENT_REVOKED_MID_BODY: a pairing revoked while the file's body is arriving publishes nothing and answers attachments_refused_by_policy"),
+    Witness("attachment-r2b-allow-before-publish", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (("        if (!attachments.Policy.Allows(store.Peers().SingleOrDefault(candidate => candidate.BrokerId == peer.BrokerId))) return PullOutcome.Revoked;\n", "", 1),),
+            "ATTACHMENT_ALLOW_STOPPED_MID_PULL: an allow the owner withdraws during the pull publishes nothing more and answers attachments_refused_by_policy"),
+    Witness("attachment-r2b-allow-before-admission", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            # Round 6: the allow check now follows the R0 test (known || ...); the mutant still drops the allow check.
+            (("                    allowed = known || attachments.Policy.Allows(store.Peers().SingleOrDefault(candidate => candidate.BrokerId == caller));",
+              "                    allowed = true;", 1),),
+            "ATTACHMENT_ALLOW_STOPPED_BEFORE_ADMISSION: an allow withdrawn after the files arrived but before admission refuses the message and keeps nothing"),
+    Witness("attachment-r2b-defer-mapping", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (("                case ReserveResult.Defer:\n                    return null;\n", "", 1),),
+            "ATTACHMENT_RESERVE_DEFER_NO_GET: a pull that does not fit the broker's in-flight share waits (attachment_fetch_pending) without a file request"),
+    Witness("attachment-r2b-refuse-full-arm", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (("                case ReserveResult.RefuseFull:\n                    throw new BrokerException(AttachmentCodes.QuarantineFull, \"The attachment quarantine is full.\");\n", "", 1),),
+            "ATTACHMENT_QUARANTINE_FULL_NO_GET: with admitted files filling the quarantine an envelope is refused attachment_quarantine_full before any file request"),
+    Witness("attachment-r2b-linked-dispose", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (("    private void DisposeWhenDone(PullState state) =>\n        state.Task.ContinueWith((_, source) =>\n        {\n"
+              "            ((CancellationTokenSource)source!).Dispose();\n            Interlocked.Decrement(ref AttachmentLinkedSourcesLive);\n"
+              "        }, state.Cancel, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);\n",
+              "    private void DisposeWhenDone(PullState state) { }\n", 1),),
+            "ATTACHMENT_PULL_STATES_BOUNDED: 50 aborted forwards never hold more than the pull-state cap, finished states go once their grace passes, and every linked source is released"),
+    Witness("attachment-r2b-retry-no-pull", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (("        if (store.FindReceipt(message.Id) is not null) return Results.Json(store.Accept(message, caller), Json);\n", "", 1),),
+            "ATTACHMENT_IDEMPOTENT_RETRY: a retry of an admitted message is answered by the store and never pulls again"),
+    Witness("attachment-r2b-policy-before-invalid", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (("        if (attachments is not { Enabled: true } || !attachments.Policy.Allows(peer))\n"
+              "            throw new BrokerException(AttachmentCodes.RefusedByPolicy, \"This broker does not accept attachments from that broker.\");\n"
+              "        if (parse == AttachmentParse.Invalid)\n"
+              "            throw new BrokerException(AttachmentCodes.EnvelopeInvalid, \"The attachment envelope is invalid.\");\n",
+              "        if (parse == AttachmentParse.Invalid)\n"
+              "            throw new BrokerException(AttachmentCodes.EnvelopeInvalid, \"The attachment envelope is invalid.\");\n"
+              "        if (attachments is not { Enabled: true } || !attachments.Policy.Allows(peer))\n"
+              "            throw new BrokerException(AttachmentCodes.RefusedByPolicy, \"This broker does not accept attachments from that broker.\");\n", 1),),
+            "ATTACHMENT_INVALID_ENVELOPE_REFUSED: an allowed sender's five-entry envelope is refused attachment_envelope_invalid; an unallowed sender's is refused by policy first"),
+    Witness("attachment-r2b-prevalidate-sender", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (("        if (message.Sender.BrokerId != caller) throw new BrokerException(\"sender_mismatch\", \"The sender must belong to the authenticated broker.\");\n", "", 1),),
+            "ATTACHMENT_PREVALIDATED_SENDER: an envelope whose sender is not on the forwarding broker is refused before any file request"),
+    Witness("attachment-r2b-prevalidate-expiry", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (("        if (message.ExpiresAt <= Now) throw new BrokerException(\"invalid_message\", \"The message has expired.\");\n", "", 1),),
+            "ATTACHMENT_PREVALIDATED_EXPIRED: an envelope already past its deadline is refused before any file request"),
+    Witness("attachment-r2b-prevalidate-private", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (("            if (row.IsPrivate) throw new BrokerException(\"private_session\", \"The recipient is private.\");\n", "", 1),),
+            "ATTACHMENT_PREVALIDATED_PRIVATE: an envelope to a private session is refused private_session before any file request"),
+    Witness("attachment-r2b-prevalidate-receive", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (("            if (!row.Capabilities.HasFlag(SessionCapabilities.Receive)) throw new BrokerException(\"recipient_cannot_receive\", \"The recipient cannot receive.\");\n", "", 1),),
+            "ATTACHMENT_PREVALIDATED_CANNOT_RECEIVE: an envelope to a session that cannot receive is refused before any file request"),
+    Witness("attachment-r2b-prevalidate-transit", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (("        if (message.Recipient.BrokerId != store.BrokerId) throw new BrokerException(\"transit_refused\", \"Only direct federation is accepted.\");\n", "", 1),),
+            "ATTACHMENT_PREVALIDATED_TRANSIT: an envelope for a session on a third broker is refused transit_refused before any file request"),
+    # M2: the one-text check runs before plain text goes straight to the store (check-coverage audit, wf_03b67994-abe).
+    Witness("attachment-r2b-one-text-order", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (("        if (attachments is not null) RequireOneText(key, textSha256, attachments);\n        if (parse == AttachmentParse.NotEnvelope) return Results.Json(store.Accept(message, caller), Json);\n",
+              "        if (parse == AttachmentParse.NotEnvelope) return Results.Json(store.Accept(message, caller), Json);\n        if (attachments is not null) RequireOneText(key, textSha256, attachments);\n", 1),),
+            "ATTACHMENT_ONE_TEXT_PLAIN_DURING_PULL: plain text under a message ID whose envelope is still pulling is refused attachment_envelope_invalid"),
+    # DECISIONS 64: the sender's own bound, live end to end, never refuses a slow but serving recipient early.
+    Witness("attachment-r2b-sender-bound-early-network", ATTACHMENT_RUNTIME, "network", ATTACHMENT_GROUP,
+            (("            result = Attachments?.FetchPendingExpired(receipt.Message.Id, AgentBroker.Worker.Federation.PeerFederation.AttachmentDeferralBound) == true",
+              "            result = Attachments?.FetchPendingExpired(receipt.Message.Id, TimeSpan.FromMinutes(1)) == true", 1),),
+            "ATTACHMENT_SENDER_BOUND_NOT_EARLY: with the sender's own bound live, a slow but serving recipient within its shares is admitted end to end, nine minutes after the first deferral"),
+)
+
+# ---- lane F round 5 (DECISIONS 96): code defects the round-4 doc-claims audit confirmed (lanes/F/round4/CLASSIFICATION.md) ----
+R5_PENDING_CAP = "            if (admittedPeer + reservedPeer + orphanPeer + bytes > Limits.PerPeerAdmittedBytes) return ReserveResult.Defer;\n"
+ATTACHMENT_R5_WITNESSES = (
+    # Item 6: a broker's running pulls and its folders not yet admitted count against its admitted cap.
+    Witness("attachment-r5-pending-cap", ATTACHMENT_STORE, "worker", ATTACHMENT_GROUP,
+            ((R5_PENDING_CAP, "", 1),),
+            "ATTACHMENT_PER_PEER_CAP_COUNTS_PENDING: one broker's running pulls and its folders not yet admitted count against its admitted cap, so a concurrent pull defers instead of passing it; another broker's still starts"),
+    Witness("attachment-r5-pending-cap-orphan", ATTACHMENT_STORE, "worker", ATTACHMENT_GROUP,
+            ((R5_PENDING_CAP, R5_PENDING_CAP.replace(" + orphanPeer", ""), 1),),
+            "ATTACHMENT_PER_PEER_CAP_COUNTS_PENDING: one broker's running pulls and its folders not yet admitted count against its admitted cap, so a concurrent pull defers instead of passing it; another broker's still starts"),
+    # Item 1: one file another program holds open no longer keeps its siblings and the manifest.
+    Witness("attachment-r5-delete-stops-at-locked", ATTACHMENT_STORE, "worker", ATTACHMENT_GROUP,
+            (("            catch (Exception error) when (error is IOException or UnauthorizedAccessException) { } // the next file still goes",
+              "            catch (Exception error) when (error is IOException or UnauthorizedAccessException) { break; } // the next file still goes", 1),),
+            "ATTACHMENT_SWEEP_LOCKED_FILE_ALONE: a received file another program holds open stays alone: the sweep deletes its siblings and the manifest now, and the file once it is released"),
+    # Item 8: a first deferral whose stamp could not be stored is kept in memory.
+    Witness("attachment-r5-unstored-stamp-forgotten", ATTACHMENT_STORE, "worker", ATTACHMENT_GROUP,
+            (("                unstoredFetchPending[messageId] = stamp;\n", "", 1),),
+            "ATTACHMENT_SENDER_BOUND_WITHOUT_STAMP: a sender that cannot store its first-deferral stamp still refuses at its 10-minute bound (not at 9 min, at 11 min)"),
+    # Item 9: a manifest held open by another program is busy, not missing.
+    Witness("attachment-r5-busy-manifest-missing", ATTACHMENT_STORE, "worker", ATTACHMENT_GROUP,
+            (("ManifestBusy(messageId) ? OutgoingState.Busy : OutgoingState.Missing;", "ManifestBusy(messageId) ? OutgoingState.Missing : OutgoingState.Missing;", 1),),
+            "ATTACHMENT_BUSY_MANIFEST_DEFERS: a staged manifest another program holds open answers busy (a deferral), not the 404 that ends the message; a missing manifest is still a 404"),
+    # Item 14: a failed allow is not an unsaved change in force.
+    Witness("attachment-r5-failed-allow-dirty", ATTACHMENT_POLICY, "worker", ATTACHMENT_GROUP,
+            (("        catch (IOException) { if (ReferenceEquals(entries, next)) Dirty = true; throw; }", "        catch (IOException) { Dirty = true; throw; }", 1),),
+            "ATTACHMENT_FAILED_ALLOW_NOT_UNSAVED: an allow whose save failed is a failure, not an unsaved change in force; a removal whose save failed is still denied at once and reported unsaved"),
+    # Item 15: the recount counts stored attachments only, in the inbox and in the outbox.
+    Witness("attachment-r5-recount-inbox-temporaries", ATTACHMENT_STORE, "worker", ATTACHMENT_GROUP,
+            (("                foreach (var file in SafeFiles(folder)) if (IsStoredFileName(file.Name)) { bytes += file.Length; files++; }",
+              "                foreach (var file in SafeFiles(folder)) if (file.Name != ManifestName) { bytes += file.Length; files++; }", 1),),
+            "ATTACHMENT_RECOUNT_STORED_FILES_ONLY: the quarantine and the outbox count stored attachments only: a LocalOutputFile temporary beside them is neither a received file nor quota bytes"),
+    Witness("attachment-r5-recount-outbox-temporaries", ATTACHMENT_STORE, "worker", ATTACHMENT_GROUP,
+            (("            foreach (var file in SafeFiles(folder)) if (IsStoredFileName(file.Name)) outbox += file.Length;",
+              "            foreach (var file in SafeFiles(folder)) if (file.Name is not (ManifestName or FetchPendingName)) outbox += file.Length;", 1),),
+            "ATTACHMENT_RECOUNT_STORED_FILES_ONLY: the quarantine and the outbox count stored attachments only: a LocalOutputFile temporary beside them is neither a received file nor quota bytes"),
+)
+
+# ---- lane F round 6 (DECISIONS 116, 119): the races S-017 (items 5 and 11), S-018 (item 10) and S-019 (item 17) fixed in
+# 1.10.5, and the defense-in-depth lines S-013a and S-013b. Each recipe reverts one guard. ----
+R6_DELETE_WAITS = "ATTACHMENT_DELETE_WAITS_FOR_PUBLICATION: a received folder's deletion that lands inside a publication waits for it, then deletes the folder, and neither waits forever"
+R6_RECOUNT = "ATTACHMENT_MISMATCH_RECOUNT_FAULT_STAYS: an IO fault in the recount after a received file that no longer hashes stays inside HasVerified: the file is deleted and the answer is not verified"
+R6_ABANDON_WAITS = "ATTACHMENT_ABANDON_WAITS_FOR_ADMISSION: a forward that passes the 10-minute bound while another forward of the same message is being admitted waits for that admission, keeps its files and answers the admitted receipt"
+ATTACHMENT_R6_WITNESSES = (
+    # Item 11: the publication holds the folder's gate from the manifest check to the count.
+    Witness("attachment-r6-publish-folder-gate", ATTACHMENT_STORE, "worker", ATTACHMENT_GROUP,
+            (("        lock (FolderGate(senderBroker, messageId))\n        {\n            Directory.CreateDirectory(folder);\n",
+              "        {\n            Directory.CreateDirectory(folder);\n", 1),),
+            R6_DELETE_WAITS),
+    # Item 11: a refusal's deletion takes the folder's gate too.
+    Witness("attachment-r6-delete-folder-gate", ATTACHMENT_STORE, "worker", ATTACHMENT_GROUP,
+            (("                lock (FolderGate(senderBroker, messageId)) DeleteFolder(InboxFolder(senderBroker, messageId));\n",
+              "                DeleteFolder(InboxFolder(senderBroker, messageId));\n", 1),),
+            R6_DELETE_WAITS),
+    # Item 11, the sweep's side: the sweep's deletion takes the folder's gate too.
+    Witness("attachment-r6-sweep-folder-gate", ATTACHMENT_STORE, "worker", ATTACHMENT_GROUP,
+            (("                        lock (FolderGate(senderBroker, messageId)) DeleteFolder(folder.FullName);\n",
+              "                        DeleteFolder(folder.FullName);\n", 1),),
+            "ATTACHMENT_SWEEP_WAITS_FOR_PUBLICATION: a sweep that reaches a received folder while a file is being published into it waits for the publication, then deletes the folder, and neither waits forever"),
+    # The folder gate's no-deadlock check (DECISIONS 116): a publication that waits for the admission gate while it holds the
+    # folder's gate deadlocks with a deletion (admission gate, then folder gate); the check's bound must report it.
+    Witness("attachment-r6-publish-gate-inversion", ATTACHMENT_STORE, "worker", ATTACHMENT_GROUP,
+            (("            lock (gate)\n            {\n                inboxFolderBytes[(senderBroker, messageId)] =",
+              "            lock (AdmissionGate) lock (gate)\n            {\n                inboxFolderBytes[(senderBroker, messageId)] =", 1),),
+            R6_DELETE_WAITS),
+    # S-013a: the recount after a mismatching file keeps its IO fault, by the call and by the filter.
+    Witness("attachment-r6-recount-fault-escapes", ATTACHMENT_STORE, "worker", ATTACHMENT_GROUP,
+            (("        DeleteExact([path], null);\n        TryRecount();\n", "        DeleteExact([path], null);\n        Recount();\n", 1),),
+            R6_RECOUNT),
+    Witness("attachment-r6-recount-filter", ATTACHMENT_STORE, "worker", ATTACHMENT_GROUP,
+            (("        try { Recount(); }\n        catch (Exception error) when (error is IOException or UnauthorizedAccessException or BrokerException) { }\n",
+              "        try { Recount(); }\n        catch (Exception error) when (error is UnauthorizedAccessException or BrokerException) { }\n", 1),),
+            R6_RECOUNT),
+    # Item 5: a refusal's deletion holds the admission gate, keeps an admitted folder, and the Defer path answers its receipt.
+    Witness("attachment-r6-abandon-admission-gate", ATTACHMENT_STORE, "network", ATTACHMENT_GROUP,
+            (("    internal bool DeleteInbox(Guid senderBroker, Guid messageId)\n    {\n        lock (AdmissionGate)\n        {\n",
+              "    internal bool DeleteInbox(Guid senderBroker, Guid messageId)\n    {\n        {\n", 1),),
+            R6_ABANDON_WAITS),
+    Witness("attachment-r6-abandon-keeps-admitted", ATTACHMENT_STORE, "network", ATTACHMENT_GROUP,
+            (("            if (AdmittedHere(senderBroker, messageId)) return true;\n", "            if (AdmittedHere(Guid.Empty, messageId)) return true;\n", 1),),
+            R6_ABANDON_WAITS),
+    Witness("attachment-r6-defer-answers-receipt", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (("        if (Attachments is { } attachments && Abandon(key, attachments)) return Results.Json(store.Accept(message, caller), Json);\n",
+              "        if (Attachments is { } attachments) Abandon(key, attachments);\n", 1),),
+            R6_ABANDON_WAITS),
+    # Item 10: the R0 test again inside the admission gate, before the allow check.
+    Witness("attachment-r6-r0-before-allow", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (("                    bool known = store.FindReceipt(message.Id) is not null;\n", "                    bool known = false;\n", 1),),
+            "ATTACHMENT_ALLOW_RACE_KEEPS_ADMITTED: an allow withdrawn after one forward admitted a message and before another forward of it reaches its allow check: the other forward answers the admitted receipt and the files stay"),
+    # Item 17: the text bound to the pull in GetOrStartPull (DECISIONS 119: fires every run through the BeforePullLookup seam).
+    Witness("attachment-r6-text-bound", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (("                if (existing.TextSha256 != textSha256)\n                    throw new BrokerException(AttachmentCodes.EnvelopeInvalid, \"A different text was sent under a message ID whose attachments are pending.\");\n", "", 1),),
+            "ATTACHMENT_ONE_TEXT_RACE_BOUND_TO_PULL: a second text under a message ID that passed the one-text check before the first text's pull was registered is refused attachment_envelope_invalid by that pull; the admitted text is the manifest's envelope"),
+    # Item 18 (DECISIONS 120): the sweep never walks an attachments root that is itself a reparse point.
+    Witness("attachment-r6-sweep-root-itself", ATTACHMENT_STORE, "worker", ATTACHMENT_GROUP,
+            (("        if (RootIsReparsePoint()) return;\n", "", 1),),
+            "ATTACHMENT_SWEEP_ROOT_ITSELF_JUNCTION: an attachments root that is itself a junction is never walked, so the sweep deletes nothing in the tree it points to"),
+    # Item 18 (DECISIONS 122): a refusal's deletion (DeleteInbox, behind Abandon) never goes through that root either; the
+    # sweep's guard stays in place, so only this path's guard is removed.
+    Witness("attachment-r6-abandon-root-itself", ATTACHMENT_STORE, "worker", ATTACHMENT_GROUP,
+            (("            if (!RootIsReparsePoint())\n                lock (FolderGate(senderBroker, messageId)) DeleteFolder(InboxFolder(senderBroker, messageId));\n",
+              "            lock (FolderGate(senderBroker, messageId)) DeleteFolder(InboxFolder(senderBroker, messageId));\n", 1),),
+            "ATTACHMENT_ABANDON_ROOT_ITSELF_JUNCTION: a refusal's deletion of a received folder never goes through an attachments root that is itself a junction"),
+    # S-020 (F-X1C-Q1, DECISIONS 123): a message's own kept files are not counted again as unadmitted data on its retry.
+    Witness("attachment-r6-partial-own-once", ATTACHMENT_STORE, "worker", ATTACHMENT_GROUP,
+            (("                else if (folder != key && !reservations.ContainsKey(folder)) { orphan += size; if (folder.Peer == senderBroker) orphanPeer += size; }\n",
+              "                else if (!reservations.ContainsKey(folder)) { orphan += size; if (folder.Peer == senderBroker) orphanPeer += size; }\n", 1),),
+            "ATTACHMENT_PARTIAL_RETRY_COUNTS_OWN_BYTES_ONCE: a retry of the same message after a partial pull counts its kept files once on the per-peer admitted, pool and in-flight bounds, while another message still counts them"),
+    # S-013b: Drop releases only its own state's reservation.
+    Witness("attachment-r6-drop-own", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (("            own = !pulls.TryGetValue(key, out var current) || ReferenceEquals(current, state);\n", "            own = true;\n", 1),),
+            "ATTACHMENT_DROP_KEEPS_NEWER_RESERVATION: a forward's Drop after a newer forward replaced its pull state ends neither that pull's state nor its reservation"),
+)
+
+# ---- lane F round 7 (DECISIONS 127): the S-019 residue; the admitted text is bound to the received folder's manifest. ----
+ATTACHMENT_R7_WITNESSES = (
+    Witness("attachment-r7-manifest-text", ATTACHMENT_FED, "network", ATTACHMENT_GROUP,
+            (("                    otherText = !known && attachments.ReceivedEnvelopeSha256(caller, message.Id) is { } recorded && recorded != textSha256;\n",
+              "                    otherText = false;\n", 1),),
+            "ATTACHMENT_ONE_TEXT_BOUND_TO_MANIFEST: a second text that passed the one-text check before the first text's manifest existed is refused attachment_envelope_invalid at admission once the first pull's state is gone; the admitted text is the manifest's envelope"),
+)
+
+# ---- 1.10.6 lane N round 1 (N-broker-native-confirmation-01): the Codex typed pre-frame deferral in the worker. ----
+# CodexPreFrameChecks.cs stops at its first failure, so each mutant must fail exactly its own label. The library half
+# (DiscoveryTimeoutChecks.cs) has its witnesses in run_agentbroker_pin_diagnostic_mutations.py (desktop family).
+CODEX_ADAPTER = "tools/AgentBroker.Worker/Adapters/CodexNativeAdapter.cs"
+CODEX_PROVIDER = "tools/AgentBroker.Worker/Adapters/CodexNativeProvider.cs"
+PREFRAME_GROUP = ("--codex-preframe-only",)
+NATIVE_R1_WITNESSES = (
+    Witness("native-r1-preframe-reason-merged", CODEX_ADAPTER, "worker", PREFRAME_GROUP,
+            (('            return Deferred("native_owner_rediscovery_unavailable");\n',
+              '            return Deferred("native_owner_unavailable");\n', 1),),
+            "CODEX_ADAPTER_REDISCOVERY_DEFERS: pre-frame rediscovery results one to three defer under their own reason"),
+    Witness("native-r1-preframe-bound-removed", CODEX_ADAPTER, "worker", PREFRAME_GROUP,
+            (("        if (count <= PreFrameDeferralBound)\n", "        if (count <= PreFrameDeferralBound * 1000)\n", 1),),
+            "CODEX_REDISCOVERY_BOUND: the fourth consecutive pre-frame result of one message settles Uncertain with the stage named"),
+    Witness("native-r1-preframe-io-stage-merged", CODEX_ADAPTER, "worker", PREFRAME_GROUP,
+            (('            "rediscovery_io" => "native_uncertain_raised_io",\n',
+              '            "rediscovery_io" => "native_uncertain_raised_cancelled",\n', 1),),
+            "CODEX_REDISCOVERY_STAGE_MAP: at the fourth result a spent attempt token reads native_uncertain_raised_cancelled and a rediscovery I/O failure native_uncertain_raised_io"),
+    Witness("native-r1-preframe-count-not-reset", CODEX_ADAPTER, "worker", PREFRAME_GROUP,
+            (("                if (ResetsPreFrameCount(result)) preFrameDeferrals.Remove(KeyOf(message));\n", "", 1),),
+            "CODEX_REDISCOVERY_RESET: another provider answer restarts the count, while adapter-level and pre-library provider deferrals neither count nor reset"),
+    Witness("native-r1-preframe-reset-always", CODEX_ADAPTER, "worker", PREFRAME_GROUP,
+            (('        result.Outcome != DesktopSubmissionOutcome.DeferredNotSubmitted || result.ErrorCode is "native_context_busy" or "owner_unavailable";\n',
+              "        true;\n", 1),),
+            "CODEX_REDISCOVERY_RESET: another provider answer restarts the count, while adapter-level and pre-library provider deferrals neither count nor reset"),
+    Witness("native-r1-preframe-lifetime-ignored", CODEX_ADAPTER, "worker", PREFRAME_GROUP,
+            (("    private static PreFrameKey KeyOf(BrokerMessage message) => new(message.Id, message.CreatedAt, message.Recipient);\n",
+              "    private static PreFrameKey KeyOf(BrokerMessage message) => new(message.Id, default, message.Recipient);\n", 1),),
+            "CODEX_REDISCOVERY_IDENTITY: the same UUID in a new lifetime, or to another recipient incarnation, starts at zero and leaves the original count alone"),
+    Witness("native-r1-preframe-recipient-ignored", CODEX_ADAPTER, "worker", PREFRAME_GROUP,
+            (("    private static PreFrameKey KeyOf(BrokerMessage message) => new(message.Id, message.CreatedAt, message.Recipient);\n",
+              "    private static PreFrameKey KeyOf(BrokerMessage message) => new(message.Id, message.CreatedAt, default!);\n", 1),),
+            "CODEX_REDISCOVERY_IDENTITY: the same UUID in a new lifetime, or to another recipient incarnation, starts at zero and leaves the original count alone"),
+    Witness("native-r1-preframe-prune-removed", CODEX_ADAPTER, "worker", PREFRAME_GROUP,
+            (("clock.GetElapsedTime(pair.Value.At, now) > PreFrameDeferralRetention)",
+              "clock.GetElapsedTime(pair.Value.At, now) > PreFrameDeferralRetention * 1000)", 1),),
+            "CODEX_REDISCOVERY_PRUNED: a count not updated for ten monotonic minutes is pruned and the next pre-frame result starts at zero"),
+    Witness("native-r1-preframe-cap-removed", CODEX_ADAPTER, "worker", PREFRAME_GROUP,
+            (("                preFrameDeferrals.Remove(preFrameDeferrals.MinBy(pair => pair.Value.At).Key);\n", "                _ = 0;\n", 1),),
+            "CODEX_REDISCOVERY_BOUNDED_STORAGE: one more distinct message than the cap leaves exactly the cap of pre-frame counts"),
+    Witness("native-r1-preframe-map-static", CODEX_ADAPTER, "worker", PREFRAME_GROUP,
+            (("    private readonly Dictionary<PreFrameKey, (int Count, long At)> preFrameDeferrals = [];\n",
+              "    private static readonly Dictionary<PreFrameKey, (int Count, long At)> preFrameDeferrals = [];\n", 1),),
+            "CODEX_REDISCOVERY_RESTART: a new adapter instance (a worker restart) starts every message at zero"),
+    Witness("native-r1-preframe-retire-always", CODEX_PROVIDER, "worker", PREFRAME_GROUP,
+            ((" && submitted.ConnectionClosed) await RetireOwnerConnectionAsync();", ") await RetireOwnerConnectionAsync();", 1),),
+            "CODEX_REDISCOVERY_RETIRE_ONLY_CLOSED: a pre-frame deferral keeps an open owner connection and retires a closed one"),
+    Witness("native-r1-rediscovery-wait-reason-collapsed", "src/AgentBroker.Core/BrokerStore.WaitingMail.cs", "core", ("--waiting-mail-only",),
+            (('"native_owner_unavailable" or "native_owner_rediscovery_unavailable" or ', '"native_owner_unavailable" or ', 1),),
+            "WAIT_REASON_REDISCOVERY"),
+)
+
+# ---- 1.10.6 lane N round 1 B1: the native-cause advisory grace and the advisory_withheld events (UncertainNoticeChecks.Grace).
+# The Grace checks run before every older notice check and the file stops at its first failure, so each mutant reports at
+# its own label. Mutants keep every field and local read (TreatWarningsAsErrors).
+EVENTS = "src/AgentBroker.Core/BrokerEventLog.cs"
+NOTICE_GROUP = ("--uncertain-notices-only",)
+DUE_RETURN = "        return clock.GetElapsedTime(since, stamp) >= UncertainAdvisoryGrace;\n"
+NATIVE_R1_GRACE_WITNESSES = (
+    Witness("native-r1-grace-time-removed", STORE, "core", NOTICE_GROUP, ((DUE_RETURN, "        return true;\n", 1),),
+            "UNCERTAIN_NOTICE_GRACE_SETTLE_BEFORE: a native-cause source the recipient settles at grace minus one second sends no advisory"),
+    Witness("native-r1-grace-boundary-late", STORE, "core", NOTICE_GROUP,
+            ((DUE_RETURN, "        return clock.GetElapsedTime(since, stamp) > UncertainAdvisoryGrace;\n", 1),),
+            "UNCERTAIN_NOTICE_GRACE_NEVER_SETTLES: with no other write, an unsettled native-cause advisory is admitted at exactly the grace, not a second before"),
+    Witness("native-r1-grace-admitted-withdrawn", STORE, "core", NOTICE_GROUP,
+            (("            // The answer is what the store now holds: for a Delivered or Refused message this broker sent, a tombstone.\n"
+              "            messages[index] = next; Commit(state with { Messages = messages }); return Stored(messageId, null, out _)!;\n",
+              "            // The answer is what the store now holds: for a Delivered or Refused message this broker sent, a tombstone.\n"
+              "            messages[index] = next; messages.RemoveAll(r => r.Message.Id == SenderNoticeId(previous)); Commit(state with { Messages = messages }); return Stored(messageId, null, out _)!;\n", 1),),
+            "UNCERTAIN_NOTICE_GRACE_SETTLE_AFTER: an advisory admitted at the grace stays historical when the recipient settles a second later"),
+    Witness("native-r1-grace-scope-widened", STORE, "core", NOTICE_GROUP,
+            (("        source.Status == MessageStatus.Uncertain && source.Reason is { } reason && reason.StartsWith(\"native_\", StringComparison.Ordinal);\n",
+              "        source.Status == MessageStatus.Uncertain;\n", 1),),
+            "UNCERTAIN_NOTICE_GRACE_RESTART_CAUSE_IMMEDIATE: a restart_during_submission advisory is admitted at once, outside the grace"),
+    Witness("native-r1-grace-wall-clock", STORE, "core", NOTICE_GROUP,
+            ((DUE_RETURN, "        return Now >= source.UpdatedAt + UncertainAdvisoryGrace;\n", 1),),
+            "UNCERTAIN_NOTICE_GRACE_WALL_ROLLBACK: repeated partial wall-clock rollbacks inside the window still admit the advisory at exactly 120 monotonic seconds"),
+    Witness("native-r1-grace-prestart-arm", STORE, "core", NOTICE_GROUP,
+            ((DUE_RETURN, "        return clock.GetElapsedTime(since, stamp) >= UncertainAdvisoryGrace || Now < source.UpdatedAt;\n", 1),),
+            "UNCERTAIN_NOTICE_GRACE_PRESTART: a wall clock set before the Uncertain time neither admits the advisory early nor holds it past 120 monotonic seconds"),
+    # X1d N-D5 / N-T1 (DECISIONS 25): only the constructor's open-time seed removed. Fixture B (no due check before 119 s) then
+    # gets its timer from the seed-where-missing path at 119 s and is not due at 120 s.
+    Witness("native-r1-grace-open-seed-removed", STORE, "core", NOTICE_GROUP,
+            (("            foreach (var (id, source) in owed) if (InGrace(source)) advisoryEligible.TryAdd(id, opened);\n",
+              "            _ = opened;\n", 1),),
+            "UNCERTAIN_NOTICE_GRACE_RESTART_REELIGIBLE: after a clean reopen the retained advisory is admitted 120 monotonic seconds after the open, neither at once nor never"),
+    Witness("native-r1-grace-restart-due-at-once", STORE, "core", NOTICE_GROUP,
+            (("advisoryEligible.TryAdd(id, opened);", "advisoryEligible.TryAdd(id, opened - this.clock.TimestampFrequency * 1000);", 1),),
+            "UNCERTAIN_NOTICE_GRACE_RESTART_REELIGIBLE: after a clean reopen the retained advisory is admitted 120 monotonic seconds after the open, neither at once nor never"),
+    Witness("native-r1-grace-owedready-ungated", STORE, "core", NOTICE_GROUP,
+            (("            (!InGrace(pair.Value) || Due(advisoryEligible, pair.Key, pair.Value, stamp)) && Admissible(", "            Admissible(", 1),),
+            "UNCERTAIN_NOTICE_GRACE_NO_CHURN: delivery passes inside the grace write nothing for a not-yet-due advisory"),
+    Witness("native-r1-grace-event-before-write", STORE, "core", NOTICE_GROUP,
+            (("                (withheld ??= []).Add(WithheldEvent(source, next.Messages));\n",
+              "                events.Append(WithheldEvent(source, next.Messages));\n", 1),),
+            "UNCERTAIN_NOTICE_GRACE_FAILED_SETTLEMENT: a settlement whose snapshot write fails leaves the source Uncertain, the advisory owed and nothing recorded; the retry withholds it"),
+    Witness("native-r1-grace-refused-cancelled", STORE, "core", NOTICE_GROUP,
+            (("            if (Refusal(owner, withText, records, pending) is { } refused) { owedRefusal[id] = refused; continue; }\n",
+              "            if (Refusal(owner, withText, records, pending) is { } refused) { owedRefusal[id] = refused; if (InGrace(source)) owing.Remove(id); continue; }\n", 1),),
+            "UNCERTAIN_NOTICE_GRACE_SENDER_AWAY: a due advisory whose sender is away or has no queue room stays owed and is admitted when the sender returns or has room"),
+    Witness("native-r1-grace-due-before-retention", STORE, "core", NOTICE_GROUP,
+            (("            // B1: not yet due, a native-cause advisory stays owed with no refusal recorded (it is not refused, only early).\n"
+              "            if (InGrace(source) && !Due(timers ??= new(advisoryEligible), id, source, stamp)) continue;\n", "", 1),
+             ("            // A notice is sent only while its source is retained, so it never arrives after its evidence has gone.\n",
+              "            if (InGrace(source) && !Due(timers ??= new(advisoryEligible), id, source, stamp)) continue;\n"
+              "            // A notice is sent only while its source is retained, so it never arrives after its evidence has gone.\n", 1)),
+            "UNCERTAIN_NOTICE_GRACE_RETENTION_COUNTED: a native-cause advisory whose source retention ends inside the grace is dropped and counted, not hidden"),
+    Witness("native-r1-grace-timer-published-early", STORE, "core", NOTICE_GROUP,
+            (("            if ((owing ??= new(owed)).TryAdd(id, Source(ended)) && InGrace(ended)) (timers ??= new(advisoryEligible))[id] = stamp;\n",
+              "            if ((owing ??= new(owed)).TryAdd(id, Source(ended)) && InGrace(ended)) advisoryEligible.TryAdd(id, stamp);\n", 1),),
+            "UNCERTAIN_NOTICE_GRACE_TIMER_STAGED: the grace starts at the commit that succeeds, never at a failed attempt"),
+    Witness("native-r1-events-not-written", STORE, "core", NOTICE_GROUP,
+            (("            if (withheld is not null) foreach (var line in withheld) events.Append(line);\n", "", 1),),
+            "UNCERTAIN_NOTICE_WITHHELD_EVENT: a withheld advisory leaves one advisory_withheld line naming the message, recipient, Uncertain step and settlement"),
+    # X1d 033 / DECISIONS 24: a writer that keeps its handle open (a store-file scan would then throw on the open log).
+    Witness("native-r1-events-writer-held", EVENTS, "core", NOTICE_GROUP,
+            (("    private long lost;\n", "    private long lost;\n    private FileStream? held;\n", 1),
+             ("            using (var stream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.Read)) stream.Write(bytes);\n",
+              "            held ??= new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.Read); held.Write(bytes); held.Flush();\n", 1)),
+            "UNCERTAIN_NOTICE_EVENTS_CLOSED_APPEND: once an append returns, a scan of the store files can read broker-events.jsonl: the store holds no write handle on it"),
+    Witness("native-r1-events-rotation-removed", EVENTS, "core", NOTICE_GROUP,
+            (("            if (existing.Exists && existing.Length + bytes.Length > MaximumBytes) File.Move(path, rotated, overwrite: true);\n",
+              "            if (existing.Exists && existing.Length + bytes.Length > MaximumBytes) _ = rotated;\n", 1),),
+            "UNCERTAIN_NOTICE_EVENTS_ROTATION: at the 1 MiB cap the events file rotates once to broker-events.1.jsonl, replacing the older one"),
+    Witness("native-r1-events-lost-dropped", EVENTS, "core", NOTICE_GROUP,
+            (("            if (lost > 0) line[\"eventsLost\"] = lost;\n", "", 1),),
+            "UNCERTAIN_NOTICE_EVENTS_WRITE_FAILURE: a failed event write leaves the settlement committed and is counted into the next line as eventsLost"),
+    Witness("native-r1-events-text-included", STORE, "core", NOTICE_GROUP,
+            (("            [\"messageId\"] = source.Message.Id.ToString(\"D\"),\n",
+              "            [\"messageId\"] = source.Message.Id.ToString(\"D\"), [\"text\"] = settled?.Message.Text,\n", 1),),
+            "UNCERTAIN_NOTICE_EVENTS_NO_TEXT: neither the current nor the rotated events file holds message text, while both name their messages"),
+)
+
+# ---- 1.10.6 lane N round 2 (killers/MANIFEST 962F063D; 028 sections 1g, 2, 5, 6 and 7, erratum 031; DEC 236, 237 and 238).
+# Written after the advance onto e2184706, verbatim from the frozen killer lists, except stage K7, which is verbatim from its
+# DEC 238 amendment (named in the comment above that row); every edit is a count-1 replace_exact and every expected label is
+# the full InvalidOperationException text. The files stop at their first failure.
+
+NATIVE_R2_TRACE_GROUP = ("--discovery-trace-only",)
+NATIVE_R2_TRACE_WITNESSES = (
+    Witness('native-r2-store-event-unstamped', 'src/AgentBroker.Core/BrokerStore.cs', "worker", NATIVE_R2_TRACE_GROUP,
+            (('            line["eventAt"] = Now.ToString("O");\n            events.Append(line);',
+              '            events.Append(line);', 1),),
+            'STORE_EVENT_APPENDED: AppendEvent writes one line, the caller keys first and eventAt from the store clock last'),
+    Witness('native-r2-store-append-removed', 'src/AgentBroker.Core/BrokerStore.cs', "worker", NATIVE_R2_TRACE_GROUP,
+            (('            line["eventAt"] = Now.ToString("O");\n            events.Append(line);',
+              '            line["eventAt"] = Now.ToString("O");\n            _ = line;', 1),),
+            'STORE_EVENT_APPENDED: AppendEvent writes one line, the caller keys first and eventAt from the store clock last'),
+    Witness('native-r2-store-kind-unchecked', 'src/AgentBroker.Core/BrokerEventLog.cs', "worker", NATIVE_R2_TRACE_GROUP,
+            (('            if (line["event"] is not JsonValue kind || !kind.TryGetValue(out string? name) || !ValidKind(name)) { lost++; return; }\n',
+              '', 1),),
+            'STORE_EVENT_KIND_REQUIRED: a line without a valid event name is refused and counted into the next line as eventsLost 1'),
+    Witness('native-r2-store-size-unbounded', 'src/AgentBroker.Core/BrokerEventLog.cs', "worker", NATIVE_R2_TRACE_GROUP,
+            (('            if (bytes.Length > MaximumLineBytes) { lost++; return; }\n',
+              '', 1),),
+            'STORE_EVENT_SIZE_BOUNDED: a line over MaximumLineBytes once encoded is refused and counted into the next line as eventsLost 1'),
+    Witness('native-r2-store-append-after-dispose', 'src/AgentBroker.Core/BrokerStore.cs', "worker", NATIVE_R2_TRACE_GROUP,
+            (('            if (disposed) return; // the owner lock is released (Dispose); this store no longer owns its directory',
+              '            _ = disposed; // the owner lock is released (Dispose); this store no longer owns its directory', 1),),
+            'STORE_EVENT_AFTER_DISPOSE_DROPPED: after Dispose AppendEvent neither throws nor writes'),
+    Witness('native-r2-codex-unreached-collapsed', 'tools/AgentBroker.Worker/Adapters/CodexNativeAdapter.cs', "worker", NATIVE_R2_TRACE_GROUP,
+            (('                outcome[conversation] = "skipped_unreached";',
+              '                outcome[conversation] = "skipped_slow";', 1),),
+            'CODEX_TRACE_OUTCOMES: the last completed Codex pass names each conversation outcome with the incarnation it renewed or kept, and a failed pass keeps that snapshot'),
+    Witness('native-r2-codex-trace-published-on-failure', 'tools/AgentBroker.Worker/Adapters/CodexNativeAdapter.cs', "worker", NATIVE_R2_TRACE_GROUP,
+            (('            lastDiscoveryTrace = TraceOf(outcome, kept);\n            return sessions;',
+              '            return sessions;', 1),('        finally { gate.Release(); }\n    }\n\n    public Task<AdapterResult> SubmitAsync(BrokerMessage message, CancellationToken token) => SubmitAsync(message, null, token);',
+              '        finally { lastDiscoveryTrace = TraceOf(outcome, kept); gate.Release(); }\n    }\n\n    public Task<AdapterResult> SubmitAsync(BrokerMessage message, CancellationToken token) => SubmitAsync(message, null, token);', 1),),
+            'CODEX_TRACE_OUTCOMES: the last completed Codex pass names each conversation outcome with the incarnation it renewed or kept, and a failed pass keeps that snapshot'),
+    Witness('native-r2-claude-census-collapsed', 'tools/AgentBroker.Worker/Adapters/ClaudeNativeAdapter.cs', "worker", NATIVE_R2_TRACE_GROUP,
+            (('new DiscoveryTraceRow(pair.Key, pair.Value, "absent")',
+              'new DiscoveryTraceRow(pair.Key, pair.Value, "renewed")', 1),),
+            'CLAUDE_TRACE_CENSUS: a Claude session renewed last pass and not this pass reads absent once, then leaves the census'),
+    Witness('native-r2-claude-absent-sticky', 'tools/AgentBroker.Worker/Adapters/ClaudeNativeAdapter.cs', "worker", NATIVE_R2_TRACE_GROUP,
+            (('            renewedLastPass = renewed;',
+              '            foreach (var pair in renewed) renewedLastPass[pair.Key] = pair.Value;', 1),),
+            'CLAUDE_TRACE_CENSUS: a Claude session renewed last pass and not this pass reads absent once, then leaves the census'),
+    Witness('native-r2-append-removed', 'tools/AgentBroker.Worker/BrokerRuntime.DiscoveryTrace.cs', "worker", NATIVE_R2_TRACE_GROUP,
+            (('        store.AppendEvent(PassLine(adapterId, failure, census, diagnostics, changed, dropped));',
+              '        _ = PassLine(adapterId, failure, census, diagnostics, changed, dropped);', 1),),
+            'DISCOVERY_PASS_WRITTEN: the first pass writes one discovery_pass line naming each row session, incarnation and outcome'),
+    Witness('native-r2-change-gate-removed', 'tools/AgentBroker.Worker/BrokerRuntime.DiscoveryTrace.cs', "worker", NATIVE_R2_TRACE_GROUP,
+            (('        if (Unchanged(',
+              '        if (trace.Rows.Count < 0 && Unchanged(', 1),),
+            'DISCOVERY_PASS_NO_CHURN: identical passes write no further discovery_pass line'),
+    Witness('native-r2-label-included', 'tools/AgentBroker.Worker/BrokerRuntime.DiscoveryTrace.cs', "worker", NATIVE_R2_TRACE_GROUP,
+            (('            ["outcome"] = pair.Value.Outcome,',
+              '            ["outcome"] = pair.Value.Outcome, ["label"] = observed.GetValueOrDefault(pair.Key)?.Label,', 1),),
+            'DISCOVERY_PASS_NO_LABEL: discovery_pass lines hold only the schema keys and no row label is anywhere in the events file'),
+    Witness('native-r2-dropped-omitted', 'tools/AgentBroker.Worker/BrokerRuntime.DiscoveryTrace.cs', "worker", NATIVE_R2_TRACE_GROUP,
+            (('        ["dropped"] = TraceArray(dropped),',
+              '        ["dropped"] = null,', 1),),
+            'DISCOVERY_PASS_DROPPED: session IDs the last written completed pass reported and this pass no longer reports are named in dropped on the next discovery_pass line (a Claude closure reads absent in changed first, then dropped)'),
+    Witness('native-r2-diagnostics-ignored', 'tools/AgentBroker.Worker/BrokerRuntime.DiscoveryTrace.cs', "worker", NATIVE_R2_TRACE_GROUP,
+            (('        (trace.Diagnostics is null ? diagnostics is null : diagnostics is not null && trace.Diagnostics.SequenceEqual(diagnostics)) &&\n',
+              '', 1),),
+            'DISCOVERY_PASS_DIAGNOSTICS_CHANGE: a pass whose only change is one diagnostic code writes exactly one discovery_pass line, codes only'),
+    Witness('native-r2-forgotten-write-removed', 'tools/AgentBroker.Worker/BrokerRuntime.DiscoveryTrace.cs', "worker", NATIVE_R2_TRACE_GROUP,
+            (('        store.AppendEvent(ForgottenLine(adapterId, address, until));',
+              '        _ = ForgottenLine(adapterId, address, until);', 1),),
+            'SESSION_FORGOTTEN_ON_LAPSE: a native lease passing without renewal writes session_forgotten with the exact address, native_lease_elapsed and its last leaseUntil'),
+    Witness('native-r2-forgotten-every-pass', 'tools/AgentBroker.Worker/BrokerRuntime.DiscoveryTrace.cs', "worker", NATIVE_R2_TRACE_GROUP,
+            (('        trace.Leases.Remove(address);',
+              '        _ = address;', 1),),
+            'SESSION_FORGOTTEN_ONCE: later passes write no second session_forgotten line for the same lapse'),
+    Witness('native-r2-forgotten-inside-pass-missed', 'tools/AgentBroker.Worker/BrokerRuntime.DiscoveryTrace.cs', "worker", NATIVE_R2_TRACE_GROUP,
+            (('        foreach (var lapsed in trace.Leases.Where(pair => pair.Key.SessionId == session.Address.SessionId && pair.Value <= Now).ToArray())\n            Forgotten(trace, session.Adapter, lapsed.Key, lapsed.Value);\n',
+              '', 1),),
+            'SESSION_FORGOTTEN_LAPSE_INSIDE_PASS: a native lease that passes during a slow pass and is renewed in that same pass still writes its line'),
+    Witness('native-r2-forgotten-scope-widened', 'tools/AgentBroker.Worker/BrokerRuntime.cs', "worker", NATIVE_R2_TRACE_GROUP,
+            (('                    Register(session);\n',
+              '                    Register(session); trace.Leases.TryAdd(session.Address, session.LeaseUntil);\n', 1),),
+            'SESSION_FORGOTTEN_NATIVE_ONLY: a non-native row returned by the same adapter never writes session_forgotten'),
+    Witness('native-r2-forgotten-on-replacement', 'tools/AgentBroker.Worker/BrokerRuntime.DiscoveryTrace.cs', "worker", NATIVE_R2_TRACE_GROUP,
+            (('            trace.Leases.Remove(replaced);',
+              '            _ = replaced;', 1),),
+            'SESSION_FORGOTTEN_NOT_ON_REPLACEMENT: a still-live native incarnation replaced by a new one writes no session_forgotten'),
+    Witness('native-r2-trace-ignored', 'tools/AgentBroker.Worker/BrokerRuntime.DiscoveryTrace.cs', "worker", NATIVE_R2_TRACE_GROUP,
+            (('        else foreach (var row in reported) rows[row.SessionId] = (row.Incarnation, row.Outcome);',
+              '        else foreach (var session in sessions) rows[session.Address.SessionId] = (session.Address.Incarnation, "renewed");', 1),),
+            'DISCOVERY_PASS_CODEX_OUTCOMES: the runtime writes the Codex adapter outcome for each conversation, not only the rows the pass returned'),
+    Witness('native-r2-failed-pass-uncoded', 'tools/AgentBroker.Worker/BrokerRuntime.cs', "worker", NATIVE_R2_TRACE_GROUP,
+            (('                passFailure = "adapter_failed";',
+              '                _ = "adapter_failed";', 1),),
+            'DISCOVERY_PASS_FAILED: a failed pass writes one discovery_pass line with its failure code and no rows, once while it repeats, and recovery writes one'),
+    Witness('native-r2-failed-pass-io-uncoded', 'tools/AgentBroker.Worker/BrokerRuntime.cs', "worker", NATIVE_R2_TRACE_GROUP,
+            (('                passFailure = e is AdapterDiscoveryException discoveryFailure ? AdapterDiscoveryDiagnostic.CleanCode(discoveryFailure.Diagnostic.Code)',
+              '                _ = e is AdapterDiscoveryException discoveryFailure ? AdapterDiscoveryDiagnostic.CleanCode(discoveryFailure.Diagnostic.Code)', 1),),
+            'DISCOVERY_PASS_FAILED: a failed pass writes one discovery_pass line with its failure code and no rows, once while it repeats, and recovery writes one'),
+)
+
+NATIVE_R2_STAGE_GROUP = ("--native-stage-events-only",)
+NATIVE_R2_STAGE_WITNESSES = (
+    Witness('native-r2-stage-append-removed', 'tools/AgentBroker.Worker/BrokerRuntime.NativeStage.cs', "worker", NATIVE_R2_STAGE_GROUP,
+            (('        store.AppendEvent(line);\n',
+              '        _ = line;\n', 1),),
+            'NATIVE_STAGE_EVENT_WRITTEN: one settled Codex attempt leaves exactly one native_submission_stage line naming its message, exact recipient, outcome, reason, stage answer_wait, monotonic duration and store time'),
+    Witness('native-r2-stage-collapsed', 'tools/AgentBroker.Worker/BrokerRuntime.NativeStage.cs', "worker", NATIVE_R2_STAGE_GROUP,
+            (('            ["stage"] = NativeStageFamily(adapter, result.Outcome, result.Reason),\n',
+              '            ["stage"] = NativeStageFamily(adapter, result.Outcome, "native_uncertain_timeout"),\n', 1),),
+            "NATIVE_STAGE_EVENT_NAMES_STAGE: a typed Codex pre-frame deferral reads pre_frame, an ambiguous raised code after the provider's submit marker reads other, and every reason of the static table reads its own family"),
+    Witness('native-r2-receipt-attempts-zero', 'tools/AgentBroker.Worker/BrokerRuntime.NativeStage.cs', "worker", NATIVE_R2_STAGE_GROUP,
+            (('            ["receiptAttempts"] = claim.Receipt.Attempts,\n',
+              '            ["receiptAttempts"] = 0,\n', 1),),
+            "NATIVE_STAGE_EVENT_RECEIPT_ATTEMPTS: each line carries the claim's public receipt Attempts, 1 for every attempt"),
+    Witness('native-r2-ordinal-constant', 'tools/AgentBroker.Worker/BrokerRuntime.NativeStage.cs', "worker", NATIVE_R2_STAGE_GROUP,
+            (('            ["lifetimeOrdinal"] = observations.CountAttempt(message, claim.AdmissionEpoch),\n',
+              '            ["lifetimeOrdinal"] = Math.Min(1, observations.CountAttempt(message, claim.AdmissionEpoch)),\n', 1),),
+            'NATIVE_STAGE_EVENT_LIFETIME_ORDINAL: three pre-frame deferrals and the fourth Uncertain of one message carry lifetimeOrdinal 1, 2, 3 and 4, each with receiptAttempts 1'),
+    Witness('native-r2-stage-text-included', 'tools/AgentBroker.Worker/BrokerRuntime.NativeStage.cs', "worker", NATIVE_R2_STAGE_GROUP,
+            (('            ["messageId"] = message.Id.ToString("D"),\n',
+              '            ["messageId"] = message.Id.ToString("D"),\n            ["text"] = message.Text,\n', 1),),
+            'NATIVE_STAGE_EVENT_NO_TEXT: no events line holds the message text, the sender or any label, and every stage line has its ten keys in order and nothing after them but eventsLost'),
+    Witness('native-r2-stage-scope-widened', 'tools/AgentBroker.Worker/BrokerRuntime.cs', "worker", NATIVE_R2_STAGE_GROUP,
+            (('            if (nativeAdapter is not null) WriteNativeStage(nativeAdapter, claim, result, elapsedMs);\n',
+              '            WriteNativeStage(nativeAdapter, claim, result, elapsedMs);\n', 1),),
+            "NATIVE_STAGE_EVENT_NATIVE_ONLY: a normal mailbox is never dispatched, and completed attempts through a local non-native adapter and to a paired broker's codex: address write no line"),
+    # Stage K7 per DEC 238: this tuple is verbatim from r2-killers-N-r2-2-K7-amendment-DEC236.md, which MANIFEST-addendum-DEC236.txt names with its SHA-256.
+    Witness('native-r2-stage-written-before-settlement', 'tools/AgentBroker.Worker/BrokerRuntime.cs', "worker", NATIVE_R2_STAGE_GROUP,
+            (("        long elapsedMs = (long)attemptClock.GetElapsedTime(attemptStarted).TotalMilliseconds;\n        // Publication shares selection's gate with successful atomic settlement. A rejected snapshot publishes nothing.\n        void Observe()\n        {\n            if (receipt.Message.Recipient.BrokerId == store.BrokerId)\n                observations.Record(receipt.Message, result, claim.AdmissionEpoch);\n            if (nativeAdapter is not null) WriteNativeStage(nativeAdapter, claim, result, elapsedMs);\n            DeliverySettled?.Invoke(receipt.Message.Id, result);\n        }\n",
+              "        long elapsedMs = (long)attemptClock.GetElapsedTime(attemptStarted).TotalMilliseconds;\n        if (nativeAdapter is not null) WriteNativeStage(nativeAdapter, claim, result, elapsedMs);\n        // Publication shares selection's gate with successful atomic settlement. A rejected snapshot publishes nothing.\n        void Observe()\n        {\n            if (receipt.Message.Recipient.BrokerId == store.BrokerId)\n                observations.Record(receipt.Message, result, claim.AdmissionEpoch);\n            DeliverySettled?.Invoke(receipt.Message.Id, result);\n        }\n", 1),),
+            'NATIVE_STAGE_EVENT_REJECTED_NO_LINE: an attempt whose settlement is rejected, the recipient having acknowledged the message meanwhile, writes no line'),
+    Witness('native-r2-ordinal-never-resets', 'tools/AgentBroker.Worker/DeliveryObservations.cs', "worker", NATIVE_R2_STAGE_GROUP,
+            (('            int count = attempts.TryGetValue(message.Id, out var seen) && seen.Epoch == epoch && seen.Admission == admission ? seen.Count + 1 : 1;\n',
+              '            int count = attempts.TryGetValue(message.Id, out var seen) ? seen.Count + 1 : 1;\n', 1),),
+            'NATIVE_STAGE_ORDINAL_RESETS: the ordinal restarts at 1 for a new admission, a new lifetime and another recipient incarnation of the same message ID'),
+    Witness('native-r2-ordinal-unbounded', 'tools/AgentBroker.Worker/DeliveryObservations.cs', "worker", NATIVE_R2_STAGE_GROUP,
+            (('            if (!attempts.ContainsKey(message.Id) && attempts.Count >= MaximumMessages)\n                attempts.Remove(attempts.MinBy(pair => pair.Value.Sequence).Key);\n',
+              '', 1),),
+            'NATIVE_STAGE_ORDINAL_BOUNDED: at capacity the least recently counted entry is evicted, so the map stays at the bound, an evicted lifetime revisited restarts at 1 and a retained one continues'),
+)
+
+NATIVE_R2_ADVISORY_GROUP = ("--advisory-kinds-only",)
+NATIVE_R2_ADVISORY_WITNESSES = (
+    Witness('advisory-third-kind-emitted', 'tools/AgentBroker.Worker/BrokerRecoveryGuidance.cs', "worker", NATIVE_R2_ADVISORY_GROUP,
+            (('            Text = JsonSerializer.Serialize(new { kind = "agentbroker.recovery_guidance", guidance }, McpJsonUtilities.DefaultOptions)\n        }];',
+              '            Text = JsonSerializer.Serialize(new { kind = "agentbroker.recovery_guidance", guidance }, McpJsonUtilities.DefaultOptions)\n        }, new TextContentBlock { Text = JsonSerializer.Serialize(new { kind = "agentbroker.extra" }, McpJsonUtilities.DefaultOptions) }];', 1),),
+            "ADVISORY_KINDS_EXACT_SET: the advisory kinds in this run's actual worker tool results are exactly agentbroker.pending_messages and agentbroker.recovery_guidance"),
+)
+
+NATIVE_R2_OUTAGE_GROUP = ("--stdio-bridge-restart-only",)
+NATIVE_R2_OUTAGE_WITNESSES = (
+    Witness('native-r2-stdio-bridge-connection-cached', 'tools/AgentBroker.Worker/McpStdioBridge.cs', "worker", NATIVE_R2_OUTAGE_GROUP,
+            (('        string protocolVersion = "2025-11-25";\n',
+              '        string protocolVersion = "2025-11-25";\n        LocalConnection? cachedConnection = null;\n', 1),('                LocalConnection connection = await GetConnectionAsync(directory, deadline.Token);\n',
+              '                LocalConnection connection = cachedConnection ??= await GetConnectionAsync(directory, deadline.Token);\n', 1),),
+            'STDIO_BRIDGE_RECOVERS_AFTER_WORKER_RESTART: the same running bridge relays the next request to the restarted worker through its new connection and token'),
+    Witness('native-r2-stdio-bridge-exits-on-error', 'tools/AgentBroker.Worker/McpStdioBridge.cs', "worker", NATIVE_R2_OUTAGE_GROUP,
+            (('                    try { await WriteJsonAsync(error, lifetime.Token); }\n',
+              '                    try { await WriteJsonAsync(error, lifetime.Token); lifetime.Cancel(); }\n', 1),),
+            'STDIO_BRIDGE_STAYS_ALIVE_DURING_OUTAGE: with the worker stopped, a request gets its id-matched -32001 answer and the bridge keeps running'),
+)
+
+WITNESSES = (
+    Witness("hygiene-late-held-allowed", STORE, "core", ("--hygiene-only",), ((X1_GUARD, "", 1),),
+            "LATE_HELD_REFUSED: a local Held after the deadline is refused message_expired and the record stays Uncertain"),
+    Witness("hygiene-late-held-widened", STORE, "core", ("--hygiene-only",),
+            (("if (outcome == MessageStatus.Held && authenticatedBroker == state.BrokerId && previous.Message.ExpiresAt <= Now)",
+              "if (authenticatedBroker == state.BrokerId && previous.Message.ExpiresAt <= Now)", 1),),
+            "LATE_HELD_THEN_DELIVERED: after the refused Held, the recipient's own Delivered still settles the record"),
+    Witness("hygiene-late-held-paired", STORE, "core", ("--hygiene-only",),
+            (("if (outcome == MessageStatus.Held && authenticatedBroker == state.BrokerId && previous.Message.ExpiresAt <= Now)",
+              "if (outcome == MessageStatus.Held && previous.Message.ExpiresAt <= Now)", 1),),
+            "LATE_HELD_PAIRED_UNCHANGED: a paired broker's late Held is not refused by the local-only rule"),
+    Witness("hygiene-held-exact-deadline", STORE, "core", ("--hygiene-only",),
+            (("if (outcome == MessageStatus.Held && authenticatedBroker == state.BrokerId && previous.Message.ExpiresAt <= Now)",
+              "if (outcome == MessageStatus.Held && authenticatedBroker == state.BrokerId && previous.Message.ExpiresAt < Now)", 1),),
+            "LATE_HELD_EXACT_DEADLINE: a local Held exactly at ExpiresAt is refused and remains Uncertain"),
+    Witness("hygiene-late-refused-preserved", STORE, "core", ("--hygiene-only",),
+            (("if (outcome == MessageStatus.Held && authenticatedBroker == state.BrokerId && previous.Message.ExpiresAt <= Now)",
+              "if ((outcome is MessageStatus.Held or MessageStatus.Refused) && authenticatedBroker == state.BrokerId && previous.Message.ExpiresAt <= Now)", 1),),
+            "LATE_REFUSED_ACCEPTED: a late local Refused still settles an Uncertain record"),
+    Witness("hygiene-peer-refusal-blames-local", STORE, "core", ("--peer-receipt-only",), ((X2_BRANCH, "", 1),),
+            "PEER_REFUSAL_ATTRIBUTED: a paired broker's refusal reason is attributed to that broker, not this one"),
+    Witness("hygiene-peer-refusal-unconditional", STORE, "core", ("--peer-receipt-only",),
+            (("            : m.Recipient.BrokerId != state.BrokerId\n", "            : m.Recipient.BrokerId != Guid.Empty\n", 1),),
+            "LOCAL_REFUSAL_ATTRIBUTED: a local refusal still reads as refused by this broker"),
+    Witness("hygiene-text-limit-chars-both", STORE, "core", ("--hygiene-only",),
+            (("Encoding.UTF8.GetByteCount(m.Text) > limits.MaximumTextBytes", "m.Text.Length > limits.MaximumTextBytes", 2),),
+            "TEXT_LIMIT_UTF8_OVER: a 16,386-byte text of the same character count is refused invalid_message"),
+    Witness("hygiene-text-limit-chars-load", STORE, "core", ("--hygiene-only",),
+            (("Encoding.UTF8.GetByteCount(m.Text) > limits.MaximumTextBytes || m.ExpiresAt <= m.CreatedAt",
+              "m.Text.Length > limits.MaximumTextBytes || m.ExpiresAt <= m.CreatedAt", 1),),
+            "TEXT_LIMIT_LOAD_OVER: durable state with a 16,386-byte text of the same character count is refused on open"),
+    Witness("hygiene-card-wait-reverted", CARD, "worker", ("--instructions-only",),
+            (('One message/reply wait per inbox plus one wait_for_receipt. ', 'one wait per inbox. ', 1),),
+            "CARD_WAIT_CLASSES: the card says message and reply waits share one slot and a receipt wait runs beside it"),
+    Witness("hygiene-card-notice-reverted", CARD, "worker", ("--instructions-only",),
+            (('agentbroker:notices: Expired/Refused or historical Uncertain; check current receipt, acknowledge, never auto-resend.', 'agentbroker:notices: Expired/Refused; check current receipt, acknowledge, never auto-resend.', 1),),
+            "CARD_NOTICE_UNCERTAIN: the card names Uncertain notices and says to acknowledge without resending"),
+    Witness("hygiene-guidance-wait-reverted", GUIDANCE, "worker", ("--recovery-guidance-only",),
+            ((" wait_for_messages and wait_for_reply share one wait per session; wait_for_receipt has its own and may run beside them. Do not start a second wait of the same kind.",
+              " Do not start another blocking wait for the same session.", 1),),
+            "RECOVERY_GUIDANCE_WAIT_CLASSES: wait refusals explain the shared message/reply wait and the separate receipt wait"),
+    Witness("hygiene-guidance-hint-missing", GUIDANCE, "worker", ("--recovery-guidance-only",),
+            (('"native_session_unverified" => new(code, "list_sessions",', '"native_session_unverified_mutant" => new(code, "list_sessions",', 1),),
+            "RECOVERY_GUIDANCE_HINT_CODES: every declaration and title refusal names list_sessions without promising that waiting helps"),
+    Witness("hygiene-notice-reply-unguarded", TOOLS, "worker", ("--first-contact-only",),
+            (('        if (parent.Sender.SessionId == BrokerStore.NoticeSessionId) throw ToolFailure("notice_reply_refused");\n', "", 1),),
+            "NOTICE_REPLY_REFUSED: replying to a delivery notice is refused as notice_reply_refused, not reply_budget_exhausted"),
+    Witness("hygiene-receipt-uncertain-unanswered", TOOLS, "worker", ("--receipt-wait-only",),
+            (("status is not (MessageStatus.Accepted or MessageStatus.Submitting or MessageStatus.Submitted);",
+              "status is not (MessageStatus.Accepted or MessageStatus.Submitting or MessageStatus.Submitted or MessageStatus.Uncertain);", 1),),
+            "RECEIPT_WAIT_UNCERTAIN_AT_ONCE: an Uncertain receipt is an answer and ends the wait at once"),
+    Witness("hygiene-receipt-held-unanswered", TOOLS, "worker", ("--receipt-wait-only",),
+            (("status is not (MessageStatus.Accepted or MessageStatus.Submitting or MessageStatus.Submitted);",
+              "status is not (MessageStatus.Accepted or MessageStatus.Submitting or MessageStatus.Submitted or MessageStatus.Held);", 1),),
+            "RECEIPT_WAIT_HELD_AT_ONCE: a Held receipt is an answer and ends the wait at once"),
+    Witness("hygiene-submitted-never-ages", STORE, "worker", ("--receipt-wait-only",),
+            ((": r.Status == MessageStatus.Submitted && r.Message.ExpiresAt <= Now",
+              ": r.Status == MessageStatus.Submitted && r.Message.ExpiresAt <= Now.AddYears(-1000)", 1),),
+            "RECEIPT_WAIT_SUBMITTED_AGES_UNCERTAIN: a Submitted message's deadline ends the wait with Uncertain, receipt_unconfirmed"),
+) + (
+    Witness("timing-observation-disabled", TIMINGS, "core", ("--commit-timing-only",),
+            (("        Volatile.Write(ref commitStartTimestamp, Stopwatch.GetTimestamp());",
+              "        _ = Stopwatch.GetTimestamp();", 1),),
+            "COMMIT_TIMING_COMPLETED: an ordinary commit is counted once and leaves nothing in flight"),
+    Witness("timing-observer-takes-gate", TIMINGS, "core", ("--commit-timing-only",),
+            (("        long start = Volatile.Read(ref commitStartTimestamp);",
+              "        lock (gate) { }\n        long start = Volatile.Read(ref commitStartTimestamp);", 1),),
+            "COMMIT_TIMING_OBSERVER_UNBLOCKED: reading commit timing never waits on the gate the diagnosed commit holds"),
+    Witness("timing-in-flight-hidden", TIMINGS, "core", ("--commit-timing-only",),
+            (("inFlight ? CommitStages[stage] : null", "(string?)null", 1),),
+            "COMMIT_TIMING_IN_FLIGHT: a held commit is reported in flight with its stage, start and elapsed time"),
+    Witness("timing-start-not-reported", TIMINGS, "core", ("--commit-timing-only",),
+            (("inFlight ? new DateTimeOffset(startUtc, TimeSpan.Zero) : null", "(DateTimeOffset?)null", 1),),
+            "COMMIT_TIMING_IN_FLIGHT: a held commit is reported in flight with its stage, start and elapsed time"),
+    Witness("timing-failed-counted-completed", TIMINGS, "core", ("--commit-timing-only",),
+            (("        if (succeeded) Interlocked.Increment(ref commitsCompleted);", "        Interlocked.Increment(ref commitsCompleted);", 1),
+             ("        else Interlocked.Increment(ref commitsFailed);", "        if (!succeeded) Interlocked.Increment(ref commitsFailed);", 1)),
+            "COMMIT_TIMING_FAILED: a failed commit counts as failed, not completed, clears its in-flight entry and surfaces its original failure"),
+    Witness("timing-end-skipped-on-failure", TIMINGS, "core", ("--commit-timing-only",),
+            (("        finally { EndCommitTiming(succeeded); }", "        finally { if (succeeded) EndCommitTiming(succeeded); }", 1),),
+            "COMMIT_TIMING_FAILED: a failed commit counts as failed, not completed, clears its in-flight entry and surfaces its original failure"),
+    Witness("timing-slow-not-counted", TIMINGS, "core", ("--commit-timing-only",),
+            (("        if (ticks >= SlowCommit.Ticks)", "        if (ticks >= SlowCommit.Ticks * 100)", 1),),
+            "COMMIT_TIMING_SLOW_BASELINE: an already-slow ordinary commit is counted completed and slow, so no check needs a quiet disk"),
+    Witness("timing-stage-unmarked", STORE, "core", ("--commit-timing-only",),
+            (("            BeginCommitStage(SnapshotReplaceStage);\n", "", 1),),
+            "COMMIT_TIMING_WITNESS_STAGE_REACHED: the controlled commit reaches its snapshot-replace stage marker"),
+) + (
+    Witness("n4-stop-link-removed", "tools/AgentBroker.Worker/BrokerRuntime.cs", "worker", ("--directory-stop-core-only",),
+            (("CancellationTokenSource.CreateLinkedTokenSource(token, WaitStopping);", "CancellationTokenSource.CreateLinkedTokenSource(token);", 1),),
+            "DIRECTORY_STOP_RETURNS_PROMPTLY: stopping ends the peer budget at once and the listing returns its local rows"),
+    Witness("n4-stop-link-removed-host", "tools/AgentBroker.Worker/BrokerRuntime.cs", "worker", ("--directory-host-stop-only",),
+            (("CancellationTokenSource.CreateLinkedTokenSource(token, WaitStopping);", "CancellationTokenSource.CreateLinkedTokenSource(token);", 1),),
+            "DIRECTORY_HOST_STOP_BEFORE_DRAIN: the actual lifetime exits within three seconds and the blocked list_sessions returns its local rows"),
+) + (
+    Witness('reply-http-store-clock-omitted', 'tools/AgentBroker.Worker/WorkerApplication.cs', 'worker', ('--reply-only',),
+            (('new BrokerLimits(DefaultMessageLifetimeMinutes: options.DefaultMessageLifetimeMinutes), clock);', 'new BrokerLimits(DefaultMessageLifetimeMinutes: options.DefaultMessageLifetimeMinutes), TimeProvider.System);', 1),), 'REPLY_HTTP_STORE_CLOCK: the store admits leases from the same controlled clock as its runtime'),
+    Witness('reply-http-runtime-clock-omitted', 'tools/AgentBroker.Worker/WorkerApplication.cs', 'worker', ('--reply-only',),
+            (('new BrokerRuntime(store, federation, nativeAdapters, new SessionPreferences(options.DataDirectory), clock);', 'new BrokerRuntime(store, federation, nativeAdapters, new SessionPreferences(options.DataDirectory), TimeProvider.System);', 1),), 'REPLY_HTTP_RUNTIME_CLOCK: the HTTP fixture runtime uses the controlled clock before any registration'),
+    Witness('reply-http-explicit-late-boundary-omitted', 'tests/AgentBroker.Worker.Tests/ReplyToolChecks.cs', 'worker', ('--reply-only',),
+            (('        clock.Advance(TimeSpan.FromSeconds(2));', '        // Negative control: the parent deadline has not passed.', 1),), "REPLY_HTTP_AFTER_DEADLINE: the actual HTTP late reply runs only after its delivered parent's original deadline"),
+) + (
+    # 1.10.1 (post-push audit of e398eba2): restore the 1.10.0 order, rebuilding owed notices AFTER the constructor's
+    # recovery commit. A source recovered past its retention is then dropped twice in one store opening.
+    Witness("store-owed-rebuilt-after-recovery", STORE, "core", ("--uncertain-notices-only",),
+            (("            owed = RebuildOwed();\n            if (!existed || upgraded", "            if (!existed || upgraded", 1),
+             ("            (inboxSequences, inboxHighWater) = PrepareInboxSequences(state.Messages);\n",
+              "            (inboxSequences, inboxHighWater) = PrepareInboxSequences(state.Messages);\n            owed = RebuildOwed();\n", 1)),
+            "UNCERTAIN_NOTICE_REOPEN_PAST_RETENTION: a source recovered after its retention ended drops its advisory once, not again on the next pass"),
+    # 1.10.1 item 5 (post-push audit of e398eba2): recovery guidance for both message_expired causes and the retained-notice
+    # ID reservation, the per-tool description copies that tools/list serves, and the late-Accepted branch the guidance cites.
+    Witness("guidance-expired-unmapped", "tools/AgentBroker.Worker/BrokerRecoveryGuidance.cs", "worker", ("--recovery-guidance-only",),
+            (('"message_expired" => new(code, "get_message_receipt",', '"message_expired_unmapped" => new(code, "get_message_receipt",', 1),),
+            "RECOVERY_GUIDANCE_MESSAGE_EXPIRED: a late acknowledgement is told how to read its receipt for both causes"),
+    Witness("guidance-reservation-unexplained", "tools/AgentBroker.Worker/BrokerRecoveryGuidance.cs", "worker", ("--recovery-guidance-only",),
+            (("A missing receipt neither frees the ID nor explains the collision: the ID can remain reserved, for example by a retained delivery notice about its earlier message, or it may already have been released. ", "", 1),),
+            "RECOVERY_GUIDANCE_ID_RESERVED: an ID reserved by a retained notice is explained, and a fresh ID is only for deliberately new work"),
+    Witness("description-receipt-wait-reverted", TOOLS, "worker", ("--instructions-only",),
+            (("This uses the sender's one receipt wait (wait_in_progress), which may run beside its incoming wait, and renews it.",
+              "This uses the sender's one active wait (wait_in_progress) and renews it.", 1),),
+            "TOOL_DESCRIPTION_WAIT_CLASSES: tools/list describes the shared incoming wait and the separate receipt wait"),
+    Witness("description-reservation-delayed", TOOLS, "worker", ("--instructions-only",),
+            (("its ID stays reserved while the terminal notice about it is retained (message_id_collision); choose a fresh ID only for deliberately new work.",
+              "its ID also remains reserved while its delayed terminal notice is retained (message_id_collision); choose a fresh ID for new work.", 1),),
+            "TOOL_DESCRIPTION_ID_RESERVATION: send states the general rule that a retained terminal notice reserves its source ID"),
+    Witness("store-late-accepted-allowed", STORE, "core", ("--hygiene-only",),
+            (('            if (previous.Status == MessageStatus.Accepted && previous.Message.ExpiresAt <= Now) Fail("message_expired");', "            _ = previous;", 1),),
+            "LATE_ACCEPTED_EXPIRED: a never-submitted message past its deadline refuses Delivered as message_expired and reads Expired"),
+) + LOCAL_OUTPUT_WITNESSES + REPLY_RECEIPT_WITNESSES + CARD_1105_WITNESSES + BUSY_MAIL_1105_WITNESSES + RUNTIME_REPLY_1105_WITNESSES + WAITING_MAIL_R4_CORE_WITNESSES + D2_R2_CORE_WITNESSES + D2_R3_WITNESSES + A8_WAITING_DIRECTORY_WITNESSES + A10_DIRECTORY_SCOPE_WITNESSES + A7_WAITING_READ_WITNESSES + A7_BENCHMARK_WAITING_WITNESSES + D2_R2_WORKER_DIAGNOSTIC_WITNESSES + WAITING_MAIL_R4_WORKER_WITNESSES + NONIO_CR4_4_WITNESSES + F18_V3_PROSPECTIVE_WITNESSES + L2_PEER_DIRECTORY_WITNESSES + (
+    # Compiled inbox watcher: actual48 FIRED at 88887E0E; focused healthy97 at A8ADD4AF.
+    Witness('watch-budget-required', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('Required("--max-seconds")', 'values.GetValueOrDefault("--max-seconds", "7200")', 1),), 'WATCH_BUDGET_REQUIRED: no implicit short deadline or unbounded watch is selected'),
+    Witness('watch-budget-positive', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('parsed > 0 && parsed <= maximum', 'parsed >= 0 && parsed <= maximum', 1),), 'WATCH_BUDGET_INPUT: only a positive caller-selected duration up to one year is accepted'),
+    Witness('watch-budget-upper', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('MaximumSeconds = 31_536_000;', 'MaximumSeconds = 31_536_001;', 1),), 'WATCH_BUDGET_INPUT: only a positive caller-selected duration up to one year is accepted'),
+    Witness('watch-budget-unsigned', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('NumberStyles.None', 'NumberStyles.Integer', 1),), 'WATCH_BUDGET_INPUT: only a positive caller-selected duration up to one year is accepted'),
+    Witness('watch-canonical-address', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('parsed.ToString("D") == value;', 'parsed.ToString("D") == value.Trim();', 1),), 'WATCH_INVALID_ARGUMENTS: malformed, ambiguous, noncanonical or unsupported arming input is refused'),
+    Witness('watch-unknown-argument', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('"--parent-pid" or "--parent-start")', '"--parent-pid" or "--parent-start" or "--unknown")', 1),), 'WATCH_INVALID_ARGUMENTS: malformed, ambiguous, noncanonical or unsupported arming input is refused'),
+    Witness('watch-duplicate-argument', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('!values.TryAdd(args[index], args[++index])', '(values.TryAdd(args[index], args[++index]) && false)', 1),), 'WATCH_INVALID_ARGUMENTS: malformed, ambiguous, noncanonical or unsupported arming input is refused'),
+    Witness('watch-nonzero-address', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('parsed != Guid.Empty && parsed.ToString("D") == value', 'parsed.ToString("D") == value', 1),), 'WATCH_INVALID_ARGUMENTS: malformed, ambiguous, noncanonical or unsupported arming input is refused'),
+    Witness('watch-claude-only', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('!session.StartsWith("claude:", StringComparison.Ordinal) || !CanonicalGuid(session[7..])', '!(session.StartsWith("claude:", StringComparison.Ordinal) || session.StartsWith("codex:", StringComparison.Ordinal)) || !CanonicalGuid(session[(session.StartsWith("codex:", StringComparison.Ordinal) ? 6 : 7)..])', 1),), 'WATCH_INVALID_ARGUMENTS: malformed, ambiguous, noncanonical or unsupported arming input is refused'),
+    Witness('watch-seen-bound', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('ids.Length > 64', 'ids.Length > 65', 1),), 'WATCH_INVALID_ARGUMENTS: malformed, ambiguous, noncanonical or unsupported arming input is refused'),
+    Witness('watch-parent-required', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('hasPid != hasStart || hasPid == unbound', 'hasPid != hasStart', 1),), 'WATCH_INVALID_ARGUMENTS: malformed, ambiguous, noncanonical or unsupported arming input is refused'),
+    Witness('watch-tool-readonly', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('call("read_inbox_page",', 'call("wait_for_messages",', 1),), 'WATCH_READ_ONLY_EXACT: only read_inbox_page receives the original exact address and fixed page limit'),
+    Witness('watch-fixed-page-size', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('PageLimit = 16,', 'PageLimit = 17,', 1),), 'WATCH_READ_ONLY_EXACT: only read_inbox_page receives the original exact address and fixed page limit'),
+    Witness('watch-exact-address', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('new { session = options.Session, limit = PageLimit, cursor }', 'new { session = options.Session with { Incarnation = Guid.Empty }, limit = PageLimit, cursor }', 1),), 'WATCH_READ_ONLY_EXACT: only read_inbox_page receives the original exact address and fixed page limit'),
+    Witness('watch-baseline-unseen', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('if (scan.Ids.Count > 0) return new(0, "mail", phase, scan.Ids, scan.Pending);', 'if (phase != "baseline" && scan.Ids.Count > 0) return new(0, "mail", phase, scan.Ids, scan.Pending);', 1),), 'WATCH_ACTIONABLE_PENDING: an unseen baseline entry alerts in every pending state, including Submitted and Uncertain'),
+    Witness('watch-submitted-actionable', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('"Accepted" or "Submitting" or "Submitted" or "Uncertain"', '"Accepted" or "Submitting" or "Uncertain"', 1),), 'WATCH_ACTIONABLE_PENDING: an unseen baseline entry alerts in every pending state, including Submitted and Uncertain'),
+    Witness('watch-uncertain-actionable', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('"Accepted" or "Submitting" or "Submitted" or "Uncertain"', '"Accepted" or "Submitting" or "Submitted"', 1),), 'WATCH_ACTIONABLE_PENDING: an unseen baseline entry alerts in every pending state, including Submitted and Uncertain'),
+    Witness('watch-all-pages', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('if (!page.More) return new(true, null, null, ids, page.Pending, page.Cursor);', 'if (ids.Count > 0 || !page.More) return new(true, null, null, ids, page.Pending, page.Cursor);', 1),), 'WATCH_FULL_SCAN_DEDUP: every page validates before mail and duplicate IDs count once'),
+    Witness('watch-dedup-ids', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('if (unique.Add(entry.Id) && !options.SeenIds.Contains(entry.Id)) ids.Add(entry.Id);', 'if ((unique.Add(entry.Id) || true) && !options.SeenIds.Contains(entry.Id)) ids.Add(entry.Id);', 1),), 'WATCH_FULL_SCAN_DEDUP: every page validates before mail and duplicate IDs count once'),
+    Witness('watch-seen-ids', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('!options.SeenIds.Contains(entry.Id)', 'options.SeenIds.Count >= 0', 1),), 'WATCH_FIRST_WATERMARK: caller-seen baseline IDs do not alert and later successful polls never advance the first cursor'),
+    Witness('watch-first-watermark', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('if (phase == "baseline") { baseCursor = scan.FinalCursor; phase = "arrival"; }', 'if (phase == "baseline") { baseCursor = scan.FinalCursor; phase = "arrival"; } else { baseCursor = scan.FinalCursor; }', 1),), 'WATCH_FIRST_WATERMARK: caller-seen baseline IDs do not alert and later successful polls never advance the first cursor'),
+    Witness('watch-failed-no-advance', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('Scan scan = await ScanAsync(options, baseCursor, call, clock, stopping, Remaining, StopReason);', 'Scan scan = await ScanAsync(options, baseCursor, call, clock, stopping, Remaining, StopReason);\n            if (!scan.Ok) baseCursor = scan.FinalCursor;', 1),), 'WATCH_PARTIAL_NO_ADVANCE: an incomplete scan reports no mail and retries the original caller cursor'),
+    Witness('watch-cursor-reset', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('"inbox_cursor_reset_required" => "cursor_reset"', '"inbox_cursor_reset_required" => "tool_error"', 1),), 'WATCH_TERMINAL_TOOL_ERRORS: cursor reset never rebases and fixed error reasons never echo peer text'),
+    Witness('watch-failure-budget', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('FailureBudget = 4;', 'FailureBudget = 3;', 1),), 'WATCH_FAILURE_BUDGET: local refusal and transport failures are counted, never treated as empty mail'),
+    Witness('watch-validated-reset', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('failures = 0; last = null; unreported.Clear();', '_ = failures; last = null; unreported.Clear();', 1),), 'WATCH_VALIDATED_RESET: only a fully validated scan resets the consecutive failure budget'),
+    Witness('watch-entry-bound', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('entries.GetArrayLength() > PageLimit ||', 'entries.GetArrayLength() > int.MaxValue ||', 1),), 'WATCH_ENTRY_SHAPE: oversized, nonforward, noncanonical or nonpending entries invalidate the complete scan'),
+    Witness('watch-pending-count', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('count < entries.GetArrayLength()', 'count < 0', 1),), 'WATCH_PENDING_COUNT: pendingCount cannot be lower than the page entries'),
+    Witness('watch-hasmore-full', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('more.GetBoolean() && entries.GetArrayLength() != PageLimit ||', 'false ||', 1),), 'WATCH_HASMORE_FULL: a short hasMore page is rejected even when its cursor progresses to valid mail'),
+    Witness('watch-sequence-order', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('entry.Sequence <= previous', 'entry.Sequence < previous', 1),), 'WATCH_ENTRY_SHAPE: oversized, nonforward, noncanonical or nonpending entries invalidate the complete scan'),
+    Witness('watch-cursor-progress', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('if (page.More && page.Cursor == cursor)', 'if (page.More && page.Cursor == cursor && false)', 1),), 'WATCH_CURSOR_PROGRESS: a full continuation page must change its cursor'),
+    Witness('watch-unique-fields', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('if (found) return false; found = true;', 'if (found) { } found = true;', 1),), 'WATCH_UNAMBIGUOUS_FIELDS: duplicate protocol properties are not silently collapsed'),
+    Witness('watch-page-budget', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('PageBudget = 64,', 'PageBudget = 65,', 1),), 'WATCH_PAGE_BUDGET: a broken continuation chain stops after64 pages per failed scan'),
+    Witness('watch-unreported-partial', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('if (!scan.Ok) unreported.UnionWith(scan.Ids);', 'if (scan.Ok) unreported.UnionWith(scan.Ids);', 1),), 'WATCH_UNREPORTED: IDs from a partial scan are counted on terminal output but never reported as fully validated mail'),
+    Witness('watch-unreported-clear', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('last = null; unreported.Clear();', 'last = null; _ = unreported.Count;', 1),), 'WATCH_UNREPORTED_CLEARED: a complete valid scan clears prior partial evidence'),
+    Witness('watch-monotonic-budget', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('long began = clock.GetTimestamp();\n        TimeSpan maximum = TimeSpan.FromSeconds(options.MaxSeconds);\n        TimeSpan Remaining() => maximum - clock.GetElapsedTime(began);', 'DateTimeOffset began = clock.GetUtcNow();\n        TimeSpan maximum = TimeSpan.FromSeconds(options.MaxSeconds);\n        TimeSpan Remaining() => maximum - (clock.GetUtcNow() - began);', 1),), 'WATCH_CALLER_MONOTONIC_DEADLINE: caller lifetime caps in-flight cancellation at its monotonic budget despite a backward UTC jump'),
+    Witness('watch-call-budget', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('TimeSpan budget = remaining() < TimeSpan.FromSeconds(40) ? remaining() : TimeSpan.FromSeconds(40);', 'TimeSpan budget = TimeSpan.FromSeconds(40);', 1),), 'WATCH_CALLER_MONOTONIC_DEADLINE: caller lifetime caps in-flight cancellation at its monotonic budget despite a backward UTC jump'),
+    Witness('watch-sleep-budget', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('TimeSpan delay = remainingToSleep < TimeSpan.FromSeconds(options.IntervalSeconds) ? remainingToSleep : TimeSpan.FromSeconds(options.IntervalSeconds);', 'TimeSpan delay = TimeSpan.FromSeconds(options.IntervalSeconds);', 1),), 'WATCH_SLEEP_BUDGET: a300-second interval cannot overrun the remaining explicit lifetime'),
+    Witness('watch-parent-filetime', 'tools/AgentBroker.Worker/WorkerLifetime.cs', 'worker', ('--inbox-watch-only',), (('parent.StartTime.ToUniversalTime().ToFileTimeUtc() == parentCreationFileTime', 'parent.StartTime.ToUniversalTime().ToFileTimeUtc() >= 0', 1),), "WATCH_PARENT_FILETIME: parent-start uses the worker's creation FILETIME, never UTC DateTime ticks"),
+    Witness('watch-parent-sleep-interrupt', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('monitor = MonitorParentAsync(parent, stopped, monitorStop.Token);', 'monitor = Task.CompletedTask;', 1),), 'WATCH_PARENT_EXIT_INTERRUPTS: the exact owned parent exiting interrupts a300-second sleep promptly'),
+    Witness('watch-parent-call-cancel', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('CancellationTokenSource.CreateLinkedTokenSource(stopping, deadline.Token)', 'CancellationTokenSource.CreateLinkedTokenSource(deadline.Token)', 1),), 'WATCH_PARENT_CANCELS_BLOCKED_CALL: exact parent exit cancels the authenticated HTTP read and settles the watcher without abandoning its task'),
+    Witness('watch-arm-exclusivity', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('FileShare.None, 1, FileOptions.DeleteOnClose', 'FileShare.ReadWrite | FileShare.Delete, 1, FileOptions.DeleteOnClose', 1),), 'WATCH_PRODUCT_ONE_ARM: an actual product arm excludes a second product engine before it polls and survives the rival attempt'),
+    Witness('watch-arm-delete-on-close', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('FileShare.None, 1, FileOptions.DeleteOnClose', 'FileShare.None, 1, FileOptions.None', 1),), 'WATCH_PARENT_CLEANUP_METADATA: every retained armed outcome reports its exact parent mode and successful owned-lock cleanup'),
+    Witness('watch-arm-plain', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('&& PlainChain(options.ArmRoot)', '&& true', 1),), 'WATCH_ARM_PLAIN: a linked arm root is refused before any poll or lock write through it'),
+    Witness('watch-arm-tuple', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('options.Session.Incarnation.ToString("D")))).ToLowerInvariant();', 'Guid.Empty.ToString("D")))).ToLowerInvariant();', 1),), 'WATCH_ARM_KEY_DOMAIN: data, broker, session and incarnation separate arm ownership while Windows path case is normalized'),
+    Witness('watch-output-failure', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('catch (Exception) { return 26; }', 'catch (Exception) { return outcome.ExitCode; }', 1),), 'WATCH_OUTPUT_FAILURE_WRITE: an unwritten mail line returns nonzero without exposing the exception'),
+    Witness('watch-output-ids-bound', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('outcome.Ids?.Take(PageLimit).ToArray()', 'outcome.Ids?.ToArray()', 1),), 'WATCH_OUTPUT_BOUND: metadata lists at most16 IDs while retaining the full unseen count'),
+    Witness('watch-program-dispatch', 'tools/AgentBroker.Worker/Program.cs', 'worker', ('--inbox-watch-only',), (('if (args.Length > 0 && args[0] == InboxWatchClient.Command)', 'if (args.Length < 0 && args[0] == InboxWatchClient.Command)', 1),), 'WATCH_COMMAND_DISPATCH: the actual compiled command refuses invalid arming with one JSON line and never starts a worker'),
+    Witness('watch-command-cwd', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('Directory.SetCurrentDirectory(options.ArmRoot);', 'Directory.SetCurrentDirectory(previousDirectory);', 1),), "WATCH_RELEASES_LAUNCH_DIRECTORY: the armed compiled watcher does not pin its caller's working directory"),
+    # Final watcher review: new recipes pending this correction cohort; exact M4 post-dispose existence omission remains unexercised.
+    Witness('watch-guid-lowercase-omitted', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('parsed.ToString("D") == value', 'string.Equals(parsed.ToString("D"), value, StringComparison.OrdinalIgnoreCase)', 1),), 'WATCH_INVALID_ARGUMENTS: malformed, ambiguous, noncanonical or unsupported arming input is refused'),
+    Witness('watch-path-canonical-roundtrip-omitted', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), ((' && Path.GetFullPath(value) == value', '', 1),), 'WATCH_INVALID_ARGUMENTS: malformed, ambiguous, noncanonical or unsupported arming input is refused'),
+    Witness('watch-arm-ancestor-walk-truncated', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('current = Path.GetDirectoryName(current)', 'current = null', 1),), 'WATCH_ARM_ANCESTOR_PLAIN: a junction above the arm root is refused before polling or writing through it'),
+    Witness('watch-lock-in-data-directory', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('Path.Combine(options.ArmRoot, ArmKey(options) + ".lock")', 'Path.Combine(options.DataDirectory, ArmKey(options) + ".lock")', 1),), "WATCH_ONE_ARM: a competing arm neither polls nor deletes the owner's exclusive lock"),
+    Witness('watch-parent-field-wrong', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('at = clock.GetUtcNow(), parent, cleanup', 'at = clock.GetUtcNow(), parent = "unexpected", cleanup', 1),), 'WATCH_PARENT_CLEANUP_METADATA: every retained armed outcome reports its exact parent mode and successful owned-lock cleanup'),
+    Witness('watch-cleanup-field-wrong', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('at = clock.GetUtcNow(), parent, cleanup', 'at = clock.GetUtcNow(), parent, cleanup = "failed"', 1),), 'WATCH_PARENT_CLEANUP_METADATA: every retained armed outcome reports its exact parent mode and successful owned-lock cleanup'),
+    Witness('watch-output-write-retried', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('catch (Exception) { return 26; }', 'catch (Exception) { try { await output.WriteAsync(bytes); } catch (Exception) { } return 26; }', 1),), 'WATCH_OUTPUT_SINGLE_WRITE: a failed first write is not retried even when the next write would succeed'),
+    Witness('watch-duration-ceiling-48-hours', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('MaximumSeconds = 31_536_000;', 'MaximumSeconds = 172_800;', 1),), 'WATCH_LONG_EXPLICIT_BUDGET: explicit multi-day and one-year durations are supported without a 48-hour limit'),
+    Witness('watch-command-duration-overridden', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('try { options = Options.Parse(args); }', 'try { options = Options.Parse(args) with { MaxSeconds = 100 }; }', 1),), 'WATCH_COMMAND_LIFETIME: the actual authenticated command ends at its explicit short budget without touching mailbox state'),
+    Witness('watch-parent-apphost-as-muxer', 'tests/AgentBroker.Worker.Tests/InboxWatchChecks.cs', 'worker', ('--inbox-watch-only',), (('    private static async Task ParentExitAsync(Action<bool, string> check, string root)\n    {\n        var info = new ProcessStartInfo("dotnet")', '    private static async Task ParentExitAsync(Action<bool, string> check, string root)\n    {\n        var info = new ProcessStartInfo(Path.Combine(AppContext.BaseDirectory, "AgentBroker.Worker.Tests.exe"))', 1),), 'WATCH_PARENT_EXIT_INTERRUPTS: the exact owned parent exiting interrupts a300-second sleep promptly'),
+    Witness('watch-parent-ready-marker-wrong', 'tests/AgentBroker.Worker.Tests/Program.cs', 'worker', ('--inbox-watch-only',), (('Console.WriteLine("INBOX_WATCH_PARENT_READY");', 'Console.WriteLine("INBOX_WATCH_PARENT_NOT_READY");', 1),), 'WATCH_PARENT_EXIT_INTERRUPTS: the exact owned parent exiting interrupts a300-second sleep promptly'),
+
+    Witness('watch-cleanup-exists-omitted', 'tools/AgentBroker.Worker/InboxWatchClient.cs', 'worker', ('--inbox-watch-only',), (('if (File.Exists(lockPath)) cleanup = "failed";', '', 1),), 'WATCH_CLEANUP_DELETE_PENDING: a visible delete-pending lock reports cleanup failed without changing the mail exit code'),
+
+) + ATTACHMENT_WITNESSES + ATTACHMENT_R2_WITNESSES + ATTACHMENT_R2B_WITNESSES + ATTACHMENT_R5_WITNESSES + ATTACHMENT_R6_WITNESSES + ATTACHMENT_R7_WITNESSES + NATIVE_R1_WITNESSES + NATIVE_R1_GRACE_WITNESSES
+# 1.10.6 lane N round 2: appended as its own statement, so no line above changes (DEC 237).
+WITNESSES = WITNESSES + NATIVE_R2_TRACE_WITNESSES + NATIVE_R2_STAGE_WITNESSES + NATIVE_R2_ADVISORY_WITNESSES + NATIVE_R2_OUTAGE_WITNESSES
+
+
+def sha256(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def replace_exact(raw: bytes, before: str, after: str, count: int) -> bytes:
+    newline = "\r\n" if b"\r\n" in raw else "\n"
+    old = before.replace("\n", newline).encode("utf-8")
+    new = after.replace("\n", newline).encode("utf-8")
+    if raw.count(old) != count:
+        raise RuntimeError(f"ANCHOR_COUNT: expected {count}, found {raw.count(old)}: {before[:80]!r}")
+    return raw.replace(old, new)
+
+
+# Original witness history stays intact; the 1.10.5 focused registration is appended above.
+PROOF_FIELDS = {
+    "core": ("WITNESS: POSTPUSH_CORE_EXECUTED", {"CORE_PRODUCT_SHA256": "AgentBroker.Core.dll", "CORE_HARNESS_SHA256": "AgentBroker.Core.Tests.dll"}),
+    "worker": ("WITNESS: POSTPUSH_WORKER_EXECUTED", {"WORKER_PRODUCT_SHA256": "AgentBroker.Worker.dll", "WORKER_CORE_SHA256": "AgentBroker.Core.dll", "WORKER_HARNESS_SHA256": "AgentBroker.Worker.Tests.dll"}),
+    "network": ("WITNESS: POSTPUSH_NETWORK_EXECUTED", {"NETWORK_WORKER_SHA256": "AgentBroker.Worker.dll", "NETWORK_CORE_SHA256": "AgentBroker.Core.dll",
+                "NETWORK_HARNESS_SHA256": "AgentBroker.Network.Tests.dll"}),
+}
+# Measured by the composed focused smoke; every mutation run checks its own real baseline against these pins.
+# --receipt-wait-only 22 -> 24 (2026-11-09, test-only): the SetupFrozenClock repair adds the admission witnesses
+# WITNESS RECEIPT_WAKES_AT_DEADLINE and WITNESS RECEIPT_WAIT_SUBMITTED_AGES_UNCERTAIN.
+# 1.10.1 item 5: core --hygiene-only 12 -> 13 (LATE_ACCEPTED_EXPIRED), worker --instructions-only 12 -> 14
+# (TOOL_DESCRIPTION_WAIT_CLASSES, TOOL_DESCRIPTION_ID_RESERVATION), --recovery-guidance-only 28 -> 30
+# (RECOVERY_GUIDANCE_MESSAGE_EXPIRED, RECOVERY_GUIDANCE_ID_RESERVED). Each measured on the fixed source.
+# R wire acceptance: --recovery-guidance-only measured 30 -> 38 on fixture F79B28B7, host baseline 9a3e7a6b.
+# RECOVERY_GUIDANCE_WIRE_RESERVED_SETUP, RECOVERY_GUIDANCE_WIRE_LATE_SETUP,
+# RECOVERY_GUIDANCE_WIRE_LATE_HELD_DELIVERED, RECOVERY_GUIDANCE_WIRE_LATE_SETTLED_DELIVERED,
+# RECOVERY_GUIDANCE_WIRE_LATE_HELD_REFUSED, RECOVERY_GUIDANCE_WIRE_LATE_SETTLED_REFUSED,
+# RECOVERY_GUIDANCE_WIRE_RESERVED_SOURCE_ABSENT, RECOVERY_GUIDANCE_WIRE_RESERVED_ID.
+# Historical before r4: 1.10.5 measured focused groups: reply receipt43, instructions20, HTTP reply21, channel36, waiting Core66/Worker11 and compact24.
+# Composed r4 waiting groups measured Core 83/Worker 25 (C5159C80), then Worker 26 (662A432D).
+# Final guidance focused smoke measured instructions 22 and channel 37 (FC427CCD).
+# Compiled watcher focused smoke measured 97 (88887E0E); final-review additions require a new measurement.
+# D2 A8 measured Core 92 / Worker 26: E/lanes/D2/checks/a8-r1/{corewaiting,workerwaiting}.stdout.log.
+# D2 A7 measured Core 113: E/lanes/D2/checks/a7-r1/corewaiting.stdout.log; Worker stays at measured A8 26.
+# D2 A7 real benchmark validation measured 12: E/lanes/D2/checks/a7-r1/workerbenchvalidation.stdout.log.
+# D2 A8 follow-up measured 114/27: E/lanes/D2/checks/a8-followup-r1/{corewaiting,workerwaiting}.stdout.log.
+# D2 round 2 measured focused receipts under E/lanes/D2/r2/checks (2026-11-14):
+# Core waiting 116, Worker waiting 31, scope 11 and authenticated pagination 37.
+# D2 round 3 measured Core waiting 118 before re-pinning: E/lanes/D2/r3/checks/r3-first-core-measure-waiting-20261117T120451288Z-f3fca3ba.stdout.log.
+# 1.10.6 lane N round 1: core --waiting-mail-only 118 -> 119 (WAIT_REASON_REDISCOVERY) and the new worker
+# --codex-preframe-only group (9), derived from the added check() calls, to be measured by the round's healthy baselines.
+EXPECTED_COUNTS = {("core", ("--waiting-mail-only",)): 119, ("worker", ("--waiting-mail-only",)): 31,
+                   ("worker", ("--codex-preframe-only",)): 9,
+                   # L2 measured45: E/lanes/D2/checks/l2-a10-r2/workerdirectoryshape.stdout.log.
+                   ("worker", ("--directory-shape-only",)): 45,
+                   ("worker", ("--benchmark-validation-only",)): 12,
+                   ("worker", ("--compact-receipts-only",)): 24, ("core", ("--reply-receipt-only",)): 43, ("core", ("--hygiene-only",)): 13, ("core", ("--peer-receipt-only",)): 22,
+                   ("core", ("--commit-timing-only",)): 9, ("worker", ("--receipt-wait-only",)): 24,
+                   # A10 re-pinned 11/23/37: E/lanes/D2/r2/checks focused scope/instructions/pagination receipts; 10/23/36 is historical.
+                   ("worker", ("--list-sessions-scope-only",)): 11, ("worker", ("--pagination-only",)): 37,
+                   ("worker", ("--instructions-only",)): 23, ("worker", ("--recovery-guidance-only",)): 38,
+                   ("worker", ("--first-contact-only",)): 43,
+                   ("worker", ("--directory-stop-core-only",)): 3, ("worker", ("--directory-host-stop-only",)): 3,
+                   ("worker", ("--directory-stop-only",)): 6, ("worker", ("--reply-only",)): 21,
+                   ("worker", ("--reply-runtime-only",)): 4,
+                   ("worker", ("--channel-only",)): 37,
+                   # 1.10.1: 80 at e398eba2 plus UNCERTAIN_NOTICE_REOPEN_PAST_RETENTION (measured 81 on the fixed source).
+                   # 1.10.6 lane N round 1: 81 plus the 18 Grace checks (17 graded labels and the clean-reopen witness),
+                   # derived from the added Check() calls, to be measured by the round's healthy baseline.
+                   ("core", ("--uncertain-notices-only",)): 99,
+                   # 1.10.1 LocalOutputFile v2.1: the new group, measured 36 on its first healthy focused runs (2026-11-09).
+                   # 36 -> 41 (review round 1, measured): CASE_SENSITIVE_ANCESTOR, HANDOFF_CLI_CLEANUP, MCP_CLI_CLEANUP,
+                   # POST_CREATE_CHAIN and POST_CREATE_CASE.
+                   ("worker", ("--local-output-only",)): 43,
+                   ("worker", ("--inbox-watch-only",)): 167,
+                   # 1.10.5 lane F, measured on the lane's healthy focused runs (2026-11-14): Core 64, Worker 23, Network 17;
+                   # round 2 (003-F-round2.md) re-measured Core 64, Worker 44, Network 42; round 2b (audit fixes) Core 64,
+                   # Worker 57 (51 plus five checks after the check-coverage audit and ATTACHMENT_SOURCE_ZONE_WITH_BYTES,
+                   # F round 3, DECISIONS 79; 63 after F round 5, DECISIONS 96: six checks for items 1, 6, 8, 9, 14 and 15,
+                   # measured), Network 59 (Network 57 plus
+                   # ATTACHMENT_SENDER_BOUND_NOT_EARLY, DECISIONS 64, and ATTACHMENT_PREVALIDATED_TRANSIT, the fifth F-19 guard).
+                   # F round 6 (DECISIONS 116, 120, 122, 123): Worker 69 (six checks: items 11, S-013a and S-020, the sweep's
+                   # folder gate, item 18 for the sweep and for DeleteInbox), Network 63 (four checks: items 5, 10, 17 and
+                   # S-013b); measured 69 and 63 by the campaign-6 baselines (lanes/F/round6). F round 7 (DECISIONS 127):
+                   # Network 64 (ATTACHMENT_ONE_TEXT_BOUND_TO_MANIFEST), derived from the added check() call, to be measured
+                   # by the rebase campaign's baseline.
+                   ("core", ("--attachments-only",)): 64, ("worker", ("--attachments-only",)): 69,
+                   ("network", ("--attachments-only",)): 64}
+# 1.10.6 lane N round 2 (028 :1416-1419), derived from the frozen test source, to be measured by the window's healthy
+# baselines: 18 check( calls in RuntimeLifecycleChecks.DiscoveryTrace.cs, 9 in NativeStageEventChecks.cs, SendAdvisoryChecks'
+# 5 plus ADVISORY_KINDS_EXACT_SET, and 3 in StdioBridgeRestartChecks.cs. Added as its own statement (DEC 237).
+EXPECTED_COUNTS.update({("worker", ("--discovery-trace-only",)): 18, ("worker", ("--native-stage-events-only",)): 9,
+                        ("worker", ("--advisory-kinds-only",)): 6, ("worker", ("--stdio-bridge-restart-only",)): 3})
+CORE_SUMMARIES = {("--waiting-mail-only",): "AgentBroker waiting-mail smoke", ("--reply-receipt-only",): "AgentBroker reply receipt smoke", ("--hygiene-only",): "AgentBroker hygiene smoke", ("--peer-receipt-only",): "AgentBroker peer receipt smoke",
+                  ("--commit-timing-only",): "AgentBroker commit timing smoke",
+                  ("--uncertain-notices-only",): "AgentBroker uncertainty notice smoke",
+                  ("--attachments-only",): "AgentBroker attachment envelope smoke"}
+
+
+def group_key(project: str, args: tuple[str, ...]) -> str:
+    return project + ":" + " ".join(args)
+
+
+def selected_groups(selected: list[Witness], extra=()) -> list[tuple[str, tuple[str, ...]]]:
+    return sorted({(w.project, w.args) for w in selected} | set(extra))
+
+
+def verify_execution(project: str, text: str, built: dict) -> None:
+    marker, fields = PROOF_FIELDS[project]
+    lines = text.splitlines()
+    if lines.count(marker) != 1:
+        raise RuntimeError("EXECUTION_WITNESS: " + project)
+    for field, component in fields.items():
+        observed = [line.removeprefix(field + "=") for line in lines if line.startswith(field + "=")]
+        if observed != [built[component]["sha256"].upper()]:
+            raise RuntimeError("EXECUTION_HASH: " + field)
+
+
+def verify_healthy(project: str, args: tuple[str, ...], outcome: dict, built: dict, expected_count: int) -> dict:
+    verify_execution(project, outcome["stdout"], built)
+    if outcome["exitCode"] != 0:
+        raise RuntimeError("HEALTHY_GROUP_FAILED: " + group_key(project, args))
+    if project == "core":
+        if args not in CORE_SUMMARIES:
+            raise RuntimeError("UNSUPPORTED_CORE_GROUP: " + repr(args))
+        pattern = r"(?m)^" + re.escape(CORE_SUMMARIES[args]) + r": ([1-9][0-9]*) assertions passed\.\r?$"
+    else:
+        pattern = r"(?m)^RESULT=PASS assertions=([1-9][0-9]*)\r?$"
+    counts = re.findall(pattern, outcome["stdout"])
+    if counts != [str(expected_count)] or re.search(r"(?m)^RESULT=FAIL\r?$", outcome["stdout"]):
+        raise RuntimeError("HEALTHY_INVENTORY: " + group_key(project, args))
+    return {"group": group_key(project, args), "expectedCount": expected_count, "observedCount": int(counts[0]), "artifacts": built}
+
+
+def verify_failure(w: Witness, outcome: dict, built: dict) -> list[str]:
+    verify_execution(w.project, outcome["stdout"], built)
+    lines = [line.strip() for line in outcome["stderr"].splitlines() if line.strip()]
+    failures = re.findall(r"(?m)^System\.InvalidOperationException: ([^\r\n]+)", outcome["stderr"])
+    if outcome["exitCode"] != 1 or not lines or lines[0] != "System.InvalidOperationException: " + w.expected or failures != [w.expected]:
+        raise RuntimeError("NAMED_MUTATION_FAILURE: " + w.name)
+    if w.project in ("worker", "network") and len(re.findall(r"(?m)^RESULT=FAIL\r?$", outcome["stdout"])) != 1:
+        raise RuntimeError("MUTATION_RESULT: " + w.name)
+    return failures
+
+
+def verify_mutant_rebuilt(w: Witness, before: dict, after: dict, started_ns: int) -> None:
+    if after[w.component]["sha256"] == before[w.component]["sha256"] or after[w.component]["mtimeNs"] < started_ns:
+        raise RuntimeError("MUTANT_NOT_REBUILT: " + w.name)
+
+
+def open_exclusive(path: Path):
+    if os.name == "nt":
+        import ctypes
+        from ctypes import wintypes
+        import msvcrt
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID, wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+        kernel.CreateFileW.restype = wintypes.HANDLE
+        kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel.CloseHandle.restype = wintypes.BOOL
+        handle = kernel.CreateFileW(str(path), 0xC0000000, 0, None, 3, 0x80, None)
+        if handle == ctypes.c_void_p(-1).value:
+            raise ctypes.WinError(ctypes.get_last_error())
+        try:
+            fd = msvcrt.open_osfhandle(handle, os.O_RDWR | os.O_BINARY)
+        except BaseException:
+            kernel.CloseHandle(handle)
+            raise
+        try:
+            return os.fdopen(fd, "r+b", buffering=0)
+        except BaseException:
+            os.close(fd)
+            raise
+    import fcntl
+    stream = path.open("r+b", buffering=0)
+    try:
+        fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return stream
+    except BaseException:
+        stream.close()
+        raise
+
+
+def write_all(stream, raw: bytes) -> None:
+    stream.seek(0)
+    stream.truncate(len(raw))
+    offset = 0
+    while offset < len(raw):
+        count = stream.write(raw[offset:])
+        if count is None or count <= 0:
+            raise OSError("Source write did not advance.")
+        offset += count
+    stream.flush()
+    os.fsync(stream.fileno())
+
+
+def write_owned(path: Path, expected: bytes, replacement: bytes, writer=None) -> None:
+    # Windows FileShare.None covers comparison, write, and partial-failure recovery.
+    # POSIX uses advisory flock; callers still need sole worktree ownership there.
+    with open_exclusive(path) as stream:
+        if stream.read() != expected:
+            raise RuntimeError("FOREIGN_SOURCE_EDIT: " + str(path))
+        try:
+            (write_all if writer is None else writer)(stream, replacement)
+        except BaseException as write_error:
+            try:
+                write_all(stream, expected)
+            except BaseException as recovery_error:
+                raise RuntimeError(f"OWNED_SOURCE_WRITE_AND_RECOVERY_FAILED: {write_error!r}; {recovery_error!r}") from recovery_error
+            raise
+
+
+class Runner:
+    def __init__(self, evidence: Path, selected: list[Witness], inventory: dict, extra_groups=()) -> None:
+        self.evidence = evidence
+        self.serial = 0
+        self.groups = selected_groups(selected, extra_groups)
+        self.inventory = {group_key(*g): inventory[group_key(*g)] for g in self.groups}
+        self.sources = sorted({w.source for w in selected})
+        self.original = {s: (ROOT / s).read_bytes() for s in self.sources}
+        self.steps: list[dict] = []
+        self.active: tuple[str, bytes] | None = None
+        self.mutation_attempted = False
+        self.cleanup_errors: list[dict] = []
+        for source, raw in self.original.items():
+            backup = self.evidence / "originals" / source
+            backup.parent.mkdir(parents=True, exist_ok=True)
+            backup.write_bytes(raw)
+
+    def run(self, label: str, argv: list[str], timeout: int) -> dict:
+        self.serial += 1
+        prefix = f"{self.serial:03d}-{label}"
+        out = self.evidence / (prefix + ".stdout.txt")
+        err = self.evidence / (prefix + ".stderr.txt")
+        env = dict(os.environ, DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT="1", DOTNET_CLI_TELEMETRY_OPTOUT="1")
+        started = time.time()
+        with out.open("wb") as stdout, err.open("wb") as stderr:
+            proc = subprocess.run(argv, cwd=ROOT, stdout=stdout, stderr=stderr, stdin=subprocess.DEVNULL, env=env, timeout=timeout, check=False)
+        step = {"label": label, "argv": argv, "exitCode": proc.returncode, "seconds": round(time.time() - started, 1), "stdoutFile": out.name, "stderrFile": err.name}
+        self.steps.append(step)
+        print(f"EXIT {label}: {proc.returncode}", flush=True)
+        return {**step, "stdout": out.read_bytes().decode("utf-8", "replace"), "stderr": err.read_bytes().decode("utf-8", "replace")}
+
+    def artifacts(self, project: str) -> dict:
+        result = {}
+        for name in PROOF_FIELDS[project][1].values():
+            path = ROOT / PROJECTS[project][1] / name
+            result[name] = {"name": name, "sha256": sha256(path.read_bytes()), "mtimeNs": path.stat().st_mtime_ns}
+        return result
+
+    def build(self, project: str, label: str) -> dict:
+        restored = self.run(label + "-restore", ["dotnet", "restore", PROJECTS[project][0], "--disable-build-servers"], 600)
+        if restored["exitCode"] != 0:
+            raise RuntimeError("RESTORE_FAILED: " + label)
+        built = self.run(label, ["dotnet", "build", PROJECTS[project][0], "-c", "Release", "--no-restore", "--no-incremental", "--disable-build-servers", "-warnaserror", "-p:UseSharedCompilation=false"], 600)
+        if built["exitCode"] != 0:
+            raise RuntimeError("BUILD_FAILED (a compile error never qualifies a witness): " + label)
+        return self.artifacts(project)
+
+    def test(self, project: str, label: str, args: tuple[str, ...], built: dict) -> dict:
+        self.verify_current_artifacts(project, built)
+        dll = str(Path(PROJECTS[project][1]) / PROJECTS[project][2])
+        outcome = self.run(label, ["dotnet", dll, *args], 300)
+        self.verify_current_artifacts(project, built)
+        verify_execution(project, outcome["stdout"], built)
+        return outcome
+
+    def verify_current_artifacts(self, project: str, built: dict) -> None:
+        current = self.artifacts(project)
+        if {k: v["sha256"] for k, v in current.items()} != {k: v["sha256"] for k, v in built.items()}:
+            raise RuntimeError("ARTIFACT_CHANGED_OUTSIDE_BUILD: " + project)
+
+    def restore(self) -> None:
+        if self.active is not None:
+            source, changed = self.active
+            original = self.original[source]
+            current = (ROOT / source).read_bytes()
+            if current == changed:
+                write_owned(ROOT / source, changed, original)
+            elif current != original:
+                raise RuntimeError("FOREIGN_SOURCE_EDIT: " + source)
+            self.active = None
+        for source, raw in self.original.items():
+            if (ROOT / source).read_bytes() != raw:
+                raise RuntimeError("RESTORE_MISMATCH_OR_FOREIGN_EDIT: " + source)
+
+    def healthy(self, phase: str) -> dict:
+        built = {project: self.build(project, f"{phase}-build-{project}") for project in sorted({g[0] for g in self.groups})}
+        proofs = []
+        for project, args in self.groups:
+            outcome = self.test(project, f"{phase}-{project}{'-'.join(args)}", args, built[project])
+            proofs.append(verify_healthy(project, args, outcome, built[project], self.inventory[group_key(project, args)]))
+        return {"artifacts": built, "groups": proofs}
+
+    def witness(self, w: Witness, healthy: dict) -> dict:
+        raw = self.original[w.source]
+        changed = raw
+        for before, after, count in w.replacements:
+            changed = replace_exact(changed, before, after, count)
+        started_ns = time.time_ns()
+        record = {"name": w.name, "source": w.source, "expected": w.expected, "sourceBeforeSha256": sha256(raw), "sourceAfterSha256": sha256(changed)}
+        primary = None
+        try:
+            self.mutation_attempted = True
+            self.active = (w.source, changed)
+            write_owned(ROOT / w.source, raw, changed)
+            after = self.build(w.project, w.name + "-build")
+            before = healthy["artifacts"][w.project]
+            verify_mutant_rebuilt(w, before, after, started_ns)
+            record["componentProof"] = {"before": before, "after": after}
+            outcome = self.test(w.project, w.name + "-run", w.args, after)
+            record["failedChecks"] = verify_failure(w, outcome, after)
+            record["exitCode"] = outcome["exitCode"]
+            record["verdict"] = "FIRED"
+            print(f"FIRED {w.name}: {record['failedChecks']}", flush=True)
+            return record
+        except BaseException as error:
+            primary = error
+            raise
+        finally:
+            try:
+                self.restore()
+            except BaseException as restore_error:
+                self.cleanup_errors.append({"phase": w.name, "error": f"{type(restore_error).__name__}: {restore_error}"})
+                if primary is None:
+                    raise
+
+
+def cleanup_owned(runner: Runner, baseline: dict | None, report: dict) -> bool:
+    sources_ready = True
+    try:
+        runner.restore()
+    except BaseException as restore_error:
+        sources_ready = False
+        report["sourceCleanupError"] = f"{type(restore_error).__name__}: {restore_error}"
+    report["artifactCleanupAttempted"] = False
+    report["artifactsRestored"] = None
+    if runner.mutation_attempted:
+        report["artifactsRestored"] = False
+        if not sources_ready or baseline is None:
+            report["artifactCleanupError"] = "Rebuild refused: original sources or baseline artifact snapshot unavailable."
+        else:
+            report["artifactCleanupAttempted"] = True
+            try:
+                restored = runner.healthy("restored")
+                report["restored"] = restored
+                for project, components in baseline["artifacts"].items():
+                    if {k: v["sha256"] for k, v in components.items()} != {k: v["sha256"] for k, v in restored["artifacts"][project].items()}:
+                        raise RuntimeError("RESTORED_ARTIFACT_MISMATCH: " + project)
+                report["artifactsRestored"] = True
+            except BaseException as restore_error:
+                report["artifactCleanupError"] = f"{type(restore_error).__name__}: {restore_error}"
+    report["witnessCleanupErrors"] = runner.cleanup_errors
+    return sources_ready and (not runner.mutation_attempted or report["artifactsRestored"] is True)
+
+
+def check_anchors(selected: list[Witness]) -> int:
+    """Every selected witness's replacements applied in memory, IN ORDER, through the replace_exact that Runner.witness
+    uses (AgentBroker 1.10.5 marathon, lane T). Each anchor's count is therefore asserted against the very bytes it will
+    meet under --apply: a second replacement is counted after the first has been made, not against the file as it is.
+    Nothing is built, written or started. 1 on any witness whose source is missing or whose anchor count is wrong."""
+    bad = 0
+    for w in selected:
+        # A witness --apply would refuse is not healthy either (round 2, T2-3): its project must be known and its healthy
+        # group pinned in EXPECTED_COUNTS, the same two conditions main() enforces before any build.
+        if w.project not in PROJECTS or EXPECTED_COUNTS.get((w.project, w.args)) is None:
+            print(f"UNPINNED {w.name}: {group_key(w.project, w.args)}")
+            bad += 1
+            continue
+        path = ROOT / w.source
+        if not path.is_file():
+            print(f"NO_SOURCE {w.name}: {w.source}")
+            bad += 1
+            continue
+        original = path.read_bytes()
+        changed = original
+        for before, after, count in w.replacements:
+            try:
+                changed = replace_exact(changed, before, after, count)
+            except RuntimeError as error:
+                print(f"STALE {w.name}: {error}")
+                bad += 1
+                break
+    print(f"{len(selected)} witnesses, {bad} stale")
+    return 1 if bad else 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--check", action="store_true",
+                        help="assert every selected witness's anchor counts in order, in memory; builds and writes nothing")
+    parser.add_argument("--case", action="append", choices=[w.name for w in WITNESSES])
+    parser.add_argument("--output", type=Path)
+    parser.add_argument("--healthy-group", action="append", default=[], metavar="PROJECT:--MODE",
+                        help="Explicitly add a healthy group; never adds existing Worker regression implicitly.")
+    options = parser.parse_args()
+    selected = [w for w in WITNESSES if not options.case or w.name in options.case]
+    if options.check:
+        if options.apply:
+            raise SystemExit("--check reads only; it cannot be combined with --apply")
+        return check_anchors(selected)
+    extras = []
+    for text in options.healthy_group:
+        project, separator, mode = text.partition(":")
+        if separator != ":" or project not in PROJECTS or not mode.startswith("--") or " " in mode:
+            raise SystemExit("Invalid --healthy-group: " + text)
+        extras.append((project, (mode,)))
+    groups = selected_groups(selected, extras)
+    missing = [group_key(*g) for g in groups if EXPECTED_COUNTS.get(g) is None]
+    if not options.apply:
+        for w in selected:
+            print(f"{w.name}: {w.source} -> {w.project} {' '.join(w.args)} must fail '{w.expected}'")
+        print(json.dumps({"selectedSources": sorted({w.source for w in selected}), "healthyGroups": [group_key(*g) for g in groups],
+                          "unpinnedInventory": missing, "status": "PLAN_ONLY_NOT_QUALIFICATION", "childProcessesStarted": 0}))
+        return 0
+    if missing:
+        raise SystemExit("UNPINNED_HEALTHY_INVENTORY (no build started): " + ", ".join(missing))
+    if options.output is None:
+        raise SystemExit("--output is required with --apply")
+    inventory = {group_key(*g): EXPECTED_COUNTS[g] for g in groups}
+    evidence = (ROOT / options.output).resolve()
+    if evidence.exists():
+        raise SystemExit("--output must be a new directory")
+    evidence.mkdir(parents=True)
+    runner = Runner(evidence, selected, inventory, extras)
+    report = {"started": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "witnesses": [], "expectedInventory": inventory,
+              "sourcesBefore": {s: sha256(b) for s, b in runner.original.items()}, "groups": [group_key(*g) for g in runner.groups]}
+    healthy = None
+    primary = None
+    try:
+        healthy = runner.healthy("baseline")
+        report["baseline"] = healthy
+        for w in selected:
+            report["activeWitness"] = w.name
+            report["witnesses"].append(runner.witness(w, healthy))
+    except BaseException as error:
+        primary = error
+        report["error"] = f"{type(error).__name__}: {error}"
+    cleanup_ok = cleanup_owned(runner, healthy, report)
+    fired = len(report["witnesses"]) == len(selected) and all(item["verdict"] == "FIRED" for item in report["witnesses"])
+    verdict = "PASS" if primary is None and cleanup_ok and fired else "FAIL"
+    report["sourcesAfter"] = {}
+    for source in runner.sources:
+        try:
+            report["sourcesAfter"][source] = sha256((ROOT / source).read_bytes())
+        except OSError as error:
+            report["sourcesAfter"][source] = "UNREADABLE: " + repr(error)
+    report["sourcesRestored"] = report["sourcesAfter"] == report["sourcesBefore"]
+    report["steps"] = runner.steps
+    report["verdict"] = verdict if report["sourcesRestored"] else "FAIL"
+    report["finished"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    (evidence / "results.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+    print(json.dumps({"verdict": report["verdict"], "witnesses": len(report["witnesses"]), "fired": sum(item["verdict"] == "FIRED" for item in report["witnesses"]),
+                      "sourcesRestored": report["sourcesRestored"], "report": str(evidence / "results.json")}, indent=2))
+    return 0 if report["verdict"] == "PASS" else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -3,6 +3,14 @@
 Each synthetic "build" copies its project's source into its artefact and advances the artefact's timestamp, the way a
 real incremental build does; a synthetic self-test reads artefacts the way a module self-test loads the host. No
 product file is read, written or built, and no process is started.
+
+Since the step 11 master merge (HAR-1, option A) score() restores a switched-away project with master's
+restore_switched_target and its SHA-256 proof, in place of the burn-down's rebuild_restored. Two tests of the old
+mechanism were retired there because master's tests/test_mutation_pattern_checks.py covers the same behaviours and no
+harness case names either: test_a_clean_rebuild_that_leaves_the_mutant_stops_the_run (now
+test_GUARDS_CARRYOVER_RESTORE_FAILURE_STOPS) and test_a_project_shared_by_consecutive_cases_is_not_rebuilt_between_them
+(now test_GUARDS_CARRYOVER_SAME_TARGET_NO_EXTRA_BUILD). score() reads the worktree's HEAD for that proof through
+worktree_head(), which starts git, so every score() call here patches it.
 """
 
 import contextlib
@@ -76,6 +84,7 @@ class StaleArtefactTests(unittest.TestCase):
              patch.object(self.harness, "build_all", return_value=(True, "")), \
              patch.object(self.harness, "build", side_effect=build), \
              patch.object(self.harness, "selftest", side_effect=selftest), \
+             patch.object(self.harness, "worktree_head", return_value="synthetichead"), \
              patch.object(self.harness.time, "sleep"), \
              contextlib.redirect_stdout(output):
             code = self.harness.score(types.SimpleNamespace(cases=cases, indices=[1, 2]))
@@ -95,15 +104,10 @@ class StaleArtefactTests(unittest.TestCase):
         self.assertRegex(console, r"case one\s+FIRED")
         self.assertEqual(code, 1)
 
-    def test_a_clean_rebuild_that_leaves_the_mutant_stops_the_run(self):
-        with tempfile.TemporaryDirectory() as folder:
-            code, console, builds = self.run_two_cases(folder, advance_clean_rebuild=False)
-        self.assertIn("STOPPED: the clean rebuild of A.csproj left a.dll as the mutant built it", console,
-                      "stale artefacts: a clean rebuild whose artefact did not advance stops the run by name")
-        self.assertRegex(console, r"case two\s+NOT RUN")
-        self.assertEqual(builds, [("A", "mutant A"), ("A", "clean A")],
-                         "stale artefacts: no case is built after the clean rebuild failed its proof")
-        self.assertEqual(code, 1)
+    # RETIRED 2026-11-20 at the step 11 master merge (HAR-1): test_a_clean_rebuild_that_leaves_the_mutant_stops_the_run
+    # asserted rebuild_restored's STOPPED line and its mtime-only proof; master's switch restore proves a restore by
+    # SHA-256 and stops with THE SWITCHED-AWAY TARGET WAS NOT RESTORED, which test_GUARDS_CARRYOVER_RESTORE_FAILURE_STOPS
+    # (tests/test_mutation_pattern_checks.py) checks for every refused outcome.
 
     def test_a_shards_cases_of_one_project_run_together(self):
         """N-bd-tests-harness-1-02: a shard takes every Nth case, so its plan alternates projects, and each change of
@@ -151,6 +155,7 @@ class StaleArtefactTests(unittest.TestCase):
                  patch.object(self.harness, "build_all", return_value=(True, "")), \
                  patch.object(self.harness, "build", side_effect=build), \
                  patch.object(self.harness, "selftest", side_effect=selftest), \
+                 patch.object(self.harness, "worktree_head", return_value="synthetichead"), \
                  patch.object(self.harness.time, "sleep"), \
                  contextlib.redirect_stdout(output):
                 code = self.harness.score(types.SimpleNamespace(cases=cases, indices=[1, 2, 3]))
@@ -168,11 +173,10 @@ class StaleArtefactTests(unittest.TestCase):
         self.assertEqual(restored, (b"clean A", b"clean B"))
         self.assertEqual(code, 1)
 
-    def test_a_project_shared_by_consecutive_cases_is_not_rebuilt_between_them(self):
-        stale = {"X.csproj": "x.dll"}
-        with patch.object(self.harness, "build", side_effect=AssertionError("no build for the next case's own project")):
-            self.assertIsNone(self.harness.rebuild_restored(stale, "X.csproj"))
-        self.assertEqual(stale, {"X.csproj": "x.dll"}, "the next case's own project stays recorded until it is rebuilt")
+    # RETIRED 2026-11-20 at the step 11 master merge (HAR-1):
+    # test_a_project_shared_by_consecutive_cases_is_not_rebuilt_between_them called rebuild_restored, which the merge
+    # removed; test_GUARDS_CARRYOVER_SAME_TARGET_NO_EXTRA_BUILD (tests/test_mutation_pattern_checks.py) checks that two
+    # cases of one target build it twice and restore nothing between them.
 
 
 if __name__ == "__main__":

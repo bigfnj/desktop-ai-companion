@@ -10,7 +10,13 @@
     pwsh -NoProfile -File packaging/Publish-AgentBrokerWorker.ps1 -Configuration Release
 #>
 [CmdletBinding()]
-param([ValidateSet('Debug', 'Release')][string]$Configuration = 'Release')
+param(
+    [ValidateSet('Debug', 'Release')][string]$Configuration = 'Release',
+    [ValidateSet('', 'true', 'false')][string]$ReleaseProvenance = '',
+    [string]$ReleaseManifest,
+    [string]$ReleaseSourceSha256,
+    [string]$ReleaseParentCommit
+)
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -22,10 +28,18 @@ $moduleOutput = Join-Path $buildRoot "DesktopAICompanionPortable\bin\$Configurat
 $destination = Join-Path $moduleOutput 'worker'
 $nonce = [guid]::NewGuid().ToString('N')
 $staging = Join-Path $stagingRoot ("publish-$nonce")
+$compileArtifacts = if ($ReleaseProvenance -eq 'true') { Join-Path $stagingRoot ("compile-provenance-$nonce") } else { Join-Path $stagingRoot 'compile' }
 $backup = Join-Path $moduleOutput ("worker.previous-$nonce")
 $project = Join-Path $repoRoot 'tools\AgentBroker.Worker\AgentBroker.Worker.csproj'
+$releaseProperties = @()
+if ($ReleaseProvenance -eq 'true') {
+    if ($Configuration -cne 'Release') { throw 'PROVENANCE_RELEASE_REQUIRED' }
+    . (Join-Path $PSScriptRoot 'AgentBrokerReleaseProvenance.ps1') -Mode Library
+    $releaseProperties = Get-AgentBrokerReleaseProperties $ReleaseManifest $ReleaseSourceSha256 $ReleaseParentCommit
+}
+elseif ($ReleaseManifest -or $ReleaseSourceSha256 -or $ReleaseParentCommit) { throw 'PROVENANCE_OPT_IN_REQUIRED' }
 
-foreach ($path in @($staging, $destination, $backup)) {
+foreach ($path in @($staging, $destination, $backup, $compileArtifacts)) {
     if (-not (Test-DesktopAICompanionPathWithin -Path $path -Root $buildRoot)) {
         throw 'The worker publish target must stay inside the repository build directory.'
     }
@@ -36,12 +50,13 @@ New-Item -ItemType Directory -Path $staging -Force | Out-Null
 
 $previousMoved = $false
 $installed = $false
+$primaryFailure = $null
 try {
     & dotnet publish $project -c $Configuration -r win-x64 --self-contained true `
-        --artifacts-path (Join-Path $stagingRoot 'compile') `
+        --artifacts-path $compileArtifacts `
         --nologo -v:minimal -o $staging '-p:RestoreLockedMode=true' `
         '-p:PublishSingleFile=false' '-p:PublishTrimmed=false' `
-        '-p:DebugType=None' '-p:DebugSymbols=false' ("-p:PathMap=$repoRoot=/_/")
+        '-p:DebugType=None' '-p:DebugSymbols=false' ("-p:PathMap=$repoRoot=/_/") @releaseProperties
     if ($LASTEXITCODE -ne 0) { throw "AgentBroker worker publish failed (exit $LASTEXITCODE)." }
 
     $required = @('AgentBroker.Worker.exe', 'AgentBroker.Worker.dll',
@@ -132,11 +147,24 @@ try {
     }
     Write-Host ("AgentBroker worker payload: {0} files, {1:N0} bytes, self-contained win-x64." -f $files.Count, $bytes)
 }
+catch { $primaryFailure = $_; throw }
 finally {
-    if (Test-Path -LiteralPath $staging) {
-        Remove-DesktopAICompanionSafeDirectory -Path $staging -AllowedRoot $stagingRoot -TrustedRoot $repoRoot
+    $cleanupFailure = $null
+    $cleanupTargets = @(
+        [pscustomobject]@{ Path=$staging; Root=$stagingRoot; Required=$true },
+        [pscustomobject]@{ Path=$backup; Root=$moduleOutput; Required=($installed -and $previousMoved) },
+        [pscustomobject]@{ Path=$compileArtifacts; Root=$stagingRoot; Required=($ReleaseProvenance -eq 'true') }
+    )
+    foreach ($cleanupTarget in $cleanupTargets) {
+        try {
+            if ($cleanupTarget.Required -and (Test-Path -LiteralPath $cleanupTarget.Path)) {
+                Remove-DesktopAICompanionSafeDirectory -Path $cleanupTarget.Path -AllowedRoot $cleanupTarget.Root -TrustedRoot $repoRoot
+            }
+        }
+        catch { if ($null -eq $cleanupFailure) { $cleanupFailure = $_ } }
     }
-    if ($installed -and $previousMoved) {
-        Remove-DesktopAICompanionSafeDirectory -Path $backup -AllowedRoot $moduleOutput -TrustedRoot $repoRoot
+    if ($null -ne $cleanupFailure) {
+        if ($null -ne $primaryFailure) { [Console]::Error.WriteLine('PROVENANCE_PUBLISH_CLEANUP_FAILED') }
+        else { throw $cleanupFailure }
     }
 }

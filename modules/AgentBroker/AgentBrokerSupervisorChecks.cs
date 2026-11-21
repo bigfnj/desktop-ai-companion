@@ -23,6 +23,7 @@ internal static class AgentBrokerSupervisorChecks
         check(status.Connected && status.OwnsWorker && launcher.Starts == 1,
             "a refused control status does not abandon supervision");
         await supervisor.StopOwnedAsync(Launch().DataDirectory, CancellationToken.None).ConfigureAwait(false);
+
         check(child.ForcedStops == 1 && child.Disposals == 1 && control.LastRequiredPid == child.Id,
             "refused control and canceled exit waiting still stop and dispose the exact owned child");
         await supervisor.StopOwnedAsync(Launch().DataDirectory, CancellationToken.None).ConfigureAwait(false);
@@ -92,12 +93,69 @@ internal static class AgentBrokerSupervisorChecks
         await supervisor.StopOwnedAsync(Launch().DataDirectory, CancellationToken.None).ConfigureAwait(false);
         check(status.Connected && !status.OwnsWorker && child.Disposals == 1 && child.ForcedStops == 0 && control.Stops == 0,
             "only an exited owned child releases ownership and attaches to the existing standby without sending stop");
+
+        clock = new Clock(); child = new Child(); launcher = new Launcher(child) { StartFailures = 1 };
+        control = new Control { Existing = () => launcher.Starts > 1 };
+        supervisor = new WorkerSupervisor(control, launcher, clock);
+        status = await supervisor.RefreshAsync(Launch(), CancellationToken.None).ConfigureAwait(false);
+        check(status.Code == "worker_start_failed" && !status.OwnsWorker && launcher.Starts == 1,
+            "SUPERVISION_LAUNCH_FAILURE: a failed process start becomes a retryable bounded status");
+        status = await supervisor.RefreshAsync(Launch(), CancellationToken.None).ConfigureAwait(false);
+        check(status.Code == "restart_backoff" && launcher.Starts == 1,
+            "SUPERVISION_LAUNCH_BACKOFF: repeated polls do not retry a process start during backoff");
+        clock.Advance(TimeSpan.FromSeconds(2));
+        status = await supervisor.RefreshAsync(Launch(), CancellationToken.None).ConfigureAwait(false);
+        check(status.Code == "starting" && status.OwnsWorker && launcher.Starts == 2,
+            "SUPERVISION_LAUNCH_RECOVERS: the same supervisor retries after its launch backoff");
+        await supervisor.StopOwnedAsync(Launch().DataDirectory, CancellationToken.None).ConfigureAwait(false);
+
+        foreach (TimeSpan adjustment in new[] { TimeSpan.FromHours(-1), TimeSpan.FromHours(1) })
+        {
+            clock = new Clock(); child = new Child(); launcher = new Launcher(child) { StartFailures = 1 };
+            control = new Control { Existing = () => launcher.Starts > 1 };
+            supervisor = new WorkerSupervisor(control, launcher, clock);
+            await supervisor.RefreshAsync(Launch(), CancellationToken.None).ConfigureAwait(false);
+            clock.UtcAdjustment = adjustment;
+            clock.Advance(TimeSpan.FromSeconds(1));
+            status = await supervisor.RefreshAsync(Launch(), CancellationToken.None).ConfigureAwait(false);
+            check(status.Code == "restart_backoff" && launcher.Starts == 1,
+                "SUPERVISION_BACKOFF_CLOCK_BOUND: a wall-clock adjustment cannot shorten monotonic restart backoff");
+            clock.Advance(TimeSpan.FromSeconds(1));
+            status = await supervisor.RefreshAsync(Launch(), CancellationToken.None).ConfigureAwait(false);
+            check(status.Code == "starting" && launcher.Starts == 2,
+                "SUPERVISION_BACKOFF_CLOCK_RECOVERS: a wall-clock adjustment cannot prolong monotonic restart backoff");
+            await supervisor.StopOwnedAsync(Launch().DataDirectory, CancellationToken.None).ConfigureAwait(false);
+        }
+
+        // BSM-4 (1.10.5): the waiting-mail read goes to the owned worker's exact PID, as its status does, and a read that fails
+        // in transport is no answer rather than an exception that would end supervision.
+        child = new Child(); launcher = new Launcher(child);
+        control = new Control { Existing = () => launcher.Starts > 0 };
+        supervisor = new WorkerSupervisor(control, launcher);
+        await supervisor.RefreshAsync(Launch(), CancellationToken.None).ConfigureAwait(false);
+        status = await supervisor.RefreshAsync(Launch(), CancellationToken.None).ConfigureAwait(false);
+        // Called through the interface, as RunAsync calls it: a class method that stops implementing it leaves the interface's
+        // default (no answer), which this check refuses.
+        IWorkerSupervisor polled = supervisor;
+        ControlResponse? read = await polled.ReadWaitingMailAsync(Launch(), CancellationToken.None).ConfigureAwait(false);
+        control.FailWaitingMail = true;
+        ControlResponse? failedRead = await polled.ReadWaitingMailAsync(Launch(), CancellationToken.None).ConfigureAwait(false);
+        await supervisor.StopOwnedAsync(Launch().DataDirectory, CancellationToken.None).ConfigureAwait(false);
+        check(status.Connected && status.OwnsWorker && read is { Success: false, Code: "unknown_control_operation" } && failedRead is null &&
+            control.WaitingMailReads.SequenceEqual(new int?[] { child.Id, child.Id }),
+            "WAITING_READ_BOUND: the waiting-mail read is sent to the owned worker's exact PID, as its status is, and a failed read is no answer");
     }
 
     private sealed class Launcher(Child child) : IWorkerChildLauncher
     {
         public int Starts;
-        public IWorkerChild Start(ProcessStartInfo start) { Starts++; return child; }
+        public int StartFailures;
+        public IWorkerChild Start(ProcessStartInfo start)
+        {
+            Starts++;
+            if (StartFailures-- > 0) throw new System.ComponentModel.Win32Exception(2);
+            return child;
+        }
     }
     private sealed class Child : IWorkerChild
     {
@@ -120,9 +178,20 @@ internal static class AgentBrokerSupervisorChecks
         public int? LastRequiredPid;
         public Func<bool> Existing = () => false;
         public Action? OnStop;
+        // BSM-4: the PID each waiting-mail read was bound to; the fake answers as a worker without the operation does. It matches
+        // the wire name literally, as the worker's LocalControlServer case does, never the module's own constant: a renamed
+        // operation would be unknown to every worker.
+        public List<int?> WaitingMailReads = [];
+        public bool FailWaitingMail;
         public Task<ControlResponse> SendAsync(string directory, ControlRequest request,
             CancellationToken token, int? requiredServerPid = null)
         {
+            if (request.Operation == "waiting-mail")
+            {
+                WaitingMailReads.Add(requiredServerPid);
+                if (FailWaitingMail) throw new IOException("Synthetic closed control pipe.");
+                return Task.FromResult(new ControlResponse(false, "unknown_control_operation"));
+            }
             LastRequiredPid = requiredServerPid;
             if (request.Operation == "stop")
             {
@@ -143,9 +212,10 @@ internal static class AgentBrokerSupervisorChecks
     private sealed class Clock : TimeProvider
     {
         private long ticks;
+        public TimeSpan UtcAdjustment;
         public override long TimestampFrequency => TimeSpan.TicksPerSecond;
         public override long GetTimestamp() => ticks;
-        public override DateTimeOffset GetUtcNow() => DateTimeOffset.UnixEpoch.AddTicks(ticks);
+        public override DateTimeOffset GetUtcNow() => DateTimeOffset.UnixEpoch.AddTicks(ticks).Add(UtcAdjustment);
         public void Advance(TimeSpan elapsed) => ticks += elapsed.Ticks;
     }
 }

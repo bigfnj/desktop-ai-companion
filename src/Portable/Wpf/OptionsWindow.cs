@@ -1949,7 +1949,10 @@ namespace DesktopAICompanion.Wpf
                     // appended to the label, so a long list reads as names with their figures lined up beside
                     // them. The label trims rather than running under the column. An item with no Detail is
                     // built exactly as before, a box whose content is its label.
-                    bool hasDetail = !string.IsNullOrEmpty(it.Detail);
+                    // Trimmed once (lane H round 2, H-14): a whitespace-only Detail is no detail, so it adds neither a blank
+                    // column nor a trailing ", " to the box's accessible name, nor a blank help text.
+                    string detailText = (it.Detail ?? "").Trim();
+                    bool hasDetail = detailText.Length > 0;
                     // Set IsChecked in the initializer (before wiring events) so building the card doesn't
                     // fire SetChecked for the initial state — only genuine user clicks call back.
                     var cb = new CheckBox
@@ -1959,20 +1962,34 @@ namespace DesktopAICompanion.Wpf
                         Margin = new Thickness(0, 2, 0, 2),
                         Tag = it.Id,
                     };
+                    // N-broker-row-accessibility-01 (AgentBroker 1.10.5 marathon lane H): the detail is part of what the row
+                    // says, so it is part of the box's accessible name and its help text. A UI Automation dump of the
+                    // installed Settings showed each Paired broker's detail as a separate, non-focusable Text element BEFORE
+                    // its checkbox, whose name carried the label alone and whose help text was empty, so a screen reader
+                    // focusing an Awaiting row's box would not hear the comparison code that sits in its detail.
+                    LabelForAutomation(cb, null,
+                        hasDetail ? text + ", " + detailText : text,
+                        hasDetail ? detailText : null);
                     FrameworkElement shown = cb;
                     if (hasDetail)
                     {
-                        var line = new DockPanel { LastChildFill = true };
+                        // A two-column Grid, box first: the old DockPanel docked the detail right by adding it FIRST, which
+                        // put the detail ahead of its box in the visual tree and so in the automation tree too. The label
+                        // still trims in the star column, and the muted figures still line up on the right.
+                        var line = new Grid();
+                        line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                        line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
                         var detail = new TextBlock
                         {
-                            Text = it.Detail,
+                            Text = detailText,
                             Foreground = MutedBrush,
                             Margin = new Thickness(8, 0, 4, 0),
                             VerticalAlignment = VerticalAlignment.Center,
                         };
-                        DockPanel.SetDock(detail, Dock.Right);
-                        line.Children.Add(detail);
+                        Grid.SetColumn(cb, 0);
+                        Grid.SetColumn(detail, 1);
                         line.Children.Add(cb);
+                        line.Children.Add(detail);
                         shown = line;
                     }
                     shownAs[cb] = shown;

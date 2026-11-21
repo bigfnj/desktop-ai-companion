@@ -75,7 +75,8 @@ internal static class SendToolChecks
     // The real HTTP tool schema, the real clock: a retry after time passes recovers the stored receipt.
     private static async Task HttpRetryAsync(Action<bool, string> check)
     {
-        string scratch = Path.Combine(AppContext.BaseDirectory, "scratch", "send-http-" + Guid.NewGuid().ToString("N"));
+        using var scratchOwner = OwnedScratch.Create("send-http");
+        string scratch = scratchOwner.Root;
         Guid brokerId;
         using (var seed = new BrokerStore(Path.Combine(scratch, "store"))) brokerId = seed.BrokerId;
         string keyName = AgentBroker.Worker.Security.BrokerIdentity.KeyNameFor(scratch, brokerId);
@@ -129,6 +130,7 @@ internal static class SendToolChecks
         if (response.Content.Headers.ContentType?.MediaType == "text/event-stream")
             body = string.Join("\n", body.Split('\n').Where(line => line.StartsWith("data: ", StringComparison.Ordinal)).Select(line => line[6..]));
         using var result = JsonDocument.Parse(body);
+        AdvisoryKindChecks.ObserveResponse(result.RootElement);
         if (!result.RootElement.TryGetProperty("result", out var tool) ||
             tool.TryGetProperty("isError", out var error) && error.GetBoolean()) return null;
         return tool.GetProperty("content").EnumerateArray().First(item => item.GetProperty("type").GetString() == "text").GetProperty("text").GetString();

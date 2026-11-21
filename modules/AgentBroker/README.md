@@ -1,12 +1,30 @@
 # AgentBroker
 
 Thin host module for the separately packaged AgentBroker worker. Requires host 1.6.1.
-The module starts disabled. Enable it in Options, then request pairing from its tray submenu.
+The module starts disabled. Enable it in Options, then request pairing from the Brokers list in its pane or from its tray submenu.
 Compare the complete four-group code and approve sharing separately on both workstations. A request
 or one approval alone grants no access. Pairing authorizes sharing current and future discoverable sessions. Session controls separately hide
 a private session or mute incoming messages. Federation directory and delivery requests authenticate
 the paired client certificate; public broker information remains readable for identity checks. Loopback authentication
 is optional. Native peer delivery is a separate opt-in and preserves each agent's existing permission controls.
+
+The pinned status band keeps Pairing, including clock warnings and the paired-broker limit. While enabled without a
+current worker snapshot, it shows paired-broker status unavailable beside any retained pairing result.
+The always-visible Clients line counts OK clients, notes and clients whose native opt-in is off. The full-width Clients
+card folds when no actionable warning or error remains; publisher-verified update-tolerant delivery notes and owner-chosen
+wake-off or discovery-off states do not keep it open. Configuration not checked, unattributed tools, an unregistered inbox,
+adapter errors and unknown or truncated notes keep it open. Connections, Coding agents and
+the folded Reopen card follow together; the single Brokers card contains all pairing actions.
+For invitation pairing, use **Copy my invitation** on one workstation and **Pair from copied invitation**
+on the other. The first press previews the name, short ID and HTTPS authority; the second within 30 seconds
+requests pairing. Clipboard text is never echoed, and this broker's own or an already-paired identity is refused.
+Both workstations must still compare and approve the complete code.
+
+File attachments (1.10.5) are another opt-in, off by default: "Allow file attachments with paired brokers" under
+Connections, then "Allow or stop attachments" on one ticked Paired row of the Brokers card for each broker that may send
+files here. The worker gets `--attachments true` only when the switch is on. Received files are verified, quarantined
+under the DataDirectory's `attachments\inbox` and marked as downloaded from the internet; "Show attachments folder"
+reveals its README. Details: `docs/agentbroker.md`, File attachments.
 
 The worker executable lives at worker/AgentBroker.Worker.exe beneath the module. All persisted identity,
 pairing and delivery state uses the host-provisioned module DataDirectory. The supervisor passes parent
@@ -36,15 +54,48 @@ the same clientId and incarnation keeps its mailbox receiving for 24 hours after
 its last call, so no renewal sidecar is needed between turns.
 
 The Coding agents group and the tray show separate setup states per client (Claude Code, Codex):
-broker, configuration, endpoint, tools, inbox and native wake. Check client setup runs only the
+broker, configuration, endpoint, tools, inbox and native wake. The pane shows them as one summary
+line per client plus one line for each state that is not ok; the tray lists every state. Open the
+AgentBroker guide opens the embedded offline guide from module storage. Check client setup runs only the
 client's read-only `mcp get` for this entry, on demand. An inbox counts for a client only when its
 own registration request identified that client. LAN firewall access shows the Windows network
 category of the broker's LAN interface beside the rule's Private profile, and observed LAN requests
 separately from the configured rule. See `AgentBrokerModule.Clients.cs` and
 `tools/AgentBroker.Worker/LanProfile.cs`.
 
+Connect preserves an existing entry and reports disabled, policy-blocked or mismatched
+Codex configuration without replacing it. Existing Codex HTTP entries match only a verified
+live, token-free broker connection. Token-required HTTP entries are preserved for connection
+review. An unavailable or unverified live control connection instead leaves an HTTP entry whose
+URL is exactly `http://127.0.0.1:<port>/mcp` or `http://localhost:<port>/mcp` not verified: refresh
+status, then choose Check client setup again. Any other HTTP entry stays a different entry needing
+review. The
+endpoint line shows the live worker's own address: a standby instance attached to another
+instance's worker shows that worker's port, not its own saved port, and an unusable reported
+address is shown as not verified. Client setup results are dropped when the live worker's address
+or this instance's ownership of it changes, including while a check is still running, and a
+Connect stops without adding once the module has seen such a change before its add. A failed connection probe
+no longer replaces the module status (1.10.2); it shows where it decides the result, as Connect
+Claude MCP's verification failure or an HTTP entry that is not verified. New Codex entries
+use stdio; no temporary broker token is saved. A current Connect Claude MCP failure at
+connection verification appears as Last setup action without starting a vendor CLI. Restart,
+shutdown and cancellation prevent stale completions from changing the new connection's status.
+A settings change outside the pane can leave the sanitized action result and recheck prompt
+visible. Apply rebuilds the pane and discards an in-flight action's row and result. Run
+**Check client setup** before retrying (`AgentClientSetup.cs`, `AgentBrokerModule.Clients.cs`,
+`src/Portable/Wpf/OptionsWindow.cs`).
+
+The packaged worker also supports a [one-request client](../../docs/agentbroker-client.md)
+with explicit retained output and bounded typed handoff text. Blocking waits allow one
+incoming wait and one receipt wait per exact address, with sixteen total per worker.
+Uncertainty advisories describe historical delivery events and never automatically
+resend a message. See the [broker guide](../../docs/agentbroker.md).
+
 Build: dotnet build modules/AgentBroker/AgentBroker.csproj -c Release
 
 The public SelfTest(out string detail) exercises real Init, Options, tray controls, pairing scope,
-parent binding, cancellation and shutdown with injected fake transports and supervisor. It launches
-no worker, connects no socket and reads no live agent credentials or conversations.
+parent binding, cancellation and shutdown with injected fake transports and supervisor. It requires
+`worker/AgentBroker.Worker.exe` beside the module but launches no worker, connects no socket and
+reads no live agent credentials or conversations. The host's convention-loader harness additionally
+requires the adjacent Worker DLL and hashes the whole worker payload. The normal module build
+publishes that payload automatically; a copied module without it cannot pass these checks.

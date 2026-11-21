@@ -48,7 +48,10 @@ param(
     [string]$Description,
     [switch]$Commit,
     [switch]$SkipBuild,
-    [string]$Configuration = 'Release'
+    [string]$Configuration = 'Release',
+    [string]$AgentBrokerOutputReceipt,
+    [string]$AgentBrokerOutputReceiptSha256,
+    [string]$ExpectedAgentBrokerZipSha256
 )
 
 $ErrorActionPreference = 'Stop'
@@ -74,12 +77,50 @@ function Invoke-Git([string[]]$GitArgs, [string]$What) {
     }
     finally { $ErrorActionPreference = $previous }
 }
+function Invoke-ModulePayloadCommit([string]$Repository, [string]$ZipRelativePath,
+    [string]$Subject, [string]$Body) {
+    $paths = @($ZipRelativePath, 'modules-dist/modules.json')
+    $null = Invoke-Git (@('-C', $Repository, 'add', '--') + $paths) 'git add payload'
+    $changes = @(Invoke-Git (@('-C', $Repository, 'diff', '--cached', '--name-only', '--') + $paths) 'git diff payload')
+    if ($changes.Count -eq 0) { return $false }
+    # --only commits these worktree paths and leaves every unrelated index entry intact.
+    $null = Invoke-Git (@('-C', $Repository, 'commit', '--only', '-q', '-m', $Subject, '-m', $Body, '--') + $paths) 'git commit payload'
+    return $true
+}
 $moduleId = $ModuleId.ToLowerInvariant()
+# Refuse before parser builds, ZIP writes, catalog changes or Git mutations.
+if ($moduleId -ceq 'agentbroker') {
+    if (-not $SkipBuild) { throw 'AGENTBROKER_EXPLICIT_RELEASE_BUILD_REQUIRED: run AgentBrokerReleaseProvenance.ps1 Prepare then Build, accept that exact output/ZIP, then publish with -SkipBuild and pinned receipt/ZIP hashes.' }
+    if ($Configuration -cne 'Release' -or -not $AgentBrokerOutputReceipt -or
+        $AgentBrokerOutputReceiptSha256 -cnotmatch '^[A-F0-9]{64}\z' -or $ExpectedAgentBrokerZipSha256 -cnotmatch '^[A-Fa-f0-9]{64}\z') {
+        throw 'AGENTBROKER_ACCEPTED_OUTPUT_REQUIRED: supply -AgentBrokerOutputReceipt, -AgentBrokerOutputReceiptSha256 and -ExpectedAgentBrokerZipSha256 from the accepted Release candidate.'
+    }
+    $ExpectedAgentBrokerZipSha256 = $ExpectedAgentBrokerZipSha256.ToUpperInvariant()
+} elseif ($AgentBrokerOutputReceipt -or $AgentBrokerOutputReceiptSha256 -or $ExpectedAgentBrokerZipSha256) {
+    throw 'AGENTBROKER_BINDING_ARGUMENTS_WRONG_MODULE'
+}
 $distDir = Join-Path $repoRoot 'modules-dist'
 $zipPath = Join-Path $distDir ($moduleId + '.zip')
 $zipRelPath = 'modules-dist/' + $moduleId + '.zip'
 $manifestPath = Join-Path $distDir 'modules.json'
 $outputDir = Join-Path $repoRoot ("build\DesktopAICompanionPortable\bin\$Configuration\x64\modules\" + $moduleId)
+
+function Assert-AgentBrokerPublishAuthority([string]$ZipToVerify = '') {
+    $identityPaths = & {
+        param($Receipt, $ReceiptHash, $Directory, $ZipPath, $ZipHash, $Library)
+        . $Library -Mode Library
+        # ReleaseOutput also checks operational newModulePublishSha256 / newModuleDistZipSha256.
+        $output = Test-AgentBrokerReleaseOutput $Receipt $ReceiptHash $Directory
+        if ($ZipPath) { Assert-AgentBrokerReleaseZip $ZipPath $output $ZipHash }
+        $identityManifest = Join-Path (Get-ABPOutputRoot) ($output.sourceContentSha256 + '.json')
+        $identity = Read-AgentBrokerReleaseManifest $identityManifest $output.sourceContentSha256 $output.parentCommit ''
+        @($identity.identity.sources | ForEach-Object { [string]$_.path })
+    } $AgentBrokerOutputReceipt $AgentBrokerOutputReceiptSha256 $outputDir $ZipToVerify $ExpectedAgentBrokerZipSha256 (Join-Path $PSScriptRoot 'AgentBrokerReleaseProvenance.ps1')
+    $guardPaths = @($identityPaths) + @('packaging/New-ModulePublish.ps1', 'packaging/New-ModuleDistZip.ps1')
+    $literalPaths = @($guardPaths | ForEach-Object { ':(literal)' + $_ })
+    $dirty = @(Invoke-Git (@('-C', $repoRoot, 'status', '--porcelain', '--untracked-files=all', '--ignored=matching', '--') + $literalPaths) 'git status provenance source')
+    if ($dirty.Count -ne 0) { throw 'PROVENANCE_SOURCE_UNCOMMITTED' }
+}
 
 # ---- locate the module's source folder (PascalCase on disk, lowercase id) ----
 $moduleDir = Get-ChildItem -LiteralPath (Join-Path $repoRoot 'modules') -Directory |
@@ -254,7 +295,7 @@ if (-not $SkipBuild) {
     Write-Host '=== build' -ForegroundColor Cyan
     $csproj = Get-ChildItem -LiteralPath $moduleDir.FullName -Filter '*.csproj' -File | Select-Object -First 1
     if (-not $csproj) { throw "No .csproj in $($moduleDir.FullName)." }
-    & dotnet build $csproj.FullName -c $Configuration -v minimal --nologo
+    & dotnet build $csproj.FullName -c $Configuration --no-incremental -v minimal --nologo -p:EnableSourceLink=false -p:EmbedUntrackedSources=false -p:EmbedAllSources=false
     if ($LASTEXITCODE -ne 0) { throw 'The module did not build.' }
 }
 if (-not (Test-Path -LiteralPath $outputDir -PathType Container)) {
@@ -264,8 +305,14 @@ if (-not (Test-Path -LiteralPath $outputDir -PathType Container)) {
 # ---- 2. zip ----
 Write-Host ''
 Write-Host '=== zip the payload' -ForegroundColor Cyan
-$zip = & (Join-Path $PSScriptRoot 'New-ModuleDistZip.ps1') `
-    -ModuleId $moduleId -SourceDirectory $outputDir -DestinationPath $zipPath
+$zipArguments = @{ ModuleId=$moduleId; SourceDirectory=$outputDir; DestinationPath=$zipPath }
+if ($moduleId -ceq 'agentbroker') {
+    Assert-AgentBrokerPublishAuthority
+    $zipArguments.AgentBrokerOutputReceipt = $AgentBrokerOutputReceipt
+    $zipArguments.AgentBrokerOutputReceiptSha256 = $AgentBrokerOutputReceiptSha256
+    $zipArguments.ExpectedAgentBrokerZipSha256 = $ExpectedAgentBrokerZipSha256
+}
+$zip = & (Join-Path $PSScriptRoot 'New-ModuleDistZip.ps1') @zipArguments
 Write-Host ("  {0}  ({1:N0} bytes, sha256 {2})" -f $zipRelPath, $zip.Bytes, $zip.Sha256.Substring(0, 16))
 
 # ---- 3. register in modules.json ----
@@ -400,8 +447,9 @@ Write-Host ''
 Write-Host '=== commit the payload' -ForegroundColor Cyan
 Push-Location $repoRoot
 try {
+    # Manual-commit and Commit flows verify the same accepted output/ZIP/source authority.
+    if ($moduleId -ceq 'agentbroker') { Assert-AgentBrokerPublishAuthority $zipPath }
     if ($Commit) {
-        Invoke-Git @('add', '--', $zipRelPath, 'modules-dist/modules.json') 'git add'
         # The exact PowerShell version goes in the body, so a catalog hash that moves on a republish with
         # no content change can be attributed to the runtime: System.IO.Compression's deflate output
         # differs between .NET 8, 9 and 10, i.e. between pwsh 7.4, 7.5 and 7.6 (F213). The subject keeps
@@ -417,23 +465,17 @@ try {
         if ($publishBody -match '\{\d+\}') {
             throw "The publish commit body still carries a format placeholder, so the PowerShell version would not be recorded: $publishBody"
         }
+
         # THE TWO PATHS THIS SCRIPT WROTE, AND ONLY WHEN THEY CHANGED (N-audit-1106-263). A bare `git commit`
         # commits the whole index, so anything the publisher had already staged landed inside
-        # 'chore(modules): publish <id> <ver>'; the pathspec after `--` commits these two and leaves every
-        # other staged path staged. And a re-run after step 5 failed rebuilds the same deterministic zip and
-        # manifest, so there was nothing new to commit and `git commit` exited 1 and threw 'git commit failed
-        # (exit 1)', stopping the re-run before the catalog it was re-run for. --name-only exits 0 either way,
-        # so the question goes through Invoke-Git without an exit-code special case.
-        $publishPaths = @($zipRelPath, 'modules-dist/modules.json')
-        $publishStaged = @(Invoke-Git (@('diff', '--cached', '--name-only', '--') + $publishPaths) 'git diff --cached')
-        if ($publishStaged.Count -eq 0) {
-            Write-Host '  nothing new to commit: the zip and modules.json already match HEAD.'
-        }
-        else {
-            Invoke-Git (@('commit', '-q', '-m', ("chore(modules): publish {0} {1}" -f $moduleId, $version),
-                          '-m', $publishBody, '--') + $publishPaths) 'git commit'
-            Write-Host '  committed.'
-        }
+        # 'chore(modules): publish <id> <ver>'; Invoke-ModulePayloadCommit stages and commits these two paths
+        # with `--only` and leaves every other staged path staged. And a re-run after step 5 failed rebuilds the
+        # same deterministic zip and manifest, so there was nothing new to commit and `git commit` exited 1 and
+        # threw 'git commit failed (exit 1)', stopping the re-run before the catalog it was re-run for; the
+        # function asks `git diff --cached --name-only` first (it exits 0 either way) and returns $false when
+        # nothing changed. tests\Test-ModulePublishCommit.ps1 runs it against a synthetic repository.
+        $committed = Invoke-ModulePayloadCommit $repoRoot $zipRelPath ("chore(modules): publish {0} {1}" -f $moduleId, $version) $publishBody
+        Write-Host $(if ($committed) { '  committed.' } else { '  payload already committed; continuing to the catalog.' })
     }
 
     # Whether or not we committed, the catalog may only be generated from a committed, up-to-date blob.

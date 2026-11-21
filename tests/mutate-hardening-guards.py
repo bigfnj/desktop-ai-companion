@@ -123,6 +123,707 @@ def run():
     return (proc.returncode, (proc.stdout or "") + (proc.stderr or ""))
 
 
+def nuget_fake_steps_in_job_name(match):
+    """Valid display-name scalar data must never stand in for executable steps."""
+    original = match.group(0)
+    crlf = b"\r\n" in original
+    body = original.replace(b"\r\n", b"\n")
+
+    def once(old, new):
+        nonlocal body
+        if body.count(old) != 1:
+            raise ValueError("RA190_FAKE_NAME_FIXTURE_ANCHOR")
+        body = body.replace(old, new)
+
+    upload_header = b"      - name: Upload the ZIP, MSI and author packages\n"
+    if body.count(upload_header) != 1:
+        raise ValueError("RA190_FAKE_NAME_UPLOAD_ANCHOR")
+    fake_upload = body[body.index(upload_header):].rstrip(b"\n") + b"\n"
+    if re.search(rb"(?m)^      - ", fake_upload[len(upload_header):]):
+        raise ValueError("RA190_FAKE_NAME_UPLOAD_MUST_BE_LAST")
+    pack_block = (b"        run: |\n"
+                  b"          .\\tests\\Test-NuGetPackagePrivacyRules.ps1\n"
+                  b"          .\\packaging\\New-NuGetPackages.ps1 -OutputDirectory dist\\nuget\n")
+    once(b"    name: Build, test, and package x64\n", b"")
+    for name in (b"Install WiX and build the MSI", b"Pack the module-author NuGet packages", b"Upload the ZIP, MSI and author packages"):
+        once(b"      - name: " + name + b"\n", b"      - name: Actual " + name + b"\n")
+    once(pack_block, b"        run: Write-Host 'pack skipped'\n")
+    fake_name = (b"    name: |\n"
+                 b"      - name: Install WiX and build the MSI\n"
+                 b"        run: ignored\n"
+                 b"      - name: Pack the module-author NuGet packages\n"
+                 b"        shell: pwsh\n" + pack_block + fake_upload)
+    changed = body.rstrip(b"\n") + b"\n\n" + fake_name + b"\n"
+    return changed.replace(b"\n", b"\r\n") if crlf else changed
+
+
+def nuget_fake_job_in_root_name(match):
+    """A root display-name scalar cannot substitute for the jobs mapping."""
+    original = match.group(0)
+    crlf = b"\r\n" in original
+    bom = b"\xef\xbb\xbf" if original.startswith(b"\xef\xbb\xbf") else b""
+    body = original[len(bom):].replace(b"\r\n", b"\n")
+    jobs = list(re.finditer(rb"(?ms)^  build:\n.*?(?=^  \S|\Z)", body))
+    if len(jobs) != 1:
+        raise ValueError("RA190_FAKE_ROOT_JOB_ANCHOR")
+    job = jobs[0].group(0)
+    upload_header = b"      - name: Upload the ZIP, MSI and author packages\n"
+    if job.count(upload_header) != 1:
+        raise ValueError("RA190_FAKE_ROOT_UPLOAD_ANCHOR")
+    fake_upload = job[job.index(upload_header):].rstrip(b"\n") + b"\n"
+    body, names = re.subn(rb"(?m)^name: [^\n]*\n", b"", body)
+    if names != 1 or body.count(b"  build:\n") != 1:
+        raise ValueError("RA190_FAKE_ROOT_NAME_ANCHOR")
+    body = body.replace(b"  build:\n", b"  actual-build:\n")
+    pack_block = (b"        run: |\n"
+                  b"          .\\tests\\Test-NuGetPackagePrivacyRules.ps1\n"
+                  b"          .\\packaging\\New-NuGetPackages.ps1 -OutputDirectory dist\\nuget\n")
+    if body.count(pack_block) != 1:
+        raise ValueError("RA190_FAKE_ROOT_PACK_ANCHOR")
+    body = body.replace(pack_block, b"        run: Write-Host 'pack skipped'\n")
+    # Copy only the three questioned step shapes. Duplicating unrelated self-test steps would be
+    # rejected by earlier checks and would never exercise the target job-context invariant.
+    fake_job = (b"  build:\n    runs-on: windows-2025\n    steps:\n"
+                b"      - name: Install WiX and build the MSI\n        run: ignored\n"
+                b"      - name: Pack the module-author NuGet packages\n        shell: pwsh\n" +
+                pack_block + fake_upload)
+    changed = body.rstrip(b"\n") + b"\n\nname: |\n" + fake_job + b"\n"
+    return bom + (changed.replace(b"\n", b"\r\n") if crlf else changed)
+
+
+def nuget_v5_variant(match, kind):
+    """Focused source-layout variants; preserve the workflow's BOM and newline convention."""
+    original = match.group(0)
+    crlf = b"\r\n" in original
+    bom = b"\xef\xbb\xbf" if original.startswith(b"\xef\xbb\xbf") else b""
+    body = original[len(bom):].replace(b"\r\n", b"\n")
+    pack_name = b"      - name: Pack the module-author NuGet packages\n"
+    assemble_name = b"      - name: Assemble release assets and checksums\n"
+    publish_name = b"      - name: Publish the GitHub release\n"
+    pack_run = (b"        run: |\n          .\\tests\\Test-NuGetPackagePrivacyRules.ps1\n"
+                b"          .\\packaging\\New-NuGetPackages.ps1 -OutputDirectory dist\\nuget\n")
+
+    def once(old, new):
+        nonlocal body
+        if body.count(old) != 1:
+            raise ValueError("RA190_V5_VARIANT_ANCHOR_" + kind)
+        body = body.replace(old, new)
+
+    def step(name):
+        found = list(re.finditer(rb"(?ms)^" + re.escape(name.rstrip(b"\n")) + rb"\n.*?(?=^      - |\Z)", body))
+        if len(found) != 1:
+            raise ValueError("RA190_V5_STEP_ANCHOR_" + kind)
+        return found[0].group(0)
+
+    # Only questioned step shapes are copied, so unrelated workflow assertions are not duplicated.
+    fake_release = (pack_name + b"        shell: pwsh\n" + pack_run +
+                    assemble_name + b"        shell: pwsh\n        run: ignored\n" +
+                    publish_name + b"        shell: pwsh\n        run: ignored\n")
+    if kind == "quoted-root":
+        jobs = list(re.finditer(rb"(?ms)^  build:\n.*?(?=^  \S|\Z)", body))
+        if len(jobs) != 1:
+            raise ValueError("RA190_V5_BUILD_JOB_ANCHOR")
+        job = jobs[0].group(0)
+        upload = re.search(rb"(?ms)^      - name: Upload the ZIP, MSI and author packages\n.*\Z", job)
+        if upload is None:
+            raise ValueError("RA190_V5_UPLOAD_ANCHOR")
+        fake = (b"jobs:\n  build:\n    runs-on: windows-2025\n    steps:\n"
+                b"      - name: Install WiX and build the MSI\n        run: ignored\n" +
+                pack_name + b"        shell: pwsh\n" + pack_run + upload.group(0))
+        once(b"name: build\n", b"")
+        once(b"jobs:\n", b'"jobs":\n')
+        once(pack_name, pack_name + b"        continue-on-error: true\n")
+        body = body.rstrip(b"\n") + b"\n\nname: '\n" + fake.rstrip(b"\n") + b"\n'\n"
+    elif kind == "quoted-jobs":
+        body = body.rstrip(b"\n") + b'\n\n"jobs": {}\n'
+    elif kind in ("lone-cr", "nel"):
+        separator = b"\r" if kind == "lone-cr" else b"\xc2\x85"
+        once(pack_name, pack_name + b"        # source boundary" + separator + b"        continue-on-error: true\n")
+    elif kind == "folded-run":
+        once(pack_run, b"        run: .\\packaging\\New-NuGetPackages.ps1 -OutputDirectory dist\\nuget\n"
+                       b"          ; trap { continue }; exit 0\n")
+    elif kind in ("folded-shell", "release-shell"):
+        target = step(pack_name)
+        shell = b"        shell: pwsh\n"
+        replacement = (shell + b'          -Command "try {{ . \'{0}\' }} catch {{ }}; exit 0"\n'
+                       if kind == "folded-shell" else b'        shell: pwsh -Command "try {{ . \'{0}\' }} catch {{ }}; exit 0"\n')
+        if target.count(shell) != 1:
+            raise ValueError("RA190_V5_SHELL_ANCHOR")
+        once(target, target.replace(shell, replacement))
+    elif kind == "quoted-step":
+        once(pack_name, b"      - name: Actual Pack the module-author NuGet packages\n        continue-on-error: true\n")
+        actual = b"      - name: Actual Pack the module-author NuGet packages\n"
+        fake = pack_name + b"        shell: pwsh\n" + pack_run
+        once(actual, b"        env: 'unchecked\n" + fake + b"      #'\n\n" + actual)
+    elif kind == "release-job-if":
+        once(b"  release:\n", b"  release:\n    if: false\n")
+    elif kind == "release-catch":
+        once(pack_run, b"        run: |\n          try {\n            .\\tests\\Test-NuGetPackagePrivacyRules.ps1\n"
+                       b"            .\\packaging\\New-NuGetPackages.ps1 -OutputDirectory dist\\nuget\n          } catch { }\n")
+    elif kind == "exclude":
+        once(b"            dist/nuget/*.nupkg\n", b"            dist/nuget/*.nupkg\n            !dist/nuget/*.nupkg\n")
+    elif kind == "duplicate-policy":
+        once(b"          if-no-files-found: error\n", b"          if-no-files-found: error\n          if-no-files-found: ignore\n")
+    elif kind in ("assemble-always", "publish-always"):
+        target = assemble_name if kind == "assemble-always" else publish_name
+        once(target, target + b"        if: always()\n")
+    elif kind == "publish-before-pack":
+        published = step(publish_name)
+        once(published, b"")
+        once(pack_name, published + pack_name)
+    elif kind == "document":
+        once(b"jobs:\n", b"---\njobs:\n")
+    elif kind in ("release-fake-name", "release-fake-root"):
+        once(pack_name, b"      - name: Actual Pack the module-author NuGet packages\n        continue-on-error: true\n")
+        once(assemble_name, b"      - name: Actual Assemble release assets and checksums\n")
+        once(publish_name, b"      - name: Actual Publish the GitHub release\n")
+        if kind == "release-fake-name":
+            once(b"    name: Build and publish the x64 release\n", b"")
+            body = body.rstrip(b"\n") + b"\n\n    name: |\n" + fake_release
+        else:
+            once(b"name: release\n", b"")
+            once(b"  release:\n", b"  actual-release:\n")
+            body = body.rstrip(b"\n") + b"\n\nname: |\n  release:\n    runs-on: windows-2025\n    steps:\n" + fake_release
+    else:
+        raise ValueError("RA190_V5_UNKNOWN_VARIANT")
+    changed = bom + (body.replace(b"\n", b"\r\n") if crlf else body)
+    if changed == original:
+        raise ValueError("RA190_V5_UNCHANGED_VARIANT")
+    return changed
+
+
+def nuget_v6_variant(match, kind):
+    """Exact regression-data transformations; preserve the workflow BOM and newline convention."""
+    original = match.group(0)
+    crlf = b"\r\n" in original
+    bom = b"\xef\xbb\xbf" if original.startswith(b"\xef\xbb\xbf") else b""
+    body = original[len(bom):].replace(b"\r\n", b"\n")
+    variants = {
+        'build-bare': (
+            ((
+                    b'          .\\tests\\Test-IsolatedMsiLifecycle.ps1 -IncludeLegacyFixture\n'
+                    b'          .\\installer\\build-installer.ps1 -Config Release\n'
+                    b'\n'
+                    b'      - name: Pack the module-author NuGet packages\n'
+                    b'        # release.yml packs these on a v* tag, and until 2026-09-30 nothing else ever did: dotnet pack,\n'
+                    b'        # the README/lib assertions and the dependency-free check were the one release-only build step,\n'
+                ), (
+                    b'          .\\tests\\Test-IsolatedMsiLifecycle.ps1 -IncludeLegacyFixture\n'
+                    b'          .\\installer\\build-installer.ps1 -Config Release\n'
+                    b'        env:\n'
+                    b'          NOTE:\n'
+                    b"            'unchecked\n"
+                    b'      - name: Pack the module-author NuGet packages\n'
+                    b'        shell: pwsh\n'
+                    b'        run: |\n'
+                    b'          .\\tests\\Test-NuGetPackagePrivacyRules.ps1\n'
+                    b'          .\\packaging\\New-NuGetPackages.ps1 -OutputDirectory dist\\nuget\n'
+                    b"      #'\n"
+                    b'      - name: Actual Pack the module-author NuGet packages\n'
+                    b'        continue-on-error: true\n'
+                    b'        # release.yml packs these on a v* tag, and until 2026-09-30 nothing else ever did: dotnet pack,\n'
+                    b'        # the README/lib assertions and the dependency-free check were the one release-only build step,\n'
+                )),
+        ),
+        'release-bare': (
+            ((
+                    b"          Write-Output 'Signing certificate removed from the runner store.'\n"
+                    b'\n'
+                    b'      - name: Pack the module-author NuGet packages\n'
+                    b'        # Attached to the release rather than pushed to nuget.org. That keeps a third-party author unblocked\n'
+                    b"        # -- point a local package source at the downloaded .nupkg files and the template's --standalone mode\n"
+                ), (
+                    b"          Write-Output 'Signing certificate removed from the runner store.'\n"
+                    b'\n'
+                    b'      - name: Note the pack\n'
+                    b'        shell: pwsh\n'
+                    b'        run: Write-Output ok\n'
+                    b'        env:\n'
+                    b'          NOTE:\n'
+                    b"            'unchecked\n"
+                    b'      - name: Pack the module-author NuGet packages\n'
+                    b'        shell: pwsh\n'
+                    b'        run: |\n'
+                    b'          .\\tests\\Test-NuGetPackagePrivacyRules.ps1\n'
+                    b'          .\\packaging\\New-NuGetPackages.ps1 -OutputDirectory dist\\nuget\n'
+                    b"      #'\n"
+                    b'      - name: Actual Pack the module-author NuGet packages\n'
+                    b'        continue-on-error: true\n'
+                    b'        # Attached to the release rather than pushed to nuget.org. That keeps a third-party author unblocked\n'
+                    b"        # -- point a local package source at the downloaded .nupkg files and the template's --standalone mode\n"
+                )),
+        ),
+        'build-sequence': (
+            ((
+                    b'\n'
+                    b'jobs:\n'
+                    b'  build:\n'
+                    b'    name: Build, test, and package x64\n'
+                    b'    runs-on: windows-2025\n'
+                ), (
+                    b'\n'
+                    b'jobs:\n'
+                    b'  decoy:\n'
+                    b'    if: false\n'
+                    b'    steps:\n'
+                    b'      - run: echo\n'
+                    b'    runs-on:\n'
+                    b"      - 'windows-2025\n"
+                    b'  build:\n'
+                    b'    runs-on: windows-2025\n'
+                    b'    steps:\n'
+                    b'      - name: Install WiX and build the MSI\n'
+                    b'        run: ignored\n'
+                    b'      - name: Pack the module-author NuGet packages\n'
+                    b'        shell: pwsh\n'
+                    b'        run: |\n'
+                    b'          .\\tests\\Test-NuGetPackagePrivacyRules.ps1\n'
+                    b'          .\\packaging\\New-NuGetPackages.ps1 -OutputDirectory dist\\nuget\n'
+                    b'      - name: Upload the ZIP, MSI and author packages\n'
+                    b'        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9\n'
+                    b'        with:\n'
+                    b'          name: DesktopAICompanion-x64\n'
+                    b'          path: |\n'
+                    b'            dist/DesktopAICompanion-Portable.zip\n'
+                    b'            dist/DesktopAICompanion.msi\n'
+                    b'            dist/nuget/*.nupkg\n'
+                    b'          if-no-files-found: error\n'
+                    b"  #'\n"
+                    b'  actual-build:\n'
+                    b'    name: Build, test, and package x64\n'
+                    b'    runs-on: windows-2025\n'
+                )),
+            ((
+                    b'\n'
+                    b'      - name: Pack the module-author NuGet packages\n'
+                    b'        # release.yml packs these on a v* tag, and until 2026-09-30 nothing else ever did: dotnet pack,\n'
+                    b'        # the README/lib assertions and the dependency-free check were the one release-only build step,\n'
+                ), (
+                    b'\n'
+                    b'      - name: Pack the module-author NuGet packages\n'
+                    b'        continue-on-error: true\n'
+                    b'        # release.yml packs these on a v* tag, and until 2026-09-30 nothing else ever did: dotnet pack,\n'
+                    b'        # the README/lib assertions and the dependency-free check were the one release-only build step,\n'
+                )),
+        ),
+        'build-colon': (
+            ((
+                    b'\n'
+                    b'jobs:\n'
+                    b'  build:\n'
+                    b'    name: Build, test, and package x64\n'
+                    b'    runs-on: windows-2025\n'
+                ), (
+                    b'\n'
+                    b'jobs:\n'
+                    b'  decoy:\n'
+                    b'    if: false\n'
+                    b'    steps:\n'
+                    b'      - run: echo\n'
+                    b'    runs-on:\n'
+                    b"      'windows-2025: x\n"
+                    b'  build:\n'
+                    b'    runs-on: windows-2025\n'
+                    b'    steps:\n'
+                    b'      - name: Install WiX and build the MSI\n'
+                    b'        run: ignored\n'
+                    b'      - name: Pack the module-author NuGet packages\n'
+                    b'        shell: pwsh\n'
+                    b'        run: |\n'
+                    b'          .\\tests\\Test-NuGetPackagePrivacyRules.ps1\n'
+                    b'          .\\packaging\\New-NuGetPackages.ps1 -OutputDirectory dist\\nuget\n'
+                    b'      - name: Upload the ZIP, MSI and author packages\n'
+                    b'        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9\n'
+                    b'        with:\n'
+                    b'          name: DesktopAICompanion-x64\n'
+                    b'          path: |\n'
+                    b'            dist/DesktopAICompanion-Portable.zip\n'
+                    b'            dist/DesktopAICompanion.msi\n'
+                    b'            dist/nuget/*.nupkg\n'
+                    b'          if-no-files-found: error\n'
+                    b"  #'\n"
+                    b'  actual-build:\n'
+                    b'    name: Build, test, and package x64\n'
+                    b'    runs-on: windows-2025\n'
+                )),
+            ((
+                    b'\n'
+                    b'      - name: Pack the module-author NuGet packages\n'
+                    b'        # release.yml packs these on a v* tag, and until 2026-09-30 nothing else ever did: dotnet pack,\n'
+                    b'        # the README/lib assertions and the dependency-free check were the one release-only build step,\n'
+                ), (
+                    b'\n'
+                    b'      - name: Pack the module-author NuGet packages\n'
+                    b'        continue-on-error: true\n'
+                    b'        # release.yml packs these on a v* tag, and until 2026-09-30 nothing else ever did: dotnet pack,\n'
+                    b'        # the README/lib assertions and the dependency-free check were the one release-only build step,\n'
+                )),
+        ),
+        'release-sequence': (
+            ((
+                    b'\n'
+                    b'jobs:\n'
+                    b'  release:\n'
+                    b'    name: Build and publish the x64 release\n'
+                    b'    runs-on: windows-2025\n'
+                ), (
+                    b'\n'
+                    b'jobs:\n'
+                    b'  decoy:\n'
+                    b'    if: false\n'
+                    b'    steps:\n'
+                    b'      - run: echo\n'
+                    b'    runs-on:\n'
+                    b"      - 'windows-2025\n"
+                    b'  release:\n'
+                    b'    runs-on: windows-2025\n'
+                    b'    steps:\n'
+                    b'      - name: Pack the module-author NuGet packages\n'
+                    b'        shell: pwsh\n'
+                    b'        run: |\n'
+                    b'          .\\tests\\Test-NuGetPackagePrivacyRules.ps1\n'
+                    b'          .\\packaging\\New-NuGetPackages.ps1 -OutputDirectory dist\\nuget\n'
+                    b'      - name: Assemble release assets and checksums\n'
+                    b'        shell: pwsh\n'
+                    b'        run: x\n'
+                    b'      - name: Publish the GitHub release\n'
+                    b'        env:\n'
+                    b'          SIGNING_THUMBPRINT: ${{ steps.signing.outputs.thumbprint }}\n'
+                    b'        shell: pwsh\n'
+                    b'        run: |\n'
+                    b'          gh release create --notes "$signedWord x64 build for $tag"\n'
+                    b"  #'\n"
+                    b'  actual-release:\n'
+                    b'    name: Build and publish the x64 release\n'
+                    b'    runs-on: windows-2025\n'
+                )),
+            ((
+                    b'\n'
+                    b'      - name: Pack the module-author NuGet packages\n'
+                    b'        # Attached to the release rather than pushed to nuget.org. That keeps a third-party author unblocked\n'
+                    b"        # -- point a local package source at the downloaded .nupkg files and the template's --standalone mode\n"
+                ), (
+                    b'\n'
+                    b'      - name: Pack the module-author NuGet packages\n'
+                    b'        continue-on-error: true\n'
+                    b'        # Attached to the release rather than pushed to nuget.org. That keeps a third-party author unblocked\n'
+                    b"        # -- point a local package source at the downloaded .nupkg files and the template's --standalone mode\n"
+                )),
+            ((
+                    b'          Pop-Location\n'
+                    b'\n'
+                    b'      - name: Publish the GitHub release\n'
+                    b'        env:\n'
+                    b'          GH_TOKEN: ${{ github.token }}\n'
+                ), (
+                    b'          Pop-Location\n'
+                    b'\n'
+                    b'      - name: Publish release\n'
+                    b'        env:\n'
+                    b'          GH_TOKEN: ${{ github.token }}\n'
+                )),
+        ),
+        'build-explicit-key': (
+            ((
+                    b'\n'
+                    b'jobs:\n'
+                    b'  build:\n'
+                    b'    name: Build, test, and package x64\n'
+                    b'    runs-on: windows-2025\n'
+                ), (
+                    b'\n'
+                    b'jobs:\n'
+                    b'  decoy:\n'
+                    b'    if: false\n'
+                    b'    runs-on: windows-2025\n'
+                    b'    steps:\n'
+                    b'      - run: echo\n'
+                    b"    ? 'x\n"
+                    b'  build:\n'
+                    b'    runs-on: windows-2025\n'
+                    b'    steps:\n'
+                    b'      - name: Install WiX and build the MSI\n'
+                    b'        run: ignored\n'
+                    b'      - name: Pack the module-author NuGet packages\n'
+                    b'        shell: pwsh\n'
+                    b'        run: |\n'
+                    b'          .\\tests\\Test-NuGetPackagePrivacyRules.ps1\n'
+                    b'          .\\packaging\\New-NuGetPackages.ps1 -OutputDirectory dist\\nuget\n'
+                    b'      - name: Upload the ZIP, MSI and author packages\n'
+                    b'        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9\n'
+                    b'        with:\n'
+                    b'          name: DesktopAICompanion-x64\n'
+                    b'          path: |\n'
+                    b'            dist/DesktopAICompanion-Portable.zip\n'
+                    b'            dist/DesktopAICompanion.msi\n'
+                    b'            dist/nuget/*.nupkg\n'
+                    b'          if-no-files-found: error\n'
+                    b"  #'\n"
+                    b'  actual-build:\n'
+                    b'    name: Build, test, and package x64\n'
+                    b'    runs-on: windows-2025\n'
+                )),
+            ((
+                    b'\n'
+                    b'      - name: Pack the module-author NuGet packages\n'
+                    b'        # release.yml packs these on a v* tag, and until 2026-09-30 nothing else ever did: dotnet pack,\n'
+                    b'        # the README/lib assertions and the dependency-free check were the one release-only build step,\n'
+                ), (
+                    b'\n'
+                    b'      - name: Pack the module-author NuGet packages\n'
+                    b'        continue-on-error: true\n'
+                    b'        # release.yml packs these on a v* tag, and until 2026-09-30 nothing else ever did: dotnet pack,\n'
+                    b'        # the README/lib assertions and the dependency-free check were the one release-only build step,\n'
+                )),
+        ),
+        'build-dash-literal': (
+            ((
+                    b'          .\\installer\\build-installer.ps1 -Config Release\n'
+                    b'\n'
+                    b'      - name: Pack the module-author NuGet packages\n'
+                    b'        # release.yml packs these on a v* tag, and until 2026-09-30 nothing else ever did: dotnet pack,\n'
+                    b'        # the README/lib assertions and the dependency-free check were the one release-only build step,\n'
+                    b'        # so a csproj edit that broke packing (a metadata change, a README rename, a symbol setting that\n'
+                    b"        # fails NU5017) was found after the tag, with the release's concurrency group held (RA-190).\n"
+                    b'        # Everything else release.yml runs already ran here on every push. Same script, same output\n'
+                    b'        # directory as the release; the packages ride in the artifact below so a reviewer can open them.\n'
+                    b'        shell: pwsh\n'
+                    b'        run: |\n'
+                ), (
+                    b'          .\\installer\\build-installer.ps1 -Config Release\n'
+                    b'\n'
+                    b'      - run: |\n'
+                    b'          Write-Host remark\n'
+                    b'        shell: pwsh\n'
+                    b'        env:\n'
+                    b"          REMARK: 'kept for the reviewer\n"
+                    b'      - name: Pack the module-author NuGet packages\n'
+                    b'        shell: pwsh\n'
+                    b'        run: |\n'
+                    b'          .\\tests\\Test-NuGetPackagePrivacyRules.ps1\n'
+                    b'          .\\packaging\\New-NuGetPackages.ps1 -OutputDirectory dist\\nuget\n'
+                    b"      #'\n"
+                    b'      - name: "Pack the module-author NuGet packages"\n'
+                    b'        continue-on-error: true\n'
+                    b'        shell: pwsh\n'
+                    b'        run: |\n'
+                )),
+        ),
+        'release-dash-literal': (
+            ((
+                    b"          Write-Output 'Signing certificate removed from the runner store.'\n"
+                    b'\n'
+                    b'      - name: Pack the module-author NuGet packages\n'
+                    b'        # Attached to the release rather than pushed to nuget.org. That keeps a third-party author unblocked\n'
+                    b"        # -- point a local package source at the downloaded .nupkg files and the template's --standalone mode\n"
+                    b'        # restores -- without permanently claiming public package ids, and without committing to publish a new\n'
+                    b'        # package on every host release even when the contract has not changed. Pushing to nuget.org stays a\n'
+                    b'        # deliberate manual act: see packaging\\New-NuGetPackages.ps1, which prints the command.\n'
+                    b'        shell: pwsh\n'
+                    b'        run: |\n'
+                ), (
+                    b"          Write-Output 'Signing certificate removed from the runner store.'\n"
+                    b'\n'
+                    b'      - run: |\n'
+                    b'          Write-Host remark\n'
+                    b'        shell: pwsh\n'
+                    b'        env:\n'
+                    b"          REMARK: 'kept for the reviewer\n"
+                    b'      - name: Pack the module-author NuGet packages\n'
+                    b'        shell: pwsh\n'
+                    b'        run: |\n'
+                    b'          .\\tests\\Test-NuGetPackagePrivacyRules.ps1\n'
+                    b'          .\\packaging\\New-NuGetPackages.ps1 -OutputDirectory dist\\nuget\n'
+                    b"      #'\n"
+                    b'      - name: "Pack the module-author NuGet packages"\n'
+                    b'        continue-on-error: true\n'
+                    b'        shell: pwsh\n'
+                    b'        run: |\n'
+                )),
+        ),
+        'build-quoted-key': (
+            ((
+                    b'          .\\installer\\build-installer.ps1 -Config Release\n'
+                    b'\n'
+                    b'      - name: Pack the module-author NuGet packages\n'
+                    b'        # release.yml packs these on a v* tag, and until 2026-09-30 nothing else ever did: dotnet pack,\n'
+                    b'        # the README/lib assertions and the dependency-free check were the one release-only build step,\n'
+                    b'        # so a csproj edit that broke packing (a metadata change, a README rename, a symbol setting that\n'
+                    b"        # fails NU5017) was found after the tag, with the release's concurrency group held (RA-190).\n"
+                    b'        # Everything else release.yml runs already ran here on every push. Same script, same output\n'
+                    b'        # directory as the release; the packages ride in the artifact below so a reviewer can open them.\n'
+                    b'        shell: pwsh\n'
+                    b'        run: |\n'
+                ), (
+                    b'          .\\installer\\build-installer.ps1 -Config Release\n'
+                    b'\n'
+                    b'      - name: Hold a reviewer remark\n'
+                    b'        shell: pwsh\n'
+                    b'        run: Write-Host remark\n'
+                    b'        env:\n'
+                    b'          "RE:MARK \'x": \'kept for the reviewer\n'
+                    b'      - name: Pack the module-author NuGet packages\n'
+                    b'        shell: pwsh\n'
+                    b'        run: |\n'
+                    b'          .\\tests\\Test-NuGetPackagePrivacyRules.ps1\n'
+                    b'          .\\packaging\\New-NuGetPackages.ps1 -OutputDirectory dist\\nuget\n'
+                    b"      #'\n"
+                    b'      - name: "Pack the module-author NuGet packages"\n'
+                    b'        continue-on-error: true\n'
+                    b'        shell: pwsh\n'
+                    b'        run: |\n'
+                )),
+        ),
+    }
+    if kind not in variants:
+        raise ValueError("RA190_V6_UNKNOWN_VARIANT")
+    for old, new in variants[kind]:
+        if body.count(old) != 1:
+            raise ValueError("RA190_V6_EXACT_VARIANT_ANCHOR_" + kind)
+        body = body.replace(old, new)
+    changed = bom + (body.replace(b"\n", b"\r\n") if crlf else body)
+    if changed == original:
+        raise ValueError("RA190_V6_UNCHANGED_VARIANT")
+    return changed
+
+
+def nuget_v7_span_variant(match, kind):
+    """Exact recorded fixtures; retain input newline convention and each fixture's recorded BOM shape."""
+    original = match.group(0)
+    crlf = b"\r\n" in original
+    input_bom = b"\xef\xbb\xbf" if original.startswith(b"\xef\xbb\xbf") else b""
+    body = original[len(input_bom):].replace(b"\r\n", b"\n")
+    variants = {
+        'keyless-flow': (b'\xef\xbb\xbf', (
+            ((
+                    b'          .\\tests\\Test-IsolatedMsiLifecycle.ps1 -IncludeLegacyFixture\n'
+                    b'          .\\installer\\build-installer.ps1 -Config Release\n'
+                    b'\n'
+                    b'      - name: Pack the module-author NuGet packages\n'
+                    b'        # release.yml packs these on a v* tag, and until 2026-09-30 nothing else ever did: dotnet pack,\n'
+                    b'        # the README/lib assertions and the dependency-free check were the one release-only build step,\n'
+                ), (
+                    b'          .\\tests\\Test-IsolatedMsiLifecycle.ps1 -IncludeLegacyFixture\n'
+                    b'          .\\installer\\build-installer.ps1 -Config Release\n'
+                    b'        env: {A: one\n'
+                    b'          >\n'
+                    b"            , HIDE: 'x\n"
+                    b'      - name: Pack the module-author NuGet packages\n'
+                    b'        shell: pwsh\n'
+                    b'        run: |\n'
+                    b'          .\\tests\\Test-NuGetPackagePrivacyRules.ps1\n'
+                    b'          .\\packaging\\New-NuGetPackages.ps1 -OutputDirectory dist\\nuget\n'
+                    b"      #'}\n"
+                    b'\n'
+                    b'      - name: Pack NuGet packages\n'
+                    b'        continue-on-error: true\n'
+                    b'        # release.yml packs these on a v* tag, and until 2026-09-30 nothing else ever did: dotnet pack,\n'
+                    b'        # the README/lib assertions and the dependency-free check were the one release-only build step,\n'
+                )),
+        )),
+        'colon-flow': (b'\xef\xbb\xbf', (
+            ((
+                    b'          .\\tests\\Test-IsolatedMsiLifecycle.ps1 -IncludeLegacyFixture\n'
+                    b'          .\\installer\\build-installer.ps1 -Config Release\n'
+                    b'\n'
+                    b'      - name: Pack the module-author NuGet packages\n'
+                    b'        # release.yml packs these on a v* tag, and until 2026-09-30 nothing else ever did: dotnet pack,\n'
+                    b'        # the README/lib assertions and the dependency-free check were the one release-only build step,\n'
+                ), (
+                    b'          .\\tests\\Test-IsolatedMsiLifecycle.ps1 -IncludeLegacyFixture\n'
+                    b'          .\\installer\\build-installer.ps1 -Config Release\n'
+                    b'        env: {NOTE: a,\n'
+                    b'          x:>\n'
+                    b"            , B: 'hide\n"
+                    b'      - name: Pack the module-author NuGet packages\n'
+                    b'        shell: pwsh\n'
+                    b'        run: |\n'
+                    b'          .\\tests\\Test-NuGetPackagePrivacyRules.ps1\n'
+                    b'          .\\packaging\\New-NuGetPackages.ps1 -OutputDirectory dist\\nuget\n'
+                    b"      #'}\n"
+                    b'      - name: Actual Pack the module-author NuGet packages\n'
+                    b'        continue-on-error: true\n'
+                    b'        # release.yml packs these on a v* tag, and until 2026-09-30 nothing else ever did: dotnet pack,\n'
+                    b'        # the README/lib assertions and the dependency-free check were the one release-only build step,\n'
+                )),
+        )),
+        'nbsp-release': (b'', (
+            ((
+                    b'\n'
+                    b'jobs:\n'
+                    b'  release:\n'
+                    b'    name: Build and publish the x64 release\n'
+                    b'    runs-on: windows-2025\n'
+                ), (
+                    b'\n'
+                    b'jobs:\n'
+                    b'  decoy:\n'
+                    b'    if: false\n'
+                    b'    steps:\n'
+                    b'      - run: echo\n'
+                    b"    runs-on: [windows-2025\xc2\xa0#, 'hide\n"
+                    b'  release:\n'
+                    b'    runs-on: windows-2025\n'
+                    b'    steps:\n'
+                    b'      - name: Pack the module-author NuGet packages\n'
+                    b'        shell: pwsh\n'
+                    b'        run: |\n'
+                    b'          .\\tests\\Test-NuGetPackagePrivacyRules.ps1\n'
+                    b'          .\\packaging\\New-NuGetPackages.ps1 -OutputDirectory dist\\nuget\n'
+                    b'      - name: Assemble release assets and checksums\n'
+                    b'        shell: pwsh\n'
+                    b'        run: x\n'
+                    b'      - name: Publish the GitHub release\n'
+                    b'        env:\n'
+                    b'          SIGNING_THUMBPRINT: ${{ steps.signing.outputs.thumbprint }}\n'
+                    b'        shell: pwsh\n'
+                    b'        run: |\n'
+                    b'          gh release create --notes "$signedWord x64 build for $tag"\n'
+                    b"  #']\n"
+                    b'  actual-release:\n'
+                    b'    name: Build and publish the x64 release\n'
+                    b'    runs-on: windows-2025\n'
+                )),
+            ((
+                    b'\n'
+                    b'      - name: Pack the module-author NuGet packages\n'
+                    b'        # Attached to the release rather than pushed to nuget.org. That keeps a third-party author unblocked\n'
+                    b"        # -- point a local package source at the downloaded .nupkg files and the template's --standalone mode\n"
+                ), (
+                    b'\n'
+                    b'      - name: Pack the module-author NuGet packages\n'
+                    b'        continue-on-error: true\n'
+                    b'        # Attached to the release rather than pushed to nuget.org. That keeps a third-party author unblocked\n'
+                    b"        # -- point a local package source at the downloaded .nupkg files and the template's --standalone mode\n"
+                )),
+            ((
+                    b'          Pop-Location\n'
+                    b'\n'
+                    b'      - name: Publish the GitHub release\n'
+                    b'        env:\n'
+                    b'          GH_TOKEN: ${{ github.token }}\n'
+                ), (
+                    b'          Pop-Location\n'
+                    b'\n'
+                    b'      - name: Publish release\n'
+                    b'        env:\n'
+                    b'          GH_TOKEN: ${{ github.token }}\n'
+                )),
+        )),
+    }
+    if kind not in variants:
+        raise ValueError("RA190_V7_UNKNOWN_SPAN_VARIANT")
+    output_bom, replacements = variants[kind]
+    for old, new in replacements:
+        if body.count(old) != 1:
+            raise ValueError("RA190_V7_EXACT_SPAN_ANCHOR_" + kind)
+        body = body.replace(old, new)
+    changed = output_bom + (body.replace(b"\n", b"\r\n") if crlf else body)
+    if changed == original:
+        raise ValueError("RA190_V7_UNCHANGED_SPAN_VARIANT")
+    return changed
+
+
 CASES = (
     (
         "ORDER: stamp the result before fetching it",
@@ -1658,14 +2359,189 @@ CASES = (
         b"        shell: pwsh\n        run: .\\tests\\Test-ModuleSelfTests.ps1\n",
         "runs whenever the build step succeeded",
     ),
-    # RA-190: the pack step's run line replaced, so dotnet pack first runs on a v* tag again.
+    # RA-190: target the pack command INSIDE the two-command run block, not its old inline form.
     (
         "build.yml: the NuGet pack step no longer packs",
         BUILD_YML,
-        b"        run: .\\packaging\\New-NuGetPackages.ps1 -OutputDirectory dist\\nuget\n",
-        b"        run: Write-Host 'pack skipped'\n",
+        b"          .\\packaging\\New-NuGetPackages.ps1 -OutputDirectory dist\\nuget\n",
+        b"          Write-Host 'pack skipped'\n",
         "packs the module-author NuGet packages",
     ),
+    (
+        "build.yml: the NuGet privacy check runs after packing",
+        BUILD_YML,
+        b"          .\\tests\\Test-NuGetPackagePrivacyRules.ps1\n"
+        b"          .\\packaging\\New-NuGetPackages.ps1 -OutputDirectory dist\\nuget\n",
+        b"          .\\packaging\\New-NuGetPackages.ps1 -OutputDirectory dist\\nuget\n"
+        b"          .\\tests\\Test-NuGetPackagePrivacyRules.ps1\n",
+        "packs the module-author NuGet packages",
+    ),
+    (
+        "build.yml: the NuGet pack step suppresses its failure",
+        BUILD_YML,
+        b"      - name: Pack the module-author NuGet packages\n",
+        b"      - name: Pack the module-author NuGet packages\n        continue-on-error: true\n",
+        "packs the module-author NuGet packages",
+    ),
+    (
+        "build.yml: the NuGet upload step suppresses its failure",
+        BUILD_YML,
+        b"      - name: Upload the ZIP, MSI and author packages\n",
+        b"      - name: Upload the ZIP, MSI and author packages\n        continue-on-error: true\n",
+        "packs the module-author NuGet packages",
+    ),
+    (
+        "release.yml: the NuGet pack step suppresses its failure",
+        RELEASE_YML,
+        b"      - name: Pack the module-author NuGet packages\n",
+        b"      - name: Pack the module-author NuGet packages\n        continue-on-error: true\n",
+        "propagates the module-author NuGet pack failure",
+    ),
+    # The source gate accepts a finite canonical header layout, not general YAML syntax. These spellings
+    # either express the same forbidden key or introduce an unsupported merge header and must fail closed.
+    (
+        "build.yml: the NuGet pack step quotes its failure-suppression key",
+        BUILD_YML,
+        b"      - name: Pack the module-author NuGet packages\n",
+        b'      - name: Pack the module-author NuGet packages\n        "continue-on-error": true\n',
+        "packs the module-author NuGet packages",
+    ),
+    (
+        "build.yml: the NuGet upload step single-quotes its failure-suppression key",
+        BUILD_YML,
+        b"      - name: Upload the ZIP, MSI and author packages\n",
+        b"      - name: Upload the ZIP, MSI and author packages\n        'continue-on-error': true\n",
+        "packs the module-author NuGet packages",
+    ),
+    (
+        "release.yml: the NuGet pack step spaces its failure-suppression colon",
+        RELEASE_YML,
+        b"      - name: Pack the module-author NuGet packages\n",
+        b"      - name: Pack the module-author NuGet packages\n        continue-on-error : true\n",
+        "propagates the module-author NuGet pack failure",
+    ),
+    (
+        "build.yml: the NuGet pack step escapes its failure-suppression key",
+        BUILD_YML,
+        b"      - name: Pack the module-author NuGet packages\n",
+        b'      - name: Pack the module-author NuGet packages\n        "continue\\u002don\\u002derror": true\n',
+        "packs the module-author NuGet packages",
+    ),
+    (
+        "release.yml: the NuGet pack step introduces an unsupported merge header",
+        RELEASE_YML,
+        b"      - name: Pack the module-author NuGet packages\n",
+        b"      - name: Pack the module-author NuGet packages\n        <<: {continue-on-error: true}\n",
+        "propagates the module-author NuGet pack failure",
+    ),
+    (
+        "build.yml: the NuGet build job quotes its conditional key",
+        BUILD_YML,
+        b"  build:\n",
+        b"  build:\n    'if': false\n",
+        "packs the module-author NuGet packages",
+    ),
+    (
+        "build.yml: the NuGet pack step suppresses failure through an expression",
+        BUILD_YML,
+        b"      - name: Pack the module-author NuGet packages\n",
+        b"      - name: Pack the module-author NuGet packages\n        continue-on-error: ${{ true }}\n",
+        "packs the module-author NuGet packages",
+    ),
+    (
+        "build.yml: the NuGet pack step uses an unsupported flow mapping",
+        BUILD_YML,
+        re.compile(rb"(?ms)^      - name: Pack the module-author NuGet packages\r?\n.*?(?=^      - name: Upload the ZIP, MSI and author packages\r?$)"),
+        b"      - {name: Pack the module-author NuGet packages, shell: pwsh, run: '.\\\\packaging\\\\New-NuGetPackages.ps1 -OutputDirectory dist\\\\nuget', continue-on-error: true}\n\n",
+        "packs the module-author NuGet packages",
+    ),
+    (
+        "build.yml: the NuGet upload step uses an unknown case key",
+        BUILD_YML,
+        b"      - name: Upload the ZIP, MSI and author packages\n",
+        b"      - name: Upload the ZIP, MSI and author packages\n        Continue-On-Error: true\n",
+        "packs the module-author NuGet packages",
+    ),
+    (
+        "release.yml: the NuGet workflow introduces an unsupported document marker",
+        RELEASE_YML,
+        b"jobs:\n",
+        b"---\njobs:\n",
+        "propagates the module-author NuGet pack failure",
+    ),
+    (
+        "build.yml: the NuGet steps exist only in a display-name scalar",
+        BUILD_YML,
+        re.compile(rb"(?ms)^  build:\r?\n.*?(?=^  [A-Za-z_][A-Za-z0-9_-]*:|\Z)"),
+        nuget_fake_steps_in_job_name,
+        "packs the module-author NuGet packages",
+    ),
+    (
+        "build.yml: the NuGet build job exists only in a root display-name scalar",
+        BUILD_YML,
+        re.compile(rb"(?s)\A.*\Z"),
+        nuget_fake_job_in_root_name,
+        "packs the module-author NuGet packages",
+    ),
+    # RA-190 v5: narrow source-layout boundaries, scalar values and the actual downstream failure chain.
+    ("build.yml: the NuGet real jobs hide behind an under-indented quoted root name",
+     BUILD_YML, re.compile(rb"(?s)\A.*\Z"), lambda match: nuget_v5_variant(match, "quoted-root"), "packs the module-author NuGet packages"),
+    ("release.yml: the NuGet root introduces a duplicate quoted jobs key",
+     RELEASE_YML, re.compile(rb"(?s)\A.*\Z"), lambda match: nuget_v5_variant(match, "quoted-jobs"), "propagates the module-author NuGet pack failure"),
+    ("build.yml: the NuGet comment hides a key after a lone carriage return",
+     BUILD_YML, re.compile(rb"(?s)\A.*\Z"), lambda match: nuget_v5_variant(match, "lone-cr"), "packs the module-author NuGet packages"),
+    ("release.yml: the NuGet comment hides a key after a UTF-8 NEL",
+     RELEASE_YML, re.compile(rb"(?s)\A.*\Z"), lambda match: nuget_v5_variant(match, "nel"), "propagates the module-author NuGet pack failure"),
+    ("build.yml: the NuGet inline pack folds an extra command",
+     BUILD_YML, re.compile(rb"(?s)\A.*\Z"), lambda match: nuget_v5_variant(match, "folded-run"), "packs the module-author NuGet packages"),
+    ("build.yml: the NuGet shell folds a suppressing command template",
+     BUILD_YML, re.compile(rb"(?s)\A.*\Z"), lambda match: nuget_v5_variant(match, "folded-shell"), "packs the module-author NuGet packages"),
+    ("build.yml: the NuGet pack exists inside a multiline quoted env value",
+     BUILD_YML, re.compile(rb"(?s)\A.*\Z"), lambda match: nuget_v5_variant(match, "quoted-step"), "packs the module-author NuGet packages"),
+    ("release.yml: the NuGet release job has a condition",
+     RELEASE_YML, re.compile(rb"(?s)\A.*\Z"), lambda match: nuget_v5_variant(match, "release-job-if"), "propagates the module-author NuGet pack failure"),
+    ("release.yml: the NuGet pack substitutes a custom shell",
+     RELEASE_YML, re.compile(rb"(?s)\A.*\Z"), lambda match: nuget_v5_variant(match, "release-shell"), "propagates the module-author NuGet pack failure"),
+    ("release.yml: the NuGet pack catches the privacy refusal",
+     RELEASE_YML, re.compile(rb"(?s)\A.*\Z"), lambda match: nuget_v5_variant(match, "release-catch"), "propagates the module-author NuGet pack failure"),
+    ("build.yml: the NuGet upload excludes the author packages",
+     BUILD_YML, re.compile(rb"(?s)\A.*\Z"), lambda match: nuget_v5_variant(match, "exclude"), "packs the module-author NuGet packages"),
+    ("build.yml: the NuGet upload duplicates its missing-file policy",
+     BUILD_YML, re.compile(rb"(?s)\A.*\Z"), lambda match: nuget_v5_variant(match, "duplicate-policy"), "packs the module-author NuGet packages"),
+    ("release.yml: the NuGet Assemble step overrides success gating",
+     RELEASE_YML, re.compile(rb"(?s)\A.*\Z"), lambda match: nuget_v5_variant(match, "assemble-always"), "propagates the module-author NuGet pack failure"),
+    ("release.yml: the NuGet Publish step overrides success gating",
+     RELEASE_YML, re.compile(rb"(?s)\A.*\Z"), lambda match: nuget_v5_variant(match, "publish-always"), "propagates the module-author NuGet pack failure"),
+    ("release.yml: the NuGet Publish step moves before packing",
+     RELEASE_YML, re.compile(rb"(?s)\A.*\Z"), lambda match: nuget_v5_variant(match, "publish-before-pack"), "propagates the module-author NuGet pack failure"),
+    ("build.yml: the NuGet workflow introduces an unsupported document marker",
+     BUILD_YML, re.compile(rb"(?s)\A.*\Z"), lambda match: nuget_v5_variant(match, "document"), "packs the module-author NuGet packages"),
+    ("release.yml: the NuGet steps exist only in a display-name scalar",
+     RELEASE_YML, re.compile(rb"(?s)\A.*\Z"), lambda match: nuget_v5_variant(match, "release-fake-name"), "propagates the module-author NuGet pack failure"),
+    ("release.yml: the NuGet release job exists only in a root display-name scalar",
+     RELEASE_YML, re.compile(rb"(?s)\A.*\Z"), lambda match: nuget_v5_variant(match, "release-fake-root"), "propagates the module-author NuGet pack failure"),
+    # RA-190 v6: exact parent-observed multiline scalar boundaries.
+    ('build.yml: the NuGet pack exists inside a bare quoted continuation',
+     BUILD_YML, re.compile(rb"(?s)\A.*\Z"), lambda match: nuget_v6_variant(match, 'build-bare'), 'packs the module-author NuGet packages'),
+    ('release.yml: the NuGet pack exists inside a bare quoted continuation',
+     RELEASE_YML, re.compile(rb"(?s)\A.*\Z"), lambda match: nuget_v6_variant(match, 'release-bare'), 'propagates the module-author NuGet pack failure'),
+    ('build.yml: the NuGet job exists inside a quoted sequence item',
+     BUILD_YML, re.compile(rb"(?s)\A.*\Z"), lambda match: nuget_v6_variant(match, 'build-sequence'), 'packs the module-author NuGet packages'),
+    ('build.yml: the NuGet job exists inside a quoted colon continuation',
+     BUILD_YML, re.compile(rb"(?s)\A.*\Z"), lambda match: nuget_v6_variant(match, 'build-colon'), 'packs the module-author NuGet packages'),
+    ('release.yml: the NuGet job exists inside a quoted sequence item',
+     RELEASE_YML, re.compile(rb"(?s)\A.*\Z"), lambda match: nuget_v6_variant(match, 'release-sequence'), 'propagates the module-author NuGet pack failure'),
+    ('build.yml: the NuGet job exists inside an explicit quoted mapping key',
+     BUILD_YML, re.compile(rb"(?s)\A.*\Z"), lambda match: nuget_v6_variant(match, 'build-explicit-key'), 'packs the module-author NuGet packages'),
+    ('build.yml: the NuGet pack hides in a quoted sibling of a dash-first literal block',
+     BUILD_YML, re.compile(rb"(?s)\A.*\Z"), lambda match: nuget_v6_variant(match, 'build-dash-literal'), 'packs the module-author NuGet packages'),
+    ('release.yml: the NuGet pack hides in a quoted sibling of a dash-first literal block',
+     RELEASE_YML, re.compile(rb"(?s)\A.*\Z"), lambda match: nuget_v6_variant(match, 'release-dash-literal'), 'propagates the module-author NuGet pack failure'),
+    ('build.yml: the NuGet pack hides after a quoted key containing a colon',
+     BUILD_YML, re.compile(rb"(?s)\A.*\Z"), lambda match: nuget_v6_variant(match, 'build-quoted-key'), 'packs the module-author NuGet packages'),
+    ("the NuGet physical-line scanner stops preserving folded scalar data",
+     HARDENING, b"        if ($value.Substring(0, $end).Trim() -cmatch '^[|>][+-]?$') {", b"        if ($value.Substring(0, $end).Trim() -cmatch '^[|][+-]?$') {",
+     "preserves opaque scalar blocks and refuses multiline quoted headers"),
     # RA-002: the release notes hardcode Unsigned again while the signing scaffolding promises no edit.
     (
         "release.yml: the release notes hardcode Unsigned again",
@@ -3136,7 +4012,7 @@ CASES = (
     (
         "blinkingled-resume: the runner says nothing before a run that presses",
         os.path.join(REPO, "tests", "Test-ModuleSelfTests.ps1"),
-        b"if (-not $noRealInputRequested) {\n"
+        b"if (-not $noRealInputRequested -and $Covered -contains 'blinkingled') {\n"
         b"    Write-Host \"REAL INPUT:",
         b"if ($false) {\n"
         b"    Write-Host \"REAL INPUT:",
@@ -3145,7 +4021,7 @@ CASES = (
     (
         "blinkingled-resume: the runner says REAL INPUT only once a module has run",
         os.path.join(REPO, "tests", "Test-ModuleSelfTests.ps1"),
-        b"if (-not $noRealInputRequested) {\n"
+        b"if (-not $noRealInputRequested -and $Covered -contains 'blinkingled') {\n"
         b"    Write-Host \"REAL INPUT: DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT is not 1, so blinkingled's self-test makes one pair of real Scroll Lock presses\"\n"
         b"}\n"
         b"\n"
@@ -3155,7 +4031,7 @@ CASES = (
         b"$problems = @()\n"
         b"try {\n"
         b"    foreach ($id in $Covered) {\n"
-        b"if (-not $noRealInputRequested) {\n"
+        b"if (-not $noRealInputRequested -and $Covered -contains 'blinkingled') {\n"
         b"    Write-Host \"REAL INPUT: DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT is not 1, so blinkingled's self-test makes one pair of real Scroll Lock presses\"\n"
         b"}\n",
         "blinkingled-resume: Test-ModuleSelfTests.ps1 prints its REAL INPUT",
@@ -3447,8 +4323,8 @@ CASES = (
     (
         "test-infra: the shared module self-test limit moves",
         os.path.join(REPO, "tests", "Test-ModuleSelfTests.ps1"),
-        b"    [int]$TimeoutSeconds = 180\n",
-        b"    [int]$TimeoutSeconds = 240\n",
+        b"    [int]$TimeoutSeconds = 180,\n",
+        b"    [int]$TimeoutSeconds = 240,\n",
         "WITNESS test-infra: the module self-test runner was read",
     ),
     (
@@ -4110,15 +4986,17 @@ CASES = (
     (
         "bd-w2-packaging-ci-1: the module publish commit drops its pathspec (N-audit-1106-263)",
         os.path.join(REPO, "packaging", "New-ModulePublish.ps1"),
-        b"                          '-m', $publishBody, '--') + $publishPaths) 'git commit'\n",
-        b"                          '-m', $publishBody)) 'git commit'\n",
+        # Re-pointed at the step 11 master merge: the commit is master's Invoke-ModulePayloadCommit; same mutant.
+        b"'-m', $Subject, '-m', $Body, '--') + $paths) 'git commit payload'",
+        b"'-m', $Subject, '-m', $Body)) 'git commit payload'",
         "w2-packaging-ci-1: the module publish commit names its two paths",
     ),
     (
         "bd-w2-packaging-ci-1: the module publish commits with nothing staged (N-audit-1106-263)",
         os.path.join(REPO, "packaging", "New-ModulePublish.ps1"),
-        b"        if ($publishStaged.Count -eq 0) {\n",
-        b"        if ($false) {\n",
+        # Re-pointed at the step 11 master merge: Invoke-ModulePayloadCommit's nothing-changed return; same intent.
+        b"    if ($changes.Count -eq 0) { return $false }\n",
+        b"    if ($false) { return $false }\n",
         "w2-packaging-ci-1: the module publish commits only when",
     ),
     # ---- burndown/w2-tests-scripts-1 ----
@@ -4140,12 +5018,13 @@ CASES = (
         "w2-tests-scripts-1: every AgentBroker check class is run from another file",
     ),
     # N-audit-1106-054: the default run's call is deleted while the focused --accepted-incoming-only switch still calls the
-    # class, so only the call-site floor can see it.
+    # class, so only the call-site floor can see it. Re-pointed at the step 11 master merge: master reordered the default
+    # run and added check classes, so AcceptedIncomingChecks now follows CommitTimingChecks; same intent.
     (
         "bd-w2-tests-scripts-1: an AgentBroker default-run call is deleted beside its focused switch (N-audit-1106-054)",
         os.path.join(REPO, "tests", "AgentBroker.Core.Tests", "Program.cs"),
-        b"    passed += PeerReceiptChecks.Run(root);\n    passed += AcceptedIncomingChecks.Run(root);\n",
-        b"    passed += PeerReceiptChecks.Run(root);\n",
+        b"    passed += CommitTimingChecks.Run(root);\n    passed += AcceptedIncomingChecks.Run(root);\n",
+        b"    passed += CommitTimingChecks.Run(root);\n",
         "w2-tests-scripts-1: the AgentBroker harnesses keep at least the",
     ),
     # N-audit-1106-052: the A/B driver deletes the folder -WorkRoot names again, whatever was in it.
@@ -4168,8 +5047,9 @@ CASES = (
     (
         "bd-w2-tests-scripts-1: the gate tries discovery and freshness together (N-audit-1106-351)",
         os.path.join(REPO, "tests", "run-gate.ps1"),
-        b"    try { & (Join-Path $repoRoot 'tests\\Test-ModuleSourceDiscovery.ps1') }\n"
-        b"    catch { $failures.Add('Test-ModuleSourceDiscovery.ps1: ' + $_.Exception.Message) }\n"
+        # Re-pointed at the step 11 master merge: master's FreshnessRules and NuGet privacy tries now stand between the
+        # discovery try and the freshness try, so the mutant folds discovery into the freshness try alone; the invariant's
+        # freshness pattern then fails, as before.
         b"    try { & (Join-Path $repoRoot 'packaging\\Test-ModulePublishFreshness.ps1') }\n",
         b"    try {\n"
         b"        & (Join-Path $repoRoot 'tests\\Test-ModuleSourceDiscovery.ps1')\n"
@@ -4365,9 +5245,11 @@ CASES = (
     (
         "bd-w3-tests-harness-1: the offline checks read no exit code from a runner self-test (N-release-180-02)",
         os.path.join(REPO, "tests", "Invoke-OfflineScriptChecks.ps1"),
-        b"        & $python.Source -X utf8 (Join-Path $repoTests $check[0]) $check[1] 2>&1 | ForEach-Object { Write-Host \"$_\" }\n"
+        # Re-pointed at the step 11 master merge: the runner resolves one interpreter up front ($PythonExecutable, master's
+        # Python resolution) and the loop calls it directly; same mutant.
+        b"        & $PythonExecutable -X utf8 (Join-Path $repoTests $check[0]) $check[1] 2>&1 | ForEach-Object { Write-Host \"$_\" }\n"
         b"        $checkExit = $LASTEXITCODE\n",
-        b"        & $python.Source -X utf8 (Join-Path $repoTests $check[0]) $check[1] 2>&1 | ForEach-Object { Write-Host \"$_\" }\n"
+        b"        & $PythonExecutable -X utf8 (Join-Path $repoTests $check[0]) $check[1] 2>&1 | ForEach-Object { Write-Host \"$_\" }\n"
         b"        $checkExit = 0\n",
         "w3-tests-harness-1: the offline script checks run every mutation-tooling check",
     ),
@@ -4835,8 +5717,10 @@ CASES = (
     (
         "bd-w8-studio-1: STALE is printed but left out of the thrown message (N-bd-converter-1-02)",
         os.path.join(REPO, "packaging", "Test-ModulePublishFreshness.ps1"),
-        b'    $verdicts.Add("Published module payload(s) are behind their source: " +\n',
-        b'    Write-Host ("Published module payload(s) are behind their source: " +\n',
+        # Re-pointed at the step 11 master merge: the STALE sentence is master's Get-StalePayloadRemedy, added to the
+        # verdicts in one line; the mutant computes it and drops it. Same intent.
+        b"    $verdicts.Add((Get-StalePayloadRemedy -StaleIds @($stale.Id)))\n",
+        b"    $null = ((Get-StalePayloadRemedy -StaleIds @($stale.Id)))\n",
         "w8-studio-1: every freshness verdict is reported before one throw carrying them all",
     ),
     # ---- burndown/w8-shimeji-host-1 ----
@@ -4920,9 +5804,11 @@ CASES = (
     (
         "bd-w8-packaging-ci-1: build.yml builds the converter inline again",
         BUILD_YML,
-        b"        run: .\\tests\\Test-AgentBroker.ps1\n",
+        # Re-pointed at the step 11 master merge: master's AgentBroker step passes -CheckPayload on the build outcome;
+        # the mutant keeps that call and adds the inline converter build after it, as before.
+        b"        run: .\\tests\\Test-AgentBroker.ps1 -CheckPayload:('${{ steps.build.outcome }}' -eq 'success')\n",
         b"        run: |\n"
-        b"          .\\tests\\Test-AgentBroker.ps1\n"
+        b"          .\\tests\\Test-AgentBroker.ps1 -CheckPayload:('${{ steps.build.outcome }}' -eq 'success')\n"
         b"          dotnet build tools\\ShimejiConvert\\ShimejiConvert.csproj -c Release --nologo -v:minimal\n",
         "w8-packaging-ci-1: the converter build, verbs and suite floor live only",
     ),
@@ -5004,11 +5890,13 @@ CASES = (
     ),
     # ---- burndown/w9-host-1 ----
     # N-audit-1106-234: a module settings save truncates settings.json in place again. "bd-w9-host-1:" for one --only.
+    # Re-pointed at the step 11 master merge: the save is master's lane H Write seam (AtomicFile), so the mutant puts an
+    # in-place File.WriteAllText back at Save's own write; same intent.
     (
         "bd-w9-host-1: a module settings save writes settings.json in place again (N-audit-1106-234)",
         os.path.join(REPO, "src", "dotNet", "Plugins", "CompanionHost.cs"),
-        b"                    SecureDownload.WriteAllBytesAtomic(_path, new UTF8Encoding(false).GetBytes(JsonSerializer.Serialize(_d)));\n",
-        b"                    File.WriteAllText(_path, JsonSerializer.Serialize(_d), new UTF8Encoding(false));\n",
+        b"                        bool written = Write(_path, JsonSerializer.Serialize(_d));\n",
+        b"                        File.WriteAllText(_path, JsonSerializer.Serialize(_d), new UTF8Encoding(false)); bool written = true;\n",
         "w9-host-1: a module settings save replaces settings.json whole through the atomic write",
     ),
     # N-host-pack-abi-01: the single preview's handle removes only the window it was handed again.
@@ -5160,17 +6048,18 @@ CASES = (
     (
         "bd-w10-tests-scripts-1: the worker-cleanup test keeps its scratch tree on a pass (N-audit-1106-363)",
         os.path.join(REPO, "tests", "Test-CompletedWorkerBinaryCleanup.ps1"),
-        b"        [IO.Directory]::Delete($scratch, $true)\n        $scratchRemoved",
-        b"        $scratchRemoved",
+        # Re-pointed at the step 11 master merge: the test is master's, which removes its fixture through
+        # Remove-OwnedTestTree in its main finally; the mutant deletes that call. Same intent.
+        b"        Remove-OwnedTestTree $scratch (Join-Path $repo 'artifacts')\n",
+        b"",
         "w10-tests-scripts-1: the worker-cleanup test removes its own scratch tree",
     ),
-    (
-        "bd-w10-tests-scripts-1: the worker-cleanup test deletes its scratch tree without the leaf check (N-audit-1106-363)",
-        os.path.join(REPO, "tests", "Test-CompletedWorkerBinaryCleanup.ps1"),
-        b"(Split-Path -Leaf $scratch) -cnotmatch '^worker-cleanup-tests-[0-9a-f]{32}$') {",
-        b"$false) {",
-        "w10-tests-scripts-1: the worker-cleanup test removes its own scratch tree",
-    ),
+    # RETIRED 2026-11-20 at the step 11 master merge (RESOLUTION-test-scripts.md, harness re-point 3): "bd-w10-tests-scripts-1:
+    # the worker-cleanup test deletes its scratch tree without the leaf check (N-audit-1106-363)" mutated the leaf check of
+    # the burn-down's tests/Test-CompletedWorkerBinaryCleanup.ps1, which the merge takes from master (RULINGS, worker-cleanup
+    # failed-run evidence). The leaf boundary now lives in tests/OwnedTestTree.ps1 (owned_test_parent_mismatch) and is
+    # graded by master's tests/Test-OwnedTestTree.ps1 (Refuses { Remove-OwnedTestTree $tree $tree }
+    # 'owned_test_parent_mismatch'), so no line of the worker-cleanup test is left for this case to mutate.
     (
         "bd-w10-tests-scripts-1: the installer shutdown test keeps its scratch tree on a pass (N-audit-1106-366)",
         os.path.join(REPO, "tests", "Test-InstallerShutdown.ps1"),
@@ -5499,17 +6388,18 @@ CASES = (
     (
         "bd-w14-packaging-ci-1: the CodeView line quotes the path again (N-bd-w13-contracts-1-02)",
         os.path.join(REPO, "packaging", "Test-ModulePublishFreshness.ps1"),
-        b'            $buildPathOffenders.Add($bpZip.Name + " -> " + $bpDll.FullName + " : a CodeView record naming an absolute .pdb path")\n',
-        b'            $buildPathOffenders.Add($bpZip.Name + " -> " + $bpDll.FullName + " : CodeView " + $bpMatch.Value)\n',
+        # Re-pointed at the step 11 master merge (RESOLUTION-w14.md section 8): the CodeView line is master's count line in
+        # Get-ModuleZipPrivacyVerdict; the mutant appends the path the pattern matched to it. Same intent.
+        b'''            $buildPath.Add($Name + ' -> ' + $dll.Name + " : $codeView CodeView build path(s)")\n''',
+        b'''            $buildPath.Add($Name + ' -> ' + $dll.Name + " : $codeView CodeView build path(s) " + $CodeViewPattern.Match([Text.Encoding]::GetEncoding(28591).GetString($dll.Bytes)).Value)\n''',
         "w14-packaging-ci-1: the shipped-DLL scan prints no path it found",
     ),
-    (
-        "bd-w14-packaging-ci-1: the document line quotes the name again (N-bd-w13-contracts-1-02)",
-        os.path.join(REPO, "packaging", "Test-ModulePublishFreshness.ps1"),
-        b'                $buildPathOffenders.Add($bpZip.Name + " -> " + $bpDll.FullName + " : an absolute embedded PDB document name")\n',
-        b'                $buildPathOffenders.Add($bpZip.Name + " -> " + $bpDll.FullName + " : embedded PDB document " + $documentName)\n',
-        "w14-packaging-ci-1: the shipped-DLL scan prints no path it found",
-    ),
+    # RETIRED 2026-11-20 at the step 11 master merge (RULINGS PKG-4, moved into the merge commit by R-9):
+    # "bd-w14-packaging-ci-1: the document line quotes the name again (N-bd-w13-contracts-1-02)" mutated the burn-down's
+    # per-DLL document-name line in packaging/Test-ModulePublishFreshness.ps1. The merge keeps master's zip loop verbatim
+    # (R-9), where Get-ModuleZipPrivacyVerdict judges document names with Test-AbsoluteDocumentName and prints only
+    # counts, so that print site is gone and there is no line to re-point to. Recorded in the merge commit's message and,
+    # at step 12, in the ledger.
     # Fix round after the review of N-bd-w13-contracts-1-02: the verdict and proof CONDITIONS, the redaction of any
     # spelling, the exact leg count, the real-input witness for the CustomDebugInformation read, and the pattern gaps.
     (
@@ -5517,14 +6407,18 @@ CASES = (
         os.path.join(REPO, "packaging", "Test-ModulePublishFreshness.ps1"),
         b"if ($scanVerdicts.Count -gt 0) {\n",
         b"if ($scanVerdicts.Count -gt 1) {\n",
-        "w14-packaging-ci-1: run on a DLL whose only finding is a Source Link record",
+        # Expected text changed at the step 11 master merge (RESOLUTION-w14.md section 8): master's SourceLink refusal
+        # now answers the Source Link run, so the run this throw decides is the identity-only one.
+        "w14-packaging-ci-1: run on a DLL whose only finding is a user-profile path in its bytes",
     ),
     (
         "bd-w14-packaging-ci-1: the shipped-DLL verdicts never throw (N-bd-w13-contracts-1-02)",
         os.path.join(REPO, "packaging", "Test-ModulePublishFreshness.ps1"),
         b"if ($scanVerdicts.Count -gt 0) {\n",
         b"if ($false -and $scanVerdicts.Count -gt 0) {\n",
-        "w14-packaging-ci-1: run on a DLL whose only finding is a Source Link record",
+        # Expected text changed at the step 11 master merge (RESOLUTION-w14.md section 8): master's SourceLink refusal
+        # now answers the Source Link run, so the run this throw decides is the identity-only one.
+        "w14-packaging-ci-1: run on a DLL whose only finding is a user-profile path in its bytes",
     ),
     (
         "bd-w14-packaging-ci-1: the freshness check trusts a failed proof leg (N-bd-w13-contracts-1-02)",
@@ -5533,13 +6427,10 @@ CASES = (
         b"$identityProofFailed = @()\n",
         "w14-packaging-ci-1: run with one proof leg of two failing, the freshness check refuses before the zip loop",
     ),
-    (
-        "bd-w14-packaging-ci-1: the document line prints the name by interpolation (N-bd-w13-contracts-1-02)",
-        os.path.join(REPO, "packaging", "Test-ModulePublishFreshness.ps1"),
-        b'                $buildPathOffenders.Add($bpZip.Name + " -> " + $bpDll.FullName + " : an absolute embedded PDB document name")\n',
-        b'                $buildPathOffenders.Add($bpZip.Name + " -> " + $bpDll.FullName + " : embedded PDB document $documentName")\n',
-        "w14-packaging-ci-1: run on a DLL planted with a profile path",
-    ),
+    # RETIRED 2026-11-20 at the step 11 master merge (RULINGS PKG-4, moved into the merge commit by R-9):
+    # "bd-w14-packaging-ci-1: the document line prints the name by interpolation (N-bd-w13-contracts-1-02)" mutated the
+    # same burn-down document-name line as the retired case above; master's verdict prints counts only, so no print site
+    # remains to re-point to. Recorded in the merge commit's message and, at step 12, in the ledger.
     (
         "bd-w14-packaging-ci-1: a misread compilation options count is no longer refused (N-bd-w13-contracts-1-02)",
         os.path.join(REPO, "packaging", "Test-ModulePublishFreshness.ps1"),
@@ -5604,6 +6495,24 @@ CASES = (
         b"        $root = $hostName + '" + bytes([92]) + b"' + $match.Groups['share'].Value\n",
         b"        $root = $hostName + '" + bytes([92]) + b"home'\n",
         "w14-packaging-ci-1: the build-identity scan proves the leg: a UNC root on the stand-in host under another share",
+    ),
+    # Adopted at the step 11 master merge (RESOLUTION-w14.md section 8). The order the merge holds until N-bd-w14-review-06:
+    # master's SourceLink refusal throws before the build-identity pass, so the Source Link run never reaches it; and the
+    # section runs' own scratch folder is removed. The second mutant leaves one empty dac-hardening-w14-<guid> folder in
+    # the harness run's TEMP, by design.
+    (
+        "bd-w14-packaging-ci-1: the SourceLink refusal no longer throws before the build-identity pass (N-bd-w14-review-06 order)",
+        os.path.join(REPO, "packaging", "Test-ModulePublishFreshness.ps1"),
+        b"if ($sourceLinkOffenders.Count -gt 0) {\n",
+        b"if ($false) {\n",
+        "w14-packaging-ci-1: run on a DLL whose only finding is a Source Link record",
+    ),
+    (
+        "bd-w14-packaging-ci-1: the section runs leave their scratch folder behind",
+        os.path.join(REPO, "tests", "runtime-hardening-selftest.ps1"),
+        b"        if ([IO.Directory]::Exists($w14Scratch)) { [IO.Directory]::Delete($w14Scratch, $false) }\n",
+        b"        $null = 0\n",
+        "w14-packaging-ci-1: the section runs wrote their planted zip under a scratch folder this file created, and the folder is gone",
     ),
     # ---- burndown/host-policy-1 ----
     # N-parity-1107-03 C7: the scenario/2 candidate route's order (runtime-hardening-selftest.ps1, host-policy-1 block). Each
@@ -5877,6 +6786,45 @@ CASES = (
         "coordinator: each module on the fixed licence list ships the licence texts of the libraries it carries, with no Condition"
         " -- Remembrance NAUDIO_LICENSE.txt: a None Remove can take it out again (.\\..\\..\\Packaging\\licenses\\x\\..\\NAUDIO_LICENSE%2Etxt)",
     ),
+    # Recorded source-policy mechanisms and small span fixtures; no generic YAML-parser claim.
+    ('the NuGet physical-line scanner skips colon-free continuation lines',
+     HARDENING, b'        $header = [regex]::Match($line,', b"        if ($line -notmatch ':') { continue }\n        $header = [regex]::Match($line,",
+     'preserves opaque scalar blocks and refuses multiline quoted headers'),
+    ('the NuGet physical-line scanner skips explicit quoted-key lines',
+     HARDENING, b'        $header = [regex]::Match($line,', b"        if ($line -cmatch '^ *\\? ') { continue }\n        $header = [regex]::Match($line,",
+     'preserves opaque scalar blocks and refuses multiline quoted headers'),
+    ('the NuGet physical-line scanner skips colon-free bare lines',
+     HARDENING, b'        $header = [regex]::Match($line,', b"        if ($line -notmatch ':' -and $line -notmatch '^ *- ') { continue }\n        $header = [regex]::Match($line,",
+     'preserves opaque scalar blocks and refuses multiline quoted headers'),
+    ('the NuGet physical-line scanner skips colon-free quoted sequence lines',
+     HARDENING, b'        $header = [regex]::Match($line,', b"        if ($line -notmatch ':' -and $line -cmatch '^ *- [^|>]') { continue }\n        $header = [regex]::Match($line,",
+     'preserves opaque scalar blocks and refuses multiline quoted headers'),
+    ('the NuGet physical-line scanner drops the compact mapping key window',
+     HARDENING, b"            if ($header.Groups['key'].Success) { $literalIndent += $header.Groups['dash'].Length }", b'',
+     'preserves opaque scalar blocks and refuses multiline quoted headers'),
+    ('the NuGet physical-line scanner restores the greedy key prefix',
+     HARDENING, b'(?<key>[A-Za-z0-9_-]+)', b'(?<key>[^:#][^:]*)',
+     'preserves opaque scalar blocks and refuses multiline quoted headers'),
+    ('the NuGet physical-line scanner permits an open flow collection at line end',
+     HARDENING, b'        if ($quote -ne 0 -or $depth -ne 0) { return $false }', b'        if ($quote -ne 0) { return $false }',
+     'preserves opaque scalar blocks and refuses multiline quoted headers'),
+    ('the NuGet physical-line scanner permits flow counter underflow',
+     HARDENING, b'                    if ($depth -eq 0) { return $false }', b'',
+     'preserves opaque scalar blocks and refuses multiline quoted headers'),
+    ('the NuGet physical-line scanner treats NBSP as an inline comment separator',
+     HARDENING, b'                if ($character -eq 35 -and ($at -eq 0 -or " `t".Contains([string]$value[$at - 1]))) { $end = $at; break }', b'                if ($character -eq 35 -and ($at -eq 0 -or [char]::IsWhiteSpace($value[$at - 1]))) { $end = $at; break }',
+     'preserves opaque scalar blocks and refuses multiline quoted headers'),
+    ('build.yml: the NuGet pack exists inside a keyless multiline flow scalar',
+     BUILD_YML, re.compile(rb"(?s)\A.*\Z"), lambda match: nuget_v7_span_variant(match, 'keyless-flow'), 'packs the module-author NuGet packages'),
+    ('build.yml: the NuGet pack exists inside a colon-adjacent flow scalar',
+     BUILD_YML, re.compile(rb"(?s)\A.*\Z"), lambda match: nuget_v7_span_variant(match, 'colon-flow'), 'packs the module-author NuGet packages'),
+    ('release.yml: the NuGet release job exists behind an NBSP comment boundary',
+     RELEASE_YML, re.compile(rb"(?s)\A.*\Z"), lambda match: nuget_v7_span_variant(match, 'nbsp-release'), 'propagates the module-author NuGet pack failure'),
+    # S-016 (marathon-1106 lane G round 2), M-bare: the helper's Continue line deleted, so a git stderr line is terminating
+    # again under Windows PowerShell 5.1. 5.1-only by declaration: pwsh 7.2 and later never converts redirected native stderr.
+    ('S-016: the git listing runs under Stop again',
+     HARDENING, b"    $ErrorActionPreference = 'Continue'\n", b'',
+     'WITNESS (S-016)'),
 )
 
 

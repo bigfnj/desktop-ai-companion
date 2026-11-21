@@ -19,6 +19,9 @@ function RejectCode([scriptblock]$Action, [string]$Code, [string]$Label) {
     $actual = 'no refusal'; try { $null = & $Action } catch { $actual = 'unrecognized'; if ($_.Exception.Data.Contains('McpCode')) { $actual = [string]$_.Exception.Data['McpCode'] } }
     Check ($actual -ceq $Code) ($Label + ' (' + $actual + ')')
 }
+Check ((Get-McpLoopbackEndpoint) -ceq 'http://127.0.0.1:7432/mcp') 'legacy loopback default remains 7432'
+Check ((Get-McpLoopbackEndpoint 49123) -ceq 'http://127.0.0.1:49123/mcp') 'isolated port changes only the fixed loopback endpoint'
+foreach ($badPort in @(0, -1, 65536)) { RejectCode { Get-McpLoopbackEndpoint $badPort } 'invalid_loopback_port' 'out-of-range loopback port refused' }
 $init = Convert-StrictMcpJson '{"jsonrpc":"2.0","id":"collab-init","method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"agentbroker-collaboration-harness","version":"1"}}}'
 Check ((Confirm-CollaborationRequest $init).ExecuteAllowed) 'fixed harness initialize accepted'
 foreach ($bad in @('claude', 'codex', 'other-client')) { $init.params.clientInfo.name = $bad; Reject { Confirm-CollaborationRequest $init } 'client identity impersonation refused' }
@@ -154,6 +157,13 @@ Check ($jsonCursors.Count -eq 2 -and $jsonCursors[1].sessionId -is [string] -and
 $structuredRows = @(Get-McpToolValue @{ structuredContent = @{ result = @((New-Row $own.sessionId), (New-Row 'mcp:00000000-0000-4000-8000-000000000001')) } })
 Check ($structuredRows.Count -eq 2) 'NATIVE_SENDER_DECODE: a structured result array decodes to its rows'
 Check (@(Get-McpToolValue @{ content = @() }).Count -eq 0) 'NATIVE_SENDER_DECODE: an empty content list decodes to nothing'
+foreach ($advisory in @('AgentBroker inbox hint: pending messages.', '{"result":[{"value":"replacement"}]}')) {
+    $hinted = @()
+    Accept { $script:hinted = @(Get-McpToolValue @{ content = @(@{ type = 'text'; text = '[{"value":"original"}]' }, @{ type = 'text'; text = $advisory }) }) } 'PAYLOAD_WITH_ADVISORY: payload decoding accepts an appended hint'
+    Check ($hinted.Count -eq 1 -and $hinted[0].value -ceq 'original') 'PAYLOAD_WITH_ADVISORY: the first payload survives later prose or JSON hints unchanged'
+}
+RejectCode { Get-McpToolValue @{ content = @(@{ type = 'image'; data = 'fixture' }, @{ type = 'text'; text = '[]' }) } } 'lookup_shape' 'PAYLOAD_WITH_ADVISORY: a later text block cannot replace an invalid first payload'
+Reject { Get-McpToolValue @{ content = @(@{ type = 'text'; text = 'not JSON' }, @{ type = 'text'; text = '[]' }) } } 'PAYLOAD_WITH_ADVISORY: a later valid JSON block cannot repair a malformed first payload'
 RejectCode { Get-McpToolValue @{ isError = $true; content = @(@{ type = 'text'; text = 'DO_NOT_EXPORT' }) } } 'lookup_failed' 'NATIVE_SENDER_DECODE: a tool error refuses'
 # wait_for_reply and wait_for_receipt: the original's sender must be a generic mailbox.
 $messageId = '44444444-4444-4444-8444-444444444444'
@@ -251,6 +261,15 @@ Reject { Convert-McpReply ([byte[]]::new(524289)) 'application/json' 'tool-1' } 
 $errorReply = '{"jsonrpc":"2.0","id":"tool-1","error":{"code":-32601,"message":"DO_NOT_EXPORT_RAW_ERROR_OR_PATH"}}'
 $errorResult = Convert-McpReply ($utf8.GetBytes($errorReply)) 'application/json' 'tool-1'
 Check ($errorResult.ErrorCode -eq -32601 -and ($errorResult | ConvertTo-Json -Compress) -notmatch 'DO_NOT_EXPORT') 'RPC error code only, no raw error body'
+foreach ($json in @('[]', '["one"]', '""', 'false', 'null', '"line\nC:\\literal\\path\n雪"')) {
+    $toolOutput = Convert-McpToolOutput @{ content = @(@{ type = 'text'; text = $json }) }
+    $roundTrip = ConvertTo-Json -InputObject $toolOutput.Result -Compress -Depth 10
+    $expected = [Text.Json.JsonDocument]::Parse($json)
+    $actual = [Text.Json.JsonDocument]::Parse($roundTrip)
+    try { Check ($actual.RootElement.GetRawText() -ceq $expected.RootElement.GetRawText()) 'decoded helper keeps JSON scalar and array shape' }
+    finally { $actual.Dispose(); $expected.Dispose() }
+}
+Check ((Convert-McpToolOutput @{ isError = $true; content = @(@{ type = 'text'; text = 'session_unavailable' }) }).Status -ceq 'tool_error') 'tool isError is an explicit failing operation status'
 $memory = [IO.MemoryStream]::new([byte[]]::new(9))
 try { Reject { Read-McpBytes $memory 8 ([Threading.CancellationToken]::None) } 'bounded stream reader refuses overrun' } finally { $memory.Dispose() }
 Write-Output ('PASS: ' + $checks + ' in-memory collaboration MCP checks; no HTTP, client files, GUI, IPC, credentials or settings accessed.')

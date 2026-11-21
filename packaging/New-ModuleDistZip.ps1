@@ -34,7 +34,10 @@ param(
     [Parameter(Mandatory = $true)][string]$ModuleId,
     [Parameter(Mandatory = $true)][string]$SourceDirectory,
     [Parameter(Mandatory = $true)][string]$DestinationPath,
-    [string[]]$ExcludeExtensions = @('.pdb', '.lib')
+    [string[]]$ExcludeExtensions = @('.pdb', '.lib'),
+    [string]$AgentBrokerOutputReceipt,
+    [string]$AgentBrokerOutputReceiptSha256,
+    [string]$ExpectedAgentBrokerZipSha256
 )
 
 $ErrorActionPreference = 'Stop'
@@ -57,6 +60,21 @@ function Resolve-AgainstCaller([string]$path) {
 $sourceFull = (Resolve-AgainstCaller $SourceDirectory).TrimEnd(
     [IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
 $destinationFull = Resolve-AgainstCaller $DestinationPath
+$boundAgentBroker = [bool]($AgentBrokerOutputReceipt -or $AgentBrokerOutputReceiptSha256 -or $ExpectedAgentBrokerZipSha256)
+$canonicalBrokerZip = [IO.Path]::GetFullPath((Join-Path (Split-Path $PSScriptRoot -Parent) 'modules-dist/agentbroker.zip'))
+if ([string]::Equals($destinationFull, $canonicalBrokerZip, [StringComparison]::OrdinalIgnoreCase) -and -not $boundAgentBroker) {
+    throw 'PROVENANCE_AGENTBROKER_CANONICAL_ZIP_BINDING_REQUIRED'
+}
+if ($boundAgentBroker) {
+    if ($ModuleId -cne 'agentbroker' -or $ExcludeExtensions.Count -ne 2 -or
+        $ExcludeExtensions[0] -cne '.pdb' -or $ExcludeExtensions[1] -cne '.lib') { throw 'PROVENANCE_BOUND_ZIP_ARGUMENTS' }
+    . (Join-Path $PSScriptRoot 'AgentBrokerReleaseProvenance.ps1') -Mode Library
+    $boundRecord = Test-AgentBrokerReleaseOutput $AgentBrokerOutputReceipt $AgentBrokerOutputReceiptSha256 $sourceFull
+    if ($ExpectedAgentBrokerZipSha256) {
+        Assert-ABP ($ExpectedAgentBrokerZipSha256 -cmatch '^[A-Fa-f0-9]{64}\z') 'PROVENANCE_ACCEPTED_ZIP_HASH_REQUIRED'
+        $ExpectedAgentBrokerZipSha256 = $ExpectedAgentBrokerZipSha256.ToUpperInvariant()
+    }
+}
 $destinationParent = Split-Path -Parent $destinationFull
 if (-not (Test-Path -LiteralPath $destinationParent -PathType Container)) {
     New-Item -ItemType Directory -Path $destinationParent -Force | Out-Null
@@ -87,12 +105,37 @@ foreach ($file in $files) {
 $entryNames = [string[]]@($filesByEntryName.Keys)
 [Array]::Sort($entryNames, [StringComparer]::Ordinal)
 
-$temporaryPath = $destinationFull + '.tmp'
-if (Test-Path -LiteralPath $temporaryPath) { Remove-Item -LiteralPath $temporaryPath -Force }
-$normalizedTimestamp = New-Object DateTimeOffset 1980, 1, 1, 0, 0, 0, ([TimeSpan]::Zero)
+# Validate the shared helper's actual embedded metadata even for SkipBuild/direct ZIP callers.
+# The SHA binding below checks that these are also the bytes placed in the final archive.
+$moduleKitLeaf = 'DesktopAICompanion.ModuleKit.dll'
+$moduleKitEntries = @($entryNames | Where-Object { [string]::Equals($_, $moduleKitLeaf, [StringComparison]::OrdinalIgnoreCase) })
+$moduleKitCheckedSha256 = $null
+if ($moduleKitEntries.Count -eq 0) {
+    Write-Host 'NOT_APPLICABLE PACKAGE_MODULEKIT_SYMBOLS: no ModuleKit payload'
+} else {
+    if ($moduleKitEntries.Count -ne 1 -or $moduleKitEntries[0] -cne $moduleKitLeaf) { throw 'PACKAGE_MODULEKIT_ENTRY_NAME' }
+    $moduleKitPath = $filesByEntryName[$moduleKitLeaf].FullName
+    $moduleKitCheckedSha256 = (Get-FileHash -LiteralPath $moduleKitPath -Algorithm SHA256).Hash
+    # Child scope prevents the library's parameters/variables from replacing ZIP caller state.
+    $moduleKitCode = & {
+        param($Library, $Directory)
+        . $Library -Mode Library
+        $reader = Get-ABPMetadataReader
+        $reader::ValidateModuleKitOnly($Directory)
+    } (Join-Path $PSScriptRoot 'AgentBrokerReleaseProvenance.ps1') $sourceFull
+    if ($moduleKitCode -ne 0) { throw 'PACKAGE_MODULEKIT_SYMBOLS_REFUSED' }
+    if ((Get-FileHash -LiteralPath $moduleKitPath -Algorithm SHA256).Hash -cne $moduleKitCheckedSha256) { throw 'PACKAGE_MODULEKIT_CHANGED' }
+}
 
+$temporaryPath = if ($boundAgentBroker) { $destinationFull + '.' + [Guid]::NewGuid().ToString('N') + '.tmp' } else { $destinationFull + '.tmp' }
+if (-not $boundAgentBroker -and (Test-Path -LiteralPath $temporaryPath)) { Remove-Item -LiteralPath $temporaryPath -Force }
+$normalizedTimestamp = New-Object DateTimeOffset 1980, 1, 1, 0, 0, 0, ([TimeSpan]::Zero)
+$temporaryCreated = $false
+
+try {
 $output = New-Object IO.FileStream(
     $temporaryPath, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+$temporaryCreated = $true
 try {
     $archive = New-Object IO.Compression.ZipArchive(
         $output, [IO.Compression.ZipArchiveMode]::Create, $true)
@@ -116,7 +159,32 @@ try {
 }
 finally { $output.Dispose() }
 
+if ($moduleKitCheckedSha256) {
+    $moduleKitArchive = [IO.Compression.ZipFile]::OpenRead($temporaryPath)
+    try {
+        $packagedKit = @($moduleKitArchive.Entries | Where-Object { [string]::Equals($_.FullName, $moduleKitLeaf, [StringComparison]::OrdinalIgnoreCase) })
+        if ($packagedKit.Count -ne 1 -or $packagedKit[0].FullName -cne $moduleKitLeaf) { throw 'PACKAGE_MODULEKIT_ZIP_ENTRY' }
+        $moduleKitStream = $packagedKit[0].Open()
+        $moduleKitSha = [Security.Cryptography.SHA256]::Create()
+        try {
+            $packagedKitHash = [BitConverter]::ToString($moduleKitSha.ComputeHash($moduleKitStream)).Replace('-', '')
+            if ($packagedKitHash -cne $moduleKitCheckedSha256) { throw 'PACKAGE_MODULEKIT_ZIP_CHANGED' }
+        } finally { $moduleKitSha.Dispose(); $moduleKitStream.Dispose() }
+    } finally { $moduleKitArchive.Dispose() }
+}
+
+if ($boundAgentBroker) {
+    $null = Test-AgentBrokerReleaseOutput $AgentBrokerOutputReceipt $AgentBrokerOutputReceiptSha256 $sourceFull
+    Assert-AgentBrokerReleaseZip $temporaryPath $boundRecord $ExpectedAgentBrokerZipSha256
+}
 Move-Item -LiteralPath $temporaryPath -Destination $destinationFull -Force
+} catch {
+    if ($temporaryCreated -and [IO.File]::Exists($temporaryPath)) {
+        try { Remove-Item -LiteralPath $temporaryPath -Force -ErrorAction Stop }
+        catch { Write-Warning 'PROVENANCE_OWNED_ZIP_TEMP_RETAINED' }
+    }
+    throw
+}
 
 $hash = (Get-FileHash -LiteralPath $destinationFull -Algorithm SHA256).Hash.ToLowerInvariant()
 $bytes = (Get-Item -LiteralPath $destinationFull).Length

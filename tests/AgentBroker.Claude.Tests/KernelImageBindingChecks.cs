@@ -105,6 +105,7 @@ internal static class KernelImageBindingChecks
 
     private static void KernelQuery(Action<bool, string> check)
     {
+        NativeTokenQueries(check);
         var ops = new KernelOperations();
         bool queried = false;
         string? first = null, second = null;
@@ -156,6 +157,41 @@ internal static class KernelImageBindingChecks
             L + "kernel path normalization refuses UNC extended-UNC relative and non-executable paths");
     }
 
+    private static void NativeTokenQueries(Action<bool, string> check)
+    {
+        Console.WriteLine("WITNESS: NATIVE_TOKEN_ELEVATION_PRODUCT_EXECUTED");
+        foreach (string scenario in new[] { "OPEN_FAILURE", "QUERY_FAILURE", "SHORT_READ", "OVERSIZED_READ", "ELEVATED" })
+        {
+            var ops = new KernelOperations();
+            var tokens = new TokenOperations(ops, scenario);
+            ops.NativeElevation = new WindowsKernelProcessOperations(tokens.Open, tokens.Query);
+            using var retainedCleanup = ops.Handle;
+            using var tokenCleanup = tokens.Token;
+            bool refused = false;
+            try { using var process = new KernelProcessImage(12345, ops); }
+            catch (Win32Exception error) when (error.NativeErrorCode == 5) { refused = true; }
+            check(refused && ops.Queries == 0 && ops.StartReads == 0,
+                L + "TOKEN_NATIVE_" + scenario + "_FAIL_CLOSED: actual native token flow refuses before process metadata");
+            check(ops.Handle.IsClosed && tokens.Token.IsClosed,
+                L + "TOKEN_NATIVE_" + scenario + "_DISPOSES: rejection closes the retained process and any returned token wrapper");
+            check(tokens.Opens == 1 && tokens.ExactProcess && tokens.Access == 0x0008 &&
+                tokens.Queries == (scenario == "OPEN_FAILURE" ? 0 : 1) && tokens.ExactToken &&
+                (scenario == "OPEN_FAILURE" || tokens.InformationClass == 20 && tokens.Bytes == sizeof(uint)),
+                L + "TOKEN_NATIVE_" + scenario + "_SHAPE: TOKEN_QUERY and one DWORD TokenElevation use the same retained handles");
+        }
+        var unelevated = new KernelOperations();
+        var success = new TokenOperations(unelevated, "UNELEVATED");
+        unelevated.NativeElevation = new WindowsKernelProcessOperations(success.Open, success.Query);
+        using var successTokenCleanup = success.Token;
+        using (var process = new KernelProcessImage(12345, unelevated))
+            check(success.Opens == 1 && success.Queries == 1 && success.ExactProcess && success.ExactToken &&
+                success.Access == 0x0008 && success.InformationClass == 20 && success.Bytes == sizeof(uint) &&
+                success.Token.IsClosed && !unelevated.Handle.IsClosed,
+                L + "TOKEN_NATIVE_UNELEVATED: exact successful DWORD query closes its token while retaining the process");
+        check(unelevated.Handle.IsClosed,
+            L + "TOKEN_NATIVE_SUCCESS_DISPOSES: accepted process ownership lasts until its normal disposal");
+    }
+
     private static async Task ReinspectionRefusal(Action<bool, string> check, NativeTarget target, Factory factory,
         int expectedReads, int expectedVerifications, string stage)
     {
@@ -200,6 +236,7 @@ internal static class KernelImageBindingChecks
         internal int Opens, ProcessId, Queries, ElevationReads, StartReads, ExitReads, UserReads;
         internal uint Access;
         internal bool ExactHandle = true, QueryFlagsZero = true, QueryAllowed = true, Elevated;
+        internal WindowsKernelProcessOperations? NativeElevation;
         public SafeProcessHandle Open(int processId, uint access)
         { Opens++; ProcessId = processId; Access = access; return Handle; }
         private void Observe(SafeProcessHandle handle) => ExactHandle &= ReferenceEquals(handle, Handle) && !handle.IsClosed;
@@ -212,7 +249,31 @@ internal static class KernelImageBindingChecks
         public ulong StartFileTime(SafeProcessHandle handle) { Observe(handle); StartReads++; return Start; }
         public uint ExitCode(SafeProcessHandle handle) { Observe(handle); ExitReads++; return 259; }
         public bool IsCurrentUser(SafeProcessHandle handle) { Observe(handle); UserReads++; return true; }
-        public bool IsElevated(SafeProcessHandle handle) { Observe(handle); ElevationReads++; return Elevated; }
+        public bool IsElevated(SafeProcessHandle handle) { Observe(handle); ElevationReads++; return NativeElevation?.IsElevated(handle) ?? Elevated; }
+    }
+
+    private sealed class TokenOperations(KernelOperations process, string scenario)
+    {
+        // Invalid synthetic wrapper owns no OS token; these delegates are the only leaves used by the product method.
+        internal readonly SafeAccessTokenHandle Token = new(IntPtr.Zero);
+        internal int Opens, Queries, InformationClass;
+        internal uint Access, Bytes;
+        internal bool ExactProcess = true, ExactToken = true;
+        internal bool Open(SafeProcessHandle handle, uint access, out SafeAccessTokenHandle token)
+        {
+            Opens++; Access = access; ExactProcess &= ReferenceEquals(handle, process.Handle) && !handle.IsClosed;
+            token = Token; Marshal.SetLastPInvokeError(87);
+            return scenario != "OPEN_FAILURE";
+        }
+        internal bool Query(SafeAccessTokenHandle token, int informationClass, out uint information, uint bytes, out uint returned)
+        {
+            Queries++; InformationClass = informationClass; Bytes = bytes;
+            ExactToken &= ReferenceEquals(token, Token) && !token.IsClosed;
+            information = scenario == "ELEVATED" ? 2u : 0u;
+            returned = scenario == "SHORT_READ" ? 3u : scenario == "OVERSIZED_READ" ? 8u : sizeof(uint);
+            Marshal.SetLastPInvokeError(87);
+            return scenario != "QUERY_FAILURE";
+        }
     }
 
     private sealed class Process(List<string> events, string[] paths) : INativeImageProcess

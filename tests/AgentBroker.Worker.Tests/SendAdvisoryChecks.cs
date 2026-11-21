@@ -11,7 +11,8 @@ internal static class SendAdvisoryChecks
 {
     internal static async Task RunAsync(Action<bool, string> check)
     {
-        string scratch = Path.Combine(AppContext.BaseDirectory, "scratch", "send-advisory-" + Guid.NewGuid().ToString("N"));
+        using var scratchOwner = OwnedScratch.Create("send-advisory");
+        string scratch = scratchOwner.Root;
         Guid brokerId;
         using (var seed = new BrokerStore(Path.Combine(scratch, "store"))) brokerId = seed.BrokerId;
         string keyName = AgentBroker.Worker.Security.BrokerIdentity.KeyNameFor(scratch, brokerId);
@@ -40,17 +41,21 @@ internal static class SendAdvisoryChecks
             })).GetProperty("result").GetProperty("content");
 
             var toMailbox = await Send(mailbox);
-            check(toMailbox.GetArrayLength() == 2 && toMailbox[1].GetProperty("text").GetString() == BrokerTools.SendAdvisory,
+            check(toMailbox.GetArrayLength() >= 3 && Text(toMailbox[1]) == BrokerTools.SendAdvisory &&
+                HintCount(toMailbox, "agentbroker.pending_messages") == 1,
                 "SEND_ADVISORY_MAILBOX: a send to a generic mailbox returns a second block saying nothing can wake it");
             var toWakeable = await Send(wakeable);
-            check(toWakeable.GetArrayLength() == 1, "SEND_ADVISORY_WAKEABLE: a send to a session with WakeIdle returns the receipt alone");
+            check(toWakeable.GetArrayLength() >= 2 && HintCount(toWakeable, "agentbroker.pending_messages") == 1 &&
+                !toWakeable.EnumerateArray().Skip(1).Any(block => Text(block) == BrokerTools.SendAdvisory),
+                "SEND_ADVISORY_WAKEABLE: a send to a session with WakeIdle returns the receipt and sender's pending hint, without a mailbox advisory");
             // A Codex row whose engine check could not complete lists Receive alone (N-broker-next-02); it is no mailbox.
             var pendingNative = new BrokerSession(new(worker.Runtime.Store.BrokerId, "codex:" + Guid.NewGuid().ToString("D"), Guid.NewGuid()),
                 "Synthetic pending Codex row", "codex-native", SessionCapabilities.Receive, SessionActivity.Unknown, DateTimeOffset.UtcNow.AddMinutes(1));
             worker.Runtime.Store.Register(pendingNative);
             var toPending = await Send(pendingNative);
-            check(toPending.GetArrayLength() == 1,
-                "SEND_ADVISORY_PENDING_NATIVE: a native row listed with Receive alone gets the receipt alone, never the mailbox advisory (" +
+            check(toPending.GetArrayLength() >= 2 && HintCount(toPending, "agentbroker.pending_messages") == 1 &&
+                !toPending.EnumerateArray().Skip(1).Any(block => Text(block) == BrokerTools.SendAdvisory),
+                "SEND_ADVISORY_PENDING_NATIVE: a native row listed with Receive alone gets the receipt and pending hint, never the mailbox advisory (" +
                 toPending.GetArrayLength() + " blocks)");
 
             var now = DateTimeOffset.UtcNow;
@@ -93,6 +98,27 @@ internal static class SendAdvisoryChecks
         }
     }
 
+    private static string? Text(JsonElement block) => block.ValueKind == JsonValueKind.Object &&
+        block.TryGetProperty("type", out var type) && type.ValueKind == JsonValueKind.String && type.GetString() == "text" &&
+        block.TryGetProperty("text", out var text) && text.ValueKind == JsonValueKind.String ? text.GetString() : null;
+
+    private static int HintCount(JsonElement content, string kind)
+    {
+        int count = 0;
+        foreach (var block in content.EnumerateArray().Skip(1))
+        {
+            if (Text(block) is not { } text) continue;
+            try
+            {
+                using var hint = JsonDocument.Parse(text);
+                if (hint.RootElement.ValueKind == JsonValueKind.Object && hint.RootElement.TryGetProperty("kind", out var found) &&
+                    found.ValueKind == JsonValueKind.String && found.GetString() == kind) count++;
+            }
+            catch (JsonException) { } // The existing mailbox advisory is ordinary text.
+        }
+        return count;
+    }
+
     // Property names of the receipt and of its message, sorted: the shape a client parses, without the values.
     private static string Shape(JsonElement receipt) =>
         string.Join(",", receipt.EnumerateObject().Select(property => property.Name).Order(StringComparer.Ordinal)) + "|" +
@@ -107,6 +133,7 @@ internal static class SendAdvisoryChecks
         if (response.Content.Headers.ContentType?.MediaType == "text/event-stream")
             body = string.Join("\n", body.Split('\n').Where(line => line.StartsWith("data: ", StringComparison.Ordinal)).Select(line => line[6..]));
         using var document = JsonDocument.Parse(body);
+        AdvisoryKindChecks.ObserveResponse(document.RootElement);
         if (document.RootElement.TryGetProperty("result", out var result) && result.TryGetProperty("isError", out var isError) && isError.GetBoolean())
             throw new InvalidOperationException("Synthetic MCP call failed: " + result.GetRawText());
         return document.RootElement.Clone();

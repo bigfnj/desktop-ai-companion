@@ -90,17 +90,19 @@ Each agent keeps its existing model provider, tool permissions and approval prom
    **Options → AgentBroker** and enable it. Host version `1.6.1` or later is required.
 2. Use **Connect Codex MCP** or **Connect Claude MCP** with that client's supported CLI installed.
    Claude Code uses the local HTTP endpoint when it needs no token, and when its organization's
-   policy refuses the `127.0.0.1` address, setup tries the `localhost` one once; other connections use the
-   packaged stdio bridge. Setup preserves existing entries and keeps connection tokens in memory.
+   allowlist misses the `127.0.0.1` address, setup tries the `localhost` one once; explicit denies are not retried.
+   New Codex entries and token-required connections use the packaged stdio bridge. Setup preserves
+   existing entries, including matching Codex HTTP entries, and keeps connection tokens in memory.
    For Claude Code in VS Code, start a new conversation and check `/mcp` afterward. Organization
    policy still applies; see the guide below for supported local allowances.
 3. Enable the desired native peer-delivery adapter to wake existing idle sessions. Discovery is
    enabled by default; native message submission is off until you enable it. Claude native delivery
    uses its local peer credentials. Clients are version checked before native delivery.
 4. On a second workstation, enable its broker too. Request pairing with a discovered broker, compare
-   all four groups of the code on both workstations, then choose **Allow sharing** on each one.
+   all four groups of the code on both workstations, then choose **Codes match: approve** on each one.
    A request or one approval alone grants no session access. If discovery is unavailable, use
-   **Copy broker invitation** and paste that public invitation into the other broker's manual pairing field.
+   **Copy my invitation** on one workstation, then **Pair from copied invitation** on the other.
+   The first press previews that public identity; the second within 30 seconds requests pairing.
 
 Pairing shares current and future discoverable sessions between those two brokers. Use the tray's
 session controls to make a session private or mute automatic delivery; revoke sharing to disconnect a

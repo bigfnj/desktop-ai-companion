@@ -45,9 +45,23 @@ acknowledgement always has room. The journal is appended (tombstone first, then 
 message, so a crash between them leaves the snapshot authoritative), ignores a torn last line, refuses any
 other malformed line, and is compacted once its dead lines outnumber live ones by 4,096. The snapshot keeps
 schema 1 exactly, so a 1.0.4 worker still loads it and loses only the tombstoned IDs.
+Since 1.10.6 the same directory holds the report-only `broker-events.jsonl` (`BrokerEventLog`), rotated once
+to `broker-events.1.jsonl` at 1 MiB. The store appends an `advisory_withheld` line, never message text, after
+a commit that cancels an unadmitted uncertainty advisory because its source settled. It never reads the file,
+and a failed write is counted into the next line, never into the commit. `AppendEvent(JsonObject)` is the
+worker's one way into the same file (its `discovery_pass`, `session_forgotten` and `native_submission_stage`
+lines). The caller writes `event` first, then its payload, never `eventAt`, and never reuses an object it
+passed: the store takes ownership, and the sink may add `eventsLost`. Under the store gate, AppendEvent stamps
+`eventAt`, which so comes last, from the store clock in `advisory_withheld`'s format, and hands the line
+to the sink; it reads the clock and calls the sink, neither of which takes the gate again. It throws only for
+a null line and writes nothing after `Dispose`. The sink refuses, and counts like a failed write, a line whose
+`event` is not 1 to 48 characters of `a-z`, `0-9` and `_` starting with a letter, or one over
+`BrokerEventLog.MaximumLineBytes` (64 KiB) once encoded. An advisory for a native-cause
+`Uncertain` source (`native_` reason) is admitted only `UncertainAdvisoryGrace` (120 s) after it became
+owed, on monotonic time in this process.
 In-flight and uncertain records count toward per-recipient queue bounds. Session leases, current receive
 capability, privacy changes, idle state, and wake capability are rechecked before a local claim. Unknown
-activity permits a claim only with explicit `AtomicIdleAdmission` plus receive/wake capabilities; the
+activity permits a claim only with explicit `NativeIdleGuard` plus receive/wake capabilities; the
 adapter must then enforce an authoritative native idle guard. Known busy/approval/interrupted states
 remain queued. New
 session incarnations supersede only the same exact session ID; queued messages are never redirected to a

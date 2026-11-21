@@ -95,7 +95,8 @@ internal static class MailboxChecks
     private static void RetainedCapacity(Action<bool, string> check)
     {
         var clock = new ToolFixture.ManualClock();
-        string root = Path.Combine(AppContext.BaseDirectory, "scratch", "mailbox-capacity-" + Guid.NewGuid().ToString("N"));
+        using var scratchOwner = OwnedScratch.Create("mailbox-capacity");
+        string root = scratchOwner.Root;
         using (var store = new BrokerStore(Path.Combine(root, "small"), new BrokerLimits(MaximumSessions: 4), clock))
         {
             BrokerSession Mailbox(string name) => new(new(store.BrokerId, "mcp:" + name, Guid.NewGuid()), name, "mcp",
@@ -162,7 +163,8 @@ internal static class MailboxChecks
     private static void RestartKeepsMessages(Action<bool, string> check)
     {
         var clock = new ToolFixture.ManualClock();
-        string directory = Path.Combine(AppContext.BaseDirectory, "scratch", "mailbox-restart-" + Guid.NewGuid().ToString("N"));
+        using var scratchOwner = OwnedScratch.Create("mailbox-restart");
+        string directory = scratchOwner.Root;
         BrokerSession owner;
         Guid messageId = Guid.NewGuid();
         using (var store = new BrokerStore(directory, clock: clock))
@@ -186,7 +188,8 @@ internal static class MailboxChecks
     // The real /federation/directory route over mutually authenticated TLS, with a synthetic paired identity.
     private static async Task FederationDirectoryOverTls(Action<bool, string> check)
     {
-        string scratch = Path.Combine(AppContext.BaseDirectory, "scratch", "mailbox-federation-" + Guid.NewGuid().ToString("N"));
+        using var scratchOwner = OwnedScratch.Create("mailbox-federation");
+        string scratch = scratchOwner.Root;
         string peerData = Path.Combine(scratch, "synthetic-peer");
         Guid peerId = Guid.NewGuid();
         var options = new WorkerOptions(scratch, "Synthetic mailbox federation", LoopbackPort: 0, LanPort: 0,

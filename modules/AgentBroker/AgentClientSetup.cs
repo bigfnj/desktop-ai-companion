@@ -7,12 +7,14 @@ using AgentBroker.Protocol;
 namespace DesktopAICompanion.AgentBroker;
 
 internal sealed record ClientCommandResult(int ExitCode, string Output, string Error);
-internal enum ClientConfiguration { CliMissing, Absent, Configured, DifferentEntry, Disabled, PolicyBlocked, Unrecognized, Failed, Cancelled }
+internal enum ClientConfiguration { CliMissing, Absent, Configured, DifferentEntry, ConnectionUnverified, Disabled, PolicyBlocked, Unrecognized, Failed, Cancelled }
 // Fixed codes only. Scope: user, project, local, managed, "" (the client reports none) or unrecognized.
 // Transport: http, stdio or other. Health is Claude's own connection check: connected, tools_unavailable,
 // needs_authentication, failed, connection_error, pending_approval, rejected, disabled, timed_out or unknown.
+// LoopbackUrl: an HTTP entry whose URL is a canonical loopback MCP endpoint, so it could be this broker's on some port. A
+// fixed boolean only; no vendor text is kept.
 internal sealed record ClientInspection(ClientConfiguration State, string Scope = "", string Transport = "", string Health = "",
-    int ExitCode = 0, DateTimeOffset CheckedUtc = default);
+    int ExitCode = 0, DateTimeOffset CheckedUtc = default, bool LoopbackUrl = false);
 internal interface IAgentClientCommand
 {
     Task<ClientCommandResult> RunAsync(string executable, IReadOnlyList<string> arguments, CancellationToken token);
@@ -21,11 +23,29 @@ internal interface IAgentClientCommand
 internal sealed class AgentClientSetup(IAgentClientCommand command)
 {
     internal const string ServerName = "desktop-ai-companion-agentbroker";
+    // Returned when stillCurrent reports, before the first add, that the broker connection this setup was planned for has
+    // changed (post-push audit U5 follow-up). Only the read-only get has run, so no configuration was changed. The get itself
+    // needs no such check, because the caller has just checked currentness with no await between that check and the get.
+    internal const string StaleSetupStopped = "Client setup stopped because the broker connection changed before the client's " +
+        "MCP configuration was changed. No configuration was changed. When AgentBroker is running, choose Check client setup before retrying.";
+    // Returned when stillCurrent reports the same before the allowlist retry add. The first add was refused by the client's
+    // policy; what that refusal left in the client's configuration is the vendor CLI's behaviour, not proven here, so this
+    // text claims only that no further add was attempted. The change can come before or after the refusal while the add
+    // runs, so the text states no order.
+    internal const string StaleRetryStopped = "Client setup stopped because the broker connection changed during setup. " +
+        "Claude Code refused the first add under its managed policy, and no further add was attempted. Review the client's MCP " +
+        "settings, then, when AgentBroker is running, choose Check client setup before retrying.";
+    internal static bool IsStaleStop(string text) => text == StaleSetupStopped || text == StaleRetryStopped;
+
     public async Task<string> ConfigureAsync(string client, string worker, string directory, CancellationToken token,
-        string? loopbackMcpEndpoint = null)
+        string? loopbackMcpEndpoint = null, string? inspectionMcpEndpoint = null, bool httpConnectionVerified = true,
+        Func<bool>? stillCurrent = null)
     {
         if (loopbackMcpEndpoint is not null && (client != "claude" || !IsLiteralLoopbackEndpoint(loopbackMcpEndpoint)))
             return "The broker returned an invalid local MCP endpoint. Refresh its status before connecting Claude Code.";
+        // Codex setup remains stdio. Its known broker endpoint is only for recognizing an existing HTTP entry.
+        if (inspectionMcpEndpoint is not null && (client != "codex" || !IsLiteralLoopbackEndpoint(inspectionMcpEndpoint)))
+            return "The broker returned an invalid inspection MCP endpoint. Refresh its status before checking Codex setup.";
         if (client is not ("codex" or "claude") || !Path.IsPathFullyQualified(worker) || !File.Exists(worker) ||
             !Path.IsPathFullyQualified(directory)) return "The packaged worker and module storage must be available first.";
         string[] bridgeArguments = ["--mcp-stdio", "--data", directory];
@@ -36,7 +56,19 @@ internal sealed class AgentClientSetup(IAgentClientCommand command)
             var existing = await command.RunAsync(client, get, token);
             if (existing.ExitCode == 0)
             {
-                if (client == "codex" && MatchesCodex(existing.Output, worker, bridgeArguments))
+                var inspection = client == "codex"
+                    ? InspectCodex(existing.Output, worker, directory, inspectionMcpEndpoint ?? "", DateTimeOffset.UtcNow)
+                    : InspectClaude(existing.Output, worker, directory, loopbackMcpEndpoint ?? "", DateTimeOffset.UtcNow);
+                inspection = WithConnectionVerification(inspection, httpConnectionVerified);
+                if (inspection.State == ClientConfiguration.ConnectionUnverified)
+                    return "Could not verify this HTTP entry because the broker connection is unavailable. Refresh status, then choose Check client setup again. No configuration was changed.";
+                if (client == "codex" && inspection.State == ClientConfiguration.PolicyBlocked)
+                    return "Codex reports this AgentBroker entry disabled by requirements. Ask the policy owner to permit this exact local server, then start a fresh chat. No configuration was changed.";
+                if (client == "codex" && inspection.State == ClientConfiguration.Disabled)
+                    return "This AgentBroker MCP entry exists but is disabled in Codex. Review its MCP settings and disabled reason before reconnecting. No configuration was changed.";
+                if (client == "codex" && inspection.State == ClientConfiguration.Unrecognized)
+                    return "Codex returned an unrecognized AgentBroker configuration. Review this entry in Codex's MCP settings; nothing was changed.";
+                if (inspection.State == ClientConfiguration.Configured)
                     return "AgentBroker is already configured. Reconnect MCP or restart the client to load it.";
                 return "An MCP entry with this name already exists. Review it with the client's MCP settings before changing it.";
             }
@@ -47,6 +79,11 @@ internal sealed class AgentClientSetup(IAgentClientCommand command)
                   diagnostics.Contains("No MCP server", StringComparison.OrdinalIgnoreCase)))
                 return Failure(client, existing, verification: true, loopbackMcpEndpoint);
             token.ThrowIfCancellationRequested();
+            // The get above awaited the vendor CLI; the live broker may have moved meanwhile. Never add from an obsolete plan:
+            // Claude's HTTP plan holds the old address. A stdio plan (Codex, or Claude for a token-required connection) does not
+            // depend on the endpoint, but it belongs to the old connection's setup, so it stops too and Check client setup plans
+            // again against the new one.
+            if (stillCurrent?.Invoke() == false) return StaleSetupStopped;
             var arguments = new List<string> { "mcp", "add" };
             if (client == "claude") arguments.AddRange(["--transport", loopbackMcpEndpoint is null ? "stdio" : "http", "--scope", "user"]);
             arguments.Add(ServerName);
@@ -65,6 +102,8 @@ internal sealed class AgentClientSetup(IAgentClientCommand command)
             if (added.ExitCode != 0 && loopbackMcpEndpoint is not null && IsAllowlistMiss(added))
             {
                 token.ThrowIfCancellationRequested();
+                // The refused first add awaited the vendor CLI too; no further add is sent from an obsolete plan.
+                if (stillCurrent?.Invoke() == false) return StaleRetryStopped;
                 retriedEndpoint = LocalhostEndpoint(loopbackMcpEndpoint);
                 arguments[^1] = retriedEndpoint;
                 added = await command.RunAsync(client, arguments, token);
@@ -89,7 +128,7 @@ internal sealed class AgentClientSetup(IAgentClientCommand command)
     /// detection observes reachability directly.
     /// </summary>
     public async Task<ClientInspection> InspectAsync(string client, string worker, string directory, string loopbackMcpEndpoint,
-        DateTimeOffset now, CancellationToken token)
+        DateTimeOffset now, CancellationToken token, bool httpConnectionVerified = true)
     {
         if (client is not ("codex" or "claude")) throw new ArgumentOutOfRangeException(nameof(client));
         string[] get = client == "codex" ? ["mcp", "get", ServerName, "--json"] : ["mcp", "get", ServerName];
@@ -118,10 +157,18 @@ internal sealed class AgentClientSetup(IAgentClientCommand command)
                 return new(ClientConfiguration.Absent, ExitCode: result.ExitCode, CheckedUtc: now);
             return new(ClientConfiguration.Failed, ExitCode: result.ExitCode, CheckedUtc: now);
         }
-        return client == "claude"
+        var inspection = client == "claude"
             ? InspectClaude(result.Output, worker, directory, loopbackMcpEndpoint, now)
             : InspectCodex(result.Output, worker, directory, loopbackMcpEndpoint, now);
+        return WithConnectionVerification(inspection, httpConnectionVerified);
     }
+
+    // An unavailable broker probe cannot rule out a canonical loopback URL, because the worker's port is unknown; any other
+    // URL can never be this broker's and stays DifferentEntry (post-push audit U7). Stdio identity is independently
+    // verified from the exact worker and data arguments; a verified bearer-only connection still rules HTTP out.
+    private static ClientInspection WithConnectionVerification(ClientInspection inspection, bool httpConnectionVerified) =>
+        !httpConnectionVerified && inspection is { State: ClientConfiguration.DifferentEntry, Transport: "http", LoopbackUrl: true }
+            ? inspection with { State = ClientConfiguration.ConnectionUnverified } : inspection;
 
     // The labels the reviewed public mcpGetHandler prints (Connect-ClaudeMcpEntry.mjs connectionFields). A
     // block that does not have exactly one of each label it needs is Unrecognized, never Configured.
@@ -159,9 +206,10 @@ internal sealed class AgentClientSetup(IAgentClientCommand command)
             : type == "stdio" && string.Equals(One("Command"), worker, StringComparison.OrdinalIgnoreCase) &&
                 One("Args") == "--mcp-stdio --data " + directory;
         string transport = type is "http" or "stdio" ? type : "other";
+        bool loopbackUrl = type == "http" && One("URL") is { } entryUrl && IsCanonicalLoopbackEndpoint(entryUrl);
         var state = !exact ? ClientConfiguration.DifferentEntry
             : health is "rejected" or "disabled" ? ClientConfiguration.Disabled : ClientConfiguration.Configured;
-        return new(state, scope, transport, health, CheckedUtc: now);
+        return new(state, scope, transport, health, CheckedUtc: now, LoopbackUrl: loopbackUrl);
     }
 
     // Codex prints no scope; its JSON names the transport and whether the entry is enabled.
@@ -177,9 +225,23 @@ internal sealed class AgentClientSetup(IAgentClientCommand command)
                 ? MatchesCodex(json, worker, ["--mcp-stdio", "--data", directory])
                 : type == "streamable_http" && transport.TryGetProperty("url", out var url) && IsThisBrokersEndpoint(url.GetString(), endpoint);
             string kind = type == "stdio" ? "stdio" : type == "streamable_http" ? "http" : "other";
-            bool disabled = root.TryGetProperty("enabled", out var enabled) && enabled.ValueKind == JsonValueKind.False;
-            var state = !exact ? ClientConfiguration.DifferentEntry : disabled ? ClientConfiguration.Disabled : ClientConfiguration.Configured;
-            return new(state, "", kind, "", CheckedUtc: now);
+            if (root.TryGetProperty("enabled", out var enabled) && enabled.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+                return new(ClientConfiguration.Unrecognized, CheckedUtc: now);
+            string? reason = null;
+            if (root.TryGetProperty("disabled_reason", out var reported) && reported.ValueKind != JsonValueKind.Null)
+            {
+                if (reported.ValueKind != JsonValueKind.String || string.IsNullOrEmpty(reported.GetString()))
+                    return new(ClientConfiguration.Unrecognized, CheckedUtc: now);
+                reason = reported.GetString();
+            }
+            bool disabled = enabled.ValueKind == JsonValueKind.False || reason is not null;
+            bool requirements = reason == "requirements";
+            var state = !exact ? ClientConfiguration.DifferentEntry : requirements ? ClientConfiguration.PolicyBlocked
+                : disabled ? ClientConfiguration.Disabled : ClientConfiguration.Configured;
+            string health = reason is null ? "" : requirements ? "disabled_by_requirements" : "disabled_reason_reported";
+            bool loopbackUrl = type == "streamable_http" && transport.TryGetProperty("url", out var entryUrl) &&
+                entryUrl.ValueKind == JsonValueKind.String && entryUrl.GetString() is { } entry && IsCanonicalLoopbackEndpoint(entry);
+            return new(state, "", kind, health, CheckedUtc: now, LoopbackUrl: loopbackUrl);
         }
         catch (Exception error) when (error is JsonException or KeyNotFoundException or InvalidOperationException)
         { return new(ClientConfiguration.Unrecognized, CheckedUtc: now); }

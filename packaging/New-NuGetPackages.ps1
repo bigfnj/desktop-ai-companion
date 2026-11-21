@@ -53,10 +53,24 @@ $projects = @(
     (Join-Path $repoRoot 'src\DesktopAICompanion.ModuleKit\DesktopAICompanion.ModuleKit.csproj')
 )
 
+$privacyArguments = @('-p:EnableSourceLink=false', '-p:EmbedUntrackedSources=false', '-p:EmbedAllSources=false', '-p:IncludeSymbols=false', '-p:IncludeSource=false')
+. (Join-Path $PSScriptRoot 'NuGetPackagePrivacy.ps1')
+$freshBuilds = @{}
 foreach ($project in $projects) {
     Write-Host ''
     Write-Host ("=== pack {0}" -f [IO.Path]::GetFileNameWithoutExtension($project)) -ForegroundColor Cyan
-    & dotnet pack $project -c $Configuration -o $OutputDirectory --nologo -v minimal
+    # Pack has no --no-incremental switch. Rebuild first, then package exactly those outputs without rebuilding.
+    $buildStartedUtc = [DateTime]::UtcNow
+    & dotnet build $project -c $Configuration --no-incremental --nologo -v minimal @privacyArguments
+    $buildCompletedUtc = [DateTime]::UtcNow
+    if ($LASTEXITCODE -ne 0) { throw "dotnet build failed for $project (exit $LASTEXITCODE)." }
+    $id = [IO.Path]::GetFileNameWithoutExtension($project)
+    # The installed SDK evaluates the exact TargetPath with the same configuration/properties; no build runs here.
+    $targetPathLines = @(& dotnet msbuild $project -nologo "-p:Configuration=$Configuration" -getProperty:TargetPath @privacyArguments)
+    if ($LASTEXITCODE -ne 0 -or $targetPathLines.Count -ne 1 -or -not [IO.Path]::IsPathRooted($targetPathLines[0]) -or
+        [IO.Path]::GetFileName($targetPathLines[0]) -cne ($id + '.dll')) { throw 'NUGET_PRIVACY_TARGET_PATH_REFUSED' }
+    $freshBuilds[$id] = Get-NuGetBuildIdentity -AssemblyPath $targetPathLines[0] -BuildStartedUtc $buildStartedUtc -BuildCompletedUtc $buildCompletedUtc
+    & dotnet pack $project -c $Configuration -o $OutputDirectory --no-build --nologo -v minimal @privacyArguments
     if ($LASTEXITCODE -ne 0) { throw "dotnet pack failed for $project (exit $LASTEXITCODE)." }
 }
 
@@ -67,6 +81,17 @@ $packages = @(Get-ChildItem -LiteralPath $OutputDirectory -Filter '*.nupkg' |
 if ($packages.Count -lt 2) { throw "Expected 2 packages, found $($packages.Count)." }
 
 Add-Type -AssemblyName System.IO.Compression.FileSystem
+Assert-NuGetOutputPrivacy -OutputDirectory $OutputDirectory
+$packageIds = @('DesktopAICompanion.Contracts', 'DesktopAICompanion.ModuleKit')
+Assert-NuGetExpectedPackages -OutputDirectory $OutputDirectory -Version $version -PackageIds $packageIds
+foreach ($id in $packageIds) {
+    $packagePath = Join-Path $OutputDirectory ($id + '.' + $version + '.nupkg')
+    $privacy = Get-NuGetPackagePrivacySummary -PackagePath $packagePath -AssemblyName ($id + '.dll') -ExpectedImageSha256 $freshBuilds[$id].ImageSha256
+    Write-Host ("  {0} privacy: embeddedPdb={1} documents={2} absoluteDocuments={3} sourceLinkPdbs={4} embeddedSourcePdbs={5} sha256={6}" -f
+        $id, $privacy.EmbeddedPdbCount, $privacy.DocumentCount, $privacy.AbsoluteDocumentCount,
+        $privacy.SourceLinkPdbCount, $privacy.EmbeddedSourcePdbCount, $privacy.PackageSha256)
+    Write-Host ("     imageSha256={0} embeddedPdbSha256={1}" -f $privacy.ImageSha256, ($privacy.EmbeddedPdbSha256 -join ','))
+}
 foreach ($package in $packages) {
     $zip = [IO.Compression.ZipFile]::OpenRead($package.FullName)
     try {

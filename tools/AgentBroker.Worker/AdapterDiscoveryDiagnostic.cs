@@ -21,6 +21,10 @@ public sealed record AdapterDiscoveryDiagnostic(string Code, string Description)
 
     private static string Clean(string value, int limit)
         => new(value.Where(character => !char.IsControl(character)).Take(limit).ToArray());
+
+    /// <summary>The code alone, bounded as Status bounds it, for the report-only events file (BrokerRuntime.DiscoveryTrace):
+    /// a description is display text and is never persisted.</summary>
+    internal static string CleanCode(string code) => Clean(code, 64);
 }
 
 /// <summary>A failed discovery whose specific compatibility reason is safe to display.</summary>
