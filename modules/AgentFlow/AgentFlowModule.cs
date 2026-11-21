@@ -190,7 +190,7 @@ namespace DesktopAICompanion.AgentFlow
         {
             Id = "agentflow",
             Name = "AgentFlow",
-            Version = "1.12.4",  // 1.12.4: "Just keep a log" now keeps only a log (N-audit-1106-006, -007). Log mode no
+            Version = "1.12.5",  // 1.12.5: "Just keep a log" now keeps only a log (N-audit-1106-006, -007). Log mode no
                                  //        longer plays the notification sound or the animation for a waiting prompt, and
                                  //        the session-limit watch no longer types pause messages into Claude Code panels
                                  //        in Log mode; the pane already greyed all three there. It still reads the panels
@@ -237,10 +237,16 @@ namespace DesktopAICompanion.AgentFlow
                                  //        the check with "could not finish" and an amber tray: whether a pressed card
                                  //        took focus is looked at once, after the presses, instead of after each one,
                                  //        and a Codex card pressed after it in the same panel no longer hides that
-                                 //        line (N-audit-1106-111).
-                                 // 1.12.4 as published from master (AgentBroker 1.8.0): publish bounded aggregate Codex
-                                 //        approval observations through the local host context. The burn-down entry
-                                 //        above was not in that zip; it ships as 1.12.5, set at the version step (D-4).
+                                 //        line (N-audit-1106-111). It also picks up shared code that changes nothing
+                                 //        you will see: the bundled ModuleKit carries no Source Link record, ModuleKit
+                                 //        and this module build at the SDK's warning level instead of a pinned 4, and
+                                 //        ModuleKit's test host, which only self-tests use, changed
+                                 //        (N-bd-w12-converter-1-01, N-audit-1106-136, N-bd-w4-contracts-1-01,
+                                 //        N-audit-1106-379, N-bd-w3-remembrance-1-02).
+                                 // 1.12.4: publish bounded aggregate Codex approval observations through the local host
+                                 //        context (published from master with AgentBroker 1.8.0). The commits behind
+                                 //        1.12.5 name 1.12.4, the number the burn-down held for them before that zip
+                                 //        was published without them (D-4).
                                  // 1.12.3: agent cards no longer take focus while you work elsewhere (the owner's
                                  //        report of 2026-11-02; built with Codex's audit and review rounds, and a live
                                  //        re-test after the first version missed a Codex approval card taking focus as

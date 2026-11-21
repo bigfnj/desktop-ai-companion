@@ -42,7 +42,16 @@ public sealed partial class AgentBrokerModule : IModule
     {
         Id = "agentbroker",
         Name = "AgentBroker",
-        Version = "1.10.6",  // Reply settlement, waiting-mail observations, compiled inbox watching and clearer pairing controls.
+        Version = "1.10.7",  // No change you will notice. It picks up the burn-down's shared code: ModuleKit is built without a
+                             //        Source Link record and its self-test host was extended, ModuleKit and this module build at the
+                             //        SDK's warning level instead of a pinned 4, and the worker publish step's staging cleanup
+                             //        refuses a junction (N-bd-w12-converter-1-01, N-audit-1106-379, N-bd-w3-remembrance-1-02,
+                             //        N-audit-1106-136, N-bd-w4-contracts-1-01, N-audit-1106-264). Its own self-test starts cmd.exe
+                             //        by its full path.
+                             // 1.10.6: a Codex send that fails before anything is written defers and is retried, a native-cause
+                             //        uncertainty advisory waits 120 s and is not sent if the recipient settles the message first,
+                             //        and a report-only events file records discovery passes and submission stages.
+                             // 1.10.5: reply settlement, waiting-mail observations, compiled inbox watching and clearer pairing controls.
                              // 1.10.4: slow native discovery consumes its refresh interval instead of adding a second full pause.
                              // 1.10.3: --mcp-call encodes and bounds the whole query before connecting, so depth-limit requests travel.
                              // 1.10.2: request values decoded before dispatch, output checks before dispatch, live endpoint display.
