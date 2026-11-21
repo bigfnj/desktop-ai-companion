@@ -6668,8 +6668,11 @@ Assert-True (
 # publish, so a payload gone stale with its versions agreeing (through a source-linked file or the bundled ModuleKit)
 # was named nowhere in the run; at 2dcaeba8 that hid agentbroker.zip. The script needs git history, tags and committed
 # zips to run, so the shape is pinned here, comment-stripped, between the MISMATCH report and the all-current line: the
-# ORDER (the one line-start throw comes after the degraded and STALE reports) and the ARGUMENT (it throws the list each
-# of the three blocks adds its own sentence to). Every index below sits behind the count or order test before it.
+# ORDER (MISMATCH, degraded and STALE each add their own sentence to the list, and no throw comes before STALE) and the
+# ARGUMENT (the file's last line-start throw throws that list). Since N-bd-w14-review-06 that throw is the file's last
+# statement, after every later section, so this window holds no throw; one throw of the list after STALE is still this
+# measure's shape and is left to the w14-packaging-ci-1 ordering run, which judges what such a throw hides. Every index
+# below sits behind the count or order test before it.
 # WITNESS: the same measure over this file with each block throwing its own sentence again, which is the old shape,
 # must fail, so a measure that cannot see a throw cannot pass.
 $w8sMeasure = {
@@ -6683,13 +6686,16 @@ $w8sMeasure = {
         $throwsAt = @([regex]::Matches($Code.Substring($mismatchAt, $allAt - $mismatchAt), '(?m)^[ \t]*throw\b') |
             ForEach-Object { $mismatchAt + $_.Index })
     }
-    $holds = $mismatchAt -ge 0 -and $mismatchAt -lt $degradedAt -and $degradedAt -lt $staleAt -and
-        $throwsAt.Count -eq 1 -and $staleAt -lt $throwsAt[0] -and
+    $lastThrow = @([regex]::Matches($Code, '(?m)^[ \t]*throw\b') | ForEach-Object { $_.Index }) | Select-Object -Last 1
+    if ($null -eq $lastThrow) { $lastThrow = -1 }
+    $holds = $mismatchAt -ge 0 -and $mismatchAt -lt $degradedAt -and $degradedAt -lt $staleAt -and $staleAt -lt $allAt -and
+        $throwsAt.Count -le 1 -and
+        @($throwsAt | Where-Object { $_ -lt $staleAt -or $Code.Substring($_) -cnotmatch '^[ \t]*throw \(\$verdicts -join ' }).Count -eq 0 -and
         $Code.IndexOf('$verdicts.Add("Module version(s) disagree', $mismatchAt, $degradedAt - $mismatchAt, [StringComparison]::Ordinal) -ge 0 -and
         $Code.IndexOf('$verdicts.Add("$($degraded.Count) module watch set(s) degraded', $degradedAt, $staleAt - $degradedAt, [StringComparison]::Ordinal) -ge 0 -and
-        $Code.IndexOf('$verdicts.Add((Get-StalePayloadRemedy -StaleIds @($stale.Id)))', $staleAt, $throwsAt[0] - $staleAt, [StringComparison]::Ordinal) -ge 0 -and
-        $Code.Substring($throwsAt[0]) -cmatch '^[ \t]*throw \(\$verdicts -join '
-    [pscustomobject]@{ Holds = $holds; Detail = "mismatch $mismatchAt, degraded $degradedAt, stale $staleAt, throws at $($throwsAt -join '/')" }
+        $Code.IndexOf('$verdicts.Add((Get-StalePayloadRemedy -StaleIds @($stale.Id)))', $staleAt, $allAt - $staleAt, [StringComparison]::Ordinal) -ge 0 -and
+        $lastThrow -gt $allAt -and $Code.Substring($lastThrow) -cmatch '^[ \t]*throw \(\$verdicts -join '
+    [pscustomobject]@{ Holds = $holds; Detail = "mismatch $mismatchAt, degraded $degradedAt, stale $staleAt, all-current $allAt, throws before it at $($throwsAt -join '/'), last throw at $lastThrow" }
 }
 $w8sFresh = Remove-PsLineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'packaging\Test-ModulePublishFreshness.ps1') -Raw)
 $w8sNow = & $w8sMeasure $w8sFresh
@@ -7319,11 +7325,12 @@ Assert-True ($w14Every -cmatch 'if \(RemovePetInstance\(pet\)\) removed\+\+;\s*F
 # BEHAVIOUR first, unlike the rest of this file: the committed zips are the scan's only real input and stay red until the
 # release republishes them, so the oracle for its rules is Test-BuildIdentityScan's synthetic images, one assertion per
 # leg with the leg's name in the label. Dot-sourced inside a child scope so its helpers stay out of this file's.
-# Then the WIRING, comment-stripped and in ORDER, as the step 11 merge left it (RULINGS R-9: master's zip loop and its
-# immediate throws verbatim, the identity scan in a pass of its own after the legacy WITNESS): the freshness check proves
-# the scan before the zip loop and refuses on a failed leg; the build-identity pass re-reads every zip and turns each
-# DLL's findings into lines naming the zip, the DLL and the kind; a finding adds a verdict that the pass's throw carries;
-# and no offender line quotes a path the scan found (OURS' CodeView and document lines did; master's lines are counts).
+# Then the WIRING, comment-stripped and in ORDER (RULINGS R-9 kept master's zip loop verbatim and put the identity scan
+# in a pass of its own after the legacy WITNESS; N-bd-w14-review-06 turned every decision into a sentence the file's last
+# statement throws): the freshness check proves the scan before the zip loop and refuses on a failed leg; the
+# build-identity pass re-reads every zip and turns each DLL's findings into lines naming the zip, the DLL and the kind; a
+# finding adds a verdict that the run's one throw carries; and no offender line quotes a path the scan found (OURS'
+# CodeView and document lines did; master's lines are counts).
 # WITNESS: the legs ran; the zip loop hands every zip to master's Get-ModuleZipPrivacyVerdict, which reads each DLL of
 # ours and scans the CodeView string; and the identity pass after the loop reads every zip's own DLLs.
 $w14Legs = @(& { . (Join-Path $repoRoot 'packaging\EmbeddedPortablePdb.ps1'); Test-BuildIdentityScan })
@@ -7357,8 +7364,11 @@ $w14Refuse = $w14Fresh.IndexOf('if ($identityProof.Count -eq 0 -or $identityProo
 $w14Judge = $w14Fresh.IndexOf('$identity = Get-BuildIdentityFindings -Image $bpDll.Bytes', [StringComparison]::Ordinal)
 $w14Add = $w14Fresh.IndexOf('foreach ($kind in $identity.Findings) { $buildIdentityOffenders.Add($bpZip.Name + '' -> '' + $bpDll.FullName + '' : '' + $kind) }', [StringComparison]::Ordinal)
 $w14Verdict = $w14Fresh.IndexOf('if ($buildIdentityOffenders.Count -gt 0) {', [StringComparison]::Ordinal)
-$w14VerdictAdd = $w14Fresh.IndexOf('$scanVerdicts.Add("$($buildIdentityOffenders.Count) build-identity finding(s)', [StringComparison]::Ordinal)
-$w14Throw = $w14Fresh.IndexOf('throw ($scanVerdicts -join '' '')', [StringComparison]::Ordinal)
+$w14SourceLinkAdd = $w14Fresh.IndexOf('$verdicts.Add("$($sourceLinkOffenders.Count) published DLL(s) outside the LEGACY_PRESERVED set', [StringComparison]::Ordinal)
+$w14VerdictAdd = $w14Fresh.IndexOf('$verdicts.Add("$($buildIdentityOffenders.Count) build-identity finding(s)', [StringComparison]::Ordinal)
+$w14Misread = $w14Fresh.IndexOf('$verdicts.Add("WITNESS failed: the embedded PDB of "', [StringComparison]::Ordinal)
+# The LAST throw of the list: the run's one throw is the file's last statement (N-bd-w14-review-06).
+$w14Throw = $w14Fresh.LastIndexOf('throw ($verdicts -join '' '')', [StringComparison]::Ordinal)
 Assert-True ($w14Fresh.Length -gt 0 -and $w14Loop -ge 0 -and $w14VerdictAt -ge 0 -and $w14VerdictAt -lt $w14Loop -and
              $w14VerdictDlls -ge 0 -and $w14CodeView -gt $w14VerdictDlls -and
              $w14LoopPattern -gt $w14Loop -and $w14LoopVerdict -gt $w14LoopPattern -and $w14LoopEnd -gt $w14LoopVerdict -and
@@ -7369,16 +7379,14 @@ Assert-True ($w14Proof -ge 0 -and $w14Refuse -gt $w14Proof -and $w14Loop -gt $w1
     'w14-packaging-ci-1: the freshness check proves the build-identity scan on synthetic images before the zip loop and refuses on a failed leg')
 Assert-True ($w14Judge -gt $w14Entries -and $w14Add -gt $w14Judge -and $w14Verdict -gt $w14Add) (
     'w14-packaging-ci-1: every one of our DLLs in every zip is judged for a build identity, each finding a line naming the zip, the DLL and the kind')
-# The first throw after the identity block IS the pass's throw: the block must not throw its own sentence.
-# ORDER AS IT HOLDS NOW, not as OURS had it. OURS collected the build-path and identity verdicts and printed both lists
-# before one throw. The merge keeps master's build-path and SourceLink decisions as immediate throws, because
-# tests\Test-ModulePublishFreshnessRules.ps1 G4 and G5 execute them in place (RULINGS R-9), so the identity pass runs after
-# the legacy WITNESS and its throw carries the identity verdict alone. N-bd-w14-review-06 (R-6, widened by R-9) collects
-# every section's verdicts into one throw; it must rewrite this order and the SourceLink run below.
-Assert-True ($w14LegacyWitness -gt $w14LoopEnd -and $w14Pass -gt $w14LegacyWitness -and $w14Verdict -gt $w14Pass -and
-             $w14VerdictAdd -gt $w14Verdict -and $w14Throw -gt $w14VerdictAdd -and
+# ORDER (N-bd-w14-review-06): master's SourceLink decision adds its sentence after the zip loop and before the legacy
+# WITNESS, the identity pass runs after that WITNESS, its verdict block adds the identity sentence, the compilation-options
+# WITNESS adds its own after it, and the run's one throw comes last, with no other throw between the identity verdict
+# block and it. The CONDITION of that throw is judged by the section runs below, not here.
+Assert-True ($w14SourceLinkAdd -gt $w14LoopEnd -and $w14LegacyWitness -gt $w14SourceLinkAdd -and $w14Pass -gt $w14LegacyWitness -and
+             $w14Verdict -gt $w14Pass -and $w14VerdictAdd -gt $w14Verdict -and $w14Misread -gt $w14VerdictAdd -and $w14Throw -gt $w14Misread -and
              $w14Fresh.IndexOf('throw', $w14Verdict, $w14Throw + 5 - $w14Verdict, [StringComparison]::Ordinal) -eq $w14Throw) (
-    'w14-packaging-ci-1: a build-identity finding adds a verdict that the build-identity pass''s throw carries, the pass running after the build-path and SourceLink decisions until N-bd-w14-review-06')
+    'w14-packaging-ci-1: a build-identity finding adds a verdict that the run''s one throw carries, after the build-path and SourceLink verdicts')
 # Master's offender lines are COUNTS, and these three are every line its verdict adds: one that appends the match, a
 # name or any other text is a different line and fails here (the section run below also judges a planted path).
 $w14CountLines = @([regex]::Matches($w14VerdictBody, '(?m)^[ \t]*\$(?:buildPath|sourceLink)\.Add\(.*$') | ForEach-Object { $_.Value.Trim() })
@@ -7393,7 +7401,8 @@ Assert-True ($w14Fresh -cnotmatch '\$bpMatch\.Value' -and $w14Fresh -cnotmatch '
 # checks above cannot see a CONDITION that stops firing ("if ($scanVerdicts.Count -gt 1)", or a proof refusal fed "@()"),
 # and a redaction check over source text bans only the spellings it names. So the shipped-DLL section's own text, cut
 # from the comment-stripped freshness check in three pieces (the setup, the proof refusal, then master's zip loop through
-# the build-identity pass with every verdict and witness), is RUN in a child scope on the freshness check's OWN helpers,
+# the build-identity pass, every verdict and witness and the run's one throw), is RUN in a child scope on the freshness
+# check's OWN helpers,
 # extracted by AST as tests\Test-ModulePublishFreshnessRules.ps1 extracts them, so the verdict, the hash, the legacy list
 # and the tally are the real ones and no stub stands in for a reader. The input is a real zip holding one ModuleKit.dll,
 # written under a scratch folder this file creates and removes; only the proof is stubbed, to pass (its legs are graded
@@ -7425,9 +7434,28 @@ $w14Whole = $w14SetupText + "`n" + $w14ProofText + "`n" + $w14LoopText
 # The scratch folder: a fresh GUID-named child of TEMP, created below and removed after the runs, its absence asserted.
 $w14ScratchParent = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\')
 $w14Scratch = Join-Path $w14ScratchParent ('dac-hardening-w14-' + [Guid]::NewGuid().ToString('N'))
+# THE ORDERING RUN (N-bd-w14-review-06): the freshness verdict block, then the Fortunes section, then the shipped-DLL
+# section above, cut from the same comment-stripped text and run as one, with a planted version mismatch. The Fortunes
+# section reads this checkout's own packs\collections.json and modules-dist\fortunes.zip, one DLL entry, read-only.
+$w14FreshAt = $w14Fresh.IndexOf('$verdicts = New-Object ''Collections.Generic.List[string]''', [StringComparison]::Ordinal)
+$w14FreshEnd = $w14Fresh.IndexOf('if (-not $declaredVersions.ContainsKey(''agentbroker'')) {', [StringComparison]::Ordinal)
+$w14FortunesAt = $w14Fresh.IndexOf("try {`n    `$collectionsPath = Join-Path `$repoRoot 'packs\collections.json'", [StringComparison]::Ordinal)
+$w14FortunesEnd = $w14Fresh.IndexOf(". (Join-Path `$PSScriptRoot 'EmbeddedPortablePdb.ps1')", [StringComparison]::Ordinal)
+$w14OrderCut = ($w14Cut -and $w14FreshAt -ge 0 -and $w14FreshEnd -gt $w14FreshAt -and $w14FortunesAt -gt $w14FreshEnd -and
+                $w14FortunesEnd -gt $w14FortunesAt -and $w14SetupAt -gt $w14FortunesEnd)
+$w14OrderText = ''
+if ($w14OrderCut) {
+    $w14OrderText = $w14Fresh.Substring($w14FreshAt, $w14FreshEnd - $w14FreshAt) + "`n" +
+                    $w14Fresh.Substring($w14FortunesAt, $w14FortunesEnd - $w14FortunesAt) + "`n" + $w14Whole
+}
 $w14RunSection = {
-    param([string]$Text, [byte[]]$Image, [bool]$ProofFails)
+    param([string]$Text, [byte[]]$Image, [bool]$ProofFails, [object[]]$Mismatched = @())
     Add-Type -AssemblyName System.IO.Compression
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    # The run's one verdict list, as the freshness check creates it before its first section; the ordering run's own
+    # text creates it again. The freshness block's inputs: $Mismatched is the block's $mismatched (one name, any case).
+    $verdicts = New-Object 'Collections.Generic.List[string]'
+    $degraded = @(); $stale = @(); $ids = @('planted')
     . (Join-Path $repoRoot 'packaging\EmbeddedPortablePdb.ps1')
     . ([scriptblock]::Create($w14HelperText))
     $stubLegs = @([pscustomobject]@{ Name = 'stub leg'; Passed = $true; Detail = '' })
@@ -7477,6 +7505,7 @@ try {
     $w14IdOnly = & $w14RunSection $w14Whole $w14Images.IdentityOnly $false
     $w14Path = & $w14RunSection $w14Whole $w14Images.Planted $false
     $w14NoOptions = & $w14RunSection $w14Whole $w14Images.NoOptions $false
+    $w14Order = & $w14RunSection $w14OrderText $w14Images.SourceLink $false @([pscustomobject]@{ Id = 'planted'; Reason = 'version mismatch -- planted' })
 }
 finally {
     try {
@@ -7493,14 +7522,15 @@ Assert-True ($w14Cut -and -not $w14Clean.Threw -and
 Assert-True ($w14Refused.Threw -and $w14Refused.Message -cmatch 'failed its own proof on synthetic images \(1 of 2 leg\(s\)\)' -and
              $w14Refused.Printed -cmatch 'build-identity proof failed: stub failing leg') (
     "w14-packaging-ci-1: run with one proof leg of two failing, the freshness check refuses before the zip loop ($($w14Refused.Message))")
-# ORDER AS IT HOLDS NOW (see the verdict check above): a Source Link record also trips master's SourceLink refusal, which
-# throws before the build-identity pass runs, so this run's verdict is master's sentence. N-bd-w14-review-06 makes it one
-# throw carrying both verdicts and must rewrite this expectation.
+# A Source Link record trips master's SourceLink verdict AND the build-identity pass (N-bd-w14-review-06): neither hides
+# the other, both print their lines, and the one throw carries the SourceLink sentence first and the identity one after.
 Assert-True ($w14SourceLink.Threw -and
              $w14SourceLink.Message -cmatch '^1 published DLL\(s\) outside the LEGACY_PRESERVED set carry a SourceLink record' -and
+             $w14SourceLink.Message.IndexOf('1 build-identity finding(s) in published DLLs', [StringComparison]::Ordinal) -gt 0 -and
              $w14SourceLink.Printed -cmatch 'SourceLink record: planted\.zip -> DesktopAICompanion\.ModuleKit\.dll : SourceLink record in 1 embedded PDB\(s\)' -and
+             $w14SourceLink.Printed -cmatch 'build identity: planted\.zip -> lib/DesktopAICompanion\.ModuleKit\.dll : a Source Link record in the embedded PDB' -and
              $w14SourceLink.Printed -cnotmatch 'no CodeView path') (
-    'w14-packaging-ci-1: run on a DLL whose only finding is a Source Link record, the SourceLink refusal throws first and prints no success line, until N-bd-w14-review-06')
+    'w14-packaging-ci-1: run on a DLL whose only finding is a Source Link record, the SourceLink verdict and the build-identity finding both print, the one throw carries both, and no success line')
 Assert-True ($w14IdOnly.Threw -and $w14IdOnly.Message -cmatch '^1 build-identity finding\(s\) in published DLLs' -and
              $w14IdOnly.Printed -cmatch 'build identity: planted\.zip -> lib/DesktopAICompanion\.ModuleKit\.dll : a user-profile path in the DLL bytes \(ASCII\)' -and
              $w14IdOnly.Printed -cnotmatch 'no CodeView path' -and
@@ -7516,6 +7546,25 @@ Assert-True ($w14Path.Threw -and
 Assert-True ($w14NoOptions.Threw -and
              $w14NoOptions.Message -cmatch '^WITNESS failed: the embedded PDB of planted\.zip -> lib/DesktopAICompanion\.ModuleKit\.dll did not read back one C# compilation options record per PDB') (
     "w14-packaging-ci-1: run on a DLL whose embedded PDB reads back no compilation options record, the freshness check refuses it as a misread ($($w14NoOptions.Message))")
+# A FRESHNESS FAILURE DOES NOT HIDE THE LATER SECTIONS (N-bd-w14-review-06). The freshness block threw its list before
+# the Fortunes check and the shipped-DLL scan ran, so while any module waited on its publish neither produced a result.
+# Run as one with a planted mismatch, the Fortunes section must still report (its success line on this checkout, or its
+# own sentence), the scan must still print its SourceLink and build-identity lines, the all-current and scan success
+# lines must not print, and the one throw must carry the mismatch FIRST and the scan's two verdicts after it, in order.
+$w14OrderMessage = [string]$w14Order.Message
+$w14OrderSl = $w14OrderMessage.IndexOf('outside the LEGACY_PRESERVED set carry a SourceLink record', [StringComparison]::Ordinal)
+$w14OrderId = $w14OrderMessage.IndexOf('1 build-identity finding(s) in published DLLs', [StringComparison]::Ordinal)
+$w14OrderFortunes = $w14Order.Printed -cmatch 'fortunes\.zip embeds all \d+ current pack-to-collection mappings across \d+ collection\(s\)' -or
+                    $w14OrderMessage -cmatch 'pack-to-collection'
+Assert-True ($w14OrderCut -and $w14Order.Threw -and
+             $w14OrderMessage.StartsWith('Module version(s) disagree across source, modules-dist\modules.json and catalog.json: planted.', [StringComparison]::Ordinal) -and
+             $w14OrderSl -gt 0 -and $w14OrderId -gt $w14OrderSl -and $w14OrderFortunes -and
+             $w14Order.Printed -cmatch 'MISMATCH planted -- version mismatch -- planted' -and
+             $w14Order.Printed -cnotmatch 'published module payload\(s\) are current' -and
+             $w14Order.Printed -cmatch 'SourceLink record: planted\.zip -> DesktopAICompanion\.ModuleKit\.dll' -and
+             $w14Order.Printed -cmatch 'build identity: planted\.zip -> lib/DesktopAICompanion\.ModuleKit\.dll : a Source Link record in the embedded PDB' -and
+             $w14Order.Printed -cnotmatch 'no CodeView path') (
+    "w14-packaging-ci-1: a freshness failure does not hide the later sections: with a planted version mismatch the Fortunes check and the shipped-DLL scan still print, and the one throw carries the mismatch, then the SourceLink and build-identity verdicts (Fortunes reported: $w14OrderFortunes; SourceLink at $w14OrderSl, identity at $w14OrderId)")
 Assert-True ($w14ScratchFault -eq '' -and -not [IO.Directory]::Exists($w14Scratch)) (
     "w14-packaging-ci-1: the section runs wrote their planted zip under a scratch folder this file created, and the folder is gone$(if ($w14ScratchFault) { ' -- cleanup threw ' + $w14ScratchFault } else { '' })")
 # REAL INPUT for the CustomDebugInformation read (same review). The synthetic PDB holds only the Document and

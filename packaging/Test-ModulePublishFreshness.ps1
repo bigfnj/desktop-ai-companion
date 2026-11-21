@@ -792,6 +792,18 @@ foreach ($id in $ids) {
 # source; only a run narrowed with -ModuleId agentbroker said so. Each block now prints its lines and adds its
 # sentence, and the run throws once, after all three, naming every module in every class. Reordering the blocks was
 # the rejected alternative: whichever throws first still hides the ones after it.
+#
+# AND THE ONE THROW IS AT THE END OF THIS FILE (N-bd-w14-review-06). This block threw its list here, so while any module
+# waited on its publish, the AgentBroker stamp check, the Fortunes pack-to-collection check and the shipped-DLL scan
+# produced no result in any gate. Every later section now adds its sentences to this same list, in file order (this
+# block, AgentBroker, Fortunes, the build-path and SourceLink verdicts with their witnesses, the build-identity pass),
+# prints its own lines and its own success line when it found nothing, and the last statement of the file throws once.
+# A section whose input is missing adds a sentence saying it could not run. The throws left before that one are
+# preconditions, where going on would judge nothing or judge wrongly: everything above this list (modules.json,
+# discovery, -ModuleId, catalog app.version and the tag check, a listed module with no source directory, a failed
+# git call), AgentBroker's inputs (no agentbroker in modules.json, an unparseable version, an unreadable committed
+# blob), and in the scan an empty .csproj set, a failed synthetic proof, a DLL the embedded-PDB reader refuses and a
+# zip that changed between its two passes.
 $verdicts = New-Object 'Collections.Generic.List[string]'
 
 if ($mismatched.Count -gt 0) {
@@ -827,12 +839,9 @@ if ($stale.Count -gt 0) {
     $verdicts.Add((Get-StalePayloadRemedy -StaleIds @($stale.Id)))
 }
 
-if ($verdicts.Count -gt 0) {
-    Write-Host ''
-    throw ($verdicts -join ' ')
+if ($verdicts.Count -eq 0) {
+    Write-Host "All $($ids.Count) published module payload(s) are current with their source."
 }
-
-Write-Host "All $($ids.Count) published module payload(s) are current with their source."
 
 # ---------------------------------------------------------------------------------------------------
 # AGENTBROKER: THE COMMITTED PAYLOAD MUST BE A BOUND PROVENANCE BUILD (1.10.4 and later, and any bytes that
@@ -876,14 +885,16 @@ else {
         Write-Host ''
         foreach ($problem in $stampVerdict.Problems) { Write-Host "  $problem" }
         Write-Host ''
-        throw ("AGENTBROKER_PAYLOAD_UNBOUND: modules-dist/agentbroker.zip committed at HEAD (sha256 " +
+        $verdicts.Add("AGENTBROKER_PAYLOAD_UNBOUND: modules-dist/agentbroker.zip committed at HEAD (sha256 " +
                "$committedAgentBrokerSha256) is declared version $agentBrokerDeclared, $stampScope, and is not a bound " +
                "provenance build: $($stampVerdict.Problems.Count) stamp problem(s) listed above. " + (Get-AgentBrokerBoundRouteText))
     }
-    Write-Host ("OK   agentbroker -- committed agentbroker.zip (sha256 $committedAgentBrokerSha256) carries one " +
-                "source-content stamp $($stampVerdict.SourceContentSha256) and one parent-commit stamp " +
-                "$($stampVerdict.SourceParentCommit) in both AgentBroker.dll and worker/AgentBroker.Worker.dll, and no " +
-                "+<hex> version suffix")
+    if ($stampVerdict.Problems.Count -eq 0) {
+        Write-Host ("OK   agentbroker -- committed agentbroker.zip (sha256 $committedAgentBrokerSha256) carries one " +
+                    "source-content stamp $($stampVerdict.SourceContentSha256) and one parent-commit stamp " +
+                    "$($stampVerdict.SourceParentCommit) in both AgentBroker.dll and worker/AgentBroker.Worker.dll, and no " +
+                    "+<hex> version suffix")
+    }
 }
 
 # ---------------------------------------------------------------------------------------------------
@@ -898,111 +909,121 @@ else {
 # more machinery than it is worth here. collections.json is checked because it is the one that broke,
 # it is small, and it is pure data the emitter copies verbatim, so a substring search over the DLL is
 # sufficient and cannot false-negative: if the current bytes are absent, the zip is stale.
-$collectionsPath = Join-Path $repoRoot 'packs\collections.json'
-$fortunesZip = Join-Path $repoRoot 'modules-dist\fortunes.zip'
-# A MISSING INPUT IS A THROW, NOT A SKIP. This block sat behind `if (both exist)` with no else, so a
-# renamed collections.json would have turned the one guard against a stale-built zip into a silent
-# pass, in a file that refuses on every other narrowed run (F221). collections.json is a build input
-# the Fortunes module embeds and fortunes.zip is a committed artifact, so neither has a legitimate
-# absent case; the condition never consulted -ModuleId, so it was only ever a skip.
-if (-not (Test-Path -LiteralPath $collectionsPath -PathType Leaf)) {
-    throw "packs\collections.json is missing at $collectionsPath, so the pack-to-collection content check cannot run."
-}
-if (-not (Test-Path -LiteralPath $fortunesZip -PathType Leaf)) {
-    throw "modules-dist\fortunes.zip is missing at $fortunesZip, so the pack-to-collection content check cannot run."
-}
-$expected = (Get-Content -LiteralPath $collectionsPath -Raw | ConvertFrom-Json)
-$expectedPairs = [System.Collections.Generic.List[string]]::new()
-foreach ($c in $expected.collections) {
-    foreach ($s in $c.sources) { $expectedPairs.Add("$($c.name)`t$s") }
-}
-
-# ENTRY STREAMS, not Expand-Archive. This expanded the whole 49 MB payload -- the ONNX model and the
-# runtime included -- into a scratch directory under TEMP to read one sub-megabyte DLL, and the CodeView
-# scan below did the same for every zip: about 150 MB written and deleted per gate run, fortunes twice
-# (F222). Read-ZipEntryBytes copies only the named entry through the archive's own stream. No scratch
-# directory, so the best-effort Remove-Item that used to follow, and the orphan it could leave, are gone.
-$shippedFortunes = @(Read-ZipEntryBytes -ZipPath $fortunesZip -EntryNames @('Fortunes.dll'))
-if ($shippedFortunes.Count -eq 0) { throw "fortunes.zip contains no Fortunes.dll to inspect." }
-$shipped = [Text.Encoding]::UTF8.GetString($shippedFortunes[0].Bytes)
-
-# THE MAPPING, STRUCTURALLY. This used to search for each source id ON ITS OWN and use
-# $expectedPairs only for counts, so a pack MOVED between collections left every id present
-# and passed -- while the success line claimed all the mappings were embedded. Only an ADDED
-# id was ever caught, which is what the original incident happened to be. The old comment
-# said the search "cannot false-negative"; true of ids, false of mappings.
 #
-# collections.json is embedded verbatim as a resource, so the real thing is available: find
-# it, parse it, and compare collection -> sources exactly. A move, a rename, a reorder
-# between collections and a dropped source all fail now.
-$embedded = $null
-$atCollections = $shipped.IndexOf('"collections"', [StringComparison]::Ordinal)
-while ($atCollections -ge 0 -and $null -eq $embedded) {
-    # Walk back to the object that owns the key, then forward to its matching brace, counting
-    # depth and skipping anything inside a string so a brace in a description cannot fool it.
-    $start = $shipped.LastIndexOf('{', $atCollections)
-    if ($start -lt 0) { break }
-    $depth = 0; $inString = $false; $escaped = $false; $end = -1
-    for ($i = $start; $i -lt $shipped.Length; $i++) {
-        $ch = $shipped[$i]
-        if ($escaped) { $escaped = $false; continue }
-        if ($ch -eq '\') { $escaped = $true; continue }
-        if ($ch -eq '"') { $inString = -not $inString; continue }
-        if ($inString) { continue }
-        if ($ch -eq '{') { $depth++ }
-        elseif ($ch -eq '}') { $depth--; if ($depth -eq 0) { $end = $i; break } }
+# THE SECTION RUNS IN A TRY OF ITS OWN (N-bd-w14-review-06): a missing input, a Fortunes.dll it cannot read and a
+# stale mapping all end this section with a sentence in the run's verdicts, never the run, so the shipped-DLL scan
+# below still runs and prints its own result. The success line is reached only when nothing here threw.
+try {
+    $collectionsPath = Join-Path $repoRoot 'packs\collections.json'
+    $fortunesZip = Join-Path $repoRoot 'modules-dist\fortunes.zip'
+    # A MISSING INPUT IS A VERDICT, NOT A SKIP. This block sat behind `if (both exist)` with no else, so a
+    # renamed collections.json would have turned the one guard against a stale-built zip into a silent
+    # pass, in a file that refuses on every other narrowed run (F221). collections.json is a build input
+    # the Fortunes module embeds and fortunes.zip is a committed artifact, so neither has a legitimate
+    # absent case; the condition never consulted -ModuleId, so it was only ever a skip. Each throw below
+    # ends this section only: the catch after it adds the sentence to the run's verdicts (N-bd-w14-review-06).
+    if (-not (Test-Path -LiteralPath $collectionsPath -PathType Leaf)) {
+        throw "packs\collections.json is missing at $collectionsPath, so the pack-to-collection content check cannot run."
     }
-    if ($end -gt $start) {
-        try { $embedded = $shipped.Substring($start, $end - $start + 1) | ConvertFrom-Json }
-        catch { $embedded = $null }
-        if ($null -ne $embedded -and -not $embedded.PSObject.Properties['collections']) { $embedded = $null }
+    if (-not (Test-Path -LiteralPath $fortunesZip -PathType Leaf)) {
+        throw "modules-dist\fortunes.zip is missing at $fortunesZip, so the pack-to-collection content check cannot run."
     }
-    $atCollections = $shipped.IndexOf('"collections"', $atCollections + 1, [StringComparison]::Ordinal)
-}
-# THROWS rather than falling back to the old id-only search. A check that quietly downgrades
-# itself to a weaker one is exactly the failure mode this file keeps correcting.
-if ($null -eq $embedded) {
-    throw ("Could not locate the embedded collections.json inside the shipped Fortunes.dll, so " +
-           "the pack-to-collection mapping cannot be verified. If the module stopped embedding " +
-           "it verbatim, this check needs rewriting rather than skipping.")
-}
+    $expected = (Get-Content -LiteralPath $collectionsPath -Raw | ConvertFrom-Json)
+    $expectedPairs = [System.Collections.Generic.List[string]]::new()
+    foreach ($c in $expected.collections) {
+        foreach ($s in $c.sources) { $expectedPairs.Add("$($c.name)`t$s") }
+    }
 
-function Get-CollectionMap($doc) {
-    $map = @{}
-    foreach ($c in $doc.collections) {
-        $src = @()
-        if ($c.PSObject.Properties['sources'] -and $null -ne $c.sources) { $src = @($c.sources) }
-        $map[[string]$c.name] = (($src | Sort-Object) -join '|')
-    }
-    return $map
-}
+    # ENTRY STREAMS, not Expand-Archive. This expanded the whole 49 MB payload -- the ONNX model and the
+    # runtime included -- into a scratch directory under TEMP to read one sub-megabyte DLL, and the CodeView
+    # scan below did the same for every zip: about 150 MB written and deleted per gate run, fortunes twice
+    # (F222). Read-ZipEntryBytes copies only the named entry through the archive's own stream. No scratch
+    # directory, so the best-effort Remove-Item that used to follow, and the orphan it could leave, are gone.
+    $shippedFortunes = @(Read-ZipEntryBytes -ZipPath $fortunesZip -EntryNames @('Fortunes.dll'))
+    if ($shippedFortunes.Count -eq 0) { throw "fortunes.zip contains no Fortunes.dll to inspect." }
+    $shipped = [Text.Encoding]::UTF8.GetString($shippedFortunes[0].Bytes)
 
-$wantMap = Get-CollectionMap $expected
-$gotMap = Get-CollectionMap $embedded
-$problems = [System.Collections.Generic.List[string]]::new()
-foreach ($name in $wantMap.Keys) {
-    if (-not $gotMap.ContainsKey($name)) { $problems.Add("collection '$name' is absent from the shipped DLL"); continue }
-    if ($wantMap[$name] -ne $gotMap[$name]) {
-        $problems.Add("collection '$name' has different sources: expected [" +
-                      ($wantMap[$name] -replace '\|', ', ') + "], shipped [" +
-                      ($gotMap[$name] -replace '\|', ', ') + "]")
+    # THE MAPPING, STRUCTURALLY. This used to search for each source id ON ITS OWN and use
+    # $expectedPairs only for counts, so a pack MOVED between collections left every id present
+    # and passed -- while the success line claimed all the mappings were embedded. Only an ADDED
+    # id was ever caught, which is what the original incident happened to be. The old comment
+    # said the search "cannot false-negative"; true of ids, false of mappings.
+    #
+    # collections.json is embedded verbatim as a resource, so the real thing is available: find
+    # it, parse it, and compare collection -> sources exactly. A move, a rename, a reorder
+    # between collections and a dropped source all fail now.
+    $embedded = $null
+    $atCollections = $shipped.IndexOf('"collections"', [StringComparison]::Ordinal)
+    while ($atCollections -ge 0 -and $null -eq $embedded) {
+        # Walk back to the object that owns the key, then forward to its matching brace, counting
+        # depth and skipping anything inside a string so a brace in a description cannot fool it.
+        $start = $shipped.LastIndexOf('{', $atCollections)
+        if ($start -lt 0) { break }
+        $depth = 0; $inString = $false; $escaped = $false; $end = -1
+        for ($i = $start; $i -lt $shipped.Length; $i++) {
+            $ch = $shipped[$i]
+            if ($escaped) { $escaped = $false; continue }
+            if ($ch -eq '\') { $escaped = $true; continue }
+            if ($ch -eq '"') { $inString = -not $inString; continue }
+            if ($inString) { continue }
+            if ($ch -eq '{') { $depth++ }
+            elseif ($ch -eq '}') { $depth--; if ($depth -eq 0) { $end = $i; break } }
+        }
+        if ($end -gt $start) {
+            try { $embedded = $shipped.Substring($start, $end - $start + 1) | ConvertFrom-Json }
+            catch { $embedded = $null }
+            if ($null -ne $embedded -and -not $embedded.PSObject.Properties['collections']) { $embedded = $null }
+        }
+        $atCollections = $shipped.IndexOf('"collections"', $atCollections + 1, [StringComparison]::Ordinal)
     }
+    # THROWS rather than falling back to the old id-only search. A check that quietly downgrades
+    # itself to a weaker one is exactly the failure mode this file keeps correcting.
+    if ($null -eq $embedded) {
+        throw ("Could not locate the embedded collections.json inside the shipped Fortunes.dll, so " +
+               "the pack-to-collection mapping cannot be verified. If the module stopped embedding " +
+               "it verbatim, this check needs rewriting rather than skipping.")
+    }
+
+    function Get-CollectionMap($doc) {
+        $map = @{}
+        foreach ($c in $doc.collections) {
+            $src = @()
+            if ($c.PSObject.Properties['sources'] -and $null -ne $c.sources) { $src = @($c.sources) }
+            $map[[string]$c.name] = (($src | Sort-Object) -join '|')
+        }
+        return $map
+    }
+
+    $wantMap = Get-CollectionMap $expected
+    $gotMap = Get-CollectionMap $embedded
+    $problems = [System.Collections.Generic.List[string]]::new()
+    foreach ($name in $wantMap.Keys) {
+        if (-not $gotMap.ContainsKey($name)) { $problems.Add("collection '$name' is absent from the shipped DLL"); continue }
+        if ($wantMap[$name] -ne $gotMap[$name]) {
+            $problems.Add("collection '$name' has different sources: expected [" +
+                          ($wantMap[$name] -replace '\|', ', ') + "], shipped [" +
+                          ($gotMap[$name] -replace '\|', ', ') + "]")
+        }
+    }
+    foreach ($name in $gotMap.Keys) {
+        if (-not $wantMap.ContainsKey($name)) { $problems.Add("collection '$name' is in the shipped DLL but not in packs/collections.json") }
+    }
+    if ($problems.Count -gt 0) {
+        Write-Host ''
+        foreach ($m in $problems | Select-Object -First 12) { Write-Host "  $m" }
+        if ($problems.Count -gt 12) { Write-Host "  ... and $($problems.Count - 12) more" }
+        throw ("modules-dist/fortunes.zip was built before the current packs/collections.json: " +
+               "$($problems.Count) pack-to-collection difference(s) between the shipped Fortunes.dll " +
+               "and packs/collections.json. Affected packs fall into the fallback 'More packs' group " +
+               "for every user. REBUILD the module (New-ModulePublish.ps1 WITHOUT -SkipBuild) rather " +
+               "than re-zipping, then commit the zip and regenerate the catalog.")
+    }
+    Write-Host ("fortunes.zip embeds all $($expectedPairs.Count) current pack-to-collection mappings " +
+                "across $($wantMap.Count) collection(s), compared structurally.")
 }
-foreach ($name in $gotMap.Keys) {
-    if (-not $wantMap.ContainsKey($name)) { $problems.Add("collection '$name' is in the shipped DLL but not in packs/collections.json") }
+catch {
+    $verdicts.Add($_.Exception.Message)
 }
-if ($problems.Count -gt 0) {
-    Write-Host ''
-    foreach ($m in $problems | Select-Object -First 12) { Write-Host "  $m" }
-    if ($problems.Count -gt 12) { Write-Host "  ... and $($problems.Count - 12) more" }
-    throw ("modules-dist/fortunes.zip was built before the current packs/collections.json: " +
-           "$($problems.Count) pack-to-collection difference(s) between the shipped Fortunes.dll " +
-           "and packs/collections.json. Affected packs fall into the fallback 'More packs' group " +
-           "for every user. REBUILD the module (New-ModulePublish.ps1 WITHOUT -SkipBuild) rather " +
-           "than re-zipping, then commit the zip and regenerate the catalog.")
-}
-Write-Host ("fortunes.zip embeds all $($expectedPairs.Count) current pack-to-collection mappings " +
-            "across $($wantMap.Count) collection(s), compared structurally.")
 
 # ---------------------------------------------------------------------------------------------------
 # NO SHIPPED DLL MAY CARRY AN ABSOLUTE BUILD PATH.
@@ -1055,17 +1076,25 @@ Write-Host ("fortunes.zip embeds all $($expectedPairs.Count) current pack-to-col
 # never the text. LEGACY_PRESERVED applies here exactly as it does to the SourceLink rule: a zip whose name and
 # exact SHA-256 are in Get-LegacyModuleZipBaselines (the one fixed list, never edited) is exempt from the Source
 # Link record finding ONLY (Select-BuildIdentityFindings); a profile path or a UNC root still fails it, and every
-# zip built from this tree (Source Link off since 16a3e575) is judged in full. It runs after the decisions above,
-# which keep their own throws (tests\Test-ModulePublishFreshnessRules.ps1 G4 and G5 execute them in place).
+# zip built from this tree (Source Link off since 16a3e575) is judged in full. It runs after the decisions above
+# (tests\Test-ModulePublishFreshnessRules.ps1 G4 and G5 execute them in place).
+#
+# EVERY DECISION HERE ADDS A SENTENCE, NONE THROWS (N-bd-w14-review-06). The build-path and SourceLink refusals threw
+# in turn, so a build-path red hid the SourceLink verdict and either one hid the build-identity findings. Each now adds
+# its sentence to the run's verdicts after printing its lines, the witnesses too, and the file's last statement throws
+# them all at once. This section's success line prints only when it added nothing.
 #
 # SCOPED TO OUR OWN DLLs like the rest of this section, not every DLL in the zips: one run under
 # Windows PowerShell 5.1 on 2026-11-12 took about 96 s over the 188 MB of DLLs in the eight zips and
 # about 4 s over the 6.5 MB of ours, and no package DLL in them carries an embedded PDB at all.
 . (Join-Path $PSScriptRoot 'EmbeddedPortablePdb.ps1')
 $buildPathZips = @(Get-ChildItem -LiteralPath (Join-Path $repoRoot 'modules-dist') -Filter '*.zip' -ErrorAction SilentlyContinue)
-if ($buildPathZips.Count -eq 0) { throw 'No modules-dist/*.zip to scan for embedded build paths.' }
 
 $buildPathPattern = [regex] '[A-Za-z]:\\[^\x00<>|]{0,200}?\.pdb'
+# Every sentence this section adds comes after this count, which is how its success line knows it found nothing.
+$scanVerdictsBefore = $verdicts.Count
+# No zip says so and the section goes on: the loop then reads nothing and the zero-DLL WITNESS below adds its own.
+if ($buildPathZips.Count -eq 0) { $verdicts.Add('No modules-dist/*.zip to scan for embedded build paths.') }
 # An absolute document name (drive-rooted, drive-relative or UNC with either slash) is judged by
 # Test-AbsoluteDocumentName in EmbeddedPortablePdb.ps1. Mapped names are rooted at /_/ (the SourceLink
 # convention) and carry no drive.
@@ -1179,7 +1208,7 @@ if ($buildPathOffenders.Count -gt 0 -or $sourceLinkOffenders.Count -gt 0) {
     }
 }
 if ($buildPathOffenders.Count -gt 0) {
-    throw ("$buildPathCount embedded build path(s) found in published DLLs ($($buildPathOffenders.Count) DLL finding(s) " +
+    $verdicts.Add("$buildPathCount embedded build path(s) found in published DLLs ($($buildPathOffenders.Count) DLL finding(s) " +
            "listed above, each with its count), which names the " +
            "machine, account and directory of whoever built them. For a CodeView path set " +
            "<DebugType>embedded</DebugType> in the offending project, without IncludeSymbols: beside it Contracts' " +
@@ -1190,7 +1219,7 @@ if ($buildPathOffenders.Count -gt 0) {
            "zip and regenerate the catalog.")
 }
 if ($sourceLinkOffenders.Count -gt 0) {
-    throw ("$($sourceLinkOffenders.Count) published DLL(s) outside the LEGACY_PRESERVED set carry a SourceLink record in " +
+    $verdicts.Add("$($sourceLinkOffenders.Count) published DLL(s) outside the LEGACY_PRESERVED set carry a SourceLink record in " +
            "their embedded PDB. A SourceLink map keys on the build checkout's absolute path, so it names the machine " +
            "and, when the checkout sits under the user profile, the account. Build the module with SourceLink off " +
            "(-p:EnableSourceLink=false -p:EmbedUntrackedSources=false on the build, or <EnableSourceLink>false</EnableSourceLink> " +
@@ -1199,12 +1228,12 @@ if ($sourceLinkOffenders.Count -gt 0) {
            "a zip whose bytes exactly equal its recorded legacy SHA-256 is exempt.")
 }
 if ($buildPathDlls -eq 0) {
-    throw ('The build-path scan examined ZERO DLLs, so it proved nothing. Either the zips contain none ' +
+    $verdicts.Add('The build-path scan examined ZERO DLLs, so it proved nothing. Either the zips contain none ' +
            'of this repo''s own assemblies, or the .csproj-derived name set stopped matching what is ' +
            'shipped. Fix the scope rather than accepting a silent pass.')
 }
 if ($moduleKitWithoutEmbeddedPdb.Count -gt 0) {
-    throw ("WITNESS failed: DesktopAICompanion.ModuleKit.dll in " + ($moduleKitWithoutEmbeddedPdb -join ', ') +
+    $verdicts.Add("WITNESS failed: DesktopAICompanion.ModuleKit.dll in " + ($moduleKitWithoutEmbeddedPdb -join ', ') +
            " carries no embedded portable PDB, yet DesktopAICompanion.ModuleKit.csproj embeds its symbols. " +
            "Either the embedded-PDB reader has gone blind to the entry (then every document check above was " +
            "vacuous) or the payload was built without the setting; fix the one or record the other.")
@@ -1215,7 +1244,7 @@ if ($moduleKitWithoutEmbeddedPdb.Count -gt 0) {
 # below says the reader has no live witness. The synthetic controls in tests\Test-ModulePublishFreshnessRules.ps1
 # then remain its only control; tests\run-gate.ps1 and build.yml run them beside this script.
 if ($legacyWithoutSourceLink.Count -gt 0) {
-    throw ("WITNESS failed: LEGACY_PRESERVED " + ($legacyWithoutSourceLink -join ', ') + " showed no SourceLink record, " +
+    $verdicts.Add("WITNESS failed: LEGACY_PRESERVED " + ($legacyWithoutSourceLink -join ', ') + " showed no SourceLink record, " +
            "yet those exact bytes were measured with one in their ModuleKit PDB. The SourceLink reader has gone blind, " +
            "so every clean verdict above is vacuous; fix the reader rather than accepting the pass.")
 }
@@ -1223,9 +1252,8 @@ if ($legacyWithoutSourceLink.Count -gt 0) {
 # THE BUILD IDENTITY PASS (N-bd-w13-contracts-1-02), over the SAME bytes each verdict above hashed: a zip rewritten
 # between the two passes is refused rather than judged as two different files. Outside the span the rules test runs
 # (the zip loop through the legacy WITNESS), because its synthetic ModuleKit PDBs carry no #Pdb stream and no
-# compilation options record, which this pass refuses by design. Until N-bd-w14-review-06 collects every verdict, a
-# build-path or SourceLink refusal above throws first and this pass does not run.
-$scanVerdicts = New-Object 'Collections.Generic.List[string]'
+# compilation options record, which this pass refuses by design. It runs whatever the verdicts above said, so a
+# build-path or SourceLink red no longer hides its findings (N-bd-w14-review-06).
 for ($bpIndex = 0; $bpIndex -lt $buildPathZips.Count; $bpIndex++) {
     $bpZip = $buildPathZips[$bpIndex]
     $bpVerdict = $zipVerdicts[$bpIndex]
@@ -1250,26 +1278,32 @@ if ($buildIdentityOffenders.Count -gt 0) {
     foreach ($biO in $buildIdentityOffenders | Select-Object -Unique | Select-Object -First 24) {
         Write-Host "  build identity: $biO"
     }
-    $scanVerdicts.Add("$($buildIdentityOffenders.Count) build-identity finding(s) in published DLLs: a Source Link " +
+    $verdicts.Add("$($buildIdentityOffenders.Count) build-identity finding(s) in published DLLs: a Source Link " +
            "record maps the folder the assembly was built in, and a user-profile path or a UNC root names the " +
            "account or the machine. For a Source Link record set <EnableSourceLink>false</EnableSourceLink> in " +
            "the offending project, as ModuleKit and Contracts do. For a path in a self-test fixture, use a " +
            "stand-in packaging\EmbeddedPortablePdb.ps1 lists. Then rebuild, re-zip, COMMIT the zip and " +
            "regenerate the catalog. Only the zip, the DLL and the kind are printed here, never the text.")
 }
-if ($scanVerdicts.Count -gt 0) {
-    Write-Host ''
-    throw ($scanVerdicts -join ' ')
-}
 if ($compilationOptionsMisread.Count -gt 0) {
-    throw ("WITNESS failed: the embedded PDB of " + ($compilationOptionsMisread -join ', ') + " did not read back " +
+    $verdicts.Add("WITNESS failed: the embedded PDB of " + ($compilationOptionsMisread -join ', ') + " did not read back " +
            "one C# compilation options record per PDB, which the SDK writes into every portable PDB of a C# " +
            "assembly. The CustomDebugInformation table was misread, so the Source Link rule judged shifted rows; " +
            "fix packaging\EmbeddedPortablePdb.ps1 before trusting this section.")
 }
 # Scoped to what this section judged on every zip. A LEGACY_PRESERVED zip still ships its SourceLink map, which
-# keys on an absolute checkout path, so the line does not call those DLLs free of build paths.
-Write-Host ("no CodeView path or absolute embedded-document name in $buildPathDlls of our own published DLL(s) across " +
-            "$($buildPathZips.Count) zip(s): CodeView records scanned, $embeddedPdbCount embedded PDB(s) parsed with " +
-            "$embeddedDocumentCount document name(s) inspected. " + (Get-SourceLinkTallyLine -Verdicts $zipVerdicts) +
-            " No build identity, $($identityProof.Count) synthetic leg(s) proved first.")
+# keys on an absolute checkout path, so the line does not call those DLLs free of build paths. Printed only when
+# this section added no sentence of its own, whatever the sections before it said.
+if ($verdicts.Count -eq $scanVerdictsBefore) {
+    Write-Host ("no CodeView path or absolute embedded-document name in $buildPathDlls of our own published DLL(s) across " +
+                "$($buildPathZips.Count) zip(s): CodeView records scanned, $embeddedPdbCount embedded PDB(s) parsed with " +
+                "$embeddedDocumentCount document name(s) inspected. " + (Get-SourceLinkTallyLine -Verdicts $zipVerdicts) +
+                " No build identity, $($identityProof.Count) synthetic leg(s) proved first.")
+}
+
+# THE RUN'S ONE THROW, ITS LAST STATEMENT (N-bd-w14-review-06): every section above has printed its lines and added
+# its sentences, in file order, so the message names every verdict of the run and none of them hid another.
+if ($verdicts.Count -gt 0) {
+    Write-Host ''
+    throw ($verdicts -join ' ')
+}

@@ -6381,7 +6381,8 @@ CASES = (
     (
         "bd-w14-packaging-ci-1: a build-identity finding is printed, never thrown (N-bd-w13-contracts-1-02)",
         os.path.join(REPO, "packaging", "Test-ModulePublishFreshness.ps1"),
-        b'    $scanVerdicts.Add("$($buildIdentityOffenders.Count) build-identity finding(s) in published DLLs: a Source Link " +\n',
+        # Re-pointed for N-bd-w14-review-06: the identity sentence joins the run's one verdict list, $verdicts.
+        b'    $verdicts.Add("$($buildIdentityOffenders.Count) build-identity finding(s) in published DLLs: a Source Link " +\n',
         b'    Write-Host ("$($buildIdentityOffenders.Count) build-identity finding(s) in published DLLs: a Source Link " +\n',
         "w14-packaging-ci-1: a build-identity finding adds a verdict",
     ),
@@ -6405,20 +6406,20 @@ CASES = (
     (
         "bd-w14-packaging-ci-1: an identity-only failure no longer throws, -gt 1 (N-bd-w13-contracts-1-02)",
         os.path.join(REPO, "packaging", "Test-ModulePublishFreshness.ps1"),
-        b"if ($scanVerdicts.Count -gt 0) {\n",
-        b"if ($scanVerdicts.Count -gt 1) {\n",
-        # Expected text changed at the step 11 master merge (RESOLUTION-w14.md section 8): master's SourceLink refusal
-        # now answers the Source Link run, so the run this throw decides is the identity-only one.
+        # Re-pointed for N-bd-w14-review-06: the condition is the run's one throw, the file's last statement. The Source Link
+        # run carries two verdicts and still throws under -gt 1; the identity-only run carries one and is the first to pass.
+        b"if ($verdicts.Count -gt 0) {\n",
+        b"if ($verdicts.Count -gt 1) {\n",
         "w14-packaging-ci-1: run on a DLL whose only finding is a user-profile path in its bytes",
     ),
     (
         "bd-w14-packaging-ci-1: the shipped-DLL verdicts never throw (N-bd-w13-contracts-1-02)",
         os.path.join(REPO, "packaging", "Test-ModulePublishFreshness.ps1"),
-        b"if ($scanVerdicts.Count -gt 0) {\n",
-        b"if ($false -and $scanVerdicts.Count -gt 0) {\n",
-        # Expected text changed at the step 11 master merge (RESOLUTION-w14.md section 8): master's SourceLink refusal
-        # now answers the Source Link run, so the run this throw decides is the identity-only one.
-        "w14-packaging-ci-1: run on a DLL whose only finding is a user-profile path in its bytes",
+        # Re-pointed for N-bd-w14-review-06: the condition is the run's one throw, so with it gone the first run that should
+        # throw, the Source Link run (its SourceLink and identity verdicts both carried), is the one that fails.
+        b"if ($verdicts.Count -gt 0) {\n",
+        b"if ($false -and $verdicts.Count -gt 0) {\n",
+        "w14-packaging-ci-1: run on a DLL whose only finding is a Source Link record",
     ),
     (
         "bd-w14-packaging-ci-1: the freshness check trusts a failed proof leg (N-bd-w13-contracts-1-02)",
@@ -6496,16 +6497,28 @@ CASES = (
         b"        $root = $hostName + '" + bytes([92]) + b"home'\n",
         "w14-packaging-ci-1: the build-identity scan proves the leg: a UNC root on the stand-in host under another share",
     ),
-    # Adopted at the step 11 master merge (RESOLUTION-w14.md section 8). The order the merge holds until N-bd-w14-review-06:
-    # master's SourceLink refusal throws before the build-identity pass, so the Source Link run never reaches it; and the
-    # section runs' own scratch folder is removed. The second mutant leaves one empty dac-hardening-w14-<guid> folder in
-    # the harness run's TEMP, by design.
+    # Adopted at the step 11 master merge (RESOLUTION-w14.md section 8), relabelled for N-bd-w14-review-06: master's
+    # SourceLink decision stops adding its sentence, so the Source Link run's one throw carries the identity verdict alone
+    # (it was "... the SourceLink refusal no longer throws before the build-identity pass (N-bd-w14-review-06 order)",
+    # the interim order the merge held). The section runs' own scratch folder is removed; that mutant leaves one empty
+    # dac-hardening-w14-<guid> folder in the harness run's TEMP, by design.
     (
-        "bd-w14-packaging-ci-1: the SourceLink refusal no longer throws before the build-identity pass (N-bd-w14-review-06 order)",
+        "bd-w14-packaging-ci-1: the SourceLink verdict is dropped, the one throw carries the identity finding alone (N-bd-w14-review-06)",
         os.path.join(REPO, "packaging", "Test-ModulePublishFreshness.ps1"),
         b"if ($sourceLinkOffenders.Count -gt 0) {\n",
         b"if ($false) {\n",
         "w14-packaging-ci-1: run on a DLL whose only finding is a Source Link record",
+    ),
+    # N-bd-w14-review-06, the ORDERING case: the freshness block's own throw restored byte for byte as it stood before the
+    # fix, so a version mismatch ends the run before the AgentBroker, Fortunes and shipped-DLL sections report. The w8-studio-1
+    # measure accepts that throw (one throw of the list after STALE is its shape), so the ordering run is what fails.
+    (
+        "bd-w14-packaging-ci-1: ORDERING the freshness verdicts throw early again and hide the later sections (N-bd-w14-review-06)",
+        os.path.join(REPO, "packaging", "Test-ModulePublishFreshness.ps1"),
+        b'if ($verdicts.Count -eq 0) {\n    Write-Host "All $($ids.Count) published module payload(s) are current with their source."\n}\n',
+        b"if ($verdicts.Count -gt 0) {\n    Write-Host ''\n    throw ($verdicts -join ' ')\n}\n\n"
+        b'Write-Host "All $($ids.Count) published module payload(s) are current with their source."\n',
+        "w14-packaging-ci-1: a freshness failure does not hide the later sections",
     ),
     (
         "bd-w14-packaging-ci-1: the section runs leave their scratch folder behind",

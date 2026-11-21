@@ -17,6 +17,10 @@
           counted by line); a zip whose name and exact SHA-256 match a legacy baseline is LEGACY_PRESERVED,
           which exempts the SourceLink refusal and nothing else; the success line counts a zip clean only when
           an embedded PDB in it was judged, and says when no legacy witness is left.
+      G4, G5  the actual main-body decisions add their sentences to the run's one verdict list and the
+          script's last statement throws that list once (N-bd-w14-review-06): each refusal is run through
+          its actual decision and then that final throw, and a throw restored early, a cleared list or a
+          removed final throw fails the wiring.
 
     tests\run-gate.ps1 and .github\workflows\build.yml run this file beside the freshness check. Once every
     LEGACY_PRESERVED zip is republished it is the SourceLink reader's only control.
@@ -753,9 +757,45 @@ Invoke-Case 'G3_SOURCELINK_TALLY' 'the success line calls a zip clean only when 
         $noLegacy.Contains('no live witness; synthetic control tests\Test-ModulePublishFreshnessRules.ps1')
 }
 
-# Execute the actual main-body refusal statements, not a second implementation of their decisions.
+# Execute the actual main-body decision statements, not a second implementation of their decisions.
 # The wiring assertion also rejects moving a guarded statement under an optional/false branch.
 # This intentionally does not replay discovery, Git recency, Fortunes content or the complete main script.
+# COLLECTED, NOT IMMEDIATE (N-bd-w14-review-06; RULINGS R-6, widened by R-9). Each decision adds its sentence to the
+# run's one verdict list and the script's LAST statement throws that list once, so a refusal is judged by running the
+# actual decision and then the actual final throw. That throw is wired only while it is the one root-level
+# `if ($verdicts.Count -gt 0)` that throws the list, it is the last statement of the file, the list is created once at
+# root before it, and nothing in the file reassigns or shrinks the list. A decision is wired only between the two.
+function Get-FreshnessFinalThrow([string]$Source) {
+    $tokens = $null; $errors = $null
+    $root = [Management.Automation.Language.Parser]::ParseInput($Source, [ref]$tokens, [ref]$errors)
+    if ($errors.Count -ne 0) { throw 'FRESHNESS_RULES_MAIN_SOURCE_PARSE' }
+    $throws = @($root.FindAll({ param($n)
+        $n -is [Management.Automation.Language.IfStatementAst] -and $n.Clauses.Count -eq 1 -and $null -eq $n.ElseClause -and
+        ($n.Clauses[0].Item1.Extent.Text -replace '\s', '') -ceq '$verdicts.Count-gt0' -and
+        @($n.Clauses[0].Item2.FindAll({ param($t) $t -is [Management.Automation.Language.ThrowStatementAst] -and
+            $null -ne $t.Pipeline -and ($t.Pipeline.Extent.Text -replace '\s', '') -ceq '($verdicts-join'''')' }, $true)).Count -eq 1
+    }, $true))
+    $assignments = @($root.FindAll({ param($n)
+        $n -is [Management.Automation.Language.AssignmentStatementAst] -and ($n.Left.Extent.Text -replace '\s', '') -imatch '\$\{?verdicts\}?$'
+    }, $true))
+    $shrinks = @($root.FindAll({ param($n)
+        $n -is [Management.Automation.Language.InvokeMemberExpressionAst] -and
+        ($n.Expression.Extent.Text -replace '\s', '') -imatch '^\$\{?verdicts\}?$' -and $n.Member.Extent.Text -ine 'Add'
+    }, $true))
+    $statements = $root.EndBlock.Statements
+    $last = $null
+    if ($statements.Count -gt 0) { $last = $statements[$statements.Count - 1] }
+    $declaration = $null
+    if ($assignments.Count -eq 1 -and [object]::ReferenceEquals($assignments[0].Parent, $root.EndBlock) -and
+        ($assignments[0].Right.Extent.Text -replace '\s', '') -ceq 'New-Object''Collections.Generic.List[string]''') {
+        $declaration = $assignments[0]
+    }
+    $statement = $null
+    if ($throws.Count -eq 1) { $statement = $throws[0] }
+    $wired = $null -ne $statement -and [object]::ReferenceEquals($statement, $last) -and $null -ne $declaration -and
+        $declaration.Extent.EndOffset -lt $statement.Extent.StartOffset -and $shrinks.Count -eq 0
+    return [pscustomobject]@{ Wired = [bool]$wired; Statement = $statement; Declaration = $declaration }
+}
 function Get-FreshnessMainDecision([string]$Source, [string]$Kind) {
     $tokens = $null; $errors = $null
     $root = [Management.Automation.Language.Parser]::ParseInput($Source, [ref]$tokens, [ref]$errors)
@@ -766,11 +806,12 @@ function Get-FreshnessMainDecision([string]$Source, [string]$Kind) {
         'LEGACY' = '$legacyWithoutSourceLink.Count-gt0'
     }
     $wanted = $conditions[$Kind]
+    $final = Get-FreshnessFinalThrow $Source
     $matches = @($root.FindAll({ param($n)
         $n -is [Management.Automation.Language.IfStatementAst] -and $n.Clauses.Count -eq 1 -and
         ($n.Clauses[0].Item1.Extent.Text -replace '\s', '') -ceq $wanted
     }, $true))
-    if ($matches.Count -ne 1) { return [pscustomobject]@{ Wired = $false; Statement = $null } }
+    if ($matches.Count -ne 1) { return [pscustomobject]@{ Wired = $false; Statement = $null; Final = $final.Statement } }
     $statement = $matches[0]
     $wired = [object]::ReferenceEquals($statement.Parent, $root.EndBlock)
     if ($Kind -eq 'PAYLOAD') {
@@ -781,14 +822,21 @@ function Get-FreshnessMainDecision([string]$Source, [string]$Kind) {
             $outer.Clauses.Count -eq 1 -and
             ($outer.Clauses[0].Item1.Extent.Text -replace '\s', '') -ceq 'Test-AgentBrokerPayloadExempt-DeclaredVersion$agentBrokerDeclared-CommittedSha256$committedAgentBrokerSha256-Baselines(Get-LegacyModuleZipBaselines)'
     }
-    return [pscustomobject]@{ Wired = $wired; Statement = $statement }
+    # Offsets are compared on the same source text, so the decision sits after the list is created and before the one throw.
+    $wired = $wired -and $final.Wired -and $final.Declaration.Extent.EndOffset -lt $statement.Extent.StartOffset -and
+        $statement.Extent.EndOffset -lt $final.Statement.Extent.StartOffset
+    return [pscustomobject]@{ Wired = [bool]$wired; Statement = $statement; Final = $final.Statement }
 }
+# The decision, then the actual final throw, in one child scope over a fresh verdict list.
 function Invoke-FreshnessMainDecision($Decision, [int]$Count) {
     $problems = @(); if ($Count) { $problems = @('synthetic refusal') }
     $stampVerdict = [pscustomobject]@{ Problems = $problems }
     $agentBrokerVersionRequiresStamps = $true; $agentBrokerDeclared = '1.10.4'; $committedAgentBrokerSha256 = '0' * 64
     $sourceLinkOffenders = $problems; $legacyWithoutSourceLink = $problems
-    return (Get-ThrownMessage { & ([scriptblock]::Create($Decision.Statement.Extent.Text)) 6>$null })
+    $verdicts = New-Object 'Collections.Generic.List[string]'
+    $text = $Decision.Statement.Extent.Text
+    if ($null -ne $Decision.Final) { $text += "`n" + $Decision.Final.Extent.Text }
+    return (Get-ThrownMessage { & ([scriptblock]::Create($text)) 6>$null })
 }
 $mainSource = [IO.File]::ReadAllText($freshnessPath)
 $mainPrefixes = @{
@@ -798,20 +846,20 @@ $mainPrefixes = @{
 }
 foreach ($mainKind in @('PAYLOAD', 'SOURCELINK', 'LEGACY')) {
     $decision = Get-FreshnessMainDecision $mainSource $mainKind
-    Invoke-Case ('G4_MAIN_' + $mainKind + '_WIRED') 'the actual refusal is in its unconditional main-body position' {
+    Invoke-Case ('G4_MAIN_' + $mainKind + '_WIRED') 'the actual refusal is in its unconditional main-body position, before the one final throw' {
         $decision.Wired
     }
-    Invoke-Case ('G4_MAIN_' + $mainKind + '_HEALTHY') 'zero findings do not throw in the actual main-body decision' {
+    Invoke-Case ('G4_MAIN_' + $mainKind + '_HEALTHY') 'zero findings add no verdict, so the actual final throw does not throw' {
         $null -eq (Invoke-FreshnessMainDecision $decision 0)
     }
-    Invoke-Case ('G4_MAIN_' + $mainKind + '_REFUSES') 'a real finding reaches the actual named main-body refusal' {
+    Invoke-Case ('G4_MAIN_' + $mainKind + '_REFUSES') 'a real finding reaches the actual named refusal, carried by the actual final throw' {
         $message = Invoke-FreshnessMainDecision $decision 1
         $null -ne $message -and $message.StartsWith($mainPrefixes[$mainKind], [StringComparison]::Ordinal)
     }
-    Invoke-Case ('G4_MAIN_' + $mainKind + '_THROW_CONTROL') 'removing the actual throw loses the refusal and would fail the preceding check' {
+    Invoke-Case ('G4_MAIN_' + $mainKind + '_VERDICT_CONTROL') 'dropping the actual verdict loses the refusal and would fail the preceding check' {
         $before = $decision.Statement.Extent.Text
-        if ([regex]::Matches($before, [regex]::Escape('throw (')).Count -ne 1) { return $false }
-        $variant = $mainSource.Replace($before, $before.Replace('throw (', '$null = ('))
+        if ([regex]::Matches($before, [regex]::Escape('$verdicts.Add(')).Count -ne 1) { return $false }
+        $variant = $mainSource.Replace($before, $before.Replace('$verdicts.Add(', '$null = ('))
         $changed = Get-FreshnessMainDecision $variant $mainKind
         $changed.Wired -and $null -eq (Invoke-FreshnessMainDecision $changed 1)
     }
@@ -827,10 +875,36 @@ Invoke-Case 'G4_MAIN_PAYLOAD_EXEMPTION_CONTROL' 'an always-true exemption condit
     $variant = $mainSource.Replace($condition, ('$true -or (' + $condition + ')'))
     -not (Get-FreshnessMainDecision $variant 'PAYLOAD').Wired
 }
+# The one final throw itself, and the three ways to lose a collected refusal after its decision: a throw of the list
+# restored EARLY (the shape before N-bd-w14-review-06, which hid every later section), the list cleared before the
+# throw, and the throw removed. Each must fail the wiring, and the cleared and removed ones must also lose the
+# actual SourceLink refusal.
+$finalThrow = Get-FreshnessFinalThrow $mainSource
+Invoke-Case 'G4_FINAL_THROW_WIRED' 'the one final throw of the verdict list is the last statement, after the list is created once and never shrunk' {
+    $finalThrow.Wired
+}
+Invoke-Case 'G4_FINAL_THROW_EARLY_CONTROL' 'a throw of the verdict list restored after the freshness verdicts fails the final-throw wiring' {
+    $anchor = 'Write-Host "All $($ids.Count) published module payload(s) are current with their source."'
+    if ($mainSource.IndexOf($anchor, [StringComparison]::Ordinal) -lt 0) { return $false }
+    $variant = $mainSource.Replace($anchor, ($anchor + "`n}`nif (`$verdicts.Count -gt 0) {`n    throw (`$verdicts -join ' ')"))
+    $changed = Get-FreshnessFinalThrow $variant
+    -not $changed.Wired -and -not (Get-FreshnessMainDecision $variant 'SOURCELINK').Wired
+}
+Invoke-Case 'G4_FINAL_THROW_CLEARED_CONTROL' 'clearing the verdict list before the final throw fails the final-throw and the decision wiring' {
+    $variant = $mainSource.Insert($finalThrow.Statement.Extent.StartOffset, ('$verdicts.Clear()' + "`n"))
+    -not (Get-FreshnessFinalThrow $variant).Wired -and -not (Get-FreshnessMainDecision $variant 'SOURCELINK').Wired
+}
+Invoke-Case 'G4_FINAL_THROW_REMOVED_CONTROL' 'removing the final throw fails the wiring and loses the actual SourceLink refusal' {
+    $node = $finalThrow.Statement
+    $variant = $mainSource.Remove($node.Extent.StartOffset, $node.Extent.EndOffset - $node.Extent.StartOffset)
+    $changed = Get-FreshnessMainDecision $variant 'SOURCELINK'
+    -not $changed.Wired -and $null -eq (Invoke-FreshnessMainDecision $changed 1)
+}
 
 # Feed actual ZIP bytes through the actual aggregation loop and all intervening main statements,
 # rather than supplying the decisions with already-populated finding lists. Discovery and the
-# unrelated recency/Fortunes sections remain outside this focused pipeline.
+# unrelated recency/Fortunes sections remain outside this focused pipeline. The span ends at the legacy
+# WITNESS and is followed by the actual final throw (N-bd-w14-review-06), over a fresh verdict list.
 function Get-FreshnessPrivacyPipeline([string]$Source) {
     $tokens = $null; $errors = $null
     $root = [Management.Automation.Language.Parser]::ParseInput($Source, [ref]$tokens, [ref]$errors)
@@ -841,8 +915,8 @@ function Get-FreshnessPrivacyPipeline([string]$Source) {
     }, $true))
     $sourceLink = Get-FreshnessMainDecision $Source 'SOURCELINK'
     $legacy = Get-FreshnessMainDecision $Source 'LEGACY'
-    if ($loops.Count -ne 1 -or $null -eq $sourceLink.Statement -or $null -eq $legacy.Statement) {
-        return [pscustomobject]@{ Wired=$false; Span=''; Loop=$null; SourceLinkAdd=$null; LegacyAdd=$null }
+    if ($loops.Count -ne 1 -or $null -eq $sourceLink.Statement -or $null -eq $legacy.Statement -or $null -eq $legacy.Final) {
+        return [pscustomobject]@{ Wired=$false; Span=''; Final=''; Loop=$null; SourceLinkAdd=$null; LegacyAdd=$null }
     }
     $loop = $loops[0]
     $slAdds = @($loop.Body.Statements | Where-Object {
@@ -867,7 +941,7 @@ function Get-FreshnessPrivacyPipeline([string]$Source) {
     $wired = [object]::ReferenceEquals($loop.Parent, $root.EndBlock) -and $sourceLink.Wired -and $legacy.Wired -and
         $ordered -and $slAdds.Count -eq 1 -and $legacyAdds.Count -eq 1
     $span = if ($ordered) { $Source.Substring($loop.Extent.StartOffset, $legacy.Statement.Extent.EndOffset - $loop.Extent.StartOffset) } else { '' }
-    return [pscustomobject]@{ Wired=[bool]$wired; Span=$span; Loop=$loop; SourceLinkAdd=if ($slAdds.Count -eq 1) { $slAdds[0] } else { $null }; LegacyAdd=if ($legacyAdds.Count -eq 1) { $legacyAdds[0] } else { $null } }
+    return [pscustomobject]@{ Wired=[bool]$wired; Span=$span; Final=$legacy.Final.Extent.Text; Loop=$loop; SourceLinkAdd=if ($slAdds.Count -eq 1) { $slAdds[0] } else { $null }; LegacyAdd=if ($legacyAdds.Count -eq 1) { $legacyAdds[0] } else { $null } }
 }
 function Invoke-FreshnessPrivacyPipeline($Pipeline, [string]$Kind) {
     if ([string]::IsNullOrEmpty($Pipeline.Span)) { throw 'FRESHNESS_RULES_PIPELINE_SPAN_REQUIRED' }
@@ -887,14 +961,17 @@ function Invoke-FreshnessPrivacyPipeline($Pipeline, [string]$Kind) {
         $legacyWithoutSourceLink = New-Object 'Collections.Generic.List[string]'
         $buildPathOffenders = New-Object 'Collections.Generic.List[string]'
         $moduleKitWithoutEmbeddedPdb = New-Object 'Collections.Generic.List[string]'
+        $verdicts = New-Object 'Collections.Generic.List[string]'
         $buildPathCount = 0; $buildPathDlls = 0; $embeddedPdbCount = 0; $embeddedDocumentCount = 0
-        return (Get-ThrownMessage { & ([scriptblock]::Create($Pipeline.Span)) 6>$null })
+        $text = $Pipeline.Span
+        if (-not [string]::IsNullOrEmpty($Pipeline.Final)) { $text += "`n" + $Pipeline.Final }
+        return (Get-ThrownMessage { & ([scriptblock]::Create($text)) 6>$null })
     } finally { Remove-FixtureRepository -Path $directory -Parent $parent }
 }
 $pipeline = Get-FreshnessPrivacyPipeline $mainSource
 Invoke-Case 'G5_AGGREGATION_WIRED' 'the real main loop directly aggregates SourceLink and legacy witness verdicts before their decisions' { $pipeline.Wired }
 foreach ($kind in @('CLEAN', 'SOURCELINK', 'LEGACY', 'LEGACY_SOURCELINK')) {
-    Invoke-Case ('G5_AGGREGATION_' + $kind) 'actual synthetic ZIP verdicts reach the actual main aggregation and decisions' {
+    Invoke-Case ('G5_AGGREGATION_' + $kind) 'actual synthetic ZIP verdicts reach the actual main aggregation, decisions and final throw' {
         $message = Invoke-FreshnessPrivacyPipeline $pipeline $kind
         if ($kind -eq 'SOURCELINK') { return $null -ne $message -and $message.StartsWith($mainPrefixes['SOURCELINK'], [StringComparison]::Ordinal) }
         if ($kind -eq 'LEGACY') { return $null -ne $message -and $message.StartsWith($mainPrefixes['LEGACY'], [StringComparison]::Ordinal) }

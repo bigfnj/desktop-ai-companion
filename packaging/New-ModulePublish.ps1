@@ -504,7 +504,8 @@ try {
 
     Write-Host ''
     Write-Host '=== verify' -ForegroundColor Cyan
-    # Same: Test-ModulePublishFreshness.ps1 carries 19 throw sites and no `exit`.
+    # Same: Test-ModulePublishFreshness.ps1 reports by throwing (its preconditions at once, every section's verdicts
+    # in one throw at its end) and never calls `exit`.
     & (Join-Path $PSScriptRoot 'Test-ModulePublishFreshness.ps1')
 
     Write-Host ''
