@@ -12,6 +12,7 @@ import inspect
 import io
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -745,6 +746,34 @@ class GuardsScoreCarryOver(ScratchCase):
                          "BROKEN (B.dll rebuilt with the baseline SHA-256: the mutant did not reach it)", text)
         self.assertEqual(len(self.restore_lines(text)), 1, text)
         self.assertEqual(code, 1, text)
+
+    def test_GUARDS_CARRYOVER_BUILD_PASSES_RELEASE_PUBLICATION_PROPERTIES(self):
+        # The 2026-11-21 full tier: the shard PREBUILD is build.ps1 -Release, and a build() without its publication properties
+        # recompiled ModuleKit to other bytes (two embedded obj sources), so a switch restore after any ModuleKit recompile read
+        # as unrestored. build() must pass exactly the -p: entries of build.ps1's $releasePublicationArguments. The real
+        # build.ps1 is read; run_text is replaced, so nothing is built.
+        text = (TESTS.parent / "build.ps1").read_text(encoding="utf-8-sig")
+        lists = [re.findall(r"'([^']*)'", body)
+                 for body in re.findall(r"^\s*\$releasePublicationArguments\s*=\s*@\(([^)]*)\)", text, re.MULTILINE)]
+        filled = [entries for entries in lists if entries]
+        self.assertEqual(len(filled), 1, "build.ps1 must assign one non-empty $releasePublicationArguments: %r" % (lists,))
+        expected = [entry for entry in filled[0] if entry.startswith("-p:")]
+        # WITNESS: the list read is the -Release one (its --no-incremental is there) and it names properties, so an empty
+        # read cannot pass against an empty build().
+        self.assertIn("--no-incremental", filled[0])
+        self.assertTrue(expected, filled[0])
+        calls = []
+
+        def run_text(args, **kwargs):
+            calls.append(list(args))
+            return subprocess.CompletedProcess(args, 0, "", "")
+        csproj = str(self.scratch / "P.csproj")
+        with mock.patch.object(self.guards, "run_text", side_effect=run_text):
+            built, _ = self.guards.build(csproj)
+        self.assertTrue(built)
+        self.assertEqual(len(calls), 1, calls)
+        self.assertEqual(calls[0][:5], ["dotnet", "build", csproj, "-c", "Release"], calls)
+        self.assertEqual(sorted(arg for arg in calls[0] if arg.startswith("-p:")), sorted(expected), calls)
 
 
 class HygieneAnchorCheck(ScratchCase):

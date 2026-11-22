@@ -30514,9 +30514,23 @@ def write(path, data):
         handle.write(data)
 
 
+# The global properties build.ps1 -Release passes to the host build and to every module build (build.ps1,
+# $releasePublicationArguments), which reach ModuleKit and Contracts through their project references; its --no-incremental
+# is left out, since it changes what is rebuilt, not the bytes. The shard worker's PREBUILD is a build.ps1 -Release
+# (tools/agentbroker/Invoke-MutationShards.ps1), and build_all() does not recompile an up-to-date library, so the baseline
+# score() hashes is the prebuild's. A build here without these recompiled ModuleKit with the SDK's default
+# EmbedUntrackedSources=true, which embeds two generated obj sources in its embedded PDB, and each of the four guards shards
+# read from the full tier at 0691ae23 stopped on a correct switch restore of a ModuleKit copy (it rebuilt to
+# C7CDC9598980E669, not the baseline 16A5D45A3E4E09AC). Every build this harness compares to that baseline goes through
+# build(): build_all(), a case's mutant, the switch restore and the clean-tree rebuild.
+# test_GUARDS_CARRYOVER_BUILD_PASSES_RELEASE_PUBLICATION_PROPERTIES (tests/test_mutation_pattern_checks.py) holds this list
+# equal to build.ps1's -p: entries.
+RELEASE_PUBLICATION_PROPERTIES = ("-p:EnableSourceLink=false", "-p:EmbedUntrackedSources=false", "-p:EmbedAllSources=false")
+
+
 def build(csproj):
-    proc = run_text(["dotnet", "build", csproj, "-c", "Release", "--nologo", "-v:quiet"],
-                          capture_output=True, timeout=1800)
+    proc = run_text(["dotnet", "build", csproj, "-c", "Release", "--nologo", "-v:quiet"] + list(RELEASE_PUBLICATION_PROPERTIES),
+                    capture_output=True, timeout=1800)
     return proc.returncode == 0, (proc.stdout or "")
 
 
