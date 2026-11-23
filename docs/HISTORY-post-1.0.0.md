@@ -1960,6 +1960,59 @@ Each module's `Version` line carries its changelog for the campaign, in the file
 self-tests, invariants or projects is repeated here: the gate asserts those against the documents that
 state them.
 
+## 🚢 Released: v1.11.2 and eight module updates (2026-11-23)
+
+The fourth release of the Shimeji runtime campaign, and the first after its code audit and backlog burn-down. Host
+1.11.2 is a PATCH: the burn-down's fixes, with no new capability and no ABI change. It was tagged v1.11.1 first; that
+release run stopped before publishing anything, in a NuGet privacy test whose freshness window began at a precise
+clock reading while the file system stamps writes from a coarser one, so a file written at once could look older than
+the window (the same test had passed in build.yml on the same commit). The window now opens two seconds early, the
+two refusal cases still sit ten minutes outside it, and 1.11.2 is that commit plus the version step. The v1.11.1 tag
+stays, with no release. The first v1.11.2 run then reached "Test the build being released", a step that had never
+run on a tag, and stopped again before publishing: the release job's shallow checkout lacked the history the AgentBroker
+provenance rules test needs. release.yml now checks out with full history, as build.yml does, and was dispatched from
+master for the same v1.11.2 tag. That run's other failure, a Remembrance self-test check that passed everywhere else, is
+filed as a CI timing flake (N-remembrance-pull-shutdown-flake-01). Every module zip was republished
+from one `build.ps1 -Release` build under PowerShell 7.6.5, so none carries a build-machine path any more (the
+previous Reminder zip's embedded symbols held one): Fortunes 1.2.2, AI Brain 1.7.1, Companion Studio 1.4.1, Reminder
+1.3.1, Remembrance 2.10.1, Blinking LED 1.0.9 and AgentFlow 1.12.5. AgentBroker 1.10.7 is a PATCH that picks up the
+shared code (ModuleKit without a Source Link record, the SDK warning level, the worker publish's junction refusal, its
+self-test starting cmd.exe by full path); the broker campaign's next release is renumbered 1.10.8.
+
+AgentBroker went through its bound provenance route at 736ae8a: Prepare, one stamped Build (357 files, receipt
+7ECDB184), VerifyOutput before and after a full snapshot, the module gate, the standalone packaging check (54
+assertions), a bound repack that reproduced the ZIP hash (5904E71E) and a 357 of 357 comparison of the extracted ZIP
+against the receipt. The route asks for installed acceptance before the payload commit; the owner, as the only user,
+chose to accept it through the in-app module Update after publication instead, and that check, with the owner's test
+of the deployed host update, stands in for RELEASE-CHECKLIST step 6 (live smoke), as decision 153 provides.
+
+Verified before the tag: the gate on the version step (0691ae2), whose only failure was the expected
+publish-freshness line for the eight modules not yet republished; the full tier on bdbf5c2, after which, up to the
+v1.11.2 tag, only four test files, the backlog, the module payloads, the catalog and the host version changed. Soaks passed: the resource soak's settled growth from cycle 40 to
+80 was 0 GDI objects, 0 USER objects and -1 handles (one interval, so a hint), and the module window soak's private
+bytes fell 2.1 MB a segment over 5 segments against a +16.0 MB bound. The guards harness graded all 3556 cases: 2046
+FIRED, 1498 COLLATERAL, 8 WRONG, 2 NOT RUN, 1 SURVIVED and 1 BROKEN. Triage found no release blocker: every guards
+finding predates the release candidate's code. The SURVIVED case was an equivalent mutant and is retired, the BROKEN case was
+stale and is re-aimed, the installer harness's grader now reads the line the shutdown check really prints (6 of 6
+variants FIRED), and the rest are filed (N-fulltier-1123-03 to 06; the two NOT RUN cases press real keys and are
+withheld by design). AgentFlow, runtime hardening (693 of 693), diagnostics (250 of 250) and the audits passed, and
+the private corpus converted identically. Before the push: the range privacy check over 584 commits with a planted
+failing witness, a binary identity scan of every zip the range adds (0 carrying, with a positive control on master's
+previous zips), an upstream-source line check (licence texts, imports, annotations and one declaration in a synthetic test
+stub, no copied code), one author identity on
+every commit, and no private name.
+
+Not claimed. No action family has a supported parity verdict yet (tools/ShimejiConvert/ACTIONS.md): the 58 paired
+scenarios against the real Shimeji-EE 1.0.23 runtime (52 exact, 4 recorded policy differences, 2 open on error-message
+wording) ran on the 1.10.0 converter and host, and ACTIONS.md records no paired comparison of the current
+map/2 lowering. Nothing here claims policy
+qualification, Mute parity or receiver parity. Companion Studio still accepts 341 of the 381 corpus packs, as at
+1.11.0.
+
+Still open: the paired parity rerun on this build and scenarios for the action families with converter checks only;
+side-by-side recordings for the owner; the 40 refused corpus packs (scripted conditions the expression engine cannot
+parse, oversized sheets, sound limits); N-fulltier-1123-03 to 06. The run dispatched from master for the tag (release.yml 45223529798) published v1.11.2, unsigned: the portable ZIP, the MSI, the Contracts and ModuleKit 1.11.2 author packages and SHA256SUMS, each asset checked against that list after download.
+
 ## 🚢 Released: v1.11.0 and Companion Studio 1.4.0 (2026-11-06)
 
 The third release of the Shimeji runtime campaign. Host 1.11.0 is a MINOR with no ABI change. Tick companions accept
