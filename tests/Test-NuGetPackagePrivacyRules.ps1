@@ -160,7 +160,12 @@ try {
     $metadataFailure = 'none'
     try { $metadataSummary = Read-Package $withMetadata 'DesktopAICompanion.Contracts.dll' $cleanHash } catch { $metadataFailure = $_.Exception.Message }
     Require ($metadataFailure -ceq 'none' -and $metadataSummary.EmbeddedPdbCount -eq 1) 'CLEAN_WITH_PACKAGE_METADATA'
-    $builtImage = Join-Path $owned 'fresh.dll'; $from = [DateTime]::UtcNow
+    # The file system stamps a write from a coarser clock than [DateTime]::UtcNow (one timer tick, up to about 16 ms
+    # on Windows), so a write made just after a precise $from can carry a stamp BEFORE it: this case threw
+    # NUGET_PRIVACY_BUILD_OUTPUT_NOT_FRESH in the v1.11.1 release run while passing in build.yml on the same commit.
+    # The window opens two seconds early; the two refusal cases below sit ten minutes outside it either way. The
+    # packer's own window brackets a dotnet build of seconds, so its stamp cannot fall before its start.
+    $builtImage = Join-Path $owned 'fresh.dll'; $from = [DateTime]::UtcNow.AddSeconds(-2)
     [IO.File]::WriteAllBytes($builtImage, $cleanImage); $to = [DateTime]::UtcNow
     $identity = Get-NuGetBuildIdentity $builtImage $from $to
     Require ($identity.ImageSha256 -ceq $cleanHash -and @($identity.EmbeddedPdbSha256).Count -eq 1) 'BUILD_IDENTITY'
