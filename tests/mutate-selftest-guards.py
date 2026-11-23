@@ -3167,12 +3167,14 @@ CASES = (
 
     # RA-375, both halves. A gaze stops being a leaf of the frequency walk; a collapsed mirror's frequency stops
     # reaching its survivor.
-    ("burn-tools: a gaze is no longer a leaf of the frequency walk",
-     PET_EMITTER,
-     b"            if (IsFloorAction(a) || IsGazeAction(a)) { outSpokes.Add(name); return; }",
-     b"            if (IsFloorAction(a)) { outSpokes.Add(name); return; }",
-     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
-     SHIMEJI, None, "a Group2 gaze is not a"),
+    # RETIRED 2026-11-23 at the step 15 full tier (fulltier TRIAGE.md, disposition 1) as an EQUIVALENT mutant, not a
+    # missing check: "burn-tools: a gaze is no longer a leaf of the frequency walk" turned ResolveSpokes'
+    # `if (IsFloorAction(a) || IsGazeAction(a))` into `if (IsFloorAction(a))` and SURVIVED at bdbf5c2f (shard 3). Since
+    # d22915bb and 315caac2 (N-shimeji-classic-01) IsFloorAction admits Group2 and exempts a gaze from the cursor refusal
+    # (PetEmitter.cs:938-944), and every condition IsGazeAction demands (PetEmitter.cs:841-858) passes IsFloorAction too,
+    # so IsGazeAction(a) implies IsFloorAction(a) and the removed disjunct can never decide a spoke. The RA-375 weight
+    # check (EmitterSelfTest, "a Group2 gaze is not a leaf of the frequency walk") stays and still passes only if a gaze
+    # carries its frequency. Revisit, and restore this case, if IsFloorAction stops admitting every gaze.
 
     ("burn-tools: a collapsed mirror's frequency stops reaching its survivor",
      PET_EMITTER,
@@ -19051,12 +19053,24 @@ CASES = (
      b'Mascot.Anchor = new TickPoint(Mascot.Anchor.X + x, Mascot.Anchor.Y + y * 0);',
      CORETESTS_CSPROJ, CORETESTS_DLL,
      CORETESTS, None, 'Tick instant Look and Offset apply at initialisation'),
+    # Re-pointed at the step 15 full tier (fulltier TRIAGE.md, N-fulltier-1123-02): 5ad6d765 added a third arm,
+    # `else World.Observer.MuteReadNoEvent(Mascot, this, read);`, so turning this arm into a bare `else` left
+    # `else { ... } else ...`, which does not compile (BROKEN at bdbf5c2f). Same intent with the chain kept: in this arm
+    # Sound is already null, so `|| sound == null` makes a Sound-less Mute mute everything whatever the Sounds setting.
+    # A documented four-label owner (measured at bdbf5c2f with --only: COLLATERAL, these 4 labels and no other). Each of
+    # these CoreTests groups asserts that a Sound-less Mute under Sounds off does nothing, so the mutant fails each for its
+    # declared reason: Program.cs:102 (this case's guard, "acted while this companion's sounds were off"), :165 (clips
+    # stopped while the initiator's sounds were off), and :169 and :170 (a Sounds-off null read reported as a mute instead
+    # of through MuteReadNoEvent). Never narrow those groups to leave one label sole.
     ('shimeji-host: Mute with no Sound ignores the Sounds setting',
      os.path.join(REPO, "src", "dotNet", "Shimeji", "TickInstantFamily.cs"),
      b'else if (World.Settings.Get("Sounds", Mascot.Type.Name))\n            {',
-     b'else\n            {',
+     b'else if (World.Settings.Get("Sounds", Mascot.Type.Name) || sound == null)\n            {',
      CORETESTS_CSPROJ, CORETESTS_DLL,
-     CORETESTS, None, 'Tick instant Mute and BringToFront'),
+     CORETESTS, None, ('Tick instant Mute and BringToFront',
+                       "Tick sound Mute: no Sound stops every clip of every type, only while the initiator's sounds are on",
+                       'Tick Mute read: a Sounds-off local null is observed once with no event',
+                       'Tick Mute read: every read reaches the observer once, a Sounds-off null through the no-event site')),
     ('shimeji-host: BringToFront asks for nothing',
      os.path.join(REPO, "src", "dotNet", "Shimeji", "TickInstantFamily.cs"),
      b'Mascot.BringToFrontRequested = true;',

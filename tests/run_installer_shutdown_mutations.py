@@ -100,8 +100,16 @@ def digest(raw: bytes) -> str:
 
 
 def exact_failure(text: str, exit_code: int, rebuilt: bool, label: str | None) -> bool:
-    failures = re.findall(r"(?m)^FAIL[^\r\n]*", text)
-    return bool(label) and rebuilt and exit_code == 1 and failures == ["FAIL ShutdownChecks.cpp: " + label]
+    """FIRED only for a rebuilt checker that exited 1 with ONE failure line, naming this variant's label exactly.
+
+    The line is read as ShutdownChecks prints it: wmain's catch writes "RESULT:FAIL " and the exception text
+    (tests/InstallerShutdown.Tests/ShutdownChecks.cpp, `std::cerr << "RESULT:FAIL "`), and Check's exception text is
+    "ShutdownChecks.cpp: " and the description. Collecting only lines that START with FAIL (80844a21) found no line in
+    that output, so no variant could grade FIRED and --apply stopped at its first variant (N-fulltier-1123-01). A bare
+    FAIL line is still collected, so a second failure line in either form keeps the witness from firing.
+    """
+    failures = re.findall(r"(?m)^(?:RESULT:)?FAIL[^\r\n]*", text)
+    return bool(label) and rebuilt and exit_code == 1 and failures == ["RESULT:FAIL ShutdownChecks.cpp: " + label]
 
 
 def write_new(path: Path, raw: bytes) -> None:
