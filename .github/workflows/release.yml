@@ -71,9 +71,13 @@ jobs:
         # ref matters: without it a workflow_dispatch re-run builds the DEFAULT BRANCH and then uploads those
         # artifacts under the requested tag's release, publishing something that was never tagged.
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
+        # fetch-depth: 0, as build.yml has it. "Test the build being released" runs the offline script checks,
+        # and Test-AgentBrokerReleaseProvenanceRules.ps1 needs history back to its baseline commit: on the default
+        # shallow clone it refused with PROVENANCE_RULES_BASELINE_HISTORY_REQUIRED and stopped the v1.11.2 run.
         with:
           ref: ${{ steps.tag.outputs.tag }}
           persist-credentials: false
+          fetch-depth: 0
 
       - name: Set up the .NET 10 SDK
         # The pin is read from global.json (exact version, rollForward "disable"); see build.yml (F001). The
