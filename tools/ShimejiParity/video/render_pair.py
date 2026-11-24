@@ -14,10 +14,17 @@ is inferred: a companion that is not `visible`, or has no `pose`, is not drawn. 
 between the two traces (any companion's image, facing, visibility or origin) is marked with a red bar and counted; the
 bar is a reading aid, the comparer (tools/ShimejiParity/comparer/compare.py) is the verdict.
 
+The video is a RECONSTRUCTION from the two traces, and says so on every frame: it shows what each runtime recorded, not
+its own pixels or window stacking (real-window recordings are separate evidence). A tick on which a trace recorded no
+state line at all is labelled as such in that panel, never drawn as an empty desktop. Beside <out.mp4> a sidecar
+<out.json> (shimeji-parity-video/1) binds the video to the SHA-256 of the scenario, both traces, every sprite drawn and
+this renderer, with the differing and missing ticks.
+
 The traces, the scenario and the pack are inputs only; the video is written to <out.mp4>, which must not exist. Videos of
 private packs stay with the private evidence; this tool carries no art of its own.
 """
 import copy
+import hashlib
 import json
 import subprocess
 import sys
@@ -33,6 +40,7 @@ FLOOR = (120, 130, 140)
 WINDOW = (90, 110, 150)
 DIFF = (220, 50, 50)
 TEXT = (235, 235, 235)
+MISSING = (240, 180, 40)
 
 
 def load_trace(path):
@@ -91,12 +99,13 @@ def window_timeline(scenario, events, ticks):
 
 class Sprites:
     def __init__(self, pack, scale):
-        self.pack, self.scale, self.cache = Path(pack), scale, {}
+        self.pack, self.scale, self.cache, self.drawn = Path(pack), scale, {}, set()
 
     def get(self, image, image_right, look_right):
         key = (image, image_right, look_right)
         if key not in self.cache:
             name = image_right if (look_right and image_right) else image
+            self.drawn.add(name)
             img = Image.open(self.pack / name).convert("RGBA")
             if look_right and not image_right:
                 img = img.transpose(Image.FLIP_LEFT_RIGHT)
@@ -195,6 +204,7 @@ def render(scenario_path, pack, oracle_path, host_path, out, panel_width=640, sl
     big, small = font(16), font(12)
     differing = [t for t in range(ticks + 1) if picture(ostates, t) != picture(hstates, t) or orects[t] != hrects[t]]
     diff_set = set(differing)
+    missing = {"oracle": missing_ticks(ostates, ticks), "host": missing_ticks(hstates, ticks)}
     cmd = [ffmpeg, "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{width}x{height}",
            "-r", str(25 / max(1, slow)), "-i", "-", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18", str(out)]
     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
@@ -204,12 +214,15 @@ def render(scenario_path, pack, oracle_path, host_path, out, panel_width=640, sl
             frame = Image.new("RGB", (width, height), (20, 22, 26))
             d = ImageDraw.Draw(frame)
             d.text((8, 4), f"{scenario['id']}  tick {tick}/{ticks}", fill=TEXT, font=big)
-            d.text((8, 24), "real Shimeji-EE 1.0.23", fill=TEXT, font=small)
-            d.text((pw + GAP + 8, 24), "Desktop AI Companion", fill=TEXT, font=small)
+            d.text((8, 24), "real Shimeji-EE 1.0.23 (trace reconstruction)", fill=TEXT, font=small)
+            d.text((pw + GAP + 8, 24), "Desktop AI Companion (trace reconstruction)", fill=TEXT, font=small)
             status = f"picture differs on {len(differing)} of {ticks + 1} ticks" if differing else "same picture on every tick"
             d.text((pw + GAP + 8, 4), status, fill=DIFF if differing else TEXT, font=small)
-            frame.paste(render_panel(scenario, ostates, orects, tick, sprites, view, (pw, ph)), (0, HEADER))
-            frame.paste(render_panel(scenario, hstates, hrects, tick, sprites, view, (pw, ph)), (pw + GAP, HEADER))
+            for side, states, rects, left in (("oracle", ostates, orects, 0), ("host", hstates, hrects, pw + GAP)):
+                panel = render_panel(scenario, states, rects, tick, sprites, view, (pw, ph))
+                if tick in missing[side]:
+                    ImageDraw.Draw(panel).text((8, 8), "no state recorded at this tick", fill=MISSING, font=small)
+                frame.paste(panel, (left, HEADER))
             if tick in diff_set:
                 d.rectangle([0, HEADER + ph, width, height], fill=DIFF)
             proc.stdin.write(frame.tobytes())
@@ -228,7 +241,30 @@ def render(scenario_path, pack, oracle_path, host_path, out, panel_width=640, sl
         for i, f in enumerate(frames):
             contact.paste(f.resize((tw, th)), ((i % cols) * tw, (i // cols) * th))
         contact.save(sheet)
-    return {"ticks": ticks + 1, "differingTicks": differing}
+    result = {"ticks": ticks + 1, "differingTicks": differing, "missingStateTicks": missing}
+    sidecar = {
+        "schema": "shimeji-parity-video/1", "kind": "trace reconstruction", "scenario": scenario["id"],
+        "video": out.name, "videoSha256": sha256(out),
+        "inputs": {"scenario": sha256(scenario_path), "oracleTrace": sha256(oracle_path), "hostTrace": sha256(host_path),
+                   "renderer": sha256(__file__),
+                   "sprites": {name: sha256(Path(pack) / name) for name in sorted(natural.drawn | sprites.drawn)}},
+        "oracleRun": oh.get("runId"), "hostRun": hh.get("runId"), "hostBuild": hh.get("build"),
+        "viewport": [vx, vy, vw, vh], "scale": scale, **result}
+    out.with_suffix(".json").write_text(json.dumps(sidecar, indent=1), encoding="utf-8")
+    return result
+
+
+def sha256(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def missing_ticks(states, ticks):
+    """Ticks on which a trace recorded no state line at all: drawn as such, never as an empty desktop."""
+    return [t for t in range(ticks + 1) if not states.get(t)]
 
 
 def self_test():
@@ -258,8 +294,10 @@ def self_test():
     checks.append(("a hidden scenario window is not drawn",
                    window_timeline({"activeWindow": [{"tick": 0, "visible": False}]}, {}, 1) == [None, None]))
     checks.append(("a minimized window is not drawn", rects[4] is None and rects[5] is None))
+    checks.append(("a tick with no state line is reported missing",
+                   missing_ticks({0: {"m1": st(0, "m1")}, 2: {"m1": st(2, "m1")}}, 3) == [1, 3]))
     screen = {"w": 1280, "h": 720}
-    far = {0: {"m1": st(0, "m1", origin=(600, 600))}, 9: {"m1": st(9, "m1", origin=(700, 600))}}
+    far ={0: {"m1": st(0, "m1", origin=(600, 600))}, 9: {"m1": st(9, "m1", origin=(700, 600))}}
     vx, vy, vw, vh = viewport(screen, (far, {}), ([], []), lambda i, r, f: (64, 64))
     checks.append(("the viewport holds every drawn sprite", vx <= 600 and vy <= 600 and vx + vw >= 764 and vy + vh >= 664))
     checks.append(("the viewport crops a small scene", vw < 1280 and vh < 720 and vx >= 0 and vy >= 0
