@@ -361,7 +361,7 @@ namespace DesktopAICompanion
             + "unescape Object Function Array String Boolean Number Date RegExp JSON Error EvalError RangeError ReferenceError "
             + "SyntaxError TypeError URIError print load loadWithNewGlobal exit quit Java JavaImporter JSAdapter Packages java javax "
             + "javafx com edu net org ArrayBuffer DataView Int8Array Uint8Array Uint8ClampedArray Int16Array Uint16Array Int32Array "
-            + "Uint32Array Float32Array Float64Array context engine").Split(' '), StringComparer.Ordinal);
+            + "Uint32Array Float32Array Float64Array context engine action").Split(' '), StringComparer.Ordinal);
 
         private static bool IsReservedLiteral(string name)
         {
@@ -391,6 +391,7 @@ namespace DesktopAICompanion
             public readonly List<string> AbsentProperties = new List<string>();
             private readonly HashSet<string> _declared = new HashSet<string>(StringComparer.Ordinal);
             private readonly HashSet<string> _assigned = new HashSet<string>(StringComparer.Ordinal);
+            private readonly HashSet<string> _typeofNames = new HashSet<string>(StringComparer.Ordinal);
             private readonly List<Token> _reads = new List<Token>();
 
             public Parser(List<Token> tokens, Func<string, bool> scope) { _tokens = tokens; _scope = scope; }
@@ -439,10 +440,14 @@ namespace DesktopAICompanion
                 return new ProgramNode(statements.ToArray(), hoisted.ToArray());
             }
 
+            // A name is the program's to read when it declares or assigns it, when the caller's scope holds it, or when the
+            // program tests it with typeof: `typeof marker == 'undefined' ? -1 : marker` reads a global another action's
+            // script may have declared, and the source's own guard decides at run time (an unresolved read there is the
+            // source's ReferenceError, a fault here too). typeof of an engine global is refused, so this admits none.
             private void CheckReads()
             {
                 foreach (Token read in _reads)
-                    if (!_declared.Contains(read.Text) && !_assigned.Contains(read.Text) && !_scope(read.Text))
+                    if (!_declared.Contains(read.Text) && !_assigned.Contains(read.Text) && !_typeofNames.Contains(read.Text) && !_scope(read.Text))
                         throw new ScriptSyntaxException("unknown name '" + read.Text + "' at " + read.Offset);
             }
 
@@ -611,6 +616,7 @@ namespace DesktopAICompanion
                             if (EngineGlobals.Contains(name.Text))
                                 throw new ScriptSyntaxException("typeof '" + name.Text + "' names the engine's global object, which is outside the supported subset (at " + name.Offset + ")");
                             if (IsOp("++") || IsOp("--")) throw new ScriptSyntaxException("an update under typeof is outside the supported subset (at " + Peek.Offset + ")");
+                            _typeofNames.Add(name.Text);
                             return new TypeofNode(new NameNode(name.Text), true);
                         }
                         return new TypeofNode(ParseUnary(), false);

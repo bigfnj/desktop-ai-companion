@@ -420,6 +420,18 @@ namespace DesktopAICompanion
             AssertEqual(2.0, sibling.Evaluate(c).Number, "A sibling script did not read the shared global.");
             AssertEqual(-1.0, sibling.Evaluate(new FakeScriptContext()).Number, "A sibling script in a store without the global did not read it as undefined.");
             AssertEqual(-1.0, Eval("typeof other == 'undefined' ? -1 : 1").Number, "typeof of a name nothing declares was not 'undefined'.");
+            // A name the program tests with typeof is the program's to read (another action's global, guarded by the
+            // source itself): no parse error, "undefined" in a store without it, its value in one with it.
+            ScriptProgram guarded = ParseOrFail("mascot.variables['other'] = typeof marker == 'undefined' ? -1 : marker; true");
+            var without = new FakeScriptContext();
+            guarded.Evaluate(without);
+            AssertTrue(without.Vars["other"].Number == -1 && without.Faults.Count == 0, "A typeof-guarded read of an absent global did not take the guard.");
+            guarded.Evaluate(c);
+            AssertEqual(2.0, c.Vars["other"].Number, "A typeof-guarded read did not read the global where it exists.");
+            var unguarded = new FakeScriptContext();
+            AssertEqual(ScriptValueKind.Null, Eval("typeof marker == 'string' ? 1 : marker", unguarded).Kind, "An unresolved read past the guard did not fault.");
+            AssertTrue(unguarded.Faults.Count == 1, "An unresolved read past the guard was not reported (the source's ReferenceError).");
+            AssertTrue(ParseError("typeof action").Contains("engine's global object"), "typeof action (the source's own binding) was not refused.");
             AssertTrue(ParseError("typeof Java").Contains("engine's global object"), "typeof of an engine global was not refused.");
 
             // A global shadows a binding of the same name; the binding itself is never written.
