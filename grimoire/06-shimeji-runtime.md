@@ -36,6 +36,7 @@ schema validation.
 | `hotspots` | `<hotspots>` |
 | `variables` | per-instance variables (`mascot.variables`) and `<constants>` |
 | `wav` | a named clip's `format` attribute, so its bytes may be a RIFF/WAVE (section 3) |
+| `statements` | the statement grammar and extended object model of SafeExpression (section 6, **Statements**) |
 
 A token becomes "known" only in the host build whose runtime implements it, so no build accepts a companion it cannot
 run.
@@ -499,7 +500,8 @@ playable variant has no duration whose last tick could fire anything.
 - Values: numbers (double), booleans, `null`, strings (in quotes).
 - Operators: `? :`, `|| && !`, `== != < <= > >=`, `+ - * / %`, unary `-`, parentheses.
 - Member access over the fixed object model below. Calls only to whitelisted methods.
-- No statements, no assignment except the variables form below, no loops, no closures, no `new`.
+- Without `statements`: no statements, no assignment except the variables form below. Never: loops, closures,
+  `new`, `this`, functions, or any other keyword statement.
 - Limits: 4096 characters, 1024 tokens, depth 32.
 - Parsed once per definition into an immutable tree, with every name resolved at parse time. An unknown name is a
   parse error the validator names, together with the attribute it came from.
@@ -522,6 +524,35 @@ playable variant has no duration whose last tick could fire anything.
 | `<constants>` | by bare name, in behaviour selection only |
 | `Math.random()` | one draw at that site, each evaluation |
 | `Math.abs/min/max/floor/ceil/round/sqrt/pow/sin/cos/atan2/PI` | the usual |
+
+**Statements** (feature `statements`; each use is found by the parser, `ScriptProgram.UsesStatements`):
+- A program is statements separated by `;` (empty ones allowed): `var a = e, b` or an expression. Its value is
+  the ES5 completion value, the last value-producing statement's (a `var` has none); with none it is undefined,
+  which the host reads as null, as Nashorn's eval hands undefined to Java.
+- Script globals: `var` names and assignments to bare names live in one store per action activation (Nashorn's
+  per-Bindings global, kept in the action's VariableMap): every script of that action shares it, a re-init of the
+  same instance keeps it, the next activation starts fresh, and each behaviour selection has its own. A bare name
+  reads a global before the bindings; a `var` is hoisted, so its initializer reads undefined. At most 64 per store.
+  A name the program neither declares nor assigns must be in scope; the validator and the converter add the names
+  the action's own other scripts declare or assign (not a binding's).
+- `++` and `--` (prefix and postfix; a postfix yields the old value as a number; `null++` stores 1), `+= -= *= /= %=`
+  and `=`, on `mascot.variables[k]` and on names (a parameter assigned becomes a global that shadows it).
+- `undefined` and `typeof` ("undefined", "boolean", "number", "string", or "object" for null and every Java
+  object). `typeof` of a bare name nothing resolves is "undefined"; of an engine global it is refused.
+- A property a modelled Java object does not have reads undefined (Nashorn's rule) and the converter warns
+  `TICK_SCRIPT_ABSENT_PROPERTY` naming it; a property it has that the model does not run, a call of a method it
+  lacks, and a member of that undefined stay refused.
+- `mascot.manager.getMascotWithAffordance(e)`: a weak reference to the first companion in manager order whose
+  offers contain it, the asking one included, or null (no `scan-target` event: only scan actions write one).
+  `ref.get()` is a companion reference (null once that companion is disposed: the source returns it until the
+  collector clears it, which nothing here can time). A reference has `.anchor` (a copy), `.lookRight` and `.bounds`.
+- `mascot.bounds` (from `getBounds()`): `.x .y .width .height` of the companion's image at its anchor.
+- `mascot.anchor.translate(dx, dy)`: moves the live anchor at once; each argument is truncated to a Java long
+  (saturating) and its low 32 bits taken, as Nashorn passes a number to an int. On a copied point it faults.
+- Member chains on values (a local, a call result, a `mascot.variables` read) are resolved by the value's kind
+  when they run; a member of null or undefined is the source's TypeError and aborts the evaluation.
+- `mascot.variables['empty']`, `['class']` and `['rawMap']` are refused: Nashorn links those keys to the map's own
+  bean getters.
 
 **Caching.** Both kinds are lazy: an expression is evaluated the first time its value is used, and the result is kept
 (`Script.java:46-70`). `cache="action"` (`${}`) is cleared when the action is initialised, so it holds for the
@@ -648,7 +679,8 @@ section 1). (Until N-bd-w4-docs-1-06 this said the parity lane would confirm the
     member is a runtime fallback to the current type (section 9), not a respawn. (This listed "keeps a fallback
     edge" as a check until N-audit-1106-198; the validator has no such check and refuses any edge on an action.)
   - what a document USES is declared, judged from what it contains: a scripted binding (behaviour or composite child)
-    needs `expressions`; an expression the parser finds reading or writing `mascot.variables` needs `variables`; a
+    needs `expressions`; an expression the parser finds reading or writing `mascot.variables` needs `variables`; one using the
+    statement grammar or extended object model (section 6) needs `statements`; a
     `BornMascot` or `TransformMascot`, as a parameter or a binding, needs `packs`; ComplexMove and ComplexJump need
     `lifecycle` and `social` by their Characteristics, split on commas and compared exactly as the runtime does, and
     both when Characteristics is scripted;

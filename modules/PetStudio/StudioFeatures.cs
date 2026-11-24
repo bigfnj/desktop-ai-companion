@@ -40,6 +40,9 @@ namespace DesktopAICompanion
             // preview or installed companion plays them. Missing here, Studio refused every WAV companion by this name
             // and --petstudio-selftest's set comparison failed (the WAV lane's stand-in review, F2).
             supported.Add(Wav);
+            // A companion whose scripts use the statement grammar (feature 'statements') opens, previews and installs
+            // like any other: Studio source-links the parser, and the host runs the scripts.
+            supported.Add(Statements);
         }
     }
 }

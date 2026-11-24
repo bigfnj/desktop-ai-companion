@@ -330,6 +330,18 @@ namespace DesktopAICompanion
             var withVariablesSupported = new System.Collections.Generic.List<string>(AllExtensionFeatures) { CompanionFormatFeatures.Variables };
             Check(CompanionXmlValidator.TryParseWithFeatures(Serialize(withVariables), withVariablesSupported, out parsed, out error),
                 "extension gate: WITNESS the same guard validates with 'variables' declared" + FormatError(error), ref failures, output);
+            // The statement grammar, found by the parser: a guard with a var and a ';' needs 'statements'.
+            ExpectRefused(classic, r => StandAct(r).Guard.When = "var k = 1; k > 0",
+                "statements needs feature 'statements'", "a guard using the statement grammar without 'statements' declared is refused",
+                ref failures, output);
+            XmlData.RootNode withStatements = With(TickFixture(classic), r =>
+                {
+                    r.Header.Features += " statements";
+                    StandAct(r).Guard.When = "var k = 1; k > 0";
+                });
+            var withStatementsSupported = new System.Collections.Generic.List<string>(AllExtensionFeatures) { CompanionFormatFeatures.Statements };
+            Check(CompanionXmlValidator.TryParseWithFeatures(Serialize(withStatements), withStatementsSupported, out parsed, out error),
+                "extension gate: WITNESS the same guard validates with 'statements' declared" + FormatError(error), ref failures, output);
             // A scripted Characteristics could turn out to be either flag, so it needs both features.
             ExpectRefused(classic, r =>
                 {

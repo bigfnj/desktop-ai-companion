@@ -27,6 +27,9 @@ namespace DesktopAICompanion
             supported.Add(Packs);
             // 'wav' runs: a WAV clip decodes and plays through the same clip path as an MP3 one (AudioOutput.PlayClip).
             supported.Add(Wav);
+            // 'statements' runs: the SafeScript statement grammar and its object model (SafeScript.cs), with script
+            // globals per action activation (TickScriptGlobals) and companion references (TickScriptContext).
+            supported.Add(Statements);
         }
 
         static partial void CheckRuntimeClass(string embeddedClass, ref bool runs)

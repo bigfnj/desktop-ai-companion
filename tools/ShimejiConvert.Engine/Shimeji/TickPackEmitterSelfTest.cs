@@ -26,6 +26,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "lifecycle-parameters", Run = (Action)LifecycleParameters },
                 new { Name = "expression-placements", Run = (Action)ExpressionPlacements },
                 new { Name = "expression-variables", Run = (Action)ExpressionVariables },
+                new { Name = "expression-statements", Run = (Action)ExpressionStatements },
                 new { Name = "expression-grammar-refusal", Run = (Action)ExpressionGrammarRefusal },
                 new { Name = "affordance-script-refusal", Run = (Action)AffordanceScriptRefusal },
                 new { Name = "literal-only-refusal", Run = (Action)LiteralOnlyRefusal },
@@ -416,6 +417,61 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 Validate(document, "variables member");
                 Require(Features(document).Contains("variables") && Features(document).Contains("expressions"),
                     "expression reading mascot.variables did not declare variables");
+            }
+        }
+
+        // SafeScript statements: the synthetic equivalents of the shapes that used to refuse as TICK_EXPRESSION_UNSUPPORTED
+        // now lower, declare 'statements', validate, and keep their bodies; a sibling script reads a var another script of
+        // the same action declares; an absent property is warned by name; a malformed script still refuses.
+        private static void ExpressionStatements()
+        {
+            using (var fixture = new Fixture())
+            {
+                XDocument actions = BuildActions();
+                XElement stand = actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Stand");
+                stand.SetAttributeValue("Condition", "#{var seen = typeof seen == 'undefined' ? 1 : seen + 1; mascot.variables['k'] ++; true}");
+                stand.SetAttributeValue("Duration", "${mascot.variables['d'] = seen; 3}");
+                XElement walk = actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Walk");
+                walk.SetAttributeValue("TargetX", "${var t = mascot.getManager( ).getMascotWithAffordance('Offer'); t != null && t.get( ) != null"
+                    + " ? t.get( ).anchor.x : mascot.anchor.x + mascot.getBounds().width}");
+                walk.SetAttributeValue("Condition", "${mascot.environment.activeIE.bottom < mascot.environment.bottom}");
+                fixture.Actions(actions);
+                string refusal;
+                IReadOnlyList<string> warnings = ConvertInto(fixture, "statements", null, new[] { "A" }, out refusal);
+                Require(refusal == null, "a statement-grammar script was refused: " + refusal);
+                Require(warnings.Count(w => w.Contains("TICK_SCRIPT_ABSENT_PROPERTY") && w.Contains("'mascot.environment.bottom'")) >= 1
+                    && warnings.All(w => !w.Contains("TICK_SCRIPT_ABSENT_PROPERTY") || w.Contains("'mascot.environment.bottom'")),
+                    "the absent property was not warned by its path, or something else was: " + string.Join(" | ", warnings));
+                XDocument document = fixture.Convert();
+                Validate(document, "statements member");
+                Require(Features(document).Contains("statements") && Features(document).Contains("variables"),
+                    "a member using the statement grammar did not declare 'statements'");
+                XElement walkAct = NamedNode(document, "Walk").Element(Ns + "act");
+                Require(Scripted(walkAct, "param", "TargetX", "action").Contains("mascot.manager.getMascotWithAffordance('Offer')")
+                    && Scripted(walkAct, "param", "TargetX", "action").Contains("mascot.bounds.width"),
+                    "the reference script's body was not kept with its getters as properties");
+            }
+            using (var fixture = new Fixture())
+            {
+                XDocument actions = BuildActions();
+                actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Stand").SetAttributeValue("Condition", "${true}");
+                fixture.Actions(actions);
+                Require(!Features(fixture.Convert()).Contains("statements"), "WITNESS: a member using only expressions declared 'statements'");
+            }
+            using (var fixture = new Fixture())
+            {
+                XDocument actions = BuildActions();
+                actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Stand").SetAttributeValue("Condition", "${var x = ${1}}");
+                fixture.Actions(actions);
+                Refusal(fixture, "TICK_EXPRESSION_UNSUPPORTED Condition: ");
+            }
+            using (var fixture = new Fixture())
+            {
+                // A name no script of the action declares and no scope holds still refuses.
+                XDocument actions = BuildActions();
+                actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Stand").SetAttributeValue("Duration", "${seen + 1}");
+                fixture.Actions(actions);
+                Refusal(fixture, "TICK_EXPRESSION_UNSUPPORTED Duration: ");
             }
         }
 
