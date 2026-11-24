@@ -76,11 +76,24 @@ def drawn(state):
     return (pose["image"] if right is None else right, right, look_right, tuple(state.get("origin") or ()))
 
 
-def validate_pair(oracle_header, host_header, scenario_id, scenario_sha, pack_sha):
+VISUAL_RUNTIME = "oracle-visual"
+VISUAL_SCHEMA = "shimeji-visual-observation/1"
+
+
+def validate_pair(oracle_header, host_header, scenario_id, scenario_sha, pack_sha, visual=False):
     """Refuse a cross-wired pair before anything is drawn: each trace must be its runtime's, and both must name the
-    supplied scenario (id and SHA-256) and pack (the comparer's pack SHA-256). Returns None or the refusal."""
+    supplied scenario (id and SHA-256) and pack (the comparer's pack SHA-256). Returns None or the refusal.
+    With visual, the left trace must be the oracle's UNGRADED visual-observation mode, identified by BOTH its runtime and
+    its schema; without it, such a trace is refused, so an ungraded run can never be drawn as a graded one."""
+    is_visual = (oracle_header.get("runtime") == VISUAL_RUNTIME and oracle_header.get("schema") == VISUAL_SCHEMA)
+    if visual and not is_visual:
+        return (f"--ungraded-visual needs a left trace with runtime {VISUAL_RUNTIME!r} and schema {VISUAL_SCHEMA!r}; "
+                f"this one has {oracle_header.get('runtime')!r} and {oracle_header.get('schema')!r}")
+    if not visual and (oracle_header.get("runtime") == VISUAL_RUNTIME or oracle_header.get("schema") == VISUAL_SCHEMA):
+        return "the left trace is an ungraded visual observation; render it only with --ungraded-visual"
     for role, header in (("oracle", oracle_header), ("host", host_header)):
-        if header.get("runtime") != role:
+        expected = VISUAL_RUNTIME if (visual and role == "oracle") else role
+        if header.get("runtime") != expected:
             return f"the {role} trace's header says runtime {header.get('runtime')!r}"
         s = header.get("scenario") or {}
         if s.get("id") != scenario_id:
@@ -200,14 +213,14 @@ def render_panel(scenario, states, rects, tick, sprites, view, size):
 
 
 def render(scenario_path, pack, oracle_path, host_path, out, panel_width=640, slow=1, ffmpeg="ffmpeg", sheet=None,
-           full=False):
+           full=False, visual=False):
     out = Path(out)
     if out.exists():
         raise SystemExit(f"refused: {out} already exists")
     scenario = json.loads(Path(scenario_path).read_text(encoding="utf-8"))
     oh, ostates, oevents = load_trace(oracle_path)
     hh, hstates, hevents = load_trace(host_path)
-    refusal = validate_pair(oh, hh, scenario.get("id"), sha256(scenario_path), comparer_pack_sha256(pack))
+    refusal = validate_pair(oh, hh, scenario.get("id"), sha256(scenario_path), comparer_pack_sha256(pack), visual)
     if refusal:
         raise SystemExit("refused: " + refusal)
     ticks = int(scenario["ticks"])
@@ -237,7 +250,11 @@ def render(scenario_path, pack, oracle_path, host_path, out, panel_width=640, sl
             frame = Image.new("RGB", (width, height), (20, 22, 26))
             d = ImageDraw.Draw(frame)
             d.text((8, 4), f"{scenario['id']}  tick {tick}/{ticks}", fill=TEXT, font=big)
-            d.text((8, 24), "real Shimeji-EE 1.0.23 (trace reconstruction)", fill=TEXT, font=small)
+            if visual:
+                d.text((8, 24), "real Shimeji-EE 1.0.23: UNGRADED VISUAL OBSERVATION, not parity evidence",
+                       fill=MISSING, font=small)
+            else:
+                d.text((8, 24), "real Shimeji-EE 1.0.23 (trace reconstruction)", fill=TEXT, font=small)
             d.text((pw + GAP + 8, 24), "Desktop AI Companion (trace reconstruction)", fill=TEXT, font=small)
             status = (f"drawn picture differs on {len(differing)} of {ticks + 1} ticks" if differing
                       else "same drawn picture on every tick")
@@ -269,7 +286,9 @@ def render(scenario_path, pack, oracle_path, host_path, out, panel_width=640, sl
         contact.save(sheet)
     result = {"ticks": ticks + 1, "differingTicks": differing, "missingStateTicks": missing}
     sidecar = {
-        "schema": "shimeji-parity-video/1", "kind": "trace reconstruction", "scenario": scenario["id"],
+        "schema": "shimeji-parity-video/1",
+        "kind": "ungraded visual observation, not parity evidence" if visual else "trace reconstruction",
+        "graded": not visual, "scenario": scenario["id"],
         "video": out.name, "videoSha256": sha256(out),
         "inputs": {"scenario": sha256(scenario_path), "oracleTrace": sha256(oracle_path), "hostTrace": sha256(host_path),
                    "renderer": sha256(__file__),
@@ -345,6 +364,17 @@ def self_test():
                                  "S-x", "a", "p") is not None))
     checks.append(("a different scenario file is refused", validate_pair(good_o, good_h, "S-x", "b", "p") is not None))
     checks.append(("a different pack is refused", validate_pair(good_o, good_h, "S-x", "a", "q") is not None))
+    vis_o = dict(good_o, runtime=VISUAL_RUNTIME, schema=VISUAL_SCHEMA)
+    checks.append(("a visual observation renders with --ungraded-visual",
+                   validate_pair(vis_o, good_h, "S-x", "a", "p", visual=True) is None))
+    checks.append(("a visual observation is refused without --ungraded-visual",
+                   validate_pair(vis_o, good_h, "S-x", "a", "p") is not None))
+    checks.append(("a visual-schema trace claiming runtime oracle is refused without --ungraded-visual",
+                   validate_pair(dict(good_o, schema=VISUAL_SCHEMA), good_h, "S-x", "a", "p") is not None))
+    checks.append(("--ungraded-visual refuses a graded oracle trace",
+                   validate_pair(good_o, good_h, "S-x", "a", "p", visual=True) is not None))
+    checks.append(("--ungraded-visual needs the visual schema, not only the runtime",
+                   validate_pair(dict(good_o, runtime=VISUAL_RUNTIME), good_h, "S-x", "a", "p", visual=True) is not None))
     checks.append(("a tick with no state line is reported missing",
                    missing_ticks({0: {"m1": st(0, "m1")}, 2: {"m1": st(2, "m1")}}, 3) == [1, 3]))
     screen = {"w": 1280, "h": 720}
@@ -370,7 +400,8 @@ def main(argv):
         return self_test()
     opts = {"--panel-width": "640", "--slow": "1", "--ffmpeg": "ffmpeg", "--sheet": None}
     full = "--full" in argv
-    argv = [a for a in argv if a != "--full"]
+    visual = "--ungraded-visual" in argv
+    argv = [a for a in argv if a not in ("--full", "--ungraded-visual")]
     pos = []
     i = 0
     while i < len(argv):
@@ -384,7 +415,7 @@ def main(argv):
         print(__doc__)
         return 2
     result = render(*pos, panel_width=int(opts["--panel-width"]), slow=int(opts["--slow"]), ffmpeg=opts["--ffmpeg"],
-                    sheet=opts["--sheet"], full=full)
+                    sheet=opts["--sheet"], full=full, visual=visual)
     print(json.dumps(result))
     return 0
 
