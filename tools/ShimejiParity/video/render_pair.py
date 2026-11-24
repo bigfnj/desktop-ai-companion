@@ -65,11 +65,31 @@ def load_trace(path):
 
 
 def drawn(state):
-    """What a state line puts on screen, or None when it draws nothing."""
+    """What a state line puts on screen, or None when it draws nothing: (image file, image_right, look_right, origin)
+    reduced to what is DRAWN, so an imageRight a left-facing companion does not use cannot make two pictures differ:
+    facing right with an imageRight draws that file unmirrored; otherwise the image, mirrored when facing right."""
     if not state or not state.get("visible") or not state.get("pose") or not state["pose"].get("image"):
         return None
     pose = state["pose"]
-    return (pose["image"], pose.get("imageRight"), bool(state.get("lookRight")), tuple(state.get("origin") or ()))
+    look_right = bool(state.get("lookRight"))
+    right = pose.get("imageRight") if look_right else None
+    return (pose["image"] if right is None else right, right, look_right, tuple(state.get("origin") or ()))
+
+
+def validate_pair(oracle_header, host_header, scenario_id, scenario_sha, pack_sha):
+    """Refuse a cross-wired pair before anything is drawn: each trace must be its runtime's, and both must name the
+    supplied scenario (id and SHA-256) and pack (the comparer's pack SHA-256). Returns None or the refusal."""
+    for role, header in (("oracle", oracle_header), ("host", host_header)):
+        if header.get("runtime") != role:
+            return f"the {role} trace's header says runtime {header.get('runtime')!r}"
+        s = header.get("scenario") or {}
+        if s.get("id") != scenario_id:
+            return f"the {role} trace is for scenario {s.get('id')!r}, not {scenario_id!r}"
+        if s.get("sha256") != scenario_sha:
+            return f"the {role} trace names scenario SHA-256 {s.get('sha256')}, not the supplied file's {scenario_sha}"
+        if pack_sha is not None and s.get("packSha256") != pack_sha:
+            return f"the {role} trace names pack SHA-256 {s.get('packSha256')}, not the supplied pack's {pack_sha}"
+    return None
 
 
 def picture(states, tick):
@@ -104,7 +124,7 @@ class Sprites:
     def get(self, image, image_right, look_right):
         key = (image, image_right, look_right)
         if key not in self.cache:
-            name = image_right if (look_right and image_right) else image
+            name = image  # drawn() passes the file actually drawn (the imageRight when it is used)
             self.drawn.add(name)
             img = Image.open(self.pack / name).convert("RGBA")
             if look_right and not image_right:
@@ -174,7 +194,7 @@ def render_panel(scenario, states, rects, tick, sprites, view, size):
         if what is None:
             continue
         image, image_right, look_right, origin = what
-        img = sprites.get(image, image_right, look_right)
+        img = sprites.get(image, image_right, look_right)  # drawn() already chose the file; mirrored iff no imageRight
         panel.paste(img, at(origin[0], origin[1]), img)
     return panel
 
@@ -187,6 +207,9 @@ def render(scenario_path, pack, oracle_path, host_path, out, panel_width=640, sl
     scenario = json.loads(Path(scenario_path).read_text(encoding="utf-8"))
     oh, ostates, oevents = load_trace(oracle_path)
     hh, hstates, hevents = load_trace(host_path)
+    refusal = validate_pair(oh, hh, scenario.get("id"), sha256(scenario_path), comparer_pack_sha256(pack))
+    if refusal:
+        raise SystemExit("refused: " + refusal)
     ticks = int(scenario["ticks"])
     screen = (scenario.get("screens") or [{"w": 1280, "h": 720}])[0]
     orects, hrects = window_timeline(scenario, oevents, ticks), window_timeline(scenario, hevents, ticks)
@@ -216,7 +239,10 @@ def render(scenario_path, pack, oracle_path, host_path, out, panel_width=640, sl
             d.text((8, 4), f"{scenario['id']}  tick {tick}/{ticks}", fill=TEXT, font=big)
             d.text((8, 24), "real Shimeji-EE 1.0.23 (trace reconstruction)", fill=TEXT, font=small)
             d.text((pw + GAP + 8, 24), "Desktop AI Companion (trace reconstruction)", fill=TEXT, font=small)
-            status = f"picture differs on {len(differing)} of {ticks + 1} ticks" if differing else "same picture on every tick"
+            status = (f"drawn picture differs on {len(differing)} of {ticks + 1} ticks" if differing
+                      else "same drawn picture on every tick")
+            if missing["oracle"] or missing["host"]:
+                status += f"; no state: oracle {len(missing['oracle'])}, host {len(missing['host'])} ticks"
             d.text((pw + GAP + 8, 4), status, fill=DIFF if differing else TEXT, font=small)
             for side, states, rects, left in (("oracle", ostates, orects, 0), ("host", hstates, hrects, pw + GAP)):
                 panel = render_panel(scenario, states, rects, tick, sprites, view, (pw, ph))
@@ -262,6 +288,16 @@ def sha256(path):
     return h.hexdigest()
 
 
+def comparer_pack_sha256(pack):
+    """The pack's SHA-256 exactly as the comparer computes it (tools/ShimejiParity/comparer/compare.py pack_sha256)."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "comparer"))
+    try:
+        import compare  # noqa: E402
+    finally:
+        sys.path.pop(0)
+    return compare.pack_sha256(str(pack))
+
+
 def missing_ticks(states, ticks):
     """Ticks on which a trace recorded no state line at all: drawn as such, never as an empty desktop."""
     return [t for t in range(ticks + 1) if not states.get(t)]
@@ -294,6 +330,21 @@ def self_test():
     checks.append(("a hidden scenario window is not drawn",
                    window_timeline({"activeWindow": [{"tick": 0, "visible": False}]}, {}, 1) == [None, None]))
     checks.append(("a minimized window is not drawn", rects[4] is None and rects[5] is None))
+    left_a = {0: {"m1": st(0, "m1", image_right="img/A/r1.png")}}
+    left_b = {0: {"m1": st(0, "m1", image_right="img/A/r2.png")}}
+    checks.append(("an unused imageRight does not change the drawn picture", picture(left_a, 0) == picture(left_b, 0)))
+    right_a = {0: {"m1": st(0, "m1", right=True, image_right="img/A/r1.png")}}
+    right_b = {0: {"m1": st(0, "m1", right=True, image_right="img/A/r2.png")}}
+    checks.append(("a used imageRight does change the drawn picture", picture(right_a, 0) != picture(right_b, 0)))
+    good_o = {"runtime": "oracle", "scenario": {"id": "S-x", "sha256": "a", "packSha256": "p"}}
+    good_h = {"runtime": "host", "scenario": {"id": "S-x", "sha256": "a", "packSha256": "p"}}
+    checks.append(("a matching pair is accepted", validate_pair(good_o, good_h, "S-x", "a", "p") is None))
+    checks.append(("an oracle trace offered as the host is refused", validate_pair(good_o, good_o, "S-x", "a", "p") is not None))
+    checks.append(("another scenario's trace is refused",
+                   validate_pair(good_o, dict(good_h, scenario={"id": "S-y", "sha256": "a", "packSha256": "p"}),
+                                 "S-x", "a", "p") is not None))
+    checks.append(("a different scenario file is refused", validate_pair(good_o, good_h, "S-x", "b", "p") is not None))
+    checks.append(("a different pack is refused", validate_pair(good_o, good_h, "S-x", "a", "q") is not None))
     checks.append(("a tick with no state line is reported missing",
                    missing_ticks({0: {"m1": st(0, "m1")}, 2: {"m1": st(2, "m1")}}, 3) == [1, 3]))
     screen = {"w": 1280, "h": 720}
