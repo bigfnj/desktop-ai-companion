@@ -572,7 +572,12 @@ namespace DesktopAICompanion
             AssertTrue(Eval("mascot.variables['k'] = mascot.manager.getMascotWithAffordance('Signal'); mascot.variables['k'] != null && mascot.variables['k'].get() != null", v).IsTruthy,
                 "A reference stored in mascot.variables did not read back.");
             AssertEqual(ScriptValueKind.WeakRef, v.Vars["k"].Kind, "mascot.variables did not hold the weak reference.");
-            // Identity: one WeakReference per lookup, one Mascot per companion.
+            // The manager held as a value (var m = mascot.getManager(); m.getMascotWithAffordance(...)).
+            AssertTrue(Eval("var m = mascot.manager; var r = m.getMascotWithAffordance('Signal'); r != null && r.get() != null", v, none).IsTruthy,
+                "A lookup through a manager held in a var did not find the offering companion.");
+            AssertEqual("object", Eval("typeof mascot.manager", v).Text, "typeof of the manager is not 'object'.");
+            AssertTrue(Eval("mascot.manager === mascot.manager", v).IsTruthy, "Two reads of the manager were not the same object.");
+            AssertTrue(ParseError("var m = mascot.manager; m.count").Contains("not part of the object model"), "A present, unmodelled manager property was not refused.");
             AssertFalse(Eval("mascot.manager.getMascotWithAffordance('Signal') === mascot.manager.getMascotWithAffordance('Signal')", v).IsTruthy,
                 "Two lookups returned the same reference object.");
             AssertTrue(Eval(Find + "peer.get() === peer.get()", v, none).IsTruthy, "Two gets of one reference were not the same companion.");

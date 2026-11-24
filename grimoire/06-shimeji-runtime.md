@@ -533,7 +533,9 @@ playable variant has no duration whose last tick could fire anything.
   per-Bindings global, kept in the action's VariableMap): every script of that action shares it, a re-init of the
   same instance keeps it, the next activation starts fresh, and each behaviour selection has its own. A bare name
   reads a global before the bindings; a `var` is hoisted, so its initializer reads undefined. At most 64 per store.
-  A name the program neither declares nor assigns must be in scope; the validator and the converter add the names
+  A name the program neither declares nor assigns must be in scope, or be tested with `typeof` in the same program
+  (`typeof marker == 'undefined' ? -1 : marker` reads another action's global behind the source's own guard; an
+  unresolved read past it is the source's ReferenceError, a fault). The validator and the converter add the names
   the action's own other scripts declare or assign (not a binding's).
 - `++` and `--` (prefix and postfix; a postfix yields the old value as a number; `null++` stores 1), `+= -= *= /= %=`
   and `=`, on `mascot.variables[k]` and on names (a parameter assigned becomes a global that shadows it).
@@ -544,6 +546,7 @@ playable variant has no duration whose last tick could fire anything.
   lacks, and a member of that undefined stay refused.
 - `mascot.manager.getMascotWithAffordance(e)`: a weak reference to the first companion in manager order whose
   offers contain it, the asking one included, or null (no `scan-target` event: only scan actions write one).
+  The manager can be held as a value (`var m = mascot.getManager(); m.getMascotWithAffordance(e)`).
   `ref.get()` is a companion reference (null once that companion is disposed: the source returns it until the
   collector clears it, which nothing here can time). A reference has `.anchor` (a copy), `.lookRight` and `.bounds`.
 - `mascot.bounds` (from `getBounds()`): `.x .y .width .height` of the companion's image at its anchor.

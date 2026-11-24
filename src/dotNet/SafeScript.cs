@@ -321,6 +321,7 @@ namespace DesktopAICompanion
                 {
                     case ScriptValueKind.MascotRef: return Mascot.Contains(name);
                     case ScriptValueKind.WeakRef: return WeakReference.Contains(name);
+                    case ScriptValueKind.Manager: return Manager.Contains(name);
                     case ScriptValueKind.Point: return Point.Contains(name);
                     case ScriptValueKind.Bounds: return Rectangle.Contains(name);
                     default: return true;
@@ -330,7 +331,8 @@ namespace DesktopAICompanion
             /// <summary>The member is on the surface of SOME value kind a dynamic chain can hold.</summary>
             public static bool HasOnAnyValue(string name)
             {
-                return IsAccessor(name) || Mascot.Contains(name) || WeakReference.Contains(name) || Point.Contains(name) || Rectangle.Contains(name);
+                return IsAccessor(name) || Mascot.Contains(name) || WeakReference.Contains(name) || Point.Contains(name) || Rectangle.Contains(name)
+                    || Manager.Contains(name);
             }
         }
 
@@ -653,7 +655,8 @@ namespace DesktopAICompanion
                         if (IsOp("("))
                         {
                             List<Node> args = ParseArguments();
-                            bool modelled = (member.Text == "get" && args.Count == 0) || (member.Text == "translate" && args.Count == 2);
+                            bool modelled = (member.Text == "get" && args.Count == 0) || (member.Text == "translate" && args.Count == 2)
+                                || (member.Text == "getMascotWithAffordance" && args.Count == 1);
                             if (!modelled) throw new ScriptSyntaxException("'." + member.Text + "(...)' with " + args.Count + " argument(s) is not part of the object model (at " + dot.Offset + ")");
                             node = new DynamicCallNode(node, member.Text, args.ToArray(), dot.Offset);
                             continue;
@@ -787,6 +790,8 @@ namespace DesktopAICompanion
                         switch (kind)
                         {
                             case ObjectKind.Anchor: return new PointNode(PointSource.Anchor);
+                            // var m = mascot.getManager(); m.getMascotWithAffordance(...): the manager as a value.
+                            case ObjectKind.Manager: return new LiteralNode(ScriptValue.Manager);
                             case ObjectKind.Cursor: return new PointNode(PointSource.Cursor);
                             default: throw new ScriptSyntaxException("'" + path + "' is an object, not a value (at " + offset + ")");
                         }
@@ -1150,6 +1155,7 @@ namespace DesktopAICompanion
                 case ScriptValueKind.WeakRef: return "a weak reference";
                 case ScriptValueKind.Point: return "a point";
                 case ScriptValueKind.Bounds: return "a rectangle";
+                case ScriptValueKind.Manager: return "the manager";
                 case ScriptValueKind.Number: return "a number";
                 case ScriptValueKind.String: return "a string";
                 case ScriptValueKind.Boolean: return "a boolean";
@@ -1201,6 +1207,7 @@ namespace DesktopAICompanion
                         break;
                     }
                     case ScriptValueKind.WeakRef:
+                    case ScriptValueKind.Manager:
                         break;
                     default:
                         return run.Fail("'." + _member + "' of " + KindName(t.Kind) + " is not part of the object model (at " + _offset + ")");
@@ -1226,11 +1233,19 @@ namespace DesktopAICompanion
                 ScriptValue t = _target.Eval(run);
                 if (t.Kind == ScriptValueKind.Null || t.Kind == ScriptValueKind.Undefined)
                     return run.Fail("TypeError: cannot call '" + _member + "' of " + KindName(t.Kind) + " (at " + _offset + ")");
-                foreach (Node a in _args) a.Eval(run);
+                if (!(t.Kind == ScriptValueKind.Manager && _member == "getMascotWithAffordance"))
+                    foreach (Node a in _args) a.Eval(run);
                 if (t.Kind == ScriptValueKind.WeakRef && _member == "get")
                 {
                     object m = ((ScriptWeakRef)t.Ref).Target;
                     return run.Context.IsReferenceLive(m) ? ScriptValue.FromMascot(m) : ScriptValue.Null;
+                }
+                if (t.Kind == ScriptValueKind.Manager && _member == "getMascotWithAffordance")
+                {
+                    ScriptValue a = _args[0].Eval(run);
+                    if (a.Kind == ScriptValueKind.Null) return ScriptValue.Null;
+                    object found = run.Context.FindMascotWithAffordance(a.ToDisplayString());
+                    return found == null ? ScriptValue.Null : ScriptValue.FromWeakRef(found);
                 }
                 if (t.Kind == ScriptValueKind.Point && _member == "translate")
                     return run.Fail("translate on a copied point (not the companion's own anchor) is not modelled (at " + _offset + ")");
@@ -1722,7 +1737,7 @@ namespace DesktopAICompanion
 
     /// <summary>Value kinds. Undefined and the Java object kinds (a weak reference, a mascot reference, a rectangle) were
     /// added after the first five, which keep their numbers.</summary>
-    internal enum ScriptValueKind : byte { Null, Number, Boolean, String, Point, Undefined, WeakRef, MascotRef, Bounds }
+    internal enum ScriptValueKind : byte { Null, Number, Boolean, String, Point, Undefined, WeakRef, MascotRef, Bounds, Manager }
 
     /// <summary>A java.awt.Rectangle as a script reads it (x, y, width, height); a new one per read, as getBounds builds one.</summary>
     internal sealed class ScriptRect
@@ -1762,6 +1777,8 @@ namespace DesktopAICompanion
         public static readonly ScriptValue Undefined = new ScriptValue(ScriptValueKind.Undefined, double.NaN, 0, null);
         public static readonly ScriptValue True = new ScriptValue(ScriptValueKind.Boolean, 1, 0, null);
         public static readonly ScriptValue False = new ScriptValue(ScriptValueKind.Boolean, 0, 0, null);
+        /// <summary>The companions' manager (mascot.getManager()): one per world, so every read is the same object.</summary>
+        public static readonly ScriptValue Manager = new ScriptValue(ScriptValueKind.Manager, 0, 0, null, "manager");
         public static ScriptValue FromNumber(double n) { return new ScriptValue(ScriptValueKind.Number, n, 0, null); }
         public static ScriptValue FromBool(bool b) { return b ? True : False; }
         public static ScriptValue FromString(string s) { return s == null ? Null : new ScriptValue(ScriptValueKind.String, 0, 0, s); }
@@ -1773,7 +1790,10 @@ namespace DesktopAICompanion
         public double X { get { return Number; } }
 
         /// <summary>A weak reference, a mascot reference or a rectangle: a Java object a script can hold.</summary>
-        public bool IsJavaObject { get { return Kind == ScriptValueKind.WeakRef || Kind == ScriptValueKind.MascotRef || Kind == ScriptValueKind.Bounds; } }
+        public bool IsJavaObject
+        {
+            get { return Kind == ScriptValueKind.WeakRef || Kind == ScriptValueKind.MascotRef || Kind == ScriptValueKind.Bounds || Kind == ScriptValueKind.Manager; }
+        }
 
         /// <summary>null or undefined: the two values a member read faults on and that loosely equal each other.</summary>
         public bool IsNullish { get { return Kind == ScriptValueKind.Null || Kind == ScriptValueKind.Undefined; } }
@@ -1889,6 +1909,7 @@ namespace DesktopAICompanion
                 // The source's toString of these carries an identity hash or a manager id, which nothing here reproduces.
                 case ScriptValueKind.WeakRef: return "java.lang.ref.WeakReference";
                 case ScriptValueKind.MascotRef: return "mascot";
+                case ScriptValueKind.Manager: return "com.group_finity.mascot.Manager";
                 default: return FormatNumber(Number);
             }
         }
@@ -1941,7 +1962,8 @@ namespace DesktopAICompanion
                 // Mascot per companion.
                 case ScriptValueKind.WeakRef:
                 case ScriptValueKind.MascotRef:
-                case ScriptValueKind.Bounds: return ReferenceEquals(a.Ref, b.Ref);
+                case ScriptValueKind.Bounds:
+                case ScriptValueKind.Manager: return ReferenceEquals(a.Ref, b.Ref);
                 default: return a.Number == b.Number;
             }
         }

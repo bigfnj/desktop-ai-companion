@@ -807,6 +807,7 @@ namespace DesktopAICompanion
         /// Affordance wins over the action's own literal offers.</summary>
         private static void TestTickScriptedAffordance()
         {
+            var faults = new List<string>();
             Func<string, ScriptValue?, string, TickMascot> run = (cache, stored, bound) =>
             {
                 XmlData.AnimationNode act = TAct(30, "Offer", "Stay", null,
@@ -819,10 +820,13 @@ namespace DesktopAICompanion
                     behaviour.Behaviour.Bind = new[] { new XmlData.BindNode { Name = "Affordance", Value = bound, Cache = "action" } };
                 }
                 TickType t = TickType.Compile("Alpha", TickDoc(TRoute(TEdge(10, 1)), behaviour, act));
-                TickWorld w = TickWorldOf(new TickLog(), null, t);
+                var log = new TickLog();
+                TickWorld w = TickWorldOf(log, null, t);
                 TickMascot m = w.CreateAtStart("m1", t, new TickPoint(640, 680), false, "Offer");
                 if (stored.HasValue) m.Variables["key"] = stored.Value;
                 w.StepOnce();
+                faults.Clear();
+                faults.AddRange(log.Faults);
                 return m;
             };
             TickMascot offered = run("action", ScriptValue.FromString("Signal"), null);
@@ -832,8 +836,12 @@ namespace DesktopAICompanion
             TickMascot number = run("action", ScriptValue.FromNumber(3), null);
             AssertTrue(!number.InManager || number.Disposing, "A numeric scripted Affordance was offered; the source's cast throws.");
             AssertEqual(0, number.Affordances.Count, "A numeric scripted Affordance was coerced to text.");
+            AssertTrue(faults.Exists(f => f.Contains("InvalidCastException") && f.Contains("cannot cast to String")),
+                "A numeric scripted Affordance did not end the companion as the source's ClassCastException: " + string.Join("; ", faults));
             TickMascot missing = run("action", null, null);
             AssertTrue(!missing.InManager || missing.Disposing, "A null scripted Affordance did not end the companion (getAffordance().trim()).");
+            AssertTrue(faults.Exists(f => f.Contains("NullReferenceException") && f.Contains("Affordance is null")),
+                "A null scripted Affordance did not end the companion as the source's NullPointerException: " + string.Join("; ", faults));
             TickMascot overridden = run("action", ScriptValue.FromString("Bound"), "mascot.variables['key']");
             AssertTrue(overridden.Affordances.Count == 1 && overridden.Affordances[0] == "Bound", "A binding of Affordance did not win over the action's own offers.");
             TickMascot literal = run("action", null, "'Lit'");

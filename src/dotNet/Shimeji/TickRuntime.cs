@@ -708,9 +708,11 @@ namespace DesktopAICompanion.Shimeji
         /// ActionBase.next's offer: getAffordance(), which is eval("Affordance", String.class, ""). An incoming binding of
         /// Affordance replaces the action's own (ActionBuilder puts the bindings over the action's attributes), so it wins
         /// over the action's literal &lt;offers&gt; too. A scripted Affordance is read as the source types it: a String is
-        /// offered (a Java-blank one offers nothing, in Next); null is the NullPointerException of
-        /// getAffordance().trim(), and any other kind the ClassCastException of the cast, both fatal to this companion on
-        /// the step (TickMascot.Tick's catch-all), as the source's exception is. A literal Affordance reads as before.
+        /// offered untrimmed unless Java's trim() leaves it empty (Next, IsJavaBlank); null is the source's
+        /// NullPointerException at getAffordance().trim() (ActionBase.java:93-96) and any other kind its ClassCastException
+        /// in eval's cast, thrown here as their .NET analogues. HOST POLICY DIFFERENCE: the source does not contain either
+        /// per companion (Manager.java:106-109, 148-150 catch only what the step declares), while TickMascot.Tick's
+        /// catch-all ends just this companion, reported, and the step goes on. A literal Affordance reads as before.
         /// </summary>
         private IEnumerable<string> CurrentOffers()
         {
