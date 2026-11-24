@@ -34,6 +34,7 @@ namespace DesktopAICompanion.PetStudioModule
             CheckIds(probe);
             CheckWithSyntheticPack(probe);
             CheckRecovery(probe);
+            CheckSoundRecovery(probe);
         }
 
         // ---- decision 64: strict by default; "Import with recovery" is the author's choice, shown before Install ----
@@ -111,6 +112,74 @@ namespace DesktopAICompanion.PetStudioModule
             finally
             {
                 try { if (Directory.Exists(scratch)) Directory.Delete(scratch, true); } catch { }
+            }
+        }
+
+        /// <summary>
+        /// pf/sound-limits: a pack refused only for a played clip the host cannot carry (here 61 s of 8 kHz 8-bit mono, past
+        /// the 60 s the host decodes) is refused strictly and offers recovery, saying why; with recovery chosen it is
+        /// accepted, the clip is one warning line in the pack report and one "Dropped entirely" item in the member's
+        /// import-loss text, and the status counts it. The clip is generated here.
+        /// </summary>
+        private static void CheckSoundRecovery(SelfTestProbe probe)
+        {
+            string scratch = Path.Combine(Path.GetTempPath(), "dp-petstudio-sound-recovery-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                string packRoot = Path.Combine(scratch, "Sound Pack");
+                WriteMember(packRoot, "Alpha", null);
+                string actions = Path.Combine(packRoot, "img", "Alpha", "conf", "actions.xml");
+                XDocument document = XDocument.Load(actions);
+                document.Descendants("Pose").First().SetAttributeValue("Sound", "/long.wav");
+                File.WriteAllText(actions, document.ToString());
+                Directory.CreateDirectory(Path.Combine(packRoot, "sound"));
+                File.WriteAllBytes(Path.Combine(packRoot, "sound", "long.wav"), Wave8BitMono(8000, 61 * 8000));
+                string refusal;
+                PackConversionOptions options = PackImport.SelectPackOptions(PackImport.DefaultChoices(PackImport.ListMemberKeys(packRoot), "Alpha"),
+                    "Alpha", null, null, out refusal);
+                PackConversionResult strict = options == null ? null : PackImport.ConvertGuarded(packRoot, options, PackImport.ConvertWithEngine, out refusal);
+                string note = PackImport.RecoveryNote(strict, options);
+                probe.Check("a clip the host cannot carry refuses the pack strictly and offers '" + PackImport.RecoveryAction + "', saying why: "
+                    + (strict == null ? refusal : strict.Error) + " / " + note,
+                    strict != null && !strict.Accepted && strict.Errors.Any(e => e.Contains("TICK_SOUND_DECODE_LIMIT: clip '/long.wav'"))
+                    && PackImport.OffersRecovery(strict, options) && note != null && note.Contains(PackImport.RecoveryAction)
+                    && note.Contains("sound clips") && !note.Contains("next lists"));
+                PackConversionOptions recovering = PackImport.WithRecovery(options);
+                PackConversionResult recovered = PackImport.ConvertGuarded(packRoot, recovering, PackImport.ConvertWithEngine, out refusal);
+                string summary = recovered == null ? refusal : PackImport.Summary(recovered, "Sound Pack") + "\n" + PackImport.RecoveryNote(recovered, recovering);
+                PackMemberConversionResult alpha = recovered == null ? null : recovered.Members.FirstOrDefault(m => m.SourceKey == "Alpha");
+                string loss = alpha == null ? "" : alpha.Residue.ToText("Alpha");
+                probe.Check("WITNESS with recovery chosen, the pack is accepted and the dropped clip is one warning in the pack report and one "
+                    + "'Dropped entirely' item in the import-loss text: " + summary + " / " + loss,
+                    recovered != null && recovered.Accepted && PackImport.CanInstall(recovered, true) && !PackImport.OffersRecovery(recovered, recovering)
+                    && summary.Split('\n').Count(l => l.StartsWith("\u26A0 Image set 'Alpha': Sound '/long.wav': the clip decodes to 61.0 s", StringComparison.Ordinal)) == 1
+                    && summary.Contains(PackImport.SoundRecoveryPolicy)
+                    && loss.Contains("Dropped entirely (1):") && loss.Contains("  - Sound '/long.wav': the clip decodes to 61.0 s"));
+                string status = recovered == null ? refusal : PackImport.StatusPrefix(recovered, recovering, "Sound Pack");
+                probe.Check("the pack status says it was converted with recovery and counts the dropped clip: " + status,
+                    status == "Pack 'Sound Pack' accepted. Converted with recovery: 0 dropped next entry(s) and 1 dropped sound clip(s), each listed in the pack report. "
+                    && PackImport.DroppedClipsByRecovery(recovered) == 1 && PackImport.DroppedByRecovery(recovered) == 0);
+            }
+            catch (Exception ex) { probe.Check("the sound recovery checks ran without an exception: " + ex.GetType().Name + ": " + ex.Message, false); }
+            finally
+            {
+                try { if (Directory.Exists(scratch)) Directory.Delete(scratch, true); } catch { }
+            }
+        }
+
+        /// <summary>A plain 8-bit mono PCM WAVE of <paramref name="frames"/> frames of a square wave.</summary>
+        private static byte[] Wave8BitMono(int rate, int frames)
+        {
+            using (var ms = new MemoryStream())
+            using (var w = new BinaryWriter(ms))
+            {
+                w.Write(new[] { (byte)'R', (byte)'I', (byte)'F', (byte)'F' }); w.Write(36 + frames);
+                w.Write(new[] { (byte)'W', (byte)'A', (byte)'V', (byte)'E', (byte)'f', (byte)'m', (byte)'t', (byte)' ' });
+                w.Write(16); w.Write((short)1); w.Write((short)1); w.Write(rate); w.Write(rate); w.Write((short)1); w.Write((short)8);
+                w.Write(new[] { (byte)'d', (byte)'a', (byte)'t', (byte)'a' }); w.Write(frames);
+                for (int i = 0; i < frames; i++) w.Write((byte)((i / 20) % 2 == 0 ? 0xC0 : 0x40));
+                w.Flush();
+                return ms.ToArray();
             }
         }
 
