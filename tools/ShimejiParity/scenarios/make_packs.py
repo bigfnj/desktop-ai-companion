@@ -21,6 +21,7 @@ import os
 import shutil
 import sys
 import tempfile
+from functools import partial
 from pathlib import Path
 from xml.sax.saxutils import escape
 
@@ -1071,12 +1072,12 @@ def pack_lower_nan(root):
 
 
 # 17.7 Pose Sound and Volume, lowered to WAV clips: one clip at the pack's sound/, one under img/<set>/sound/.
-def wave_bytes(period, frames):
+def wave_bytes(period, frames, amplitude=6000):
     """A deterministic 8 kHz mono 16-bit PCM square wave (generated, nobody's recording)."""
     import io
     import struct
     import wave
-    data = b"".join(struct.pack("<h", 6000 if (i // period) % 2 == 0 else -6000) for i in range(frames))
+    data = b"".join(struct.pack("<h", amplitude if (i // period) % 2 == 0 else -amplitude) for i in range(frames))
     buffer = io.BytesIO()
     with wave.open(buffer, "wb") as w:
         w.setnchannels(1)
@@ -1309,6 +1310,258 @@ SCENARIOS.append(scenario(
     "S-mute-retained-owner-01", "Retained Alpha definitions run on Beta: null obeys Beta's Sounds-off switch, then named intent uses Alpha's spelling",
     "mute-retained", 8, [mascot("m1", "Alpha", "Retained", 640)], tape(0.5),
     typeSettings={"Alpha": {"sounds": True}, "Beta": {"sounds": False}}))
+
+
+def pack_social_motion(root, family):
+    """Start in a short wait so scans use a populated manager, as they would after a normal transition."""
+    move = family == "ComplexMove"
+    complex_action = family != "ScanJump"
+    actions = [IDLE, posed("Met", "Stay", [img("shime6.png")], border=None, Duration=100)]
+    behaviours = [beh("Idle", 1), beh("Met", 0, hidden=True)]
+    phases = (("Plain", None), ("Trail", "Breed"), ("Seek", "Scan"), ("Together", "Breed,Scan")) if complex_action else (
+        ("Seek", "Scan"), ("Flat", "Scan"))
+    for name, characteristics in phases:
+        scans = characteristics is not None and "Scan" in characteristics
+        attrs = {}
+        if complex_action and characteristics:
+            attrs["Characteristics"] = characteristics
+        if scans:
+            attrs.update(Affordance="Hug", Behavior="Met", TargetBehavior="Hugged", TargetLook="true" if name != "Flat" else "false")
+        else:
+            attrs["TargetX"] = 600 if family == "ComplexJump" and name == "Trail" else 624
+        if characteristics and "Breed" in characteristics:
+            attrs.update(BornMascot="Alpha", BornBehavior="Idle", BornInterval=3)
+        if move:
+            body = [anim(WALK), TURN]
+        else:
+            body = [anim([img("shime3.png", ticks=4)])]
+            attrs.update(VelocityParam=8, Arc="false" if name in ("Flat", "Trail") else "true")
+            if not scans:
+                attrs["TargetY"] = 680
+        actions.append(act(name, "Embedded", body, cls=family, border="Floor" if move else None, **attrs))
+        start = "Start" + name
+        actions.append(posed(start, "Stay", [img("shime1.png", ticks=2)], Duration=2))
+        behaviours.extend(then(name, start) + then("Idle", name))
+    if move:
+        actions.append(posed("Diagonal", "Embedded", [img("shime2.png", dx=-2, dy=2)], cls=family, border=None,
+                             TargetX=624, TargetY=676, Behavior="Met", TargetBehavior="Hugged"))
+        behaviours.extend(then("Idle", "Diagonal"))
+    member(root, "Alpha", actions, behaviours)
+    offerers(root)
+
+
+for family in ("ScanJump", "ComplexMove", "ComplexJump"):
+    pack = "p2-" + family.lower()
+    PACKS[pack] = partial(pack_social_motion, family=family)
+    PACK_MAIN[pack] = "Alpha"
+    branches = [
+        ("arrive", "Seek", "Offer", 664, "the first offering Beta is reached and both partners switch behaviours"),
+        ("missing", "Seek", "Quiet", 664, "Beta never offers Hug and Alpha returns to Idle without a target"),
+        ("loss", "Seek", "OfferBriefly", 850, "Beta stops offering before arrival and Alpha abandons the chase"),
+    ]
+    if family == "ScanJump":
+        branches.append(("flat", "Flat", "Offer", 664, "the flat jump lands at Beta and leaves Beta's facing unchanged"))
+    else:
+        branches.extend([
+            ("plain", "Plain", "Quiet", 664, "Alpha moves to its fixed x=624 and enters Idle without a scan or a birth"),
+            ("breed", "Trail", "Quiet", 664, "Alpha travels to its fixed target and leaves children at interval positions"),
+            ("both", "Together", "Offer", 664, "Alpha pursues Beta, produces interval births and enters Met on arrival"),
+            ("breed-disabled", "Trail", "Quiet", 664, "Alpha reaches its fixed target with breeding disabled and produces no child"),
+        ])
+    for suffix, name, partner, partner_x, observation in branches:
+        SCENARIOS.append(scenario(
+            "S-" + pack + "-" + suffix + "-01", family + " starts after the wait and " + observation,
+            pack, 34, [mascot("m1", "Alpha", "Start" + name, 640), mascot("m2", "Beta", partner, partner_x, right=True)],
+            tape(0.5), settings=cfg(breeding=suffix != "breed-disabled")))
+    SCENARIOS.append(scenario(
+        "S-" + pack + "-first-01", family + " chooses the first offering Beta in manager order, past a nearer Beta",
+        pack, 34, [mascot("m1", "Alpha", "StartSeek", 640), mascot("m2", "Beta", "Offer", 672, right=True),
+                   mascot("m3", "Beta", "Offer", 648)], tape(0.5)))
+SCENARIOS.append(scenario(
+    "S-p2-complexmove-no-partner-01", "Without scanning, Alpha reaches both coordinates, enters Met and reports the absent partner",
+    "p2-complexmove", 13, [mascot("m1", "Alpha", "Diagonal", 640, y=660)], tape(0.5)))
+
+
+def pack_broadcast_family(root, family):
+    poses = [img("shime2.png", dx=-2, ticks=2), img("shime3.png", dx=-2, ticks=2)]
+    attrs = {"Broadcast": {}, "BroadcastStay": {"Duration": 8}, "BroadcastMove": {"TargetX": 624},
+             "BroadcastJump": {"TargetX": 624, "TargetY": 680, "VelocityParam": 5, "Arc": "true"}}[family]
+    actions = [posed("Offer", "Embedded", poses, cls=family, border=None, Affordance="Signal", **attrs),
+               posed("Quiet", "Embedded", poses, cls=family, border=None, **attrs), IDLE]
+    member(root, "Alpha", actions, then("Idle", "Offer", "Quiet") + [beh("Idle", 1)])
+
+
+for family, motion in (("Broadcast", "plays its two frames once"), ("BroadcastStay", "plays until its duration ends"),
+                       ("BroadcastMove", "walks to x=624"), ("BroadcastJump", "jumps to x=624")):
+    pack = "p2-" + family.lower()
+    PACKS[pack] = partial(pack_broadcast_family, family=family)
+    for name, offered in (("Offer", "offers Signal while active"), ("Quiet", "has no offer")):
+        SCENARIOS.append(scenario(
+            "S-" + pack + "-" + name.lower() + "-01", family + " " + motion + " and " + offered + " before Idle",
+            pack, 18, [mascot("m1", "Alpha", name, 640)], tape(0.5)))
+
+
+def pack_air_carry(root, family):
+    attrs = {"InitialVX": 2, "InitialVY": 1, "Gravity": 2} if family == "FallWithIE" else {
+        "TargetX": 604, "TargetY": 624, "Arc": "false", "VelocityParam": 6}
+    window_pack(root, posed("Carry", "Embedded", [img("shime4.png", ticks=30)], cls=family, border=None,
+                            IeOffsetX=4, IeOffsetY=6, **attrs))
+
+
+for family in ("FallWithIE", "JumpWithIE"):
+    pack = "p2-" + family.lower()
+    PACKS[pack] = partial(pack_air_carry, family=family)
+    for suffix, right, throwing, enabled, visible, x, observation in (
+            ("on-left", False, True, True, True, 636, "holds the right window edge while facing left"),
+            ("on-right", True, True, True, True, 404, "holds the left window edge while facing right"),
+            ("off", False, True, False, True, 636, "runs with the host window-action switch off and source Throwing on"),
+            ("throwing-off", False, False, True, True, 636, "ends without carrying because Throwing is disabled"),
+            ("missing", False, True, True, False, 636, "loses the grip because the active window is absent"),
+            ("wrong-grip", False, True, True, True, 620, "starts away from the required corner and loses the grip")):
+        SCENARIOS.append(scenario(
+            "S-" + pack + "-" + suffix + "-01", family + " " + observation, pack, 14,
+            [mascot("m1", "Alpha", "Carry", x, y=594, right=right)], tape(0.5),
+            activeWindow=[{"tick": 0, "visible": visible, "rect": [400, 360, 640, 600], "title": "Scratch"}],
+            settings=cfg(throwing=throwing, windowActions=enabled)))
+
+
+def pack_turn_and_dispose(root):
+    poses = [img("shime3.png", ticks=2), img("shime6.png", ticks=3)]
+    actions = [posed("TurnRight", "Embedded", poses, cls="Turn", LookRight="true"),
+               posed("Flip", "Embedded", poses, cls="Turn"),
+               posed("Fade", "Embedded", poses, cls="SelfDestruct"),
+               posed("Gone", "Embedded", [img("shime3.png", ticks=1)], cls="SelfDestruct"), IDLE]
+    member(root, "Alpha", actions, then("Idle", "TurnRight", "Flip", "Fade", "Gone") + [beh("Idle", 1)])
+
+
+def pack_instant_cases(root):
+    wait = posed("Wait", "Stay", [img("shime2.png", ticks=4)], Duration=4)
+    air = posed("Hold", "Stay", [img("shime3.png", ticks=20)], border=None, Duration=100)
+    steps = {"Flip": bare("Flip", "Look"), "Left": bare("Left", "Look", LookRight="false"),
+             "Shift": bare("Shift", "Offset", X=-12, Y=-8), "Zero": bare("Zero", "Offset"),
+             "Raise": bare("Raise", "BringToFront")}
+    actions = [wait, air, *steps.values()]
+    behaviours = [beh("Hold", 1)]
+    for name in steps:
+        label = "After" + name
+        actions.append(act(label, "Sequence", [aref("Wait"), aref(name), aref("Hold")], border=None))
+        behaviours.append(beh(label, 0, hidden=True))
+    member(root, "Alpha", actions, behaviours)
+    member(root, "Beta", [posed("Cover", "Stay", [img("shime6.png", ticks=20)], Duration=100)], [beh("Cover", 1)])
+
+
+PACKS.update({"p2-turn-dispose": pack_turn_and_dispose, "p2-instant": pack_instant_cases})
+PACK_MAIN["p2-instant"] = "Alpha"
+for suffix, name, facing, observation in (
+        ("turn-change", "TurnRight", False, "Alpha faces right and plays the turn animation before Idle"),
+        ("turn-same", "TurnRight", True, "already facing right, Alpha skips the turn animation and enters Idle"),
+        ("turn-default", "Flip", False, "Turn reads the opposite of Alpha's current facing on each step"),
+        ("selfdestruct-one", "Gone", False, "Alpha requests disposal on its single pose and leaves the manager"),
+        ("selfdestruct-many", "Fade", False, "Alpha survives the first pose and requests disposal on the last frame")):
+    SCENARIOS.append(scenario("S-p2-" + suffix + "-01", observation, "p2-turn-dispose", 10,
+                              [mascot("m1", "Alpha", name, 640, right=facing), mascot("m2", "Alpha", "Idle", 740)],
+                              tape(0.5)))
+for suffix, name, observation in (
+        ("look-default", "Flip", "Look without a parameter flips both mascots from their opposite starting facings"),
+        ("look-left", "Left", "an explicit left Look aligns the two mascots from opposite starting facings"),
+        ("offset-signed", "Shift", "both mascots move 12 px left and 8 px up regardless of their facing"),
+        ("offset-default", "Zero", "both mascots keep their original positions after an Offset with no parameters")):
+    SCENARIOS.append(scenario("S-p2-" + suffix + "-01", observation, "p2-instant", 10,
+                              [mascot("m1", "Alpha", "After" + name, 620),
+                               mascot("m2", "Alpha", "After" + name, 660, right=True)], tape(0.5)))
+SCENARIOS.append(scenario(
+    "S-p2-bringtofront-overlap-01", "the overlapping blue mascot raises its window after four ticks while green keeps its pose",
+    "p2-instant", 12, [mascot("m1", "Alpha", "AfterRaise", 640), mascot("m2", "Beta", "Cover", 648)], tape(0.5)))
+
+
+def pack_toggle_selection(root):
+    lead = posed("Lead", "Stay", [img("shime2.png")], Duration=2)
+    direct = posed("Direct", "Stay", [img("shime2.png")], Duration=2)
+    gated = posed("Gated", "Stay", [img("shime3.png")], Duration=100)
+    tail = posed("Fallback", "Stay", [img("shime6.png")], Duration=100)
+    next_list = ('<Behavior Name="Direct" Frequency="0"><NextBehaviorList Add="false">'
+                 '<BehaviorReference Name="Gated" Frequency="100" Toggleable="true"/>'
+                 '<BehaviorReference Name="Fallback" Frequency="1"/></NextBehaviorList></Behavior>')
+    for name in ("Alpha", "Beta"):
+        member(root, name, [lead, direct, gated, tail],
+               [beh("Lead", 0), next_list, beh("Gated", 100, Toggleable="true"), beh("Fallback", 1)])
+
+
+def pack_condition_selection(root):
+    actions = [posed("Lead", "Stay", [img("shime2.png")], Duration=2),
+               posed("Pick", "Stay", [img("shime3.png")], Duration=100),
+               posed("Other", "Stay", [img("shime6.png")], Duration=100)]
+    own = beh("Pick", 100, Condition="#{mascot.environment.cursor.x > 500}")
+    group = '<Condition Condition="#{mascot.environment.cursor.y > 300}">' + own + '</Condition>'
+    member(root, "Alpha", actions, [beh("Lead", 0), group, beh("Other", 1)])
+
+
+def pack_animation_choice(root):
+    actions = []
+    for name, condition in (("Frame", "#{mascot.environment.cursor.x > 500}"),
+                            ("Once", "${mascot.environment.cursor.x > 500}")):
+        actions.append(act(name, "Stay", [anim([img("shime3.png")], Condition=condition),
+                                           anim([img("shime6.png")])], Duration=100))
+    member(root, "Alpha", actions, [beh("Frame", 1), beh("Once", 0, hidden=True)])
+
+
+PACKS.update({"p2-toggle": pack_toggle_selection, "p2-condition": pack_condition_selection,
+              "p2-animation": pack_animation_choice})
+PACK_MAIN["p2-toggle"] = "Alpha"
+for source, name in (("root", "Lead"), ("next", "Direct")):
+    for enabled in (True, False):
+        switch = "on" if enabled else "off"
+        SCENARIOS.append(scenario(
+            "S-p2-toggle-" + source + "-" + switch + "-01",
+            "the " + source + " choice takes " + ("Gated" if enabled else "Fallback") + " with the behaviour toggle " + switch,
+            "p2-toggle", 8, [mascot("m1", "Alpha", name, 640)], tape(0.5),
+            settings=cfg(**{"behaviour:Gated": enabled})))
+SCENARIOS.append(scenario(
+    "S-p2-toggle-member-01", "only Beta enables Gated over the disabled global setting, while Alpha takes Fallback",
+    "p2-toggle", 8, [mascot("m1", "Alpha", "Lead", 620), mascot("m2", "Beta", "Lead", 660)], tape(0.5, 0.5),
+    settings=cfg(**{"behaviour:Gated": False}), typeSettings={"Beta": {"behaviour:Gated": True}}))
+for suffix, x, y, picked in (("both", 750, 450, "Pick"), ("own-false", 250, 450, "Other"),
+                            ("group-false", 750, 150, "Other"), ("both-false", 250, 150, "Other")):
+    SCENARIOS.append(scenario(
+        "S-p2-condition-" + suffix + "-01", "the enclosing cursor-Y guard and behaviour cursor-X guard select " + picked,
+        "p2-condition", 8, [mascot("m1", "Alpha", "Lead", 640)], tape(0.5), input=[{"tick": 0, "cursor": [x, y]}]))
+for name, cache in (("Frame", "frame"), ("Once", "action")):
+    for initial, x in (("low", 250), ("high", 750)):
+        SCENARIOS.append(scenario(
+            "S-p2-animation-" + cache + "-" + initial + "-01",
+            "the cursor crosses the " + cache + "-cached first variant guard on tick 4 and crosses back on tick 8",
+            "p2-animation", 12, [mascot("m1", "Alpha", name, 640)], NONE,
+            input=[{"tick": 0, "cursor": [x, 100]}, {"tick": 4, "cursor": [1000 - x, 100]},
+                   {"tick": 8, "cursor": [x, 100]}]))
+
+
+def pack_mute_prefix(root):
+    # Two declared clips make a case-sensitive prefix and a non-match observable during conversion.
+    # The directed behaviours leave the sounding poses unselected. The trace witnesses Mute intent.
+    prefix = mute_action("Prefix", Sound="/To")
+    all_clips = mute_action("All")
+    declarations = [img("shime2.png").replace("/>", ' Sound="/Tone.wav"/>'),
+                    img("shime3.png").replace("/>", ' Sound="/Other.wav"/>')]
+    wait = posed("Wait", "Stay", [img("shime1.png")], Duration=2)
+    actions = [prefix, all_clips, wait, IDLE, posed("Library", "Animate", declarations)]
+    for name in ("Prefix", "All"):
+        actions.append(act("After" + name, "Sequence", [aref("Wait"), aref(name), aref("Idle")], border=None))
+    member(root, "Alpha", actions, [beh("Idle", 1), beh("AfterPrefix", 0), beh("AfterAll", 0), beh("Library", 0)])
+    directory = root / "sound"
+    directory.mkdir()
+    for name in ("Tone.wav", "Other.wav"):
+        (directory / name).write_bytes(wave_bytes(10, 80, amplitude=0))
+
+
+PACKS["p2-mute-prefix"] = pack_mute_prefix
+for name in ("Prefix", "All"):
+    for enabled in (True, False):
+        switch = "on" if enabled else "off"
+        SCENARIOS.append(scenario(
+            "S-p2-mute-" + name.lower() + "-sounds-" + switch + "-01",
+            "after two ticks Alpha reads " + ("the source prefix /To" if name == "Prefix" else "an absent Sound") +
+            " with two declared clips and Sounds " + switch, "p2-mute-prefix", 8,
+            [mascot("m1", "Alpha", "After" + name, 640)], tape(0.5), settings=cfg(sounds=enabled)))
 
 
 OUTPUT_MANIFEST = ".make-packs-manifest.json"
