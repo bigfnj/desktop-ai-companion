@@ -207,6 +207,17 @@ same position) and on `actionAge`, `extra-event`, `missing-event`, `event-mismat
 The `V1Failures` positive control needs a directed baseline whose self-comparison is exact. In trace/2 an aligned
 unclassified error blocks that result; do not treat that failure as evidence that typed attribution was completed.
 
+## Ungraded visual observations
+
+`Invoke-Oracle.ps1 -Action Visual` accepts the same scenario, cache and isolation paths as `V1`.
+It uses a separately compiled `visual-runner.jar` with the pinned Draft JAR and writes
+`visual-latest.json` plus `visual-<id>/<scenario>/trace.jsonl` under the chosen output root.
+The header identifies `runtime` as `oracle-visual` and `schema` as `shimeji-visual-observation/1`.
+Built-in and script draws consume the scenario RNG in occurrence order. A script draw records its
+ordinal and value with `purpose="script"` and omits the unknown source site. The visual reader
+checks taped draws and footer counts against the written records. A completed observation can
+supply states for a labelled reconstruction. The parity comparer rejects its schema.
+
 ## Failure witnesses
 
 ```powershell

@@ -586,6 +586,7 @@ def self_test(args):
     synthetic_input_self_test(args, labels)
     timeout_footer_self_test(args, labels)
     trace2_self_test(args, labels)
+    visual_self_test(args, labels)
     return {"status": "pass", "witnesses": labels, "network_requests": 0}
 
 
@@ -871,7 +872,7 @@ def burndown_self_test(args, labels):
         wiring = dict(globals(), HERE=here, validate_v1_build=lambda *unused: {},
                       validate_draft_resources=reject_resources, command=unexpected_compile)
         for entry in (v1_prepare, bridge):
-            copied = FunctionType(entry.__code__, wiring, entry.__name__)
+            copied = FunctionType(entry.__code__, wiring, entry.__name__, entry.__defaults__)
             call = (lambda: copied(fixture_args, root)) if entry is v1_prepare else (lambda: copied(fixture_args))
             expect_refusal(call, "V1_RESOURCE_CHANGED", "V1_RESOURCE_WIRING_WITNESS")
         labels.append("v1-and-bridge-validate-private-resources-before-compilation")
@@ -1066,7 +1067,7 @@ def review_self_test(args, labels):
                                  "status": footer_status, "states": 0, "events": 0, "draws": 0}) + "\n", encoding="utf-8")
                 return {"exit_code": 1, "timed_out": False, "stdout": "", "stderr": stderr}
 
-            copied_run = FunctionType(v1_run.__code__, dict(globals(), command=input_command), "v1_run")
+            copied_run = FunctionType(v1_run.__code__, dict(globals(), command=input_command), "v1_run", v1_run.__defaults__)
             row = copied_run(fixture_args, input_compare, scenario, input_root / str(index), "synthetic-classpath", root, {}, True)
             assert row["status"] == expected, "V1_" + "INACTIVE_INPUT_WITNESS " + expected + " became " + row["status"]
             physical = Path(row["trace"])
@@ -1296,7 +1297,7 @@ def timeout_footer_self_test(args, labels):
                 captured.append(payload)
                 return {"timed_out": timed_out, "exit_code": None if timed_out else 0, "stdout": "", "stderr": ""}
 
-            copied = FunctionType(v1_run.__code__, dict(globals(), command=synthetic_child), "v1_run")
+            copied = FunctionType(v1_run.__code__, dict(globals(), command=synthetic_child), "v1_run", v1_run.__defaults__)
             try:
                 row = copied(SimpleNamespace(jdk_root=root / "not-used-jdk"), stub, scenario, root / str(timed_out), "", root, {}, True)
             except Exception as failure:
@@ -1367,7 +1368,7 @@ def trace2_self_test(args, labels):
             return {"timed_out": child_timeout, "exit_code": None if child_timeout else 0, "stderr": "", "stdout": ""}
 
         copied = FunctionType(v1_run.__code__, dict(globals(), command=child,
-                              validate_shared_output=lambda *unused: None), "v1_run")
+                              validate_shared_output=lambda *unused: None), "v1_run", v1_run.__defaults__)
         for i, records in enumerate(([header], [header, {"type": "footer", "status": "complete"}], [])):
             payload = (("\n".join(json.dumps(row) for row in records) + "\n").encode("utf-8") if records else b"")
             if i == 0:
@@ -1392,7 +1393,7 @@ def trace2_self_test(args, labels):
             raise Refusal("SYNTHETIC_UNRELATED_REFUSAL")
 
         copied_globals = dict(copied.__globals__, v1_append_timeout_footer=unrelated)
-        not_swallowed = FunctionType(v1_run.__code__, copied_globals, "v1_run")
+        not_swallowed = FunctionType(v1_run.__code__, copied_globals, "v1_run", v1_run.__defaults__)
         expect_refusal(lambda: not_swallowed(SimpleNamespace(jdk_root=root / "unused"), stub, scenario,
                                              root / "unrelated", "", root, {}, True),
                        "SYNTHETIC_UNRELATED_REFUSAL", "V2_TIMEOUT_REFUSAL_SCOPE_WITNESS")
@@ -1867,6 +1868,15 @@ def mutate(args):
     legs.append(("bd-codex-parity-screens: wrapper-validator-wiring", [
         ('    compare.' + 'validate_scenario(doc)\n    # The id is checked',
          '    # The id is checked')], "V1_SCREENS_PREFLIGHT_WITNESS"))
+    legs.extend([
+        ("visual-runtime", [(' or header.get("runtime") != ' + '"oracle-visual"', '')], "VISUAL_IDENTITY_runtime"),
+        ("visual-schema", [(' or header.get("schema") != ' + 'VISUAL_SCHEMA', '')], "VISUAL_IDENTITY_schema"),
+        ("visual-occurrence", [('if record["occurrence"] ' + '!= index + 1:', 'if False:')], "VISUAL_DRAW_occurrence"),
+        ("visual-tape-value", [('if tape is not None and ' + 'record["value"] !=', 'if False and record["value"] !=')], "VISUAL_DRAW_value"),
+        ("visual-site", [('if "site" in ' + 'record:', 'if False:')], "VISUAL_DRAW_site"),
+        ("visual-digest", [('or footer.get("eventSequenceSha256") ' + '!= digest.hexdigest()', 'or False')], "VISUAL_FOOTER_eventSequenceSha256"),
+        ("visual-id-binding", [('if visual and doc.get("id") ' + '!= scenario_path.stem:', 'if False:')], "VISUAL_INPUT_ID"),
+    ])
     if args.only:
         legs = [leg for leg in legs if args.only in leg[0]]
         if not legs:
@@ -2163,6 +2173,9 @@ V1_RUNNER = "V1ScenarioRunner.java"
 V1_TIMEOUT = 120
 V1_TRACE_SCHEMA = "shimeji-parity-trace/2"
 V1_MAIN_CLASS = "com.group_finity.mascot.parity.V1ScenarioRunner"
+VISUAL_SCHEMA = "shimeji-visual-observation/1"
+VISUAL_RUNNER = "VisualScenarioRunner.java"
+VISUAL_MAIN_CLASS = "com.group_finity.mascot.parity.VisualScenarioRunner"
 V1_HELPERS = ("DraftParityHooks.java", "DraftTraceWriter.java", "NativeFactoryImpl.java", "ScenarioEnvironment.java")
 V1_HELPER_PATH = "src/com/group_finity/mascot/parity/"
 
@@ -2340,7 +2353,7 @@ def v1_scenarios(args):
     return paths
 
 
-def v1_prepare(args, root):
+def v1_prepare(args, root, visual=False):
     state = validate_v1_build(json.loads((args.cache_root / "latest-draft.json").read_text(encoding="utf-8"))
                               if (args.cache_root / "latest-draft.json").is_file() else {},
                               (HERE / "edit-spec.json").read_bytes(), HERE / "draft")
@@ -2350,18 +2363,21 @@ def v1_prepare(args, root):
     classpath = os.pathsep.join([state["artifact"]] + [str(path) for path in libraries] + [str(source / "conf")])
     classes = root / "runner-classes"
     classes.mkdir(parents=True)
+    sources = [HERE / V1_RUNNER]
+    if visual:
+        sources.append(HERE / VISUAL_RUNNER)
     compiler = command([args.jdk_root / "bin" / "javac.exe", "-encoding", "UTF-8", "-source", "1.8", "-target", "1.8",
-                        "-Xlint:-options", "-classpath", classpath, "-d", classes, HERE / V1_RUNNER], root)
+                        "-Xlint:-options", "-classpath", classpath, "-d", classes, *sources], root)
     write_json(root / "runner-compile.json", compiler)
     require_command(compiler, "V1_RUNNER_COMPILE_FAILED " + str(root / "runner-compile.json"))
-    runner = root / "v1-runner.jar"
+    runner = root / ("visual-runner.jar" if visual else "v1-runner.jar")
     packed = command([args.jdk_root / "bin" / "jar.exe", "cf", runner, "-C", classes, "."], root)
     require_command(packed, "V1_RUNNER_JAR_FAILED")
     version = jdk(args)
     found = re.search(r'version "([^"]+)"', version["stderr"])
     deps = {path.name: sha(path.read_bytes()) for path in libraries}
-    deps["v1-runner.jar"] = sha(runner.read_bytes())
-    deps[V1_RUNNER] = sha((HERE / V1_RUNNER).read_bytes())
+    deps[runner.name] = sha(runner.read_bytes())
+    deps.update({path.name: sha(path.read_bytes()) for path in sources})
     build = {"sourceZipSha256": SOURCE_SHA256, "patchSha256": state["patch_sha256"], "jdk": found.group(1),
              "deps": deps, "artifactSha256": state["artifact_sha256"], "editSpecSha256": state["edit_spec_sha256"]}
     return state, classpath, runner, build
@@ -2415,12 +2431,14 @@ def v1_copy_pack(files, workdir):
         verify(target.read_bytes(), digest, "v1-pack-copy-merged " + relative)
 
 
-def v1_run(args, compare, scenario_path, root, classpath, runner, build, observe=True):
+def v1_run(args, compare, scenario_path, root, classpath, runner, build, observe=True, visual=False):
     validate_shared_output(scenario_path.parent)
     raw = scenario_path.read_bytes()
     doc = json.loads(raw.decode("utf-8"))
     compare.validate_scenario(doc)
     # The id is checked before any path is derived from it or anything is written (review F1).
+    if visual and doc.get("id") != scenario_path.stem:
+        raise Refusal("VISUAL_SCENARIO_ID_REFUSAL id differs from the input filename")
     run, workdir = v1_run_directory(root, doc.get("id"), observe)
     pack = scenario_path.parent / doc["pack"]
     v1_copy_pack(compare.pack_preflight(str(pack)), workdir)
@@ -2428,11 +2446,14 @@ def v1_run(args, compare, scenario_path, root, classpath, runner, build, observe
               "scenario": {"id": doc["id"], "sha256": sha(raw), "packSha256": compare.pack_sha256(str(pack))},
               "build": build, "rng": doc["rng"], "tickMs": 40, "dpiScale": doc["dpiScale"],
               "runId": str(uuid.uuid4()), "startedUtc": datetime.datetime.now(datetime.timezone.utc).isoformat()}
+    if visual:
+        header.update(schema=VISUAL_SCHEMA, runtime="oracle-visual")
     (run / "header.json").write_text(json.dumps(header, separators=(",", ":")) + "\n", encoding="utf-8")
     trace = run / "trace.jsonl"
     argv = [args.jdk_root / "bin" / "java.exe", "-XX:-OmitStackTraceInFastThrow", "-Dfile.encoding=UTF-8", "-Djava.io.tmpdir=" + os.environ["TEMP"],
             "-Duser.home=" + str(run), "-Dshimeji.parity.enabled=true", "-Dshimeji.parity.continueAfterError=true",
-            "-cp", str(runner) + os.pathsep + classpath, V1_MAIN_CLASS, run / "header.json", scenario_path, trace]
+            "-cp", str(runner) + os.pathsep + classpath, VISUAL_MAIN_CLASS if visual else V1_MAIN_CLASS,
+            run / "header.json", scenario_path, trace]
     if not observe:
         argv.append("off")
     record = command(argv, workdir, timeout=V1_TIMEOUT)
@@ -2449,6 +2470,8 @@ def v1_run(args, compare, scenario_path, root, classpath, runner, build, observe
             timeout_unverified = str(failure)
     if timeout_unverified is not None:
         status, detail = "timeout", timeout_unverified
+    elif visual:
+        status, detail = visual_trace_status(trace, header, doc["ticks"], record["exit_code"])
     else:
         status, detail = v1_trace_status(compare, trace, observe=observe)
     if status in ("aborted", "error"):
@@ -2822,6 +2845,147 @@ def v1(args):
     return result
 
 
+def visual_trace_status(trace, expected_header, ticks, exit_code):
+    """Validate physical visual records and their RNG stream without invoking the parity grader."""
+    if not trace.is_file():
+        return "truncated", "no visual trace"
+    observed = dict(states=0, events=0, draws=0)
+    digest = hashlib.sha256()
+    footer = None
+    try:
+        with trace.open("rb") as stream:
+            header = json.loads(stream.readline())
+            if (header != expected_header or header.get("schema") != VISUAL_SCHEMA or header.get("runtime") != "oracle-visual"):
+                return "malformed", "incorrect visual header"
+            tape = header["rng"]["values"] if header["rng"]["kind"] == "tape" else None
+            for raw in stream:
+                record = json.loads(raw)
+                kind = record["type"]
+                if footer is not None:
+                    return "malformed", "records after visual footer"
+                if kind == "footer":
+                    footer = record
+                    continue
+                if kind not in ("state", "event") or not 0 <= record["tick"] <= ticks:
+                    return "malformed", "invalid visual record or tick"
+                if kind == "state":
+                    observed["states"] += 1
+                    continue
+                observed["events"] += 1
+                digest.update(raw.rstrip(b"\r\n") + b"\n")
+                if record["kind"] == "rng-draw":
+                    index = observed["draws"]
+                    observed["draws"] += 1
+                    if record["occurrence"] != index + 1:
+                        return "malformed", "visual draw occurrence is out of order"
+                    if tape is not None and record["value"] != (tape[index] if index < len(tape) else 0.5):
+                        return "malformed", "visual draw differs from its tape value"
+                    if record.get("purpose") == "script":
+                        if "site" in record:
+                            return "malformed", "unattributed visual script draw has a source site"
+                    elif not str(record.get("site", "")).startswith("builtin:"):
+                        return "malformed", "missing visual built-in draw site"
+    except (KeyError, TypeError, ValueError, UnicodeError) as failure:
+        return "malformed", str(failure)
+    if footer is None:
+        return "truncated", "no visual footer"
+    if footer.get("status") in ("aborted", "error", "timeout"):
+        return footer["status"], "visual run ended early"
+    if (exit_code != 0 or footer.get("status") != "complete" or footer.get("ticks") != ticks
+            or any(footer.get(key) != value for key, value in observed.items())
+            or footer.get("eventSequenceSha256") != digest.hexdigest()):
+        return "malformed", "visual process, footer, event digest, or counts disagree"
+    exhausted = tape is not None and observed["draws"] > len(tape)
+    if footer.get("tapeExhausted") is not exhausted:
+        return "malformed", "visual tape exhaustion disagrees with the recorded draws"
+    return ("tape-exhausted", "visual tape ended") if exhausted else ("complete", "")
+
+
+def visual_self_test(args, labels):
+    header = {"type": "header", "schema": VISUAL_SCHEMA, "runtime": "oracle-visual",
+              "rng": {"kind": "tape", "values": [0.125, 0.75]}}
+    builtin = {"type": "event", "tick": 0, "kind": "rng-draw", "occurrence": 1, "value": 0.125,
+               "site": "builtin:behavior-select", "purpose": "behavior-selection"}
+    script = {"type": "event", "tick": 1, "kind": "rng-draw", "occurrence": 2, "value": 0.75, "purpose": "script"}
+    with tempfile.TemporaryDirectory(prefix="oracle-visual-control-", dir=args.temp_root) as folder:
+        trace = Path(folder) / "observation.jsonl"
+
+        def write(expected=header, events=(builtin, script), changes=None):
+            lines = [json.dumps(event).encode() + b"\n" for event in events]
+            footer = {"type": "footer", "status": "complete", "ticks": 1, "states": 0, "events": len(lines),
+                      "draws": len(lines), "tapeExhausted": False, "eventSequenceSha256": sha(b"".join(lines))}
+            footer.update(changes or {})
+            trace.write_bytes((json.dumps(expected) + "\n").encode() + b"".join(lines) + (json.dumps(footer) + "\n").encode())
+            return visual_trace_status(trace, expected, 1, 0)
+
+        assert write() == ("complete", ""), "VISUAL_VALID_STREAM"
+        compare = comparer()
+        try:
+            compare.load_trace(str(trace), "oracle")
+        except compare.Unjudgeable as failure:
+            assert failure.cls == "missing-field" and VISUAL_SCHEMA in str(failure), "VISUAL_PARITY_REFUSAL_CAUSE"
+        else:
+            raise AssertionError("VISUAL_ACCEPTED_AS_PARITY")
+        for field, value in (("runtime", "oracle"), ("schema", V1_TRACE_SCHEMA)):
+            assert write(expected=dict(header, **{field: value}))[1] == "incorrect visual header", "VISUAL_IDENTITY_" + field
+        for attr, value, reason in (("occurrence", 1, "visual draw occurrence is out of order"),
+                                    ("value", 0.125, "visual draw differs from its tape value"),
+                                    ("site", "unknown", "unattributed visual script draw has a source site")):
+            assert write(events=(builtin, dict(script, **{attr: value})))[1] == reason, "VISUAL_DRAW_" + attr
+        for key, value in (("ticks", 2), ("draws", 1), ("events", 0), ("states", 1), ("eventSequenceSha256", "0"*64)):
+            assert write(changes={key: value})[0] == "malformed", "VISUAL_FOOTER_" + key
+        assert write(changes={"tapeExhausted": True})[0] == "malformed", "VISUAL_FALSE_EXHAUSTION"
+        assert write(events=(builtin, script, dict(script, occurrence=3, value=0.5)),
+                     changes={"tapeExhausted": True})[0] == "tape-exhausted", "VISUAL_EXHAUSTED_TAPE"
+        renamed = Path(folder) / "S-renamed.json"
+        write_json(renamed, {"id": "S-original", "pack": "pack"})
+
+        def unexpected_copy(path):
+            raise AssertionError("misnamed visual input reached pack preparation")
+
+        stub = SimpleNamespace(validate_scenario=lambda doc: None, pack_preflight=unexpected_copy)
+        expect_refusal(lambda: v1_run(args, stub, renamed, Path(folder), "", Path(folder), {}, visual=True),
+                       "VISUAL_SCENARIO_ID_REFUSAL", "VISUAL_INPUT_ID")
+    labels.append("visual-identity-tape-order-unattributed-draw-footer-and-parity-refusal")
+
+
+def visual_observations(args):
+    if args.shared_root is None:
+        raise Refusal("VISUAL_NO_SCENARIOS pass --shared-root")
+    root = args.output_root / ("visual-" + uuid.uuid4().hex[:8])
+    root.mkdir(parents=True)
+    result = {"status": "running", "schema": VISUAL_SCHEMA, "runtime": "oracle-visual",
+              "evidence": str(root), "tool_sha256": sha((HERE / "oracle.py").read_bytes()), "results": []}
+
+    def record():
+        write_json(root / "results.json", result)
+        write_json(args.output_root / "visual-latest.json", result)
+
+    record()
+    try:
+        paths = v1_scenarios(args)
+        check_source(args)
+        compare = comparer()
+        state, classpath, runner, build = v1_prepare(args, root, visual=True)
+        result["build"] = build
+        for path in paths:
+            try:
+                row = v1_run(args, compare, path, root, classpath, runner, build, visual=True)
+            except compare.Unjudgeable as failure:
+                row = {"scenario": path.stem, "status": failure.cls, "detail": str(failure), "trace": None}
+            result["results"].append(row)
+            record()
+        validate_v1_build(state, (HERE / "edit-spec.json").read_bytes(), HERE / "draft")
+        validate_draft_resources(args, state)
+        result["status"] = "complete" if all(row["status"] == "complete" for row in result["results"]) else "incomplete"
+    except Exception as failure:
+        result.update(status="fail", error=str(failure))
+        raise
+    finally:
+        record()
+    return result
+
+
 def v1_failures(args):
     """Failure witnesses on REAL v1 evidence, each on a private copy: the producer's run checks and the comparer's
     behaviour rules must each fail with exactly their named class. The latest V1 run supplies the traces."""
@@ -2941,7 +3105,7 @@ def v1_failures(args):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=("preflight", "fetch", "build", "compare", "probe", "check", "draft", "bridge", "failures", "shared", "selftest", "mutate", "v1", "v1failures"))
+    parser.add_argument("action", choices=("preflight", "fetch", "build", "compare", "probe", "check", "draft", "bridge", "failures", "shared", "selftest", "mutate", "v1", "v1failures", "visual"))
     parser.add_argument("--only")
     parser.add_argument("--cache-root", type=Path, required=True)
     parser.add_argument("--output-root", type=Path, required=True)
@@ -2987,6 +3151,8 @@ def main():
         result = v1(args)
     elif args.action == "v1failures":
         result = v1_failures(args)
+    elif args.action == "visual":
+        result = visual_observations(args)
     else:
         result = probe(args)
     print(json.dumps(result, ensure_ascii=False, indent=2))

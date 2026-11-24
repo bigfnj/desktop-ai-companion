@@ -88,6 +88,7 @@ public final class V1ScenarioRunner implements DraftParityHooks.Controller, Draf
     private final Map<String, Object> scenario;
     private final boolean observing;
     private final boolean trace2;
+    private final boolean visual;
     private final DraftTraceWriter writer;
     private final int ticks;
     private final Map<String, Object> rng;
@@ -155,10 +156,15 @@ public final class V1ScenarioRunner implements DraftParityHooks.Controller, Draf
     private Mascot held;
 
     private V1ScenarioRunner(Map<String, Object> scenario, DraftTraceWriter writer, boolean observing, boolean trace2) {
+        this(scenario, writer, observing, trace2, false);
+    }
+
+    private V1ScenarioRunner(Map<String, Object> scenario, DraftTraceWriter writer, boolean observing, boolean trace2, boolean visual) {
         this.scenario = scenario;
         this.writer = writer;
         this.observing = observing;
         this.trace2 = trace2;
+        this.visual = visual;
         this.ticks = integer(scenario.get("ticks"));
         this.rng = object(scenario.get("rng"));
         String kind = (String)rng.get("kind");
@@ -569,7 +575,8 @@ public final class V1ScenarioRunner implements DraftParityHooks.Controller, Draf
     }
 
     public double random(String site) {
-        if ("script".equals(site)) {
+        boolean script = "script".equals(site);
+        if (script && !visual) {
             // CONTRACT section 2 names a script draw script:<refKey>#<attribute>#<k>; that attribution is not built.
             throw new IllegalStateException("V1_RNG_SCRIPT_SITE_UNATTRIBUTED");
         }
@@ -590,10 +597,11 @@ public final class V1ScenarioRunner implements DraftParityHooks.Controller, Draf
         draws++;
         if (site.endsWith("no-candidate-drop-x") || site.endsWith("disabled-behavior-drop-x")) fallbackPending = true;
         Map<String, Object> record = event(contextSid(), "rng-draw");
-        record.put("site", site);
+        // The visual format records what was drawn from the stream. No source site is known for a script draw.
+        if (!script) record.put("site", site);
         record.put("occurrence", draws);
         record.put("value", value);
-        record.put("purpose", site.endsWith("behavior-select") ? "behavior-selection" : site.endsWith("drop-x") ? "drop-in" : site.substring(8));
+        record.put("purpose", script ? "script" : site.endsWith("behavior-select") ? "behavior-selection" : site.endsWith("drop-x") ? "drop-in" : site.substring(8));
         emit(record);
         return value;
     }
@@ -1144,6 +1152,10 @@ public final class V1ScenarioRunner implements DraftParityHooks.Controller, Draf
     }
 
     public static void main(String[] args) {
+        runMain(args, false);
+    }
+
+    static void runMain(String[] args, boolean visual) {
         int exit = 1;
         DraftTraceWriter writer = null;
         V1ScenarioRunner runner = null;
@@ -1158,7 +1170,12 @@ public final class V1ScenarioRunner implements DraftParityHooks.Controller, Draf
             Map<String, Object> headerRecord = object(engine.eval("Java.asJSONCompatible(JSON.parse(headerText))"));
             String traceSchema = (String)headerRecord.get("schema");
             boolean trace2 = "shimeji-parity-trace/2".equals(traceSchema);
-            if (!trace2 && !"shimeji-parity-trace/1".equals(traceSchema)) throw new IllegalStateException("V1_TRACE_SCHEMA");
+            if (visual) {
+                if (!"oracle-visual".equals(headerRecord.get("runtime")) || !"shimeji-visual-observation/1".equals(traceSchema)
+                        || args.length != 3) throw new IllegalStateException("V1_VISUAL_IDENTITY");
+            } else if (!"oracle".equals(headerRecord.get("runtime")) || (!trace2 && !"shimeji-parity-trace/1".equals(traceSchema))) {
+                throw new IllegalStateException("V1_TRACE_SCHEMA");
+            }
             engine.put("scenarioText", json);
             Map<String, Object> scenario = object(engine.eval("Java.asJSONCompatible(JSON.parse(scenarioText))"));
             if (!SCHEMA.equals(scenario.get("schema"))) throw new IllegalStateException("V1_SCENARIO_INVALID schema");
@@ -1166,7 +1183,7 @@ public final class V1ScenarioRunner implements DraftParityHooks.Controller, Draf
             stream.write(header + "\n");
             stream.flush();
             writer = new DraftTraceWriter(stream);
-            runner = new V1ScenarioRunner(scenario, writer, args.length < 4 || !"off".equals(args[3]), trace2);
+            runner = new V1ScenarioRunner(scenario, writer, args.length < 4 || !"off".equals(args[3]), trace2 || visual, visual);
             DraftParityHooks.install(runner);
             status = runner.run();
             exit = 0;
