@@ -83,6 +83,14 @@ namespace DesktopAICompanion
                 Run("SafeScript refusals and faults", TestSafeScriptRefusalsAndFaults);
                 Run("SafeScript JS edge semantics", TestSafeScriptJsEdges);
                 Run("SafeScript bounds what evaluations build", TestSafeScriptEvaluationBounds);
+                Run("SafeScript statements: sequences, completion values and the statements feature", TestSafeScriptStatements);
+                Run("SafeScript globals: var, hoisting, sibling reads, shadowed parameters and the cap", TestSafeScriptGlobals);
+                Run("SafeScript update and compound operators", TestSafeScriptUpdates);
+                Run("SafeScript undefined, typeof and absent properties", TestSafeScriptUndefined);
+                Run("SafeScript companion references, bounds and value chains", TestSafeScriptReferences);
+                Run("SafeScript translate moves the live anchor", TestSafeScriptTranslate);
+                Run("Tick script globals: one store per action activation, read by sibling scripts; the script lookup", TestTickScriptGlobalsLifetime);
+                Run("Tick scripted Affordance: typed as getAffordance(), a binding over the action's offers", TestTickScriptedAffordance);
                 Run("Tick engine selection draws once over every root condition", TestTickSelection);
                 Run("Tick engine caches are lazy and kept by kind", TestTickCaches);
                 Run("Tick engine action clock", TestTickActionClock);
