@@ -165,7 +165,9 @@ run.
   `wav` and WAV bytes declared MP3. A `wav` clip must be:
   - a RIFF/WAVE whose sizes are read as javax.sound reads them: the RIFF form's own size is not read (a header that
     claims more bytes than the clip holds, or fewer, is accepted); the chunks are walked over the bytes the clip holds
-    until the first `fmt ` and the first `data` are found, and nothing after them is read; an odd-sized chunk is
+    until the first `fmt ` and then the first `data` AFTER it are found, and nothing after them is read (a `data`
+    chunk before the `fmt ` is skipped, as JDK 8's WaveFileReader skips it: a clip whose only `data` precedes its `fmt `
+    is refused, and one with `data` on both sides plays the one after); an odd-sized chunk is
     followed by a pad byte, which the LAST chunk may omit; a chunk other than `data` that runs past the end before both
     are found is refused, as is a `fmt ` chunk cut short;
   - with a `fmt ` chunk of PCM (8, 16, 24 or 32 bits) or IEEE float (32 or 64 bits), plain or `WAVE_FORMAT_EXTENSIBLE`
@@ -174,7 +176,7 @@ run.
   - with a `data` chunk holding at least one whole frame. What plays is its whole frames, of the bytes it claims that
     the clip holds: a `data` chunk cut short plays what is present, and a part frame at its end is not played, as the
     source's Clip does (probed on JDK 8 with synthetic clips, lane pf/sound-limits).
-  The walk takes the FIRST `fmt ` and the FIRST `data` chunk and skips an odd chunk's pad byte whatever its value; the
+  The walk takes the FIRST `fmt ` and the FIRST `data` chunk after it and skips an odd chunk's pad byte whatever its value; the
   host decodes exactly those frames, never re-reading the RIFF, so what plays is what was checked.
   The source loads clips through javax.sound (WAV, AU, AIFF; not MP3), and a clip it cannot open refuses the whole
   image set at load (`SoundLoader.java:21-24`, `AnimationBuilder.java:161-165`, `Main.java:478-484`). A clip this

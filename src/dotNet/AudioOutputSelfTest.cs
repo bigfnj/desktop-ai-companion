@@ -221,6 +221,12 @@ namespace DesktopAICompanion
         /// it is zero, so it walks one byte behind the validator and meets the hidden chunk), and a data chunk before its
         /// fmt. Each must validate and decode to exactly the clean clip's samples; under the old decoder the first two
         /// decoded at 1 Hz, 88,200 samples a frame.
+        ///
+        /// The data chunk's place is the source's (review of f20286d4): JDK 8's WaveFileReader looks for the fmt, then for
+        /// the data AFTER it. Probed on these layouts (parity-final/sound/probe/OrderProbe.java): a clip whose only data
+        /// precedes its fmt does not open, and one with data on both sides plays the data after the fmt. So the first must
+        /// be refused by the validator and the decoder alike, and the second must decode to exactly the clean clip, never to
+        /// the 1000 frames before the fmt.
         /// </summary>
         private static bool PlaysWhatTheValidatorRead(StringBuilder sb)
         {
@@ -246,7 +252,6 @@ namespace DesktopAICompanion
             {
                 new { Name = "a second fmt chunk at 1 Hz", Bytes = Riff(fmt, slow, data) },
                 new { Name = "a 1 Hz fmt hidden behind a non-zero pad byte", Bytes = Riff(fmt, hidden, data) },
-                new { Name = "a data chunk before its fmt", Bytes = Riff(data, fmt) },
             };
             foreach (var layout in layouts)
             {
@@ -263,6 +268,32 @@ namespace DesktopAICompanion
                     + " against " + (expected == null ? -1 : expected.Length) + ")",
                     !valid || same);
             }
+
+            byte[] before = Riff(data, fmt);
+            string beforeInvalid;
+            bool beforeValid = WavFormat.IsDecodableWave(before, out beforeInvalid);
+            bool beforeDecodes = true;
+            try { AudioOutput.DecodeClip(before, true); }
+            catch (InvalidDataException) { beforeDecodes = false; }
+            ok &= Check(sb, "wav clip: a clip whose only data chunk comes before its fmt is refused, as the source cannot open it ("
+                + (beforeValid ? "valid" : "refused: " + beforeInvalid) + (beforeDecodes ? ", decodes" : ", does not decode") + ")",
+                !beforeValid && !beforeDecodes && beforeInvalid == "has no data chunk");
+
+            byte[] earlier = Slice(SyntheticWave(1, 16, 1, 22050, 1000, false), 36, 8 + 2000);
+            for (int i = 8; i < earlier.Length; i += 2) earlier[i] = (byte)(i * 7);   // another tone, 1000 frames
+            byte[] both = Riff(earlier, fmt, data);
+            string bothInvalid;
+            bool bothValid = WavFormat.IsDecodableWave(both, out bothInvalid);
+            float[] bothDecoded = null;
+            string bothFailure = "";
+            try { bothDecoded = AudioOutput.DecodeClip(both, true); }
+            catch (Exception ex) { bothFailure = ex.GetType().Name + ": " + ex.Message; }
+            bool post = bothDecoded != null && expected != null && bothDecoded.Length == expected.Length;
+            for (int i = 0; post && i < bothDecoded.Length; i++) post = bothDecoded[i] == expected[i];
+            ok &= Check(sb, "wav clip: with data on both sides of its fmt, the clip plays the data after the fmt, as the source does ("
+                + (bothValid ? "valid" : "refused: " + bothInvalid) + ", " + (bothDecoded == null ? bothFailure : bothDecoded.Length + " samples")
+                + " against " + (expected == null ? -1 : expected.Length) + ")",
+                bothValid && post);
             return ok;
         }
 

@@ -153,9 +153,11 @@ namespace DesktopAICompanion
         /// Raised from 4 MiB to the document total, 8 MiB (lane pf/sound-limits): the source's Clip loads a clip whole
         /// with no size cap of its own, and of the converter's 381-pack corpus three packs were refused only for a clip of
         /// 5.2 to 5.3 MB (30 s of 16-bit stereo 44.1 kHz). One clip may now be the whole document's audio. Nothing a
-        /// document can hold grows: its bytes stay within the total, and its decoded floats within 44.1 times the total
-        /// (the 8 kHz 8-bit mono floor) however they are split, with each clip still capped at 60 s when decoded
-        /// (AudioOutput.MaximumClipDecodedSamples). What moves is a v1.11 host, which has 'wav' and the 4 MiB limit: it
+        /// document can hold grows: its bytes stay within the total, and each clip is still capped at 60 s when decoded
+        /// (AudioOutput.MaximumClipDecodedSamples), whatever its format. For WAV the decoded floats are also within 44.1
+        /// times the bytes (the 8 kHz 8-bit mono floor), so within 44.1 times the total however the clips are split. A clip
+        /// declared format="mp3" gets this declared limit too (<see cref="MaximumAudioBytesFor"/>) and expands differently,
+        /// up to about 353 times its bytes at 8 kbps; for it the 60 s cap per clip is the bound. What moves is a v1.11 host, which has 'wav' and the 4 MiB limit: it
         /// refuses a declared clip between the two by its size ("sound exceeds its decoded size limit"), naming no feature.</summary>
         public const int MaximumDeclaredAudioBytesPerSound = 8 * 1024 * 1024;
         public const int MaximumAudioBytesTotal = 8 * 1024 * 1024;
@@ -1373,10 +1375,13 @@ namespace DesktopAICompanion
     /// DirectClip with synthetic clips): the RIFF form's own size is never read, so a header that claims more bytes than
     /// the clip holds, or fewer, plays; a data chunk that runs past the end plays the whole frames present; a data chunk
     /// of part frames plays its whole frames; and the frame is channels x bits / 8 whatever the header's block align says.
+    /// The data is the first data chunk AFTER the fmt, as the source's reader looks for the fmt and then for the data: a
+    /// data chunk before the fmt is skipped (review of f20286d4, probed: a clip whose only data precedes its fmt does not
+    /// open; one with data on both sides plays the data after the fmt).
     /// Two corpus clips were refused here before and play in the source: one whose RIFF size counts its own 8-byte header,
     /// one 16-bit mono clip whose block align says 1. What is still refused is what the source cannot open or what leaves
     /// nothing to play: no fmt chunk or one cut short, a chunk other than the data that runs past the end before both are
-    /// found, no data chunk, and a data chunk holding no whole frame.
+    /// found, no data chunk after the fmt, and a data chunk holding no whole frame.
     /// </summary>
     internal static class WavFormat
     {
@@ -1454,8 +1459,10 @@ namespace DesktopAICompanion
                 error = "is not a RIFF/WAVE";
                 return false;
             }
-            // The walk is over the bytes the clip holds, never the RIFF form's size, which javax.sound does not read; it
-            // ends once the first fmt and the first data chunk are found, as the source's reader stops at its data chunk.
+            // The walk is over the bytes the clip holds, never the RIFF form's size, which javax.sound does not read. Like
+            // JDK 8's WaveFileReader it looks for the first fmt chunk, then for the first data chunk AFTER it, and stops
+            // there: a data chunk before the fmt is skipped as any other chunk (probed: a clip whose only data precedes its
+            // fmt does not open; one with data on both sides plays the data after the fmt).
             long end = b.Length;
             long fmt = -1, fmtSize = 0, data = -1, dataSize = 0;
             long at = 12;
@@ -1463,7 +1470,7 @@ namespace DesktopAICompanion
             {
                 long size = ReadUInt32(b, (int)at + 4);
                 long body = at + 8;
-                bool firstData = data < 0 && IsChunk(b, (int)at, "data");
+                bool firstData = fmt >= 0 && data < 0 && IsChunk(b, (int)at, "data");
                 if (body + size > end)
                 {
                     // The source plays what a cut-short data chunk holds (its Clip reads to the end of the stream).

@@ -22614,6 +22614,17 @@ CASES = (
      b'            while (at + 8 <= end)\n',
      HOST_CSPROJ, HOST_DLL,
      SECURITY, None, 'wav clips: a chunk after the data that runs past the end is not read'),
+    # Review of f20286d4: the data is the first data chunk AFTER the fmt, as JDK 8's WaveFileReader finds it. A documented
+    # two-label owner (measured with --only: these 2 labels and no other): with a data chunk before the fmt taken again,
+    # a clip whose only data precedes its fmt validates and decodes, and one with data on both sides plays the earlier.
+    ("host-wav: a data chunk before the fmt is taken again (pf/sound-limits order)",
+     os.path.join(REPO, "src", "dotNet", "CompanionXmlValidator.cs"),
+     b'                bool firstData = fmt >= 0 && data < 0 && IsChunk(b, (int)at, "data");\n',
+     b'                bool firstData = data < 0 && IsChunk(b, (int)at, "data");\n',
+     HOST_CSPROJ, HOST_DLL,
+     "--audio-selftest", "dp-audio-selftest.txt",
+     ("wav clip: a clip whose only data chunk comes before its fmt is refused",
+      "wav clip: with data on both sides of its fmt, the clip plays the data after the fmt")),
     ("host-wav: a data chunk with no whole frame passes (pf/sound-limits)",
      os.path.join(REPO, "src", "dotNet", "CompanionXmlValidator.cs"),
      b'            if (frames == 0)\n',
