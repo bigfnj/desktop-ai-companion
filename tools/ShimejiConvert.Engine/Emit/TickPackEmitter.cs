@@ -394,6 +394,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 return IsCustom(attribute) && _scriptNames.Contains(attribute.SourceName);
             }
             private readonly HashSet<string> _globalActions = new HashSet<string>(StringComparer.Ordinal);
+            private readonly HashSet<string> _boundAffordances = new HashSet<string>(StringComparer.Ordinal);
             private readonly List<ShimejiSourceElement> _actionOrder = new List<ShimejiSourceElement>();
             private readonly Dictionary<string, RootBehaviour> _roots = new Dictionary<string, RootBehaviour>(StringComparer.Ordinal);
             private readonly List<string> _rootOrder = new List<string>();
@@ -541,10 +542,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                             if (attribute.Cache != ShimejiSourceCache.Literal)
                                 foreach (Match token in ScriptToken.Matches(attribute.Expression)) _scriptNames.Add(token.Value);
                 foreach (ShimejiSourceElement element in _source.Actions.Root.DescendantsAndSelf())
-                    if (element.Kind == ShimejiSourceKind.ActionReference) NoteBoundCustom(LiteralRaw(element, "Name"), element);
+                    if (element.Kind == ShimejiSourceKind.ActionReference) NoteBindings(LiteralRaw(element, "Name"), element);
                 foreach (ShimejiSourceElement element in _source.Behaviors.Root.DescendantsAndSelf())
                     if (element.Kind == ShimejiSourceKind.Behavior || element.Kind == ShimejiSourceKind.BehaviorReference)
-                        NoteBoundCustom(LiteralRaw(element, "Action") ?? LiteralRaw(element, "Name"), element);
+                        NoteBindings(LiteralRaw(element, "Action") ?? LiteralRaw(element, "Name"), element);
                 // Source image pairs are loaded eagerly, including from unused actions. Their cache
                 // excludes the authored anchor, so later poses with the same pair use the first one.
                 foreach (ShimejiSourceElement action in _actionOrder) IndexPairAnchors(action);
@@ -842,15 +843,16 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     }
                     if (!Parameters.Contains(attribute.Name)) Fail(source, "unsupported action attribute '" + attribute.QualifiedName + "'");
                     act.Add(MemberParameter("param", attribute, null, source));
-                    // grimoire/06 4.1: a literal Affordance is the action's offer, replacing the companion's offer list
-                    // at each step (ActionBase.java:88-101). The parameter stays too: the scan classes read the
-                    // affordance they seek by that name (TickSocialFamily.Affordance). A Java-blank one offers nothing
-                    // (the runtime skips it), so it writes no offer. A scripted one was refused in Parameter.
+                    // The source reads Affordance from the active parameter map. A fixed offer list is equivalent
+                    // only when a literal is never rebound. Scripts and overridden defaults use CurrentOffers' parameter path.
                     if (attribute.Name == "Affordance" && !JavaBlank(attribute.RawValue))
                     {
-                        if (attribute.RawValue.Length > 256) Fail(source, "TICK_OFFER_LIMIT: an offer is at most 256 characters");
-                        offers = E("offers", E("offer", new XAttribute("value", attribute.RawValue)));
                         _social = true;
+                        if (attribute.Cache == ShimejiSourceCache.Literal && !_boundAffordances.Contains(name))
+                        {
+                            if (attribute.RawValue.Length > 256) Fail(source, "TICK_OFFER_LIMIT: an offer is at most 256 characters");
+                            offers = E("offers", E("offer", new XAttribute("value", attribute.RawValue)));
+                        }
                     }
                     // grimoire/06 4.1: a source Condition written with a cache wrapper is a cached parameter that the
                     // guard's when NAMES, so a ${} Condition holds its first value across both checks of a step. The
@@ -863,9 +865,11 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     if (attribute.Name == "BorderType" && attribute.Cache == ShimejiSourceCache.Literal)
                     {
                         string border = BorderValue(attribute, source);
-                        if (border != "Floor" && border != "Wall" && border != "Ceiling" && border != "")
-                            Fail(source, "unsupported border '" + attribute.RawValue + "'");
-                        act.Add(new XAttribute("border", border));
+                        if (border == "Floor" || border == "Wall" || border == "Ceiling" || border == "")
+                            act.Add(new XAttribute("border", border));
+                        else if (SourceSoundKind(border) != "string")
+                            Fail(source, "unsupported border '" + attribute.RawValue + "': the source requires a string");
+                        // An unrecognised string selects no border. Its parameter above retains the original spelling.
                     }
                 }
                 XElement node = Node(id, name, act);
@@ -1085,8 +1089,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                         {
                             int ignoredX, ignoredY;
                             Pair(Required(child, "ImageAnchor"), child, out ignoredX, out ignoredY);
-                            CheckSprite(image, child);
-                            if (right != null) CheckSprite(right, child);
+                            CheckSprite(image, child, "Image");
+                            if (right != null) CheckSprite(right, child, "ImageRight");
                         }
                         else if (right != null) Fail(child, "TICK_RIGHT_ONLY_UNSUPPORTED: a right-only pose can depend on an earlier image-pair cache entry");
                         string neverPlayed = Value(child, "Sound");
@@ -1100,13 +1104,13 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                         int x, y;
                         Pair(Required(child, "ImageAnchor"), child, out x, out y);
                         PairAnchor effective = _pairAnchors[PairKey(image, right, child)];
-                        int frame = AddFrame(image, effective.X, effective.Y, child);
+                        int frame = AddFrame(image, effective.X, effective.Y, child, "Image");
                         pose.SetAttributeValue("frame", frame);
                         pose.Add(new XAttribute("ax", effective.X), new XAttribute("ay", effective.Y),
                             new XAttribute("w", _frames[frame].Width), new XAttribute("h", _frames[frame].Height));
                         if (right != null)
                         {
-                            int rightFrame = AddFrame(right, effective.X, effective.Y, child);
+                            int rightFrame = AddFrame(right, effective.X, effective.Y, child, "ImageRight");
                             pose.Add(new XAttribute("right", rightFrame),
                                 new XAttribute("rw", _frames[rightFrame].Width), new XAttribute("rh", _frames[rightFrame].Height));
                         }
@@ -1170,9 +1174,13 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 string behaviour = Value(source, "Behaviour");
                 if (behaviour != null)
                 {
-                    // Entered by name (4.3), so it must be a route behaviour, as a next reference must.
-                    if (!_roots.ContainsKey(behaviour)) Fail(source, "a hotspot needs a root behaviour named '" + behaviour + "'");
-                    hotspot.Add(new XAttribute("behaviour", BehaviourName(behaviour)));
+                    // A missing target is skipped on the initial press. If it appears under an existing hold,
+                    // the runtime instead tries to enter it. Both checks require the original unresolved name.
+                    bool resolved = _roots.ContainsKey(behaviour);
+                    if (!resolved && _engineNames.Any(pair => pair.Value == behaviour && _roots.ContainsKey(pair.Key)))
+                        Fail(source, "TICK_HOTSPOT_NAME_COLLISION: missing hotspot target '" + behaviour
+                            + "' would name a different behaviour after engine-name translation");
+                    hotspot.Add(new XAttribute("behaviour", resolved ? BehaviourName(behaviour) : behaviour));
                 }
                 return hotspot;
             }
@@ -1362,7 +1370,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 return zero || enclosingFalse || (own != null && own.Cache == ShimejiSourceCache.Literal && own.RawValue == "false");
             }
 
-            private int AddFrame(string image, int x, int y, ShimejiSourceElement source)
+            private int AddFrame(string image, int x, int y, ShimejiSourceElement source, string attribute)
             {
                 if (x < -4096 || x > 4096 || y < -4096 || y > 4096) Fail(source, "authored anchor is outside this lowering's geometry limits");
                 string relative = SpriteRelative(image, source);
@@ -1382,14 +1390,14 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     index = _frames.Count;
                     _frames.Add(new Frame { Image = "img/" + _member + "/" + relative, Path = path, X = x, Y = y,
                         Width = bitmap.Width, Height = bitmap.Height });
-                });
+                }, source, attribute);
                 _frameIds.Add(key, index);
                 return index;
             }
 
             /// <summary>A sprite the source loads but never shows (a pose of Duration 0): checked as AddFrame checks one
             /// (inside the image set, PNG, readable, within the dimension limit), and given no frame.</summary>
-            private void CheckSprite(string image, ShimejiSourceElement source)
+            private void CheckSprite(string image, ShimejiSourceElement source, string attribute)
             {
                 string relative = SpriteRelative(image, source);
                 if (!relative.EndsWith(".png", StringComparison.OrdinalIgnoreCase)) Fail(source, "only PNG sprites are supported");
@@ -1400,19 +1408,27 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 {
                     if (bitmap.Width > SpriteSheetBuilder.MaxSheetDimension || bitmap.Height > SpriteSheetBuilder.MaxSheetDimension)
                         Fail(source, "sprite exceeds image dimension limit");
-                });
+                }, source, attribute);
             }
 
             // GDI+ calls corrupt images "Parameter is not valid" (and sometimes OutOfMemoryException). Keep the
             // actual opened file in every decoding refusal, including zero-length poses and the compositor's reread.
-            private static void ReadSprite(string path, Action<Bitmap> use)
+            private static void ReadSprite(string path, Action<Bitmap> use, ShimejiSourceElement source = null, string attribute = null)
             {
                 try
                 {
                     using (var input = File.OpenRead(path))
                     using (var bitmap = new Bitmap(input)) use(bitmap);
                 }
-                // File I/O already identifies its path; preserve its exception type and all existing semantic refusals.
+                catch (FileNotFoundException missing) when (source != null)
+                {
+                    throw new FileNotFoundException(source.SourceKey + ": TICK_SPRITE_MISSING " + attribute + ": " + missing.Message,
+                        path, missing);
+                }
+                catch (DirectoryNotFoundException missing) when (source != null)
+                {
+                    throw new DirectoryNotFoundException(source.SourceKey + ": TICK_SPRITE_MISSING " + attribute + ": " + missing.Message, missing);
+                }
                 catch (Exception failure) when (failure is ArgumentException || failure is ExternalException
                     || failure is OutOfMemoryException)
                 {
@@ -1459,18 +1475,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     if (inherited == null || inherited.RawValue == _member) return null;
                 }
                 if (attribute.Name == "Characteristics") NoteCharacteristics(attribute, target ?? owner);
-                if (attribute.Name == "Affordance" && target != null && attribute.Cache == ShimejiSourceCache.Literal)
-                {
-                    // A bound Affordance is what the source offers (eval reads the binding), but an action with its own
-                    // literal Affordance offers that literal through <offers>, which a binding cannot change: refuse
-                    // rather than offer the wrong value. Onto an action without one, the runtime offers the bound
-                    // parameter itself (TickAction.CurrentOffers), which is the source's reading, and that is social.
-                    ShimejiSourceAttribute own = target.Attribute("Affordance");
-                    if (own != null && own.Cache == ShimejiSourceCache.Literal && !JavaBlank(own.RawValue))
-                        Fail(owner, "TICK_AFFORDANCE_BINDING " + attribute.QualifiedName
-                            + ": the bound action offers its own literal Affordance, which a binding cannot replace in this format");
+                if (attribute.Name == "Affordance" && target != null)
                     _social = true;
-                }
                 return Parameter(tag, attribute, owner);
             }
 
@@ -1529,9 +1535,6 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 }
                 if (attribute.Cache != ShimejiSourceCache.Literal)
                 {
-                    // grimoire/06 4.1 gives an offer no expression form: Affordance is a literal string there.
-                    if (attribute.Name == "Affordance")
-                        Fail(owner, "TICK_AFFORDANCE_SCRIPTED " + attribute.QualifiedName + ": an offer has no expression form in this format");
                     if (japaneseBorder)
                         Fail(owner, "TICK_SCHEMA_SCRIPTED_VALUE " + attribute.QualifiedName
                             + ": a scripted BorderType in a Japanese document yields a Japanese value the host cannot map at run time");
@@ -1597,12 +1600,13 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 return found;
             }
 
-            /// <summary>Records the custom variables an ActionReference, Behavior or BehaviorReference binds to the
-            /// action it names, for that action's ScopeFor. Empty binding sets participate in the intersection, so one
+            /// <summary>Records Affordance overrides and the custom variables a reference or behaviour binds to its
+            /// target action. Empty custom binding sets participate in the intersection, so one
             /// binding site cannot make a different unbound path appear safe.</summary>
-            private void NoteBoundCustom(string target, ShimejiSourceElement element)
+            private void NoteBindings(string target, ShimejiSourceElement element)
             {
                 if (target == null) return;
+                if (element.Attribute("Affordance") != null) _boundAffordances.Add(target);
                 var supplied = new HashSet<string>(StringComparer.Ordinal);
                 foreach (ShimejiSourceAttribute attribute in element.Attributes)
                 {

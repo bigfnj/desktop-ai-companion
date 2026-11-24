@@ -1,8 +1,77 @@
 # Shimeji action parity status
 
-No action family has a supported parity verdict yet. Support requires controlled oracle and host traces judged
-under the frozen parity contract maintained by the parity lane (tools/ShimejiParity/CONTRACT.md after integration).
-A completed host run alone does not establish it.
+## Provisional paired results on e29a3f66
+
+The 2026-11-24 campaign compared 176 directed synthetic scenarios against host build
+`e29a3f669505c031aaa3f6f8839dd9b7552f8087`. P1 contributed 107 scenarios (87 exact), and P2 added 69
+(66 exact). The ordinary comparer found **153 exact**. Seven raw failures matched the finite policy shapes
+below. Fifteen cases remained unjudged, and one deliberately exhausted its RNG tape. These counts describe
+this build. Family support and the results of the integrated build await a fresh run.
+
+Each scenario contributes once under its primary family. ID patterns apply only to these 176 inputs.
+The policy column counts matched campaign shapes. The control column counts expected failures.
+
+| Primary family | Exact | Policy | Unjudged | Control | Scenario IDs |
+|---|---:|---:|---:|---:|---|
+| Stay, Move | 4 | 0 | 0 | 0 | `S-slice-stand-walk-01`, `S-move-axis-*`, `S-move-turn-01` |
+| Animate and imageless poses | 1 | 0 | 0 | 0 | `S-imageless-01` |
+| Sequence, Select and scoped references | 2 | 0 | 0 | 0 | `S-lower-nested-01`, `S-refs-override-01` |
+| Behavior and next-reference selection | 5 | 0 | 1 | 0 | `S-select-*` |
+| Breed and the population cap | 8 | 1 | 0 | 0 | `S-breed-*`, `S-cap-*`, `S-slice-breed-01` |
+| Transform and hatching | 6 | 0 | 0 | 0 | `S-transform-*`, `S-slice-transform-01`, `S-egg-hatch-01` |
+| Fall and Dragged | 4 | 0 | 0 | 0 | `S-fall-*`, `S-input-drag-01` |
+| Jump | 3 | 0 | 0 | 0 | `S-jump-*` |
+| MoveWithTurn and Regist | 3 | 0 | 0 | 0 | `S-move-withturn-01`, `S-input-regist-*` |
+| BreedMove, BreedJump and BreedFall | 7 | 0 | 0 | 0 | `S-breedmove-*`, `S-breedjump-*`, `S-breedfall-*` |
+| ScanMove and literal offers | 2 | 0 | 0 | 0 | `S-scan-first-01`, `S-scan-loss-01` |
+| ScanInteract | 1 | 0 | 0 | 0 | `S-scan-reacquire-01` |
+| Interact | 2 | 0 | 0 | 0 | `S-interact-*` |
+| WalkWithIE | 2 | 1 | 0 | 0 | `S-window-carry-*`, `S-window-throwing-off-01` |
+| ThrowIE and MinimizeIE | 2 | 2 | 0 | 0 | `S-window-throw-*`, `S-window-minimize-*` |
+| FallWithIE | 5 | 1 | 0 | 0 | `S-p2-fallwithie-*` |
+| JumpWithIE | 5 | 1 | 0 | 0 | `S-p2-jumpwithie-*` |
+| Hotspot | 1 | 0 | 0 | 0 | `S-input-hotspot-01` |
+| Look, Offset and BringToFront | 6 | 0 | 0 | 0 | `S-lower-instant-01`, `S-p2-look-*`, `S-p2-offset-*`, `S-p2-bringtofront-overlap-01` |
+| Turn and SelfDestruct | 5 | 0 | 0 | 0 | `S-p2-turn-*`, `S-p2-selfdestruct-*` |
+| Mute | 26 | 0 | 14 | 0 | `S-mute-*`, `S-p2-mute-*` |
+| ScanJump | 5 | 0 | 0 | 0 | `S-p2-scanjump-*` |
+| ComplexMove | 8 | 1 | 0 | 0 | `S-p2-complexmove-*` |
+| ComplexJump | 8 | 0 | 0 | 0 | `S-p2-complexjump-*` |
+| Broadcast, BroadcastStay, BroadcastMove and BroadcastJump | 8 | 0 | 0 | 0 | `S-p2-broadcast-*`, `S-p2-broadcaststay-*`, `S-p2-broadcastmove-*`, `S-p2-broadcastjump-*` |
+| Toggleable behaviors | 5 | 0 | 0 | 0 | `S-p2-toggle-*` |
+| Parameter and binding caches, action conditions | 4 | 0 | 0 | 0 | `S-vars-*`, `S-lower-vars-01`, `S-lower-nan-left-01` |
+| Animation conditions | 4 | 0 | 0 | 0 | `S-p2-animation-*` |
+| Behavior and group conditions | 4 | 0 | 0 | 0 | `S-p2-condition-*` |
+| Configuration tiers, file spelling, localized names and pose sound | 7 | 0 | 0 | 0 | `S-conf-tiers-01`, `S-lower-info-01`, `S-lower-spelling-01`, `S-lower-japanese-*`, `S-lower-sound-01` |
+| RNG exhaustion control | 0 | 0 | 0 | 1 | `S-rng-tape-short-01` |
+| **Total** | **153** | **7** | **15** | **1** | **176 distinct IDs** |
+
+At tick 6 in `S-cap-at-01`, the host admitted 15 children and refused attempts 16 and 17.
+The oracle admitted both additional children. With WindowActions off, the host played the base action
+while the oracle moved the window on 70 ticks in `S-window-carry-off-01`, ten in `S-window-throw-off-01`,
+ten in `S-p2-fallwithie-off-01`, and eight in `S-p2-jumpwithie-off-01`. In `S-window-minimize-off-01`
+the oracle minimized at tick 6. In `S-p2-complexmove-no-partner-01` the oracle entered Met and recorded
+the missing target at tick 8. The host guarded the arrival and selected Idle on the same tick.
+
+To repeat a campaign assessment, add `--campaign-shape` to the ordinary comparer command and supply
+`--scenario`, `--oracle-artifact` and `--host-exe`. The JSON report identifies the assessment as
+`campaign-shape/1` and includes the complete ordinary result in `rawComparison`. The checker binds
+the scenario and pack bytes, models each runtime's ordered events, and compares every common companion
+state. A SHA-256 witness covers the ordered source states, including the two extra children. This also
+detects changes that affect both animations equally. The seven checks describe trace observations.
+Section 11 qualification of registered scenario/2 cases still requires its own producer proofs.
+
+Fourteen Mute scenarios ended in source errors or harness aborts. For `S-select-missing-01` the default
+converter refused the missing next behavior. Recovery mode dropped that reference and produced a host
+trace. The oracle run ended in error, leaving the comparison `unjudgeable`. The campaign separately
+records the recovery decision as `next-missing-dropped`. The RNG control consumed four draws from a
+three-value tape on both sides and failed with `rng-tape-exhausted` as intended.
+
+The Mute counts cover recorded sound intentions. BringToFront uses a synthetic overlapping pair.
+Actual audio stopping and desktop window stacking require separate observations. The 20 later expression
+fixtures and the private skin recordings are outside the 176-case denominator.
+
+## Converter stage and historical evidence
 
 The test-only command emits the tick subset described below from the ordered source IR:
 
@@ -64,7 +133,9 @@ the class summary at :33-38, `InstallPackAsked` with its replace question at :38
 :1737). Each requires whole-pack acceptance: `CanInstall` (:320-323), `InstallPack` (:424) and `PreviewPack` (:533)
 refuse a result whose `Accepted` is false.
 
-| Source action | Converter stage | Supported | Evidence available |
+The following table records the converter stage and evidence available in the November 7 packet.
+
+| Source action | Converter stage | Supported then | Historical evidence |
 |---|---|---|---|
 | Stay | Literal lowering | pending | Historical packet exact: S-slice-stand-walk-01 |
 | Move | Literal lowering | pending | Historical packet exact: S-slice-stand-walk-01 |

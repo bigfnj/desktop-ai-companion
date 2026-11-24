@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('Preflight', 'Fetch', 'Build', 'Compare', 'Probe', 'Check', 'Draft', 'Bridge', 'Failures', 'Shared', 'SelfTest', 'Mutate', 'V1', 'V1Failures')]
+    [ValidateSet('Preflight', 'Fetch', 'Build', 'Compare', 'Probe', 'Check', 'Draft', 'Bridge', 'Failures', 'Shared', 'SelfTest', 'Mutate', 'V1', 'V1Failures', 'Visual')]
     [string]$Action,
     # V1 scenario substrings, or one Mutate case-label substring. Unset runs the action's full selection.
     [string]$Only,
@@ -52,6 +52,7 @@ $TempRoot = Resolve-OraclePath $TempRoot
 $JdkRoot = Resolve-OraclePath $JdkRoot
 if (-not [string]::IsNullOrWhiteSpace($SharedRoot)) { $SharedRoot = Resolve-OraclePath $SharedRoot }
 if (($Action -eq 'Shared' -or $Action -eq 'V1') -and [string]::IsNullOrWhiteSpace($SharedRoot)) { throw ($Action + ' needs -SharedRoot naming generated synthetic scenarios.') }
+if ($Action -eq 'Visual' -and [string]::IsNullOrWhiteSpace($SharedRoot)) { throw 'Visual needs -SharedRoot naming the scenarios to observe.' }
 if ([string]::IsNullOrWhiteSpace($PythonPath)) { $PythonPath = (Get-Command python.exe -ErrorAction Stop).Source }
 else {
     $candidate = Resolve-OraclePath $PythonPath

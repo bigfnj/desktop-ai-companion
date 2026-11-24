@@ -476,7 +476,7 @@ namespace DesktopAICompanion
             {
                 string where = "animation " + a.Id + " '" + a.Name + "'";
                 if (a.Act != null)
-                    ValidateAct(a, a.Act, where, tileCount, cellWidth, cellHeight, soundIds, actByName, behaviourByName, boundNames, declared, runsClass);
+                    ValidateAct(a, a.Act, where, tileCount, cellWidth, cellHeight, soundIds, actByName, boundNames, declared, runsClass);
                 else if (a.Behaviour != null)
                 {
                     if (string.IsNullOrWhiteSpace(a.Behaviour.Runs) || !actByName.ContainsKey(a.Behaviour.Runs))
@@ -617,7 +617,7 @@ namespace DesktopAICompanion
 
         private static void ValidateAct(XmlData.AnimationNode a, XmlData.ActNode act, string where, int tileCount,
             int cellWidth, int cellHeight, HashSet<string> soundIds, Dictionary<string, XmlData.AnimationNode> actByName,
-            Dictionary<string, XmlData.AnimationNode> behaviourByName, Dictionary<string, HashSet<string>> boundNames,
+            Dictionary<string, HashSet<string>> boundNames,
             HashSet<string> declared, Func<string, bool> runsClass)
         {
             bool embedded = string.Equals(act.Type, "Embedded", StringComparison.Ordinal);
@@ -680,8 +680,8 @@ namespace DesktopAICompanion
                         {
                             if (h == null || !IsPair(h.Origin) || !IsPair(h.Size))
                                 throw new InvalidDataException(where + " has a hotspot whose origin or size is not 'x,y'.");
-                            if (h.Behaviour != null && !behaviourByName.ContainsKey(h.Behaviour))
-                                throw new InvalidDataException(where + " has a hotspot naming behaviour '" + h.Behaviour + "', which this companion does not have.");
+                            // The input handler resolves the optional name at press time. An unknown target is
+                            // skipped on an initial press and faults if encountered during an existing hold.
                         }
                 }
 
