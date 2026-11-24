@@ -40,6 +40,9 @@ namespace DesktopAICompanion
             // preview or installed companion plays them. Missing here, Studio refused every WAV companion by this name
             // and --petstudio-selftest's set comparison failed (the WAV lane's stand-in review, F2).
             supported.Add(Wav);
+            // A paged sheet (feature 'pages') opens, previews and installs through the host, which stages every page.
+            // Studio's own sheet thumbnails (PetSprite) cut the first page's grid only.
+            supported.Add(Pages);
         }
     }
 }

@@ -27,6 +27,8 @@ namespace DesktopAICompanion
             supported.Add(Packs);
             // 'wav' runs: a WAV clip decodes and plays through the same clip path as an MP3 one (AudioOutput.PlayClip).
             supported.Add(Wav);
+            // 'pages' runs: Xml.ReadImages stages every page's cells into the one sprite store, in tile order.
+            supported.Add(Pages);
         }
 
         static partial void CheckRuntimeClass(string embeddedClass, ref bool runs)

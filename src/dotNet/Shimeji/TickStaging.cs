@@ -29,7 +29,7 @@ namespace DesktopAICompanion.Shimeji
                 byte[][] sounds;
                 if (!CompanionXmlValidator.TryParse(xml.AnimationXMLString, out root, out sheet, out icon, out sounds, out error)) return false;
                 TickType type = TickType.Compile("", root);
-                type.ApplyScale(xml.ScaleFactorD, xml.spriteWidth, xml.spriteHeight);
+                type.ApplyScale(xml.ScaleFactorD, xml.spriteWidth, xml.spriteHeight, xml.SpriteFrameSize);
                 Types.Add(xml, type);
                 Clips.Add(xml, ClipsByName(root, sounds));
                 return true;

@@ -18,6 +18,13 @@ namespace DesktopAICompanion.Shimeji
         /// </summary>
         public static Rectangle Region(TickPoseDef pose, bool right, int cellWidth, out int index, out bool flipped)
         {
+            return Region(pose, right, frame => cellWidth, out index, out flipped);
+        }
+
+        /// <summary>As above, with each frame's own cell width (a paged sheet's cells differ by page, grimoire/06 section
+        /// 3); on a one-sheet document every frame's is the one cell's.</summary>
+        public static Rectangle Region(TickPoseDef pose, bool right, Func<int, int> cellWidth, out int index, out bool flipped)
+        {
             if (right && pose.Right >= 0)
             {
                 index = pose.Right;
@@ -26,7 +33,7 @@ namespace DesktopAICompanion.Shimeji
             }
             index = pose.Frame;
             flipped = right;
-            return new Rectangle(right ? cellWidth - pose.Width : 0, 0, pose.Width, pose.Height);
+            return new Rectangle(right ? cellWidth(index) - pose.Width : 0, 0, pose.Width, pose.Height);
         }
 
         /// <summary>
@@ -39,7 +46,7 @@ namespace DesktopAICompanion.Shimeji
         {
             int index;
             bool flipped;
-            Rectangle region = Region(m.Pose, m.PoseRight, sprites.spriteWidth, out index, out flipped);
+            Rectangle region = Region(m.Pose, m.PoseRight, cell => sprites.SpriteFrameSize(cell).Width, out index, out flipped);
             bool exact;
             Bitmap frame = sprites.GetSpriteRegion(index, flipped, region, out exact);
             TickRect b = m.Bounds;

@@ -156,6 +156,12 @@ namespace DesktopAICompanion
         public const int MaximumIconEntries = 256;
         public const int MaximumSpriteFrameDimension = 256;
         public const int MaximumSpriteTiles = SpriteFrameStore.MaximumFrames;
+        /// <summary>The pixels a paged tick sheet's pages may hold together at 1:1 (grimoire/06 section 3): the sprite
+        /// store's frame budget raised by half, because a paged document's poses each show a whole cell, so its region
+        /// budget (as large again) is never spent. Its frames and their flipped copies then cost at most what a one-sheet
+        /// companion's frames, flipped copies and regions may (3 x 16 Mi pixels). SpriteFrameStore.MaximumPagedPixels
+        /// is this value.</summary>
+        public const long MaximumPagedPixels = 24L * 1024L * 1024L;
         public const int MaximumAnimations = 1024;
         public const int MaximumFramesTotal = 16384;
         public const int MaximumTransitions = 256;
@@ -657,6 +663,43 @@ namespace DesktopAICompanion
                 RequiredImageContainer.Icon,
                 MaximumSpriteFrameDimension,
                 cancellationToken);
+            // grimoire/06 section 3, feature 'pages': a tick sheet's further pages, each held to the first page's rules
+            // (PNG, 1 to 256 tiles an axis, 4096 px a side, the clock's frame cap); their tiles number on after the tiles
+            // before them, within MaximumSpriteTiles in all. Every pose of a paged document shows its whole cell
+            // (ShimejiFormatValidator.ValidateTickDocument), so the sprite store never cuts a region from it, and its
+            // pages may hold MaximumPagedPixels, the frames' and regions' budgets together less what a flipped copy costs.
+            Size[] pageCells = null;
+            if (root.Image.Pages != null)
+            {
+                // Pages need 'pages' declared (CheckDeclaredUsage), and every extension token the tick clock, so this is a
+                // tick document.
+                int firstWidth, firstHeight;
+                TryReadPngDimensions(imageBytes, out firstWidth, out firstHeight);
+                long pixels = (long)firstWidth * firstHeight;
+                var cells = new List<Size>();
+                for (int t = 0; t < tileCount; t++) cells.Add(new Size(firstWidth / root.Image.TilesX, firstHeight / root.Image.TilesY));
+                for (int index = 0; index < root.Image.Pages.Length; index++)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    XmlData.PageNode page = root.Image.Pages[index];
+                    string location = "sheet page " + (index + 1);
+                    if (page == null || page.TilesX < 1 || page.TilesX > 256 || page.TilesY < 1 || page.TilesY > 256)
+                        throw new InvalidDataException(location + " tile counts must be between 1 and 256.");
+                    tileCount = checked(tileCount + page.TilesX * page.TilesY);
+                    if (tileCount > MaximumSpriteTiles)
+                        throw new InvalidDataException("Sprite sheet contains too many tiles.");
+                    byte[] pageBytes = DecodeBase64(page.Png, MaximumImageBytes, location);
+                    ValidateImage(pageBytes, page.TilesX, page.TilesY, location, RequiredImageContainer.Png,
+                        maximumFrameDimension, cancellationToken);
+                    int width, height;
+                    TryReadPngDimensions(pageBytes, out width, out height);
+                    pixels += (long)width * height;
+                    if (pixels > MaximumPagedPixels)
+                        throw new InvalidDataException("Sheet pages together exceed " + MaximumPagedPixels + " pixels.");
+                    for (int t = 0; t < page.TilesX * page.TilesY; t++) cells.Add(new Size(width / page.TilesX, height / page.TilesY));
+                }
+                pageCells = cells.ToArray();
+            }
             // Proven, and handed to the caller so the loader need not decode them again (F318).
             spriteBytesOut = imageBytes;
             iconBytesOut = iconBytes;
@@ -742,7 +785,7 @@ namespace DesktopAICompanion
                 int sheetWidth, sheetHeight;
                 TryReadPngDimensions(imageBytes, out sheetWidth, out sheetHeight);
                 ShimejiFormatValidator.ValidateTickDocument(root, tileCount, sheetWidth / root.Image.TilesX,
-                    sheetHeight / root.Image.TilesY, declared, runsClass);
+                    sheetHeight / root.Image.TilesY, declared, runsClass, pageCells);
             }
 
             int spawnWeight = 0;

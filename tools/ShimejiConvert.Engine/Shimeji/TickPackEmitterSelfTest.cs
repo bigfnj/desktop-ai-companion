@@ -42,6 +42,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "offer-lowering", Run = (Action)OfferLowering },
                 new { Name = "offer-binding-refusal", Run = (Action)OfferBindingRefusal },
                 new { Name = "mixed-pose-geometry", Run = (Action)MixedPoseGeometry },
+                new { Name = "paged-sheets", Run = (Action)PagedSheetChecks },
                 new { Name = "explicit-right-geometry", Run = (Action)ExplicitRightGeometry },
                 new { Name = "pair-anchor-cache", Run = (Action)PairAnchorCache },
                 new { Name = "pair-anchor-preload-order", Run = (Action)PairAnchorPreloadOrder },
@@ -2506,14 +2507,123 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     Require(!accepted && error != null && error.Contains("between 1 and " + TickPackEmitter.MaxTilesPerAxis + "."),
                         "the validator's tile-axis bound is not MaxTilesPerAxis (" + TickPackEmitter.MaxTilesPerAxis + "): " + error);
                 }
-            // N-audit-1106-163: and a member NO grid fits refuses by name. 26 distinct 768x768 frames: at most 5 fit across
-            // 4096 pixels, and 26 cells in 5 columns need 6 rows, 4608 pixels. Without the throw the search's empty answer
-            // (0 by 0) reached the Bitmap constructor, and the named refusal became an unhandled exception. Any exception
-            // is caught and its type printed, so that regression reads as this check failing.
+            // A member no one grid fits goes on pages (N-audit-1106-163's refusal is gone): the "paged-sheets" case.
+            // Review item 2: what the file API writes, the host accepts. A variant of 513 poses is past the schema's 512,
+            // which the emitter does not count, so the host's validator refuses it, and nothing is written.
+            using (var fixture = new Fixture())
+            {
+                XDocument many = BuildActions();
+                many.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Stand").Element("Animation")
+                    .ReplaceNodes(Enumerable.Range(0, 513).Select(i => Pose("/p.png", 1)));
+                fixture.Actions(many);
+                Refusal(fixture, "TICK_OUTPUT_INVALID: image set 'A': the host's validator refuses the emitted document");
+                Require(!Directory.Exists(fixture.Output), "a document the host refuses was written");
+            }
+        }
+
+        /// <summary>
+        /// grimoire/06 section 3, feature 'pages' (the corpus's TICK_SHEET_NO_GRID members). 26 distinct 768x768 frames:
+        /// at most 5 fit across 4096 pixels, and 26 cells in 5 columns need 6 rows, 4608 pixels, so no one grid holds them
+        /// (N-audit-1106-163 refused them by name). They now go on pages of their own size, and the conversion keeps every
+        /// pose's geometry: the same image, anchor and size per pose as a one-sheet member would carry, every cell's pixels
+        /// the source image's own, unpadded from the top-left, and the host's validator accepts it. Smaller frames of
+        /// another size share the member, so a page per size and the renumbering are both exercised. And a member whose
+        /// pages would pass the host's paged budget is refused by name (TICK_SHEET_BUDGET), writing nothing.
+        /// </summary>
+        private static void PagedSheetChecks()
+        {
             using (var fixture = new Fixture())
             {
                 var poses = new List<XElement>();
-                for (int i = 0; i < 26; i++)
+                var sources = new List<string>();
+                for (int i = 0; i < 30; i++)
+                {
+                    // Frames 0, 7, 14, 21 and 28 are 40 x 50, the rest 768 x 768: sizes interleave, so page order is not
+                    // source order and every pose must be renumbered.
+                    bool small = i % 7 == 0;
+                    string name = (small ? "small" : "big") + i + ".png";
+                    fixture.Write("img/A/" + name, "");
+                    string path = Path.Combine(fixture.Pack, "img", "A", name);
+                    SavePng(path, i % 2 == 1, small ? 40 : 768, height: small ? 50 : 768);
+                    using (var bitmap = new Bitmap(path))
+                    {
+                        // A per-image mark, so two frames of one size can never pass for each other.
+                        bitmap.SetPixel(i % bitmap.Width, (i * 3) % bitmap.Height, Color.FromArgb(255, 10 + i, 200 - i, 7 * i % 256));
+                        bitmap.Save(path + ".tmp", ImageFormat.Png);
+                    }
+                    File.Delete(path);
+                    File.Move(path + ".tmp", path);
+                    sources.Add(path);
+                    XElement pose = Pose("/" + name, 1);
+                    pose.SetAttributeValue("ImageAnchor", (small ? 20 + i : 384 + i) + "," + (small ? 50 : 760 - i));
+                    poses.Add(pose);
+                }
+                fixture.Actions(new XDocument(S("Mascot", S("ActionList", S("Action", A("Name", "Stand"), A("Type", "Stay"),
+                    S("Animation", poses))))));
+                fixture.Behaviors(new XDocument(S("Mascot", S("BehaviorList", S("Behavior", A("Name", "Main"),
+                    A("Action", "Stand"), A("Frequency", 1))))));
+                string outcome;
+                try { TickPackEmitter.ConvertPack(fixture.Pack, fixture.Output); outcome = "accepted"; }
+                catch (Exception error) { outcome = error.GetType().Name + ": " + error.Message; }
+                Require(outcome == "accepted", "30 frames no one grid holds did not convert on pages (" + outcome + ")");
+                if (outcome != "accepted") return;
+                XDocument document = XDocument.Load(Path.Combine(fixture.Output, "A", "animations.xml"));
+                XElement image = document.Root.Element(Ns + "image");
+                Require(document.Root.Element(Ns + "header").Element(Ns + "features").Value.Split(' ').Contains("pages"),
+                    "a paged member does not declare 'pages'");
+                var sheets = new List<Tuple<int, int, string>> { Tuple.Create((int)image.Element(Ns + "tilesx"),
+                    (int)image.Element(Ns + "tilesy"), image.Element(Ns + "png").Value) };
+                XElement pagesElement = image.Element(Ns + "pages");
+                Require(pagesElement != null, "a paged member wrote no pages");
+                if (pagesElement == null) return;
+                foreach (XElement page in pagesElement.Elements(Ns + "page"))
+                    sheets.Add(Tuple.Create((int)page.Element(Ns + "tilesx"), (int)page.Element(Ns + "tilesy"), page.Element(Ns + "png").Value));
+                // One page of 40 x 50 (5 cells) and two of 768 x 768 (25 and 0 left over... 25 cells hold 25 frames).
+                Require(sheets.Count == 2, "30 frames in two sizes took " + sheets.Count + " pages, not 2");
+                Validate(document, "paged member");
+                // Tile -> (page, cell) and the cell's pixels, for the pixel comparison.
+                var cells = new List<Bitmap>();
+                try
+                {
+                    foreach (var sheet in sheets)
+                        using (var decoded = new Bitmap(new MemoryStream(Convert.FromBase64String(sheet.Item3))))
+                        {
+                            int w = decoded.Width / sheet.Item1, h = decoded.Height / sheet.Item2;
+                            for (int c = 0; c < sheet.Item1 * sheet.Item2; c++)
+                                cells.Add(decoded.Clone(new Rectangle(c % sheet.Item1 * w, c / sheet.Item1 * h, w, h), PixelFormat.Format32bppArgb));
+                        }
+                    List<XElement> shown = document.Descendants(Ns + "pose").ToList();
+                    Require(shown.Count == 30, "the paged member shows " + shown.Count + " poses, not 30");
+                    var map = System.Text.Json.JsonDocument.Parse(File.ReadAllText(Path.Combine(fixture.Output, "A", "parity-map.json")));
+                    var mapFrames = map.RootElement.GetProperty("frames").EnumerateArray().ToDictionary(f => f.GetProperty("frame").GetInt32());
+                    for (int i = 0; i < 30 && i < shown.Count; i++)
+                    {
+                        bool small = i % 7 == 0;
+                        XElement pose = shown[i];
+                        int frame = (int)pose.Attribute("frame");
+                        string geometry = (int)pose.Attribute("ax") + "," + (int)pose.Attribute("ay") + " " + (int)pose.Attribute("w") + "x" + (int)pose.Attribute("h");
+                        string expected = (small ? 20 + i : 384 + i) + "," + (small ? 50 : 760 - i) + " " + (small ? "40x50" : "768x768");
+                        Require(geometry == expected, "paged pose " + i + " has geometry " + geometry + ", not the source's " + expected);
+                        Require(frame >= 0 && frame < cells.Count && cells[frame].Width == (small ? 40 : 768) && cells[frame].Height == (small ? 50 : 768),
+                            "paged pose " + i + " shows frame " + frame + ", whose cell is not its image's size");
+                        System.Text.Json.JsonElement entry;
+                        Require(mapFrames.TryGetValue(frame, out entry) && entry.GetProperty("image").GetString() == "img/A/" + (small ? "small" : "big") + i + ".png",
+                            "the parity map does not name pose " + i + "'s image under its frame " + frame);
+                        if (frame < 0 || frame >= cells.Count) continue;
+                        using (var source = new Bitmap(sources[i]))
+                            Require(SamePixels(source, cells[frame]), "paged frame " + frame + " is not pose " + i + "'s source image, pixel for pixel");
+                    }
+                }
+                finally { foreach (Bitmap cell in cells) cell.Dispose(); }
+            }
+            // The paged budget: 43 distinct 768x768 frames take a page of 25 cells and one of 20 (18 frames, 5 by 4, the
+            // fewest cells that fit), 45 cells of 768 x 768 = 26,542,080 pixels, past the host's 24 Mi (25,165,824): the
+            // empty cells count, as the host stages them. Refused by name, and nothing is written. (41 frames, 25 + 16
+            // cells, 24,182,784 pixels, would fit.)
+            using (var fixture = new Fixture())
+            {
+                var poses = new List<XElement>();
+                for (int i = 0; i < 43; i++)
                 {
                     string name = "big" + i + ".png";
                     fixture.Write("img/A/" + name, "");
@@ -2528,21 +2638,36 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 try { TickPackEmitter.ConvertPack(fixture.Pack, fixture.Output); outcome = "accepted"; }
                 catch (InvalidDataException error) { outcome = error.Message; }
                 catch (Exception error) { outcome = error.GetType().Name + ": " + error.Message; }
-                Require(outcome.IndexOf("TICK_SHEET_NO_GRID: no grid of 26 cells of 768 x 768", StringComparison.Ordinal) >= 0,
-                    "26 distinct 768x768 frames were not refused as TICK_SHEET_NO_GRID (" + outcome + ")");
-                Require(!Directory.Exists(fixture.Output), "a sheet no grid fits left output");
+                Require(outcome.IndexOf("TICK_SHEET_BUDGET: 43 frames of up to 768 x 768 need 26542080 pixels", StringComparison.Ordinal) >= 0,
+                    "43 distinct 768x768 frames were not refused as TICK_SHEET_BUDGET (" + outcome + ")");
+                Require(!Directory.Exists(fixture.Output), "a member past the paged budget left output");
             }
-            // Review item 2: what the file API writes, the host accepts. A variant of 513 poses is past the schema's 512,
-            // which the emitter does not count, so the host's validator refuses it, and nothing is written.
-            using (var fixture = new Fixture())
+        }
+
+        private static bool SamePixels(Bitmap a, Bitmap b)
+        {
+            if (a.Width != b.Width || a.Height != b.Height) return false;
+            int[] p = Argb(a), q = Argb(b);
+            for (int i = 0; i < p.Length; i++)
             {
-                XDocument many = BuildActions();
-                many.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Stand").Element("Animation")
-                    .ReplaceNodes(Enumerable.Range(0, 513).Select(i => Pose("/p.png", 1)));
-                fixture.Actions(many);
-                Refusal(fixture, "TICK_OUTPUT_INVALID: image set 'A': the host's validator refuses the emitted document");
-                Require(!Directory.Exists(fixture.Output), "a document the host refuses was written");
+                // Fully transparent pixels draw nothing whatever their colour; every other pixel must match exactly.
+                if ((p[i] >> 24) == 0 && (q[i] >> 24) == 0) continue;
+                if (p[i] != q[i]) return false;
             }
+            return true;
+        }
+
+        private static int[] Argb(Bitmap bitmap)
+        {
+            var pixels = new int[bitmap.Width * bitmap.Height];
+            BitmapData data = bitmap.LockBits(new Rectangle(0, 0, bitmap.Width, bitmap.Height), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+            try
+            {
+                for (int y = 0; y < bitmap.Height; y++)
+                    Marshal.Copy(IntPtr.Add(data.Scan0, y * data.Stride), pixels, y * bitmap.Width, bitmap.Width);
+            }
+            finally { bitmap.UnlockBits(data); }
+            return pixels;
         }
 
         /// <summary>A PCM RIFF/WAVE clip of <paramref name="data"/> sample bytes in the given shape, the samples a ramp.</summary>
