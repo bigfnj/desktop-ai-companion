@@ -546,7 +546,8 @@ namespace DesktopAICompanion
         /// <summary>
         /// Feature 'wav' (grimoire/06 section 3): a named clip declared format="wav" validates when its bytes are a WAVE the
         /// host decodes, and each way the declaration and the bytes can disagree is refused naming the clip, as are a
-        /// truncated RIFF, a missing data chunk and a format the host does not decode. The format needs the token, so a
+        /// missing data chunk and a format the host does not decode; a clip's sizes are read as the source reads them
+        /// (<see cref="CheckWavSourceSizes"/>). The format needs the token, so a
         /// host that does not run it refuses by name, and a classic sound stays MP3. Every clip is generated in code.
         /// </summary>
         private static void CheckWavClips(XmlData.RootNode classic, ref int failures, TextWriter output)
@@ -566,10 +567,7 @@ namespace DesktopAICompanion
                 "MP3 bytes declared WAV are refused naming the clip", ref failures, output);
             ExpectWavRefused(WavClipFixture(classic, wav, null, true), "Sound 'clip' holds WAV audio but is declared MP3",
                 "WAV bytes declared MP3 are refused naming the clip", ref failures, output);
-            byte[] truncated = new byte[wav.Length - 10];
-            Array.Copy(wav, truncated, truncated.Length);
-            ExpectWavRefused(WavClipFixture(classic, truncated, "wav", true), "Sound 'clip' is declared format=\"wav\" but is truncated",
-                "a truncated RIFF is refused", ref failures, output);
+            CheckWavSourceSizes(classic, wav, ref failures, output);
             byte[] noData = (byte[])wav.Clone();
             noData[36] = (byte)'j'; noData[37] = (byte)'u'; noData[38] = (byte)'n'; noData[39] = (byte)'k';   // "data" -> "junk"
             ExpectWavRefused(WavClipFixture(classic, noData, "wav", true), "but has no data chunk",
@@ -596,8 +594,9 @@ namespace DesktopAICompanion
         /// <summary>
         /// The WAVE shape rules no check graded until the WAV lane's stand-in review (F3): the sample-rate floor and ceiling,
         /// each on both sides of its bound (the floor is also the decoded-size bound, and with it mutated to 1 Hz a single
-        /// plain fmt reached the 88,200-samples-a-frame decode), the channel count, a block align that contradicts the
-        /// channels and bits, an extensible clip whose subformat is not the standard one, and a data chunk of part frames.
+        /// plain fmt reached the 88,200-samples-a-frame decode), the channel count and an extensible clip whose subformat is
+        /// not the standard one. A block align that contradicts the channels and bits, and a data chunk of part frames, were
+        /// refused here until pf/sound-limits; the source plays both, and <see cref="CheckWavSourceSizes"/> grades them now.
         /// </summary>
         private static void CheckWavShapeRefusals(XmlData.RootNode classic, byte[] wav, ref int failures, TextWriter output)
         {
@@ -613,24 +612,79 @@ namespace DesktopAICompanion
                 "has a sample rate of 192001 Hz, outside 8000 to 192000", "a sample rate above the ceiling is refused", ref failures, output);
             ExpectWavRefused(WavClipFixture(classic, AudioOutputSelfTest.SyntheticWave(1, 16, 3, 22050, 64, false), "wav", true),
                 "has 3 channels; a clip is mono or stereo", "a clip of three channels is refused", ref failures, output);
-            byte[] misaligned = (byte[])wav.Clone();
-            misaligned[32] = 3;   // block align 2 -> 3 for 16-bit mono
-            ExpectWavRefused(WavClipFixture(classic, misaligned, "wav", true),
-                "has a block align of 3, which 1 channel(s) of 16 bits contradict", "a block align that contradicts the channels and bits is refused",
-                ref failures, output);
             byte[] subformat = AudioOutputSelfTest.SyntheticWave(1, 16, 1, 22050, 64, true);
             subformat[20 + 26 + 5] ^= 0x01;   // one byte of the KSDATAFORMAT_SUBTYPE tail
             ExpectWavRefused(WavClipFixture(classic, subformat, "wav", true),
                 "uses an extensible subformat this app does not decode", "an extensible clip with a non-standard subformat is refused",
                 ref failures, output);
-            // The data chunk one byte short of its last frame: an odd last chunk with no pad byte, which is allowed, so the
-            // only thing wrong is the part frame.
-            byte[] ragged = new byte[wav.Length - 1];
-            Array.Copy(wav, ragged, ragged.Length);
+        }
+
+        /// <summary>
+        /// The sizes as javax.sound reads them (pf/sound-limits; JDK 8's WaveFileReader and DirectClip, probed with synthetic
+        /// clips): the source opens each of these and plays the whole frames present, so the host validates them and its
+        /// one parse hands the decoder exactly those frames, at the frame size the channels and bits give. The witness is
+        /// the clean clip of 2205 16-bit mono frames. What the source cannot open, or what leaves no frame, is still refused.
+        /// </summary>
+        private static void CheckWavSourceSizes(XmlData.RootNode classic, byte[] wav, ref int failures, TextWriter output)
+        {
+            int frames = (wav.Length - 44) / 2;
+            byte[] cut = Prefix(wav, wav.Length - 10);                           // RIFF and data sizes claim 5 frames more
+            byte[] riffPlus8 = (byte[])wav.Clone();
+            WriteUInt32(riffPlus8, 4, (uint)riffPlus8.Length);                  // the corpus clip: the RIFF size counts its header
+            byte[] riffShort = (byte[])wav.Clone();
+            WriteUInt32(riffShort, 4, 36);                                       // a streaming writer's RIFF size, never updated
+            byte[] trailing = new byte[wav.Length + 100];                        // 100 bytes after the RIFF form
+            Array.Copy(wav, trailing, wav.Length);
+            byte[] misaligned = (byte[])wav.Clone();
+            misaligned[32] = 1;                                                  // the corpus clip: block align 1 for 16-bit mono
+            byte[] ragged = Prefix(wav, wav.Length - 1);                         // half a frame at the end, sizes rewritten
             WriteUInt32(ragged, 4, (uint)(ragged.Length - 8));
             WriteUInt32(ragged, 40, (uint)(ragged.Length - 44));
-            ExpectWavRefused(WavClipFixture(classic, ragged, "wav", true),
-                "has a data chunk that is not a whole number of frames", "a data chunk of part frames is refused", ref failures, output);
+            byte[] cutAfterData = new byte[wav.Length + 12];                     // a 'LIST' chunk after the data, claiming 100 bytes, holding 4
+            Array.Copy(wav, cutAfterData, wav.Length);
+            cutAfterData[wav.Length] = (byte)'L'; cutAfterData[wav.Length + 1] = (byte)'I';
+            cutAfterData[wav.Length + 2] = (byte)'S'; cutAfterData[wav.Length + 3] = (byte)'T';
+            WriteUInt32(cutAfterData, wav.Length + 4, 100);
+            WriteUInt32(cutAfterData, 4, (uint)(cutAfterData.Length - 8));
+            var plays = new[]
+            {
+                new { Name = "a clip cut short of what its header claims plays the whole frames present", Bytes = cut, Frames = frames - 5 },
+                new { Name = "a clip whose RIFF size counts its own header plays whole", Bytes = riffPlus8, Frames = frames },
+                new { Name = "a clip with bytes after its RIFF form plays its data chunk", Bytes = trailing, Frames = frames },
+                new { Name = "a clip whose RIFF size ends before its data plays whole", Bytes = riffShort, Frames = frames },
+                new { Name = "a block align that contradicts the channels and bits is not read", Bytes = misaligned, Frames = frames },
+                new { Name = "a data chunk of part frames plays its whole frames", Bytes = ragged, Frames = frames - 1 },
+                new { Name = "a chunk after the data that runs past the end is not read", Bytes = cutAfterData, Frames = frames },
+            };
+            foreach (var c in plays)
+            {
+                XmlData.RootNode parsed;
+                string error, invalid;
+                WavFormat.WaveLayout layout;
+                bool valid = CompanionXmlValidator.TryParseWithFeatures(Serialize(WavClipFixture(classic, c.Bytes, "wav", true)), WavExtensionFeatures,
+                    out parsed, out error);
+                bool parse = WavFormat.TryParse(c.Bytes, out layout, out invalid);
+                Check(valid && parse && layout.BlockAlign == 2 && layout.DataOffset == 44 && layout.DataLength == c.Frames * 2,
+                    "wav clips: " + c.Name + " (" + (valid ? "valid" : error) + "; " + (parse ? layout.DataLength / Math.Max(1, layout.BlockAlign)
+                    + " frames of " + layout.BlockAlign + " bytes, expected " + c.Frames : invalid) + ")", ref failures, output);
+            }
+            ExpectWavRefused(WavClipFixture(classic, Prefix(wav, 30), "wav", true), "but is truncated: its 'fmt ' chunk runs past the end",
+                "a clip cut inside its fmt chunk is refused", ref failures, output);
+            byte[] junkCut = new byte[12 + 8 + 4];                               // RIFF, WAVE, then a 'LIST' chunk claiming 100 bytes
+            Array.Copy(wav, junkCut, 12);
+            junkCut[12] = (byte)'L'; junkCut[13] = (byte)'I'; junkCut[14] = (byte)'S'; junkCut[15] = (byte)'T';
+            WriteUInt32(junkCut, 16, 100);
+            ExpectWavRefused(WavClipFixture(classic, junkCut, "wav", true), "but is truncated: its 'LIST' chunk runs past the end",
+                "a chunk other than data that runs past the end before fmt and data are found is refused", ref failures, output);
+            ExpectWavRefused(WavClipFixture(classic, Prefix(wav, 45), "wav", true), "but has no audio (its data chunk holds no whole frame)",
+                "a data chunk cut to less than one frame is refused", ref failures, output);
+        }
+
+        private static byte[] Prefix(byte[] b, int length)
+        {
+            byte[] prefix = new byte[length];
+            Array.Copy(b, prefix, length);
+            return prefix;
         }
 
         private static void WriteUInt32(byte[] b, int at, uint value)

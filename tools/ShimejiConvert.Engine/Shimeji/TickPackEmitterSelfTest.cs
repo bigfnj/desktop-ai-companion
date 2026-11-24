@@ -95,6 +95,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "sound-source-identity", Run = (Action)SoundSourceIdentity },
                 new { Name = "sprite-read-diagnostics", Run = (Action)SpriteReadDiagnostics },
                 new { Name = "sound-refusal", Run = (Action)SoundRefusal },
+                new { Name = "sound-source-sizes", Run = (Action)SoundSourceSizes },
                 new { Name = "configuration-spelling", Run = (Action)ConfigurationSpelling },
                 new { Name = "sheet-layout", Run = (Action)SheetLayout },
                 new { Name = "conf-less-member-skipped", Run = (Action)ConfLessMemberSkipped },
@@ -3046,26 +3047,28 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
         }
 
         // What the source cannot load refuses the member, by name: a Sound naming no file, MP3 bytes (whatever the
-        // name), a WAVE the host's rule rejects, a Volume outside the gain range, a path out of the pack, an id over
-        // 64 characters, and a clip larger than the host's per-clip limit.
+        // name), a WAVE the host's rule rejects (here one cut inside its fmt chunk, which the source cannot open either),
+        // a Volume outside the gain range, a path out of the pack, an id over 64 characters, and a clip larger than the
+        // host's per-clip limit.
         private static void SoundRefusal()
         {
             byte[] good = Wave(100, 4);
             byte[] mp3 = new byte[64];
             mp3[0] = 0x49; mp3[1] = 0x44; mp3[2] = 0x33;
-            byte[] truncated = good.Take(good.Length - 10).ToArray();
+            byte[] truncated = good.Take(30).ToArray();
             var cases = new[] {
                 new { File = (string)null, Bytes = good, Sound = "/none.wav", Volume = (string)null, Expected = "TICK_SOUND_MISSING: Sound '/none.wav'" },
                 new { File = "sound/fake.wav", Bytes = mp3, Sound = "/fake.wav", Volume = (string)null, Expected = "TICK_SOUND_MP3: clip '/fake.wav'" },
-                new { File = "sound/cut.wav", Bytes = truncated, Sound = "/cut.wav", Volume = (string)null, Expected = "TICK_SOUND_WAV: clip '/cut.wav' is truncated" },
+                new { File = "sound/cut.wav", Bytes = truncated, Sound = "/cut.wav", Volume = (string)null, Expected = "TICK_SOUND_WAV: clip '/cut.wav' is truncated: its 'fmt ' chunk runs past the end" },
                 new { File = "sound/ok.wav", Bytes = good, Sound = "/ok.wav", Volume = "7", Expected = "TICK_SOUND_VOLUME: Volume '7'" },
                 new { File = "sound/ok.wav", Bytes = good, Sound = "/ok.wav", Volume = "loud", Expected = "TICK_SOUND_VOLUME: Volume 'loud'" },
                 // Review N6 (r4): Java's trim keeps a no-break space, so Float.parseFloat refuses the text.
                 new { File = "sound/ok.wav", Bytes = good, Sound = "/ok.wav", Volume = "\u00A0-6", Expected = "TICK_SOUND_VOLUME: Volume '\u00A0-6' is not a number" },
                 new { File = (string)null, Bytes = good, Sound = "../../../../ok.wav", Volume = (string)null, Expected = "TICK_SOUND_PATH: Sound '../../../../ok.wav' leaves the pack" },
                 new { File = (string)null, Bytes = good, Sound = new string('s', 65), Volume = (string)null, Expected = "TICK_SOUND_ID_LIMIT" },
-                // Over the host's per-clip limit for a declared-format clip in bytes, yet under 60 s (48 kHz 16-bit stereo).
-                new { File = "sound/big.wav", Bytes = RawWave(48000, 2, 16, DesktopAICompanion.CompanionXmlValidator.MaximumDeclaredAudioBytesPerSound + 64),
+                // One byte over the host's per-clip limit for a declared-format clip, yet under 60 s (48 kHz 16-bit stereo,
+                // its last frame part of one); SoundSourceSizes converts a clip of exactly the limit.
+                new { File = "sound/big.wav", Bytes = RawWave(48000, 2, 16, DesktopAICompanion.CompanionXmlValidator.MaximumDeclaredAudioBytesPerSound - 43),
                     Sound = "/big.wav", Volume = (string)null, Expected = "TICK_SOUND_CLIP_LIMIT: the host refuses clip '/big.wav'" },
                 // Three clips each inside the per-clip limit (2.75 MiB of 48 kHz 16-bit stereo, 15 s) and together past the
                 // host's per-document total of 8 MiB, while the document stays inside its 12 MiB XML limit.
@@ -3122,6 +3125,26 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 fixture.Actions(actions);
                 Refusal(fixture, "TICK_SOUND_CLIP_LIMIT: the host refuses clip '/big.wav'");
             }
+        }
+
+        // pf/sound-limits: a clip the source opens converts, embedded with its bytes unchanged. A clip cut 10 bytes short of
+        // what its header claims (the source plays the whole frames present, and so does the host's WAV rule), and a clip of
+        // exactly the host's per-clip limit for a declared clip (the document's whole audio; 43.7 s of 48 kHz 16-bit stereo,
+        // inside the 60 s decode cap). SoundRefusal holds the limit plus one byte.
+        private static void SoundSourceSizes()
+        {
+            byte[] good = Wave(100, 4);
+            int limit = DesktopAICompanion.CompanionXmlValidator.MaximumDeclaredAudioBytesPerSound;
+            foreach (byte[] bytes in new[] { good.Take(good.Length - 10).ToArray(), RawWave(48000, 2, 16, limit - 44) })
+                using (var fixture = new Fixture())
+                {
+                    WriteBytes(fixture, "sound/clip.wav", bytes);
+                    fixture.Actions(SoundActions("/clip.wav", null, null));
+                    XDocument document = fixture.Convert();
+                    string[] embedded = document.Descendants(Ns + "sound").Select(s => (string)s.Element(Ns + "base64")).ToArray();
+                    Require(embedded.Length == 1 && embedded[0] == Convert.ToBase64String(bytes),
+                        "sound source sizes: a clip of " + bytes.Length + " bytes did not convert with its bytes unchanged (" + embedded.Length + " clips)");
+                }
         }
 
         // H3: a configuration file spelt otherwise on disk ("Actions.xml", "CONF") is named as the pack spells it in the

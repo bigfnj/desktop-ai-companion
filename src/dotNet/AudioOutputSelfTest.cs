@@ -159,6 +159,7 @@ namespace DesktopAICompanion
                 stereo != null && Math.Abs(stereo.Length / 2 - 4410) <= 64);
 
             ok &= PlaysWhatTheValidatorRead(sb);
+            ok &= PlaysTheFramesPresent(sb);
             ok &= ClipDecodeIsCapped(sb);
 
             byte[] adpcm = SyntheticWave(1, 16, 1, 22050, 2205, false);
@@ -179,6 +180,36 @@ namespace DesktopAICompanion
                 float[] good = output.ClipSamplesForTest(owner, SyntheticWave(1, 16, 1, 22050, 2205, false), true);
                 ok &= Check(sb, "wav clip: WITNESS a good clip through the same output decodes and reports nothing",
                     good != null && good.Length > 0 && lines.Count == 1);
+            }
+            return ok;
+        }
+
+        /// <summary>
+        /// pf/sound-limits: a clip whose sizes disagree with its bytes plays what javax.sound plays, the whole frames present
+        /// at the frame size its channels and bits give. At 44.1 kHz mono nothing is resampled, so each decode is compared
+        /// sample for sample with the clean clip's: a clip cut 10 bytes (5 frames) short is its first 4405 frames; one whose
+        /// header claims a block align of 1 is the clean clip.
+        /// </summary>
+        private static bool PlaysTheFramesPresent(StringBuilder sb)
+        {
+            bool ok = true;
+            byte[] clean = SyntheticWave(1, 16, 1, 44100, 4410, false);
+            float[] expected = AudioOutput.DecodeClip(clean, true);
+            byte[] cut = new byte[clean.Length - 10];
+            Array.Copy(clean, cut, cut.Length);
+            byte[] misaligned = (byte[])clean.Clone();
+            misaligned[32] = 1;
+            foreach (var c in new[] { new { Name = "a clip cut 5 frames short", Bytes = cut, Frames = 4405 },
+                                      new { Name = "a clip whose block align says 1", Bytes = misaligned, Frames = 4410 } })
+            {
+                float[] decoded = null;
+                string failure = "";
+                try { decoded = AudioOutput.DecodeClip(c.Bytes, true); }
+                catch (Exception ex) { failure = ex.GetType().Name + ": " + ex.Message; }
+                bool same = decoded != null && expected != null && decoded.Length == c.Frames * 2;
+                for (int i = 0; same && i < decoded.Length; i++) same = decoded[i] == expected[i];
+                ok &= Check(sb, "wav clip: " + c.Name + " plays the whole frames present, as the source does ("
+                    + (decoded == null ? failure : decoded.Length / 2 + " frames") + ", expected " + c.Frames + ")", same);
             }
             return ok;
         }

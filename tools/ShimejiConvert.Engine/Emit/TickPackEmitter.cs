@@ -1699,7 +1699,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             /// javax.sound does not read, such as MP3) refuses the image set (AnimationBuilder.java:161-165,
             /// Main.java:478-484). The format is decided from the BYTES, never the name: a RIFF/WAVE the host decodes
             /// (WavFormat, the host's own rule) becomes a named clip; MP3 bytes refuse as the source refuses them; a
-            /// WAVE the host's rule rejects (two corpus clips have a bad header field) refuses by name, unrepaired.
+            /// WAVE the host's rule rejects refuses by name, unrepaired. That rule reads a clip's sizes as javax.sound
+            /// does (pf/sound-limits), so the corpus's two clips with a bad header field (a RIFF size counting its own
+            /// header, a block align of 1 for 16-bit mono) are named clips now, their bytes unchanged.
             /// Separator/case aliases share one embedded asset; Mute prefix match sets must remain source-exact.
             /// Volume remains on the pose: the host's runtime cache keys (image set, id, volume), not bytes alone.
             /// </summary>
