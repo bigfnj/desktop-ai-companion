@@ -1564,6 +1564,160 @@ for name in ("Prefix", "All"):
             [mascot("m1", "Alpha", "After" + name, 640)], tape(0.5), settings=cfg(sounds=enabled)))
 
 
+def script_body(body, cache):
+    return ("$" if cache == "action" else "#") + "{" + body + "}"
+
+
+def pack_statement_probe(root, kind, cache):
+    """Enter the same definition twice, separated by a visible pose. Each pack isolates one script form."""
+    body = {
+        "assign": ("mascot.variables['first'] = 0; mascot.variables['second'] = 1; "
+                   "mascot.variables['n'] = mascot.variables['n'] + 1; true"),
+        "increment": "mascot.variables['n']++; true",
+        "decrement": "mascot.variables['n']--; mascot.variables['n']--; true",
+        "completion": "mascot.variables['n']++;",
+        "scope": ("var marker = typeof marker == 'undefined' ? 1 : marker + 1; "
+                  "mascot.variables['declared'] = marker; true"),
+        "translate": ("mascot.anchor.translate(Math.round(Scale * Math.sin(count / Across)), "
+                      "Math.round(Scale * Math.cos(count / Down))); count++; true"),
+    }[kind]
+    test = script_body(body, cache)
+    move = {}
+    duration = "3"
+    guard = test
+    if kind == "completion":
+        # Duration consumes the old numeric value produced by the final postfix statement.
+        duration, guard = test, "true"
+    elif kind == "scope":
+        duration = "#{mascot.variables['sibling'] = typeof marker == 'undefined' ? -1 : marker; 3}"
+    elif kind == "translate":
+        move = dict(count=0, Scale=6, Across=2, Down=3)
+    first = posed("Seed", "Stay", [img("shime1.png")], border=None, Duration=1,
+                  Condition="${mascot.variables.put('n', 3) == null}")
+    probe = posed("Probe", "Stay", [img("shime2.png")], border=None, Duration=duration, Condition=guard, **move)
+    gap_guard = ("${mascot.variables['otherAction'] = typeof marker == 'undefined' ? -1 : marker; true}"
+                 if kind == "scope" else "true")
+    gap = posed("Gap", "Stay", [img("shime3.png")], border=None, Duration=2, Condition=gap_guard)
+    rest = posed("Rest", "Stay", [img("shime6.png")], border=None, Duration=100)
+    path = act("Run", "Sequence", [aref("Seed"), aref("Probe"), aref("Gap"), aref("Probe"), aref("Rest")],
+               border=None, Loop="false")
+    member(root, "Alpha", [first, probe, gap, rest, path], [beh("Run", 0), beh("Rest", 1)])
+
+
+for form, observation in (
+        ("assign", "stores zero in first and one in second before the condition returns true"),
+        ("increment", "increments the stored n during each evaluated condition"),
+        ("decrement", "decrements the stored n twice during each evaluated condition"),
+        ("completion", "uses the old value of n from a trailing postfix statement as its duration"),
+        ("scope", "records the declared marker, its sibling read and the separate Gap action's read"),
+        ("translate", "translates its anchor by the rounded sine and cosine of an action parameter, then increments it")):
+    for cache in ("action", "frame"):
+        pack = "expr-" + form + "-" + cache
+        PACKS[pack] = partial(pack_statement_probe, kind=form, cache=cache)
+        SCENARIOS.append(scenario(
+            "S-" + pack + "-01", "The " + cache + "-cached probe " + observation,
+            pack, 18, [mascot("m1", "Alpha", "Run", 640, y=440)], tape(0.5)))
+
+
+def pack_target_script(root, offers):
+    find = "var peer = mascot.getManager().getMascotWithAffordance('Signal'); "
+    live = "peer != null && peer.get() != null"
+    def target(value):
+        return script_body(find + value, "action")
+    offer = {"Affordance": "Signal"} if offers else {}
+    wait = posed("Wait", "Stay", [img("shime1.png")], border=None, Duration=3, **offer)
+    remember = "mascot.variables['foundX'] = " + live + " ? peer.get().anchor.x : -1; "
+    found = posed("Found", "Stay", [img("shime2.png")], border=None, Duration=2,
+                  Condition=target(remember + live), **offer)
+    face = bare("Face", "Look", LookRight=target(live + " ? peer.get().lookRight : false"))
+    hold = posed("Hold", "Stay", [img("shime4.png")], border=None, Duration=2, **offer)
+    hop = posed("Hop", "Embedded", [img("shime3.png")], cls="Jump", border=None, Arc="false", VelocityParam=12,
+                TargetX=target(live + " ? peer.get().anchor.x : mascot.anchor.x - 24"),
+                TargetY=target(live + " ? peer.get().anchor.y : mascot.anchor.y"))
+    rest = posed("Rest", "Stay", [img("shime6.png")], border=None, Duration=100)
+    path = act("Run", "Sequence", [aref("Wait"), aref("Found"), aref("Face"), aref("Hold"), aref("Hop"), aref("Rest")],
+               border=None, Loop="false")
+    member(root, "Alpha", [wait, found, face, hold, hop, rest, path], [beh("Run", 0), beh("Rest", 1)])
+    member(root, "Beta",
+           [posed("Offer", "Stay", [img("shime4.png")], border=None, Duration=100, Affordance="Signal"),
+            posed("Quiet", "Stay", [img("shime1.png")], border=None, Duration=100)],
+           [beh("Offer", 0), beh("Quiet", 1)])
+
+
+for suffix, offers, partner, observation in (
+        ("peer", False, "Offer", "Alpha looks up Beta and uses its live facing and both anchor coordinates"),
+        ("missing", False, "Quiet", "the declared target is absent and Alpha uses its fallback coordinates"),
+        ("self", True, "Offer", "Alpha offers the same affordance as Beta and appears first in manager order")):
+    pack = "expr-target-" + suffix
+    PACKS[pack] = partial(pack_target_script, offers=offers)
+    PACK_MAIN[pack] = "Alpha"
+    SCENARIOS.append(scenario("S-" + pack + "-01", observation, pack, 16,
+                              [mascot("m1", "Alpha", "Run", 640, y=460), mascot("m2", "Beta", partner, 668, y=476, right=True)],
+                              tape(0.5)))
+
+
+def pack_bounds_script(root):
+    small = '<Pose Image="/shime2.png" ImageAnchor="24,40" Velocity="0,0" Duration="2"/>'
+    show = posed("Show", "Stay", [small], border=None, Duration=3)
+    shift = bare("Shift", "Offset", X="${mascot.getBounds().width - mascot.getBounds().height}",
+                 Y="${mascot.getBounds().height / 8}")
+    rest = posed("Rest", "Stay", [img("shime6.png")], border=None, Duration=100)
+    run = act("Run", "Sequence", [aref("Show"), aref("Shift"), aref("Rest")], border=None)
+    member(root, "Alpha", [show, shift, rest, run], [beh("Run", 0), beh("Rest", 1)])
+    path = root / "img/Alpha/shime2.png"
+    with Image.open(path) as original:
+        crop = original.crop((0, 0, 48, 40))
+    crop.save(path)
+
+
+def pack_missing_property(root, observe_type):
+    wait = posed("Wait", "Stay", [img("shime1.png")], border=None, Duration=2)
+    guard = "#{mascot.environment.activeIE.bottom < mascot.environment.bottom}"
+    check = posed("Check", "Stay", [img("shime2.png")], border=None, Duration=3, Condition=guard)
+    report = posed("Report", "Stay", [img("shime6.png")], border=None, Duration=100,
+                   Condition="${mascot.variables['propertyType'] = typeof mascot.environment.bottom; true}"
+                   if observe_type else "true")
+    run = act("Run", "Sequence", [aref("Wait"), aref("Check"), aref("Report")], border=None)
+    member(root, "Alpha", [wait, check, report, run], [beh("Run", 0), beh("Report", 1)])
+
+
+PACKS.update({"expr-bounds": pack_bounds_script,
+              "expr-property": partial(pack_missing_property, observe_type=True),
+              "expr-property-compare": partial(pack_missing_property, observe_type=False)})
+SCENARIOS.extend([
+    scenario("S-expr-bounds-01", "Alpha applies a 48 by 40 pose, then uses width minus height for X and height over eight for Y",
+             "expr-bounds", 8, [mascot("m1", "Alpha", "Run", 640, y=440)], tape(0.5)),
+    scenario("S-expr-property-01", "Alpha compares the active window bottom to an absent environment property and records its type",
+             "expr-property", 8, [mascot("m1", "Alpha", "Run", 640, y=440)], tape(0.5), activeWindow=WINDOW),
+    scenario("S-expr-property-compare-01", "the absent environment bottom makes the relational guard false and Alpha skips Check",
+             "expr-property-compare", 8, [mascot("m1", "Alpha", "Run", 640, y=440)], tape(0.5), activeWindow=WINDOW),
+])
+
+
+def pack_moving_lookup(root, cache):
+    find = "var buddy = mascot.getManager().getMascotWithAffordance('Signal'); "
+    live = "buddy != null && buddy.get() != null"
+    def coordinate(axis):
+        return script_body(find + live + " ? buddy.get().anchor." + axis + " : mascot.anchor." + axis, cache)
+    wait = posed("Wait", "Stay", [img("shime1.png")], border=None, Duration=3)
+    follow = posed("Follow", "Embedded", [img("shime2.png")], cls="Jump", border=None,
+                   TargetX=coordinate("x"), TargetY=coordinate("y"), VelocityParam=10, Arc="false")
+    rest = posed("Rest", "Stay", [img("shime6.png")], border=None, Duration=100)
+    member(root, "Alpha", [wait, follow, rest], then("Follow", "Wait") + then("Rest", "Follow") + [beh("Rest", 1)])
+    beacon = posed("Beacon", "Animate", [img("shime3.png", dx=-1, dy=-1, ticks=30)], border=None, Affordance="Signal")
+    member(root, "Beta", [beacon], [beh("Beacon", 1)])
+
+
+for cache in ("action", "frame"):
+    pack = "expr-target-moving-" + cache
+    PACKS[pack] = partial(pack_moving_lookup, cache=cache)
+    PACK_MAIN[pack] = "Alpha"
+    SCENARIOS.append(scenario(
+        "S-" + pack + "-01", "Alpha jumps toward the " + cache + "-cached coordinates of a moving offering Beta",
+        pack, 22, [mascot("m1", "Alpha", "Wait", 620, y=480), mascot("m2", "Beta", "Beacon", 700, y=500, right=True)],
+        tape(0.5)))
+
+
 OUTPUT_MANIFEST = ".make-packs-manifest.json"
 OUTPUT_SCHEMA = "shimeji-parity-pack-output/1"
 
