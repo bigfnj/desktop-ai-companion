@@ -135,6 +135,23 @@ namespace DesktopAICompanion.Shimeji
                     r.Animations.Animation[2].Act.Variants.Variant[0].Pose[0].Width = 39)), out ignored, out error)
                   && error != null && error.Contains("whose image size (w, h) is not its frame's cell 40 x 50"),
                 "paged sheet: a pose narrower than its paged cell is refused (" + error + ")");
+            // A right-only pose (frame -1, right 3: hidden facing left, frame 3 facing right) is drawn from its right frame,
+            // so on a paged sheet its rw and rh must be that frame's whole cell, as a two-image pose's are (Codex review of
+            // 61b8405d): accepted with them, refused with them missing, partial or wrong.
+            check(CompanionXmlValidator.TryParse(SecuritySelfTest.Serialize(PagedDocument(classic, r => RightOnly(r, 40, 50, true, true))),
+                    out ignored, out error),
+                "paged sheet: a right-only pose whose rw, rh are its right frame's cell is accepted (" + error + ")");
+            string missing, partial, wrong;
+            bool refusedMissing = !CompanionXmlValidator.TryParse(SecuritySelfTest.Serialize(PagedDocument(classic, r => RightOnly(r, 40, 50, false, false))),
+                out ignored, out missing);
+            bool refusedPartial = !CompanionXmlValidator.TryParse(SecuritySelfTest.Serialize(PagedDocument(classic, r => RightOnly(r, 40, 50, true, false))),
+                out ignored, out partial);
+            bool refusedWrong = !CompanionXmlValidator.TryParse(SecuritySelfTest.Serialize(PagedDocument(classic, r => RightOnly(r, 39, 50, true, true))),
+                out ignored, out wrong);
+            const string rightCell = "whose right image size (rw, rh) is not its right frame's cell 40 x 50";
+            check(refusedMissing && refusedPartial && refusedWrong && missing.Contains(rightCell) && partial.Contains(rightCell) && wrong.Contains(rightCell),
+                "paged sheet: a right-only pose whose rw, rh are missing, partial or not its right frame's cell is refused ("
+                + missing + " | " + partial + " | " + wrong + ")");
             // The bundled classic pet, declaring 'pages' and carrying one: refused for the clock (every extension token needs
             // it), not run on one sheet.
             XmlData.RootNode classicPaged = XmlData.NodeCopy.Deep(classic);
@@ -212,6 +229,22 @@ namespace DesktopAICompanion.Shimeji
             poses[1].Frame = 0;
             poses[1].Width = 256; poses[1].Height = 256;
             return r;
+        }
+
+        /// <summary>Stand's first pose made right-only: no left image (frame -1, no w, h), right frame 3 (a 40 x 50 cell),
+        /// with rw and rh given as asked.</summary>
+        private static void RightOnly(XmlData.RootNode r, int width, int height, bool giveWidth, bool giveHeight)
+        {
+            XmlData.PoseNode pose = r.Animations.Animation[2].Act.Variants.Variant[0].Pose[0];
+            pose.Frame = -1;
+            pose.WidthSpecified = false;
+            pose.HeightSpecified = false;
+            pose.Right = 3;
+            pose.RightSpecified = true;
+            pose.RightWidth = width;
+            pose.RightWidthSpecified = giveWidth;
+            pose.RightHeight = height;
+            pose.RightHeightSpecified = giveHeight;
         }
 
         private static Color PageColour(int page, int cell)

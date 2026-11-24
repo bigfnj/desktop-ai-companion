@@ -573,7 +573,8 @@ namespace DesktopAICompanion
         }
 
         /// <summary>A paged sheet's pose (grimoire/06 section 3, feature 'pages'): its frame's cell IS its image, so an image
-        /// pose gives w and h equal to that cell, and rw and rh equal to its right frame's cell when it has one. The sprite
+        /// pose gives w and h equal to that cell, and rw and rh equal to its right frame's cell whenever it has one (a
+        /// right-only pose too). The sprite
         /// store then never cuts a region from a paged sheet (a region the size of its frame is the frame), which is what
         /// lets the pages hold more pixels (CompanionXmlValidator.MaximumPagedPixels). Otherwise as a one-sheet pose.</summary>
         private static void ValidatePagedPoseGeometry(XmlData.PoseNode p, string where, Size[] pageCells)
@@ -584,13 +585,15 @@ namespace DesktopAICompanion
                 if (!p.WidthSpecified || !p.HeightSpecified || p.Width != cell.Width || p.Height != cell.Height)
                     throw new InvalidDataException(where + " has a pose on a paged sheet whose image size (w, h) is not its frame's cell "
                         + cell.Width + " x " + cell.Height + ".");
-                if (p.RightSpecified)
-                {
-                    Size right = pageCells[p.Right];
-                    if (!p.RightWidthSpecified || !p.RightHeightSpecified || p.RightWidth != right.Width || p.RightHeight != right.Height)
-                        throw new InvalidDataException(where + " has a pose on a paged sheet whose right image size (rw, rh) is not its right frame's cell "
-                            + right.Width + " x " + right.Height + ".");
-                }
+            }
+            // Whether or not the pose has a left frame: a right-only pose (frame -1, right given) is drawn facing right
+            // (TickMascot.HasImage), from its right frame, so its right image must be that frame's whole cell too.
+            if (p.RightSpecified)
+            {
+                Size right = pageCells[p.Right];
+                if (!p.RightWidthSpecified || !p.RightHeightSpecified || p.RightWidth != right.Width || p.RightHeight != right.Height)
+                    throw new InvalidDataException(where + " has a pose on a paged sheet whose right image size (rw, rh) is not its right frame's cell "
+                        + right.Width + " x " + right.Height + ".");
             }
             ValidatePoseGeometry(p, where, int.MaxValue, int.MaxValue);
         }
