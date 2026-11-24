@@ -27,7 +27,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "expression-placements", Run = (Action)ExpressionPlacements },
                 new { Name = "expression-variables", Run = (Action)ExpressionVariables },
                 new { Name = "expression-grammar-refusal", Run = (Action)ExpressionGrammarRefusal },
-                new { Name = "affordance-script-refusal", Run = (Action)AffordanceScriptRefusal },
+                new { Name = "affordance-script-cache", Run = (Action)AffordanceScriptCache },
+                new { Name = "unrecognised-border", Run = (Action)UnrecognisedBorder },
+                new { Name = "missing-pose-image", Run = (Action)MissingPoseImage },
                 new { Name = "literal-only-refusal", Run = (Action)LiteralOnlyRefusal },
                 new { Name = "class-motion", Run = (Action)ClassMotion },
                 new { Name = "class-instant", Run = (Action)ClassInstant },
@@ -40,7 +42,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "hotspot-shape-case", Run = (Action)HotspotShapeCase },
                 new { Name = "hotspot-refusal", Run = (Action)HotspotRefusal },
                 new { Name = "offer-lowering", Run = (Action)OfferLowering },
-                new { Name = "offer-binding-refusal", Run = (Action)OfferBindingRefusal },
+                new { Name = "offer-binding-override", Run = (Action)OfferBindingOverride },
                 new { Name = "mixed-pose-geometry", Run = (Action)MixedPoseGeometry },
                 new { Name = "explicit-right-geometry", Run = (Action)ExplicitRightGeometry },
                 new { Name = "pair-anchor-cache", Run = (Action)PairAnchorCache },
@@ -446,16 +448,62 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             }
         }
 
-        // grimoire/06 4.1: a source Affordance written as an expression has no representation.
-        private static void AffordanceScriptRefusal()
+        private static void AffordanceScriptCache()
         {
+            foreach (string wrapper in new[] { "$", "#" })
             using (var fixture = new Fixture())
             {
                 XDocument actions = BuildActions();
-                actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Stand").SetAttributeValue("Affordance", "${'Hug'}");
+                actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Stand")
+                    .SetAttributeValue("Affordance", wrapper + "{mascot.variables['key']}");
                 fixture.Actions(actions);
-                Refusal(fixture, "TICK_AFFORDANCE_SCRIPTED Affordance");
-                Require(!Directory.Exists(fixture.Output), "scripted Affordance left output");
+                XDocument document = fixture.Convert();
+                Validate(document, "scripted offer");
+                XElement act = NamedNode(document, "Stand").Element(Ns + "act");
+                XElement param = act.Elements(Ns + "param").Single(p => (string)p.Attribute("name") == "Affordance");
+                Require((string)param.Attribute("cache") == (wrapper == "$" ? "action" : "frame")
+                    && (string)param.Attribute("value") == "mascot.variables['key']" && act.Element(Ns + "offers") == null
+                    && Features(document).Contains("social"), "scripted offer lost its variable read, cache, or social feature");
+            }
+        }
+
+        private static void UnrecognisedBorder()
+        {
+            foreach (string raw in new[] { "None", "floor", "42", "true", "Floor" })
+            using (var fixture = new Fixture())
+            {
+                XDocument actions = BuildActions();
+                actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Walk").SetAttributeValue("BorderType", raw);
+                fixture.Actions(actions);
+                if (raw == "42" || raw == "true") { Refusal(fixture, "the source requires a string"); continue; }
+                XDocument document = fixture.Convert();
+                Validate(document, "border parameter");
+                XElement act = NamedNode(document, "Walk").Element(Ns + "act");
+                Require(Bound(act, "param", "BorderType") == raw && (string)act.Attribute("border") == (raw == "Floor" ? raw : null),
+                    "border parameter lost its value or selected the wrong surface");
+            }
+        }
+
+        private static void MissingPoseImage()
+        {
+            foreach (string attribute in new[] { "Image", "ImageRight" })
+            foreach (int duration in new[] { 0, 3 })
+            using (var fixture = new Fixture())
+            {
+                XDocument actions = BuildActions();
+                XElement pose = actions.Descendants("Pose").First();
+                pose.SetAttributeValue(attribute, "/absent.png");
+                pose.SetAttributeValue("Duration", duration);
+                fixture.Actions(actions);
+                try { TickPackEmitter.ConvertPack(fixture.Pack, fixture.Output); }
+                catch (FileNotFoundException missing)
+                {
+                    Require(missing.Message.Contains("TICK_SPRITE_MISSING " + attribute + ":")
+                        && missing.Message.Contains("Pose[1]") && missing.Message.Contains("absent.png"),
+                        "missing sprite lost its pose or image side");
+                    continue;
+                }
+                throw new InvalidOperationException("missing sprite accepted");
             }
         }
 
@@ -725,13 +773,11 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
         }
 
         // The successor of the first lowering's "only Pose is supported in an Animation": a Hotspot converts, and
-        // any other child, an unknown shape or a behaviour with no root definition still refuses.
+        // any other child or an unknown shape still refuses.
         private static void HotspotRefusal()
         {
             var inputs = new[] {
                 new { Child = S("Hotspot", A("Shape", "Circle"), A("Origin", "0,0"), A("Size", "2,2")), Expected = "TICK_HOTSPOT_SHAPE_UNSUPPORTED" },
-                new { Child = S("Hotspot", A("Shape", "Rectangle"), A("Origin", "0,0"), A("Size", "2,2"), A("Behavior", "Ghost")),
-                    Expected = "a hotspot needs a root behaviour named 'Ghost'" },
                 new { Child = S("Constant", A("Name", "k"), A("Value", "1")), Expected = "only Pose and Hotspot are supported in an Animation" },
             };
             foreach (var input in inputs)
@@ -743,6 +789,18 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     Refusal(fixture, input.Expected);
                     Require(!Directory.Exists(fixture.Output), "hotspot refusal left output: " + input.Expected);
                 }
+            using (var fixture = new Fixture())
+            {
+                XDocument actions = BuildActions();
+                XElement animation = actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Stand").Element("Animation");
+                foreach (string target in new[] { "Ghost", "Idle" })
+                    animation.Add(S("Hotspot", A("Shape", "Rectangle"), A("Origin", "0,0"), A("Size", "2,2"), A("Behavior", target)));
+                fixture.Actions(actions);
+                XDocument document = fixture.Convert();
+                Validate(document, "overlapping hotspots");
+                Require(NamedNode(document, "Stand").Descendants(Ns + "hotspot").Select(h => (string)h.Attribute("behaviour"))
+                    .SequenceEqual(new[] { "Ghost", "Idle" }), "missing hotspot lost its target or shadowed its neighbour");
+            }
         }
 
         private static void OfferLowering()
@@ -784,16 +842,23 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             }
         }
 
-        private static void OfferBindingRefusal()
+        private static void OfferBindingOverride()
         {
+            foreach (string value in new[] { "Wave", "#{'Wave'}" })
             using (var fixture = new Fixture())
             {
                 XDocument actions = BuildActions();
                 actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Walk").SetAttributeValue("Affordance", "Hug");
-                actions.Descendants("ActionReference").First().SetAttributeValue("Affordance", "Wave");
+                actions.Descendants("ActionReference").First().SetAttributeValue("Affordance", value);
                 fixture.Actions(actions);
-                Refusal(fixture, "TICK_AFFORDANCE_BINDING Affordance");
-                Require(!Directory.Exists(fixture.Output), "Affordance binding refusal left output");
+                XDocument document = fixture.Convert();
+                Validate(document, "overridden offer");
+                XElement act = NamedNode(document, "Walk").Element(Ns + "act");
+                XElement bind = NamedNode(document, "Composite").Descendants(Ns + "bind").Single(p => (string)p.Attribute("name") == "Affordance");
+                Require(Bound(act, "param", "Affordance") == "Hug" && act.Element(Ns + "offers") == null
+                    && (string)bind.Attribute("value") == (value == "Wave" ? "Wave" : "'Wave'")
+                    && (string)bind.Attribute("cache") == (value == "Wave" ? "none" : "frame"),
+                    "a static offer masked the reference binding or the unbound default was lost");
             }
         }
 
@@ -3595,6 +3660,14 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
         /// schemas.</summary>
         private static void JapaneseEngineNameRefusal()
         {
+            using (var fixture = new Fixture())
+            {
+                XDocument actions = JapaneseEngineActions(A("生まれた時の行動", "Main"));
+                actions.Descendants("Hotspot").Single().SetAttributeValue("行動", "Fall");
+                fixture.Actions(actions);
+                fixture.Behaviors(JapaneseEngineBehaviours());
+                Refusal(fixture, "TICK_HOTSPOT_NAME_COLLISION");
+            }
             using (var fixture = new Fixture())
             {
                 fixture.Actions(JapaneseEngineActions(A("生まれた時の行動", "Main")));
