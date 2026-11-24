@@ -1,7 +1,7 @@
 """Shimeji parity comparer (CONTRACT.md v1.2, sections 3, 6, 9 and 10).
 
     compare.py <oracle trace.jsonl> <host trace.jsonl> [--scenario scenario.json] [--oracle-artifact <jar>]
-               [--host-exe <exe>] [--json out.json]
+               [--host-exe <exe>] [--campaign-shape] [--json out.json]
     compare.py --self-test
 
 Reads two traces of the same scenario and decides whether the runtimes behaved the same. Each trace is checked
@@ -12,12 +12,18 @@ failure names the scenario, the first mismatching tick, the entity and the field
 tolerated or free-running time-share comparison, 1 = a mismatch or pending comparison,
 2 = a trace or scenario that cannot be judged.
 
+--campaign-shape checks seven byte-bound scenario/1 fixtures against their observed policy models.
+It requires both artifact paths. Its report retains the ordinary verdict under rawComparison.
+Only this opt-in campaign assessment uses exit 0 for a matched policy shape.
+
 --self-test builds reference traces and a set of deliberately wrong ones, and requires each wrong one to fail with
 its expected class (and each positive control to stay exact); it is the proof that this comparer can fail.
 """
 import copy
 import hashlib
+from itertools import zip_longest
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -767,6 +773,187 @@ def compare(oracle, host, scenario=None, scenario_sha=None, pack_sha=None, artif
         report["class"] = "error-unclassified"
         findings.append(unknown_error)
     return report
+
+
+# Finite campaign observations of legacy scenario/1. These reports do not dispatch
+# or qualify a registered scenario/2 under CONTRACT section 11.
+def _campaign_events(sid, runtime, policy):
+    def event(tick, kind, mascot="m1", **payload):
+        return dict(type="event", tick=tick, sid=mascot, kind=kind, **payload)
+
+    def behavior(tick, previous, current, cause, mascot="m1"):
+        return event(tick, "behavior", mascot, **{"from": previous, "to": current, "cause": cause})
+
+    def draw(tick, occurrence=1):
+        return event(tick, "rng-draw", site="builtin:behavior-select", occurrence=occurrence, value=0.5)
+
+    if policy == "birth-cap":
+        yield behavior(0, None, "LaySeventeen", "forced")
+        accepted = 17 if runtime == "oracle" else 15
+        for number in range(1, 18):
+            child = f"m1.b{number}"
+            if number <= accepted:
+                yield behavior(6, None, "Sit", "forced", child)
+                yield event(6, "birth-request", child=child, imageSet="Alpha", behavior="Sit",
+                            anchor=[640, 680], lookRight=False, ordinal=number, attempt=number)
+            else:
+                yield event(6, "birth-refused", child=None, attempt=number, reason="cap")
+        for number in range(1, accepted + 1):
+            child = f"m1.b{number}"
+            yield event(7, "birth-activate", child, child=child)
+        yield draw(7)
+        yield behavior(7, "LaySeventeen", "Sit", "next")
+        return
+
+    if policy == "complexmove-guarded":
+        yield behavior(0, None, "Diagonal", "forced")
+        previous = "Diagonal"
+        if runtime == "oracle":
+            yield behavior(8, previous, "Met", "forced")
+            ref = "Alpha|img/Alpha/conf/actions.xml|/Mascot[1]/ActionList[1]/Action[11]"
+            yield event(8, "error", error={"code": "scan-target-missing", "lookup": {"refKey": ref}, "via": ["arrive"]})
+            previous = "Met"
+        yield draw(8)
+        yield behavior(8, previous, "Idle", "next")
+        yield behavior(9, "Idle", "Fall", "forced")
+        yield draw(11, 2)
+        yield behavior(11, "Fall", "Idle", "select")
+        return
+
+    # Positions are the synthetic active window's top left after each source step.
+    # Preserve its width and height and the ordering of a last move before a draw.
+    if sid == "S-window-minimize-off-01":
+        action, stand = "Shrink", 7
+        yield behavior(0, None, action, "forced")
+        if runtime == "oracle":
+            yield event(6, "window-minimize")
+    else:
+        if sid == "S-window-carry-off-01":
+            action, stand = "Carry", 70
+            initial, size = (400, 380), (240, 300)
+            positions = [(400 - 2 * tick, 380) for tick in range(1, 71)]
+        elif sid == "S-window-throw-off-01":
+            action, stand = "Toss", 11
+            initial, size = (300, 200), (300, 300)
+            positions = [(300 - 32 * tick, y) for tick, y in
+                         enumerate((190, 180, 171, 162, 154, 146, 139, 132, 126, 120), 1)]
+        elif sid == "S-p2-fallwithie-off-01":
+            action, stand = "Carry", 10
+            initial, size = (400, 360), (240, 240)
+            positions = [(633, 362), (635, 367), (637, 373), (639, 381), (640, 389),
+                         (642, 399), (643, 410), (644, 422), (646, 435), (646, 446)]
+        elif sid == "S-p2-jumpwithie-off-01":
+            action, stand = "Carry", 8
+            initial, size = (400, 360), (240, 240)
+            positions = [(400 - 4 * tick, y) for tick, y in enumerate((364, 368, 372, 376, 379, 383, 386, 390), 1)]
+        else:
+            raise ValueError(f"no campaign window model for {sid}")
+        yield behavior(0, None, action, "forced")
+        if runtime == "oracle":
+            def rect(point):
+                x, y = point
+                return [x, y, x + size[0], y + size[1]]
+            previous = rect(initial)
+            for tick, point in enumerate(positions, 1):
+                current = rect(point)
+                yield event(tick, "window-move", **{"from": previous, "to": current})
+                previous = current
+    yield draw(stand)
+    yield behavior(stand, action, "Stand", "next")
+    if sid == "S-p2-jumpwithie-off-01":
+        yield behavior(9, "Stand", "Fall", "forced")
+
+
+def _campaign_json(value):
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
+
+
+def _campaign_ambiguous(value):
+    if isinstance(value, dict):
+        return getattr(value, "duplicates", False) or any(_campaign_ambiguous(item) for item in value.values())
+    if isinstance(value, list):
+        return any(_campaign_ambiguous(item) for item in value)
+    return isinstance(value, float) and not math.isfinite(value)
+
+
+def campaign_shape(raw, traces, scenario, scenario_sha, pack_sha):
+    """Assess only these immutable legacy fixtures, retaining the entire raw comparison."""
+    manifest = json.loads(Path(__file__).with_name("campaign-shapes.json").read_text(encoding="utf-8"))
+    sid = (scenario or {}).get("id")
+    case = manifest.get(sid)
+    report = {"assessment": "campaign-shape/1", "scenario": sid, "rawComparison": raw,
+              "verdict": "fail", "class": "campaign-shape-mismatch", "findings": []}
+
+    def reject(field, message, runtime=None, row=None):
+        report["findings"].append({"field": field, "runtime": runtime, "tick": (row or {}).get("tick"),
+                                   "sid": (row or {}).get("sid"), "message": message})
+        return report
+
+    if raw["verdict"] in ("unjudgeable", "pending") or (raw.get("class") or "").startswith("rng-"):
+        report.update(verdict=raw["verdict"], **{"class": raw["class"]}, findings=raw["findings"])
+        return report
+    if not case or scenario["schema"] != SCHEMA_SCENARIO or (case["scenarioSha256"], case["packSha256"]) != (scenario_sha, pack_sha):
+        report.update(verdict="unjudgeable", **{"class": "campaign-input-unbound"})
+        return reject("scenario", "supply an admitted scenario/1 file and its original pack")
+    if not all(raw["buildWitness"][runtime]["artifactBound"] for runtime in ("oracle", "host")):
+        report.update(verdict="unjudgeable", **{"class": "campaign-artifact-unbound"})
+        return reject("build", "supply both the oracle artifact and host executable matching the trace headers")
+    policy = case["policy"]
+    states = {}
+    for runtime, trace in zip(("oracle", "host"), traces):
+        header = _trace_header(trace)
+        if _campaign_ambiguous(header) or header["schema"] != SCHEMA_TRACE_V2 or header["scenario"]["id"] != sid:
+            return reject("header", f"{runtime}: expected trace/2 and the bound scenario id", runtime)
+        footer = _trace_record(trace[-1], len(trace))
+        if _campaign_ambiguous(footer) or footer["status"] != "complete" or footer["tapeExhausted"] is not False:
+            return reject("footer", f"{runtime}: expected a complete, nonexhausted run", runtime)
+        actual_states = []
+        expected = iter(_campaign_events(sid, runtime, policy))
+        last_state_tick = None
+        for line_number, line in enumerate(trace[1:-1], 2):
+            row = _trace_record(line, line_number)
+            if _campaign_ambiguous(row):
+                return reject("record", f"{runtime} line {line_number}: duplicate member or nonfinite number", runtime, row)
+            if row["type"] == "state":
+                actual_states.append({k: row[k] for k in STATE_FIELDS})
+                last_state_tick = row["tick"]
+                continue
+            if row["tick"] == last_state_tick:
+                return reject("event order", f"{runtime} line {line_number}: event after same-tick state", runtime, row)
+            # Only per-runtime diagnostic prose is outside the trace/2 event model.
+            observed = dict(row)
+            if row["kind"] == "error":
+                observed.pop("message", None)
+            if row["kind"] == "rng-draw":
+                observed.pop("purpose", None)
+            predicted = next(expected, None)
+            if _campaign_json(observed) != _campaign_json(predicted):
+                return reject("event", f"{runtime} line {line_number}: expected {predicted}, observed {observed}", runtime, row)
+        missing = next(expected, None)
+        if missing:
+            return reject("event", f"{runtime}: missing expected {missing}", runtime, missing)
+        states[runtime] = actual_states
+
+    common = states["oracle"]
+    if policy == "birth-cap":
+        common = [row for row in common if row["sid"] not in ("m1.b16", "m1.b17")]
+    for source, host in zip_longest(common, states["host"]):
+        if source is None or host is None:
+            return reject("states", "unequal common companion snapshots", row=source or host)
+        for field in STATE_FIELDS:
+            if json_key(source[field]) != json_key(host[field]):
+                return reject(field, f"tick {source['tick']} {source['sid']} {field}: oracle {source[field]!r}, host {host[field]!r}",
+                              row=source)
+    # A cross-runtime equality check alone permits both sides to drop the base
+    # animation. Anchor the entire ordered source state stream, including b16/b17.
+    witness = sha256_bytes(_campaign_json(states["oracle"]).encode("utf-8"))
+    if witness != case["oracleStatesSha256"]:
+        return reject("oracleStatesSha256", f"recorded source animation or population changed: {witness}", "oracle")
+    if raw["verdict"] != "fail":
+        return reject("rawComparison", "the declared difference must also be present in the ordinary comparison")
+    report.update(verdict="policy:" + policy, **{"class": None})
+    return report
+
 
 
 # ------------------------------------------------------------------ self-test
@@ -2486,12 +2673,21 @@ def main(argv):
             with open(p, "rb") as f:
                 artifacts[runtime] = sha256_bytes(f.read())
     tolerances = (scenario or {}).get("tolerances", {})
-    r = compare(argv[1], argv[2], scenario, scenario_sha, pack_sha, artifacts, tolerances)
+    traces = (argv[1], argv[2])
+    campaign = "--campaign-shape" in argv[3:]
+    if campaign:
+        traces = tuple(_trace_lines(path) for path in traces)
+    r = compare(*traces, scenario, scenario_sha, pack_sha, artifacts, tolerances)
+    if campaign:
+        r = campaign_shape(r, traces, scenario, scenario_sha, pack_sha)
     out = _arg(argv, "--json")
     if out:
         with open(out, "w", encoding="utf-8") as f:
             json.dump(r, f, indent=1)
     print(f"{r.get('scenario', '?')}: {r['verdict']}" + (f" ({r['class']})" if r.get("class") else ""))
+    if campaign:
+        raw = r["rawComparison"]
+        print(f"  campaign-shape/1 assessment; raw contract verdict: {raw['verdict']} ({raw['class']})")
     for runtime, witness in r.get("buildWitness", {}).items():
         suffix = "" if witness["artifactBound"] else " (artifact unbound)"
         print(f"  {runtime} build witness: {witness['verification']}{suffix}")
@@ -2500,6 +2696,8 @@ def main(argv):
     if "draws" in r:
         print(f"  draws: oracle {r['draws']['oracle']}, host {r['draws']['host']}")
     passed = r["verdict"] in ("exact", "time-share-pass") or r["verdict"].startswith("within-tolerance")
+    if campaign and r["verdict"].startswith("policy:"):
+        passed = True
     return 0 if passed else (2 if r["verdict"] == "unjudgeable" else 1)
 
 
