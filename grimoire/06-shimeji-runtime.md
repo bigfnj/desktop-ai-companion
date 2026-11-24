@@ -36,6 +36,7 @@ schema validation.
 | `hotspots` | `<hotspots>` |
 | `variables` | per-instance variables (`mascot.variables`) and `<constants>` |
 | `wav` | a named clip's `format` attribute, so its bytes may be a RIFF/WAVE (section 3) |
+| `pages` | `<image><pages>`: a tick sheet on more than one page, each of its own cell size (section 3) |
 
 A token becomes "known" only in the host build whose runtime implements it, so no build accepts a companion it cannot
 run.
@@ -134,6 +135,21 @@ run.
   - All six need feature `tick`; the validator keeps each inside its cell (`w`, `h`, `rw`, `rh` from 1 to the cell size),
     allows `rw` and `rh` only with `right`, and keeps the anchor within -4096..4096. The parity map's frames carry each
     image's anchor and size too, and a parity run refuses a pose that disagrees with its frame.
+- **`<image><pages>`** (feature `pages`, tick only). A member whose frames no single sheet holds (one grid of the
+  largest image's cell past 4096 px a side, 256 tiles an axis or 1024 tiles) keeps them on further pages:
+  `<pages><page><tilesx>3</tilesx><tilesy>1</tilesy><png>...</png></page></pages>`. Each page is a grid of its own
+  cell size, held to the first sheet's rules (PNG, 1 to 256 tiles an axis, 4096 px a side, the 768 px frame cap); its
+  tiles number on after the tiles before it (the first sheet's, then each page in order), within 1024 in all, and
+  `frame` and `right` index that one sequence. The converter puts one frame size on a page (a size with more frames
+  than a page holds continues on the next), so each cell IS its image, unpadded, at its cell's top-left as before, and
+  no pixel, size or anchor changes. On a paged sheet the validator requires every image pose's `w`, `h` to equal its
+  frame's cell and `rw`, `rh` its right frame's, so the host never cuts a region from it (a region the size of its
+  frame is the frame) and mirrors a frame about its own width. That is what lets the pages together hold 24 Mi pixels
+  at 1:1 where one sheet holds 16 Mi: frames and their flipped copies (2 x 24 Mi) cost at most what a one-sheet
+  companion's frames, flipped copies and cut regions may (3 x 16 Mi). The host stages every page at its own cell
+  times one factor, fitted against the largest cell and that budget. A host that predates the token refuses the
+  companion by name: "needs a newer Desktop AI Companion (feature 'pages')". Companion Studio previews and installs a
+  paged companion through the host; its own sheet thumbnails show the first sheet's cells only.
 - **`<pose>`.** Replaces `<frame>` inside `<variant>`:
   `<pose frame="12" right="40" ticks="6" dx="-2" dy="0" sound="s3" volume="-6"/>` (plus the geometry above)
   - `frame` is a sheet index, or `-1` for an image-less pose. It HIDES the companion's window while the companion

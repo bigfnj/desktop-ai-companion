@@ -362,6 +362,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             public int X, Y, Width, Height;
         }
         private sealed class PairAnchor { public int X, Y; }
+        /// <summary>A sheet page after the first (grimoire/06 section 3, feature 'pages').</summary>
+        private sealed class SheetPage { public int TilesX, TilesY; public byte[] Png; }
 
         private sealed class MemberBuilder
         {
@@ -399,6 +401,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             private readonly Dictionary<string, RootBehaviour> _roots = new Dictionary<string, RootBehaviour>(StringComparer.Ordinal);
             private readonly List<string> _rootOrder = new List<string>();
             private readonly List<Frame> _frames = new List<Frame>();
+            // A paged member's frames by their tile (PagedComposite), null at an empty cell; null for a one-sheet member.
+            private Frame[] _pagedFrames;
             private readonly Dictionary<string, int> _frameIds = new Dictionary<string, int>(StringComparer.Ordinal);
             private readonly Dictionary<string, PairAnchor> _pairAnchors = new Dictionary<string, PairAnchor>(StringComparer.Ordinal);
             private readonly Dictionary<string, string> _actionMap = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -566,7 +570,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 }
                 _nodes.Insert(0, route);
                 int anchorX, anchorY, tilesX, tilesY;
-                byte[] png = Composite(out anchorX, out anchorY, out tilesX, out tilesY);
+                List<SheetPage> pages;
+                byte[] png = Composite(out anchorX, out anchorY, out tilesX, out tilesY, out pages);
                 // Token order is fixed so a member that uses none of the newer extensions keeps its exact earlier bytes.
                 string features = "tick actions behaviours" + (_lifecycle ? " lifecycle" : "") + (_social ? " social" : "")
                     + (_windows ? " windows" : "") + (_hotspots ? " hotspots" : "");
@@ -575,6 +580,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 List<SoundClip> clips = _clipOrder.Where(c => c.Used).ToList();
                 // grimoire/06 sections 1 and 3: every clip is a WAV (Clip refuses anything else), so 'wav' is declared.
                 if (clips.Count > 0) features += " wav";
+                // grimoire/06 section 3: a member no single grid holds keeps its frames on pages, declared by 'pages'.
+                if (pages != null) features += " pages";
                 // Display names have a shorter host limit than exact pack member keys.
                 int displayLength = Math.Min(_member.Length, 128);
                 if (displayLength < _member.Length && char.IsHighSurrogate(_member[displayLength - 1])) displayLength--;
@@ -588,7 +595,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     header.Add(E("toggles", _toggles.Select(t => E("toggle", new XAttribute("id", t), new XAttribute("label", t)))));
                 var document = new XDocument(new XDeclaration("1.0", "utf-8", null), E("animations", header,
                     E("image", E("tilesx", tilesX), E("tilesy", tilesY), E("png", Convert.ToBase64String(png)),
-                        E("transparency", "Alpha"), E("anchorx", anchorX), E("anchory", anchorY)),
+                        E("transparency", "Alpha"), E("anchorx", anchorX), E("anchory", anchorY),
+                        pages == null ? null : E("pages", pages.Select(p => E("page", E("tilesx", p.TilesX), E("tilesy", p.TilesY),
+                            E("png", Convert.ToBase64String(p.Png)))))),
                     E("spawns", E("spawn", new XAttribute("id", 0), new XAttribute("probability", 1),
                         E("x", "0"), E("y", "0"), E("next", new XAttribute("probability", 1), 1))),
                     E("animations", _nodes), E("childs"),
@@ -597,9 +606,11 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     clips.Count == 0 ? null : E("sounds", clips.Select(c => E("sound", new XAttribute("id", c.Id),
                         new XAttribute("format", "wav"), E("probability", 0), E("base64", Convert.ToBase64String(c.Bytes)))))));
                 var frameMap = new List<object>();
-                for (int i = 0; i < _frames.Count; i++)
+                Frame[] mapped = _pagedFrames ?? _frames.ToArray();
+                for (int i = 0; i < mapped.Length; i++)
                 {
-                    Frame frame = _frames[i];
+                    Frame frame = mapped[i];
+                    if (frame == null) continue;
                     frameMap.Add(new { frame = i, image = frame.Image, anchor = new[] { frame.X, frame.Y }, size = new[] { frame.Width, frame.Height } });
                 }
                 var poseMap = new Dictionary<string, object>(StringComparer.Ordinal);
@@ -628,6 +639,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 string xml = document.ToString();
                 CheckAudioLimits(clips);
                 if (png.Length > DesktopAICompanion.CompanionXmlValidator.MaximumImageBytes
+                    || (pages != null && pages.Any(p => p.Png.Length > DesktopAICompanion.CompanionXmlValidator.MaximumImageBytes))
                     || Encoding.UTF8.GetByteCount(xml) > DesktopAICompanion.CompanionXmlValidator.MaximumXmlBytes)
                     throw new InvalidDataException("Tick member exceeds the host's image or XML byte limit: " + _member);
                 bool crossMember = _nodes.SelectMany(n => n.Descendants()).Any(n =>
@@ -1900,8 +1912,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     && (long)tilesX * width <= SpriteSheetBuilder.MaxSheetDimension && (long)tilesY * height <= SpriteSheetBuilder.MaxSheetDimension;
             }
 
-            private byte[] Composite(out int anchorX, out int anchorY, out int tilesX, out int tilesY)
+            private byte[] Composite(out int anchorX, out int anchorY, out int tilesX, out int tilesY, out List<SheetPage> pages)
             {
+                pages = null;
                 if (_frames.Count == 0) throw new InvalidDataException("Tick member needs at least one visible pose: " + _member);
                 int width = _frames.Max(frame => frame.Width), height = _frames.Max(frame => frame.Height);
                 // The host's TICK cap (768), not the classic one: the host validator grades this sheet as a tick companion's.
@@ -1927,11 +1940,92 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                         if (SheetFits(x, y, width, height) && (bestX == 0 || (long)x * y < (long)bestX * bestY)) { bestX = x; bestY = y; }
                     }
                     if (bestX == 0)
-                        throw new InvalidDataException("TICK_SHEET_NO_GRID: no grid of " + _frames.Count + " cells of " + width + " x " + height
-                            + " fits the host's sheet (4096 px a side, 256 tiles an axis, 1024 tiles).");
+                    {
+                        // grimoire/06 section 3, feature 'pages': no one grid holds the member, and the source loads each
+                        // image on its own, so its frames go on pages of their own size instead (PagedComposite).
+                        pages = PagedComposite(width, height);
+                        SheetPage first = pages[0];
+                        pages.RemoveAt(0);
+                        anchorX = _frames[0].X; anchorY = _frames[0].Y;
+                        tilesX = first.TilesX;
+                        tilesY = first.TilesY;
+                        return first.Png;
+                    }
                     tilesX = bestX;
                     tilesY = bestY;
                 }
+                return RenderPage(Enumerable.Range(0, _frames.Count).ToList(), tilesX, tilesY, width, height);
+            }
+
+            /// <summary>
+            /// The frames on pages (grimoire/06 section 3): one page per frame size, in the order the sizes first appear,
+            /// so every cell IS its frame and every pose shows its whole cell, drawn from the top-left as before; a size
+            /// with more frames than one page holds continues on the next. Each page's grid is the fewest cells, then the
+            /// fewest columns, that fit the host's sheet (SheetFits). The frames are renumbered in page order, and every
+            /// pose's frame and right with them, so the parity map's frames (image, anchor, size) still describe the poses
+            /// that show them; no pixel, size or anchor changes. Refused by name when the pages need more pixels than the
+            /// host's paged budget (TICK_SHEET_BUDGET).
+            /// </summary>
+            private List<SheetPage> PagedComposite(int largestWidth, int largestHeight)
+            {
+                var order = new List<int>();
+                var layout = new List<Tuple<List<int>, int, int, int, int>>();
+                long pixels = 0;
+                foreach (var size in Enumerable.Range(0, _frames.Count).GroupBy(i => new { _frames[i].Width, _frames[i].Height }))
+                {
+                    int w = size.Key.Width, h = size.Key.Height;
+                    int perPage = Math.Min(Math.Min(SpriteSheetBuilder.MaxSheetDimension / w, MaxTilesPerAxis)
+                        * Math.Min(SpriteSheetBuilder.MaxSheetDimension / h, MaxTilesPerAxis), SpriteSheetBuilder.MaxTiles);
+                    List<int> members = size.ToList();
+                    for (int start = 0; start < members.Count; start += perPage)
+                    {
+                        List<int> chunk = members.Skip(start).Take(perPage).ToList();
+                        int bestX = 0, bestY = 0;
+                        for (int x = 1; x <= Math.Min(chunk.Count, MaxTilesPerAxis); x++)
+                        {
+                            int y = (chunk.Count + x - 1) / x;
+                            if (SheetFits(x, y, w, h) && (bestX == 0 || (long)x * y < (long)bestX * bestY)) { bestX = x; bestY = y; }
+                        }
+                        layout.Add(Tuple.Create(chunk, bestX, bestY, w, h));
+                        order.AddRange(chunk);
+                        // A page's trailing cells are empty and never shown, but the host stages them, so they count.
+                        pixels += (long)bestX * w * bestY * h;
+                        // The empty cells number on too: the next page starts after them.
+                        for (int pad = chunk.Count; pad < bestX * bestY; pad++) order.Add(-1);
+                    }
+                }
+                // More cells than the host holds (only a page's empty trailing cells can add any) is left to the host's
+                // validator, which every emitted member passes before anything is written: it refuses "too many tiles".
+                if (pixels > DesktopAICompanion.CompanionXmlValidator.MaximumPagedPixels)
+                    throw new InvalidDataException("TICK_SHEET_BUDGET: " + _frames.Count + " frames of up to " + largestWidth + " x " + largestHeight
+                        + " need " + pixels + " pixels on pages, past the host's paged budget of "
+                        + DesktopAICompanion.CompanionXmlValidator.MaximumPagedPixels + ".");
+                // Renumber: old frame index -> its tile in page order.
+                var renumber = new Dictionary<int, int>();
+                for (int tile = 0; tile < order.Count; tile++) if (order[tile] >= 0) renumber.Add(order[tile], tile);
+                var pages = new List<SheetPage>();
+                foreach (var page in layout)
+                    pages.Add(new SheetPage { TilesX = page.Item2, TilesY = page.Item3,
+                        Png = RenderPage(page.Item1, page.Item2, page.Item3, page.Item4, page.Item5) });
+                foreach (XElement pose in _nodes.SelectMany(n => n.Descendants(Ns + "pose")))
+                {
+                    int frame = (int)pose.Attribute("frame");
+                    if (frame >= 0) pose.SetAttributeValue("frame", renumber[frame]);
+                    XAttribute right = pose.Attribute("right");
+                    if (right != null) right.Value = renumber[(int)right].ToString(Invariant);
+                }
+                var frames = new Frame[order.Count];
+                foreach (KeyValuePair<int, int> moved in renumber) frames[moved.Value] = _frames[moved.Key];
+                // Empty cells have no frame: the map lists the shown frames only, each under its new index.
+                _pagedFrames = frames;
+                foreach (string key in _frameIds.Keys.ToList()) _frameIds[key] = renumber[_frameIds[key]];
+                return pages;
+            }
+
+            /// <summary>A grid of <paramref name="tilesX"/> by <paramref name="tilesY"/> cells of the given size holding
+            /// <paramref name="frames"/> in order, each at its cell's top-left, as a PNG.</summary>
+            private byte[] RenderPage(List<int> frames, int tilesX, int tilesY, int width, int height)
+            {
                 using (var sheet = new Bitmap(tilesX * width, tilesY * height, PixelFormat.Format32bppArgb))
                 {
                     BitmapData destination = sheet.LockBits(new Rectangle(0, 0, sheet.Width, sheet.Height),
@@ -1941,9 +2035,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                         var blank = new byte[checked(sheet.Width * 4)];
                         for (int y = 0; y < sheet.Height; y++)
                             Marshal.Copy(blank, 0, IntPtr.Add(destination.Scan0, checked(y * destination.Stride)), blank.Length);
-                        for (int i = 0; i < _frames.Count; i++)
+                        for (int i = 0; i < frames.Count; i++)
                         {
-                            Frame frame = _frames[i];
+                            Frame frame = _frames[frames[i]];
                             int tile = i, columns = tilesX;
                             ReadSprite(frame.Path, bitmap => CopyPixels(bitmap, destination, (tile % columns) * width, (tile / columns) * height,
                                 frame.Width, frame.Height));

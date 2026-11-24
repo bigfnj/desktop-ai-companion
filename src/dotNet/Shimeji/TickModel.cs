@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.Globalization;
 
 namespace DesktopAICompanion.Shimeji
@@ -171,6 +172,9 @@ namespace DesktopAICompanion.Shimeji
     {
         public string Name;
         public int CellWidth, CellHeight, AnchorX, AnchorY;
+        /// <summary>A paged sheet's cell for each frame, before scaling (grimoire/06 section 3, feature 'pages'): the first
+        /// page's tiles, then each page's. Null for a one-sheet document, whose every frame is the one cell.</summary>
+        public Size[] FrameCells;
         public readonly Dictionary<string, TickActDef> Actions = new Dictionary<string, TickActDef>(StringComparer.Ordinal);
         public readonly Dictionary<int, TickActDef> ActionsById = new Dictionary<int, TickActDef>();
         public readonly List<TickEdgeDef> Root = new List<TickEdgeDef>();
@@ -199,6 +203,15 @@ namespace DesktopAICompanion.Shimeji
         /// </summary>
         public void ApplyScale(double scale, int spriteWidth, int spriteHeight)
         {
+            ApplyScale(scale, spriteWidth, spriteHeight, null);
+        }
+
+        /// <summary>As above; on a paged sheet (<see cref="FrameCells"/>) a pose's sizes are scaled against its own frame's
+        /// cell and <paramref name="stagedFrame"/>'s staged size of that frame, the sprite store's.</summary>
+        public void ApplyScale(double scale, int spriteWidth, int spriteHeight, Func<int, Size> stagedFrame)
+        {
+            if (FrameCells != null && stagedFrame == null)
+                throw new InvalidOperationException("type " + Name + " has a paged sheet; its frames' staged sizes are needed");
             if (_scaled) throw new InvalidOperationException("type " + Name + " is already scaled");
             _scaled = true;
             Scale = scale;
@@ -216,6 +229,20 @@ namespace DesktopAICompanion.Shimeji
                         p.Dy = ScaleMove(p.Dy, scale);
                         p.AnchorX = JavaRound(p.AnchorX * scale);
                         p.AnchorY = JavaRound(p.AnchorY * scale);
+                        if (FrameCells != null)
+                        {
+                            // A paged pose shows its frame's whole cell (the validator's rule), so each size is its
+                            // frame's staged size; a pose with no image keeps the type's cell as before.
+                            Size left = p.Frame >= 0 ? FrameCells[p.Frame] : new Size(cellWidth, cellHeight);
+                            Size leftStaged = p.Frame >= 0 ? stagedFrame(p.Frame) : new Size(spriteWidth, spriteHeight);
+                            Size right = p.Right >= 0 ? FrameCells[p.Right] : left;
+                            Size rightStaged = p.Right >= 0 ? stagedFrame(p.Right) : leftStaged;
+                            p.Width = ScaleSize(p.Width, left.Width, leftStaged.Width, scale);
+                            p.Height = ScaleSize(p.Height, left.Height, leftStaged.Height, scale);
+                            p.RightWidth = ScaleSize(p.RightWidth, right.Width, rightStaged.Width, scale);
+                            p.RightHeight = ScaleSize(p.RightHeight, right.Height, rightStaged.Height, scale);
+                            continue;
+                        }
                         p.Width = ScaleSize(p.Width, cellWidth, spriteWidth, scale);
                         p.Height = ScaleSize(p.Height, cellHeight, spriteHeight, scale);
                         p.RightWidth = ScaleSize(p.RightWidth, cellWidth, spriteWidth, scale);
@@ -274,6 +301,19 @@ namespace DesktopAICompanion.Shimeji
             type.CellHeight = sheetHeight / image.TilesY;
             type.AnchorX = image.AnchorXSpecified ? image.AnchorX : type.CellWidth / 2;
             type.AnchorY = image.AnchorYSpecified ? image.AnchorY : type.CellHeight;
+            if (image.Pages != null)
+            {
+                var cells = new List<Size>();
+                for (int t = 0; t < image.TilesX * image.TilesY; t++) cells.Add(new Size(type.CellWidth, type.CellHeight));
+                foreach (XmlData.PageNode page in image.Pages)
+                {
+                    int pageWidth, pageHeight;
+                    if (page == null || page.TilesX <= 0 || page.TilesY <= 0 || !TryReadPngSize(page.Png, out pageWidth, out pageHeight))
+                        throw new InvalidOperationException("a sheet page is not a PNG grid the engine can size");
+                    for (int t = 0; t < page.TilesX * page.TilesY; t++) cells.Add(new Size(pageWidth / page.TilesX, pageHeight / page.TilesY));
+                }
+                type.FrameCells = cells.ToArray();
+            }
 
             if (root.Header != null && root.Header.Constants != null && root.Header.Constants.Constant != null)
                 foreach (XmlData.ConstantNode c in root.Header.Constants.Constant)

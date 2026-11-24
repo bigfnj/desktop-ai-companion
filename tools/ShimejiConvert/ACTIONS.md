@@ -334,7 +334,11 @@ Composite activation cycles, depth above 32 and expansion above 4096 actions are
 Sheet cells use the maximum source image width and height, with each image copied at its cell's top-left. The
 cells form a near-square grid. When that grid breaks one of the host's sheet limits (4096 pixels a side, 256 tiles an
 axis, 1024 tiles), the sheet takes, of the grids that satisfy all of them, the one with the fewest cells, then the
-fewest columns; a member that no grid fits refuses by name (TICK_SHEET_NO_GRID). Every member the file-writing API and
+fewest columns. A member that no grid fits (the source loads each image on its own, so it has no such limit) keeps its
+frames on pages (feature `pages`, grimoire/06 section 3): one page per image size, so each cell is its image, unpadded
+at the top-left; the frames are renumbered in page order with every pose's frame and right and the parity map's
+frames, and no pixel, image size or anchor changes. Pages past the host's paged budget (24 Mi pixels, empty trailing
+cells included) refuse by name (TICK_SHEET_BUDGET). Every member the file-writing API and
 paritypack write has first passed the host's validator (TICK_OUTPUT_INVALID otherwise).
 A configuration file is named as the pack spells it on disk; two directory entries that differ only in case refuse by
 name (SOURCE_PATH_AMBIGUOUS). That refusal can be stricter than the source on a case-sensitive file system; it refuses
