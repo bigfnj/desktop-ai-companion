@@ -89,6 +89,10 @@ namespace DesktopAICompanion
                 Run("SafeScript undefined, typeof and absent properties", TestSafeScriptUndefined);
                 Run("SafeScript companion references, bounds and value chains", TestSafeScriptReferences);
                 Run("SafeScript translate moves the live anchor", TestSafeScriptTranslate);
+                Run("SafeScript members of primitives: a string's length, absent properties, unmodelled members refused", TestSafeScriptPrimitiveMembers);
+                Run("SafeScript names the engine's global object owns are refused", TestSafeScriptEngineNames);
+                Run("SafeScript a line terminator before a postfix update is not one", TestSafeScriptNewlineBeforeUpdate);
+                Run("SafeScript a lookup's weak reference does not keep its companion alive", TestSafeScriptWeakReferenceIsWeak);
                 Run("Tick script globals: one store per action activation, read by sibling scripts; the script lookup", TestTickScriptGlobalsLifetime);
                 Run("Tick scripted Affordance: typed as getAffordance(), a binding over the action's offers", TestTickScriptedAffordance);
                 Run("Tick engine selection draws once over every root condition", TestTickSelection);

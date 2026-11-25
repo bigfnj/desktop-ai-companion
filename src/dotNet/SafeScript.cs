@@ -89,6 +89,9 @@ namespace DesktopAICompanion
             public string Text;
             public double Number;
             public int Offset;
+            /// <summary>A line terminator came between the previous token and this one. JS's restricted production
+            /// forbids one before a postfix ++ or -- (ES5 7.9.1), so "p" LF "++" is not p++.</summary>
+            public bool NewlineBefore;
         }
 
         private static class Lexer
@@ -117,11 +120,21 @@ namespace DesktopAICompanion
                 tokens = new List<Token>();
                 error = null;
                 int i = 0;
+                bool newline = false;
+                var afterNewline = new HashSet<int>();
                 while (i < s.Length)
                 {
                     char c = s[i];
-                    if (char.IsWhiteSpace(c)) { i++; continue; }
+                    if (char.IsWhiteSpace(c))
+                    {
+                        // ES5 7.3 line terminators: LF, CR, LS, PS.
+                        if (c == (char)10 || c == (char)13 || c == (char)0x2028 || c == (char)0x2029) newline = true;
+                        i++;
+                        continue;
+                    }
                     int start = i;
+                    if (newline) afterNewline.Add(start);
+                    newline = false;
                     if (char.IsDigit(c) || (c == '.' && i + 1 < s.Length && char.IsDigit(s[i + 1])))
                     {
                         if (c == '0' && i + 1 < s.Length && (s[i + 1] == 'x' || s[i + 1] == 'X'))
@@ -233,6 +246,13 @@ namespace DesktopAICompanion
                     i += op.Length;
                 }
                 tokens.Add(new Token { Kind = TokenKind.End, Offset = s.Length });
+                for (int k = 0; k < tokens.Count; k++)
+                    if (afterNewline.Contains(tokens[k].Offset))
+                    {
+                        Token marked = tokens[k];
+                        marked.NewlineBefore = true;
+                        tokens[k] = marked;
+                    }
                 return true;
             }
         }
@@ -332,16 +352,16 @@ namespace DesktopAICompanion
             public static bool HasOnAnyValue(string name)
             {
                 return IsAccessor(name) || Mascot.Contains(name) || WeakReference.Contains(name) || Point.Contains(name) || Rectangle.Contains(name)
-                    || Manager.Contains(name);
+                    || Manager.Contains(name) || PrimitiveSurface.Contains(name);
             }
         }
 
-        /// <summary>The members a dynamic chain runs, by value kind (SPEC rules 5-7, 9).</summary>
+        /// <summary>The members a dynamic chain runs, by value kind (SPEC rules 5-7, 9; a string's length).</summary>
         private static bool IsModelledValueMember(string name)
         {
             switch (name)
             {
-                case "anchor": case "lookRight": case "bounds": case "x": case "y": case "width": case "height": return true;
+                case "anchor": case "lookRight": case "bounds": case "x": case "y": case "width": case "height": case "length": return true;
                 default: return false;
             }
         }
@@ -356,14 +376,41 @@ namespace DesktopAICompanion
             "private", "protected", "public", "static", "yield",
         };
 
-        // The engine's global object (ES5.1 section 15.1, B.2, and Nashorn's own): typeof of one is "object" or
-        // "function" in the source, never "undefined", and no value here models them.
-        private static readonly HashSet<string> EngineGlobals = new HashSet<string>((
+        /// <summary>
+        /// Names the engine's global object owns (ES5.1 sections 15.1 and B.2, Nashorn's own globals, and the
+        /// Object.prototype members the global object inherits): a bare read of one is the builtin in the source, which
+        /// nothing here models, and a var or an assignment of one would shadow the builtin with a value here where the
+        /// source keeps it (measured: "var Array; typeof (Array)" is "function" there). So each is refused as a read, a
+        /// declaration, an assignment and a typeof operand. Math, undefined, NaN and Infinity are read as the model's own.
+        /// </summary>
+        private static readonly HashSet<string> EngineBuiltins = new HashSet<string>((
             "arguments eval parseInt parseFloat isNaN isFinite decodeURI decodeURIComponent encodeURI encodeURIComponent escape "
             + "unescape Object Function Array String Boolean Number Date RegExp JSON Error EvalError RangeError ReferenceError "
             + "SyntaxError TypeError URIError print load loadWithNewGlobal exit quit Java JavaImporter JSAdapter Packages java javax "
-            + "javafx com edu net org ArrayBuffer DataView Int8Array Uint8Array Uint8ClampedArray Int16Array Uint16Array Int32Array "
-            + "Uint32Array Float32Array Float64Array context engine action").Split(' '), StringComparer.Ordinal);
+            + "javafx com edu net org jdk ArrayBuffer DataView Int8Array Uint8Array Uint8ClampedArray Int16Array Uint16Array Int32Array "
+            + "Uint32Array Float32Array Float64Array readLine readFully echo __FILE__ __DIR__ __LINE__ "
+            + "toString toLocaleString valueOf hasOwnProperty isPrototypeOf propertyIsEnumerable constructor __proto__ "
+            + "__defineGetter__ __defineSetter__ __lookupGetter__ __lookupSetter__ __noSuchProperty__ __noSuchMethod__").Split(' '),
+            StringComparer.Ordinal);
+
+        // typeof also refuses the objects the source binds where nothing here has a value for them unbound: the action
+        // itself (ActionBase.init puts it) and the engine's own engine and context.
+        private static bool TypeofRefused(string name)
+        {
+            return EngineBuiltins.Contains(name) || name == "action" || name == "engine" || name == "context";
+        }
+
+        /// <summary>
+        /// The properties and methods JS primitives have (ES5.1 15.5.4, 15.7.4, 15.6.4 and the Object.prototype members
+        /// they inherit, with Nashorn's trimLeft/trimRight): a member of a string, number or boolean that is on this list
+        /// and is not modelled (only a string's length is) is refused, since its source value is not the undefined an
+        /// absent property reads.
+        /// </summary>
+        private static readonly HashSet<string> PrimitiveSurface = new HashSet<string>((
+            "length charAt charCodeAt concat indexOf lastIndexOf localeCompare match replace search slice split substring substr "
+            + "toLowerCase toLocaleLowerCase toUpperCase toLocaleUpperCase trim trimLeft trimRight toFixed toExponential "
+            + "toPrecision toString toLocaleString valueOf constructor hasOwnProperty isPrototypeOf propertyIsEnumerable "
+            + "__proto__ __defineGetter__ __defineSetter__ __lookupGetter__ __lookupSetter__").Split(' '), StringComparer.Ordinal);
 
         private static bool IsReservedLiteral(string name)
         {
@@ -481,6 +528,8 @@ namespace DesktopAICompanion
             private static void CheckAssignable(string name, int offset)
             {
                 if (ReservedWords.Contains(name)) throw new ScriptSyntaxException("'" + name + "' is outside the supported subset (at " + offset + ")");
+                if (EngineBuiltins.Contains(name))
+                    throw new ScriptSyntaxException("'" + name + "' is owned by the engine's global object and cannot be declared or assigned (at " + offset + ")");
                 switch (name)
                 {
                     case "mascot": case "Math": case "true": case "false": case "null": case "undefined": case "NaN": case "Infinity":
@@ -615,7 +664,7 @@ namespace DesktopAICompanion
                                  && (_tokens[_pos + 1].Text == "." || _tokens[_pos + 1].Text == "(" || _tokens[_pos + 1].Text == "[")))
                         {
                             Token name = Next();
-                            if (EngineGlobals.Contains(name.Text))
+                            if (TypeofRefused(name.Text))
                                 throw new ScriptSyntaxException("typeof '" + name.Text + "' names the engine's global object, which is outside the supported subset (at " + name.Offset + ")");
                             if (IsOp("++") || IsOp("--")) throw new ScriptSyntaxException("an update under typeof is outside the supported subset (at " + Peek.Offset + ")");
                             _typeofNames.Add(name.Text);
@@ -673,7 +722,9 @@ namespace DesktopAICompanion
                     if (IsOp("[")) throw new ScriptSyntaxException("only mascot.variables can be indexed (at " + Peek.Offset + ")");
                     break;
                 }
-                if (IsOp("++") || IsOp("--"))
+                // ES5 7.9.1 restricted production: a line terminator before ++ or -- ends the operand, so this is not a
+                // postfix update. Without automatic semicolon insertion the operator is then left unparsed and refused.
+                if ((IsOp("++") || IsOp("--")) && !Peek.NewlineBefore)
                 {
                     Token op = Next();
                     IReference target = Reference(node, op.Offset);
@@ -710,6 +761,8 @@ namespace DesktopAICompanion
                     case "Math": return ParseMath(t.Offset);
                 }
                 if (ReservedWords.Contains(t.Text)) throw new ScriptSyntaxException("'" + t.Text + "' is outside the supported subset (at " + t.Offset + ")");
+                if (EngineBuiltins.Contains(t.Text))
+                    throw new ScriptSyntaxException("'" + t.Text + "' names the engine's global object, which is outside the supported subset (at " + t.Offset + ")");
                 // Checked against the scope once the whole program is read (ParseProgram): a var or an assignment later in
                 // the program makes the name its own.
                 _reads.Add(t);
@@ -1165,8 +1218,9 @@ namespace DesktopAICompanion
         }
 
         /// <summary>A member read resolved by the value's kind at run time (SPEC rules 6, 7, 9). A read on null or
-        /// undefined is the source's TypeError and aborts the evaluation; an absent property of a Java object reads
-        /// undefined; a present one the model does not run, or any member of a primitive, faults.</summary>
+        /// undefined is the source's TypeError and aborts the evaluation; an absent property of a Java object or a
+        /// primitive reads undefined, and a string's length is its UTF-16 length; a present one the model does not run
+        /// faults (the parser refuses those names, so that is a guard, not a path).</summary>
         private sealed class DynamicMemberNode : Node
         {
             private readonly Node _target;
@@ -1210,7 +1264,13 @@ namespace DesktopAICompanion
                     case ScriptValueKind.Manager:
                         break;
                     default:
-                        return run.Fail("'." + _member + "' of " + KindName(t.Kind) + " is not part of the object model (at " + _offset + ")");
+                        // A primitive (ES5 8.7.1 GetValue boxes it): a string's length is its UTF-16 length; a member its
+                        // prototype has is unmodelled (the parser refuses those names); any other reads undefined, as
+                        // measured: "var pace = 1; typeof pace.width" is "undefined".
+                        if (_member == "length" && t.Kind == ScriptValueKind.String) return ScriptValue.FromNumber(t.Text.Length);
+                        if (_member != "length" && PrimitiveSurface.Contains(_member))
+                            return run.Fail("'." + _member + "' of " + KindName(t.Kind) + " is not part of the object model (at " + _offset + ")");
+                        return ScriptValue.Undefined;
                 }
                 if (JavaSurface.Has(t.Kind, _member))
                     return run.Fail("'." + _member + "' of " + KindName(t.Kind) + " is not part of the object model (at " + _offset + ")");
@@ -1237,8 +1297,8 @@ namespace DesktopAICompanion
                     foreach (Node a in _args) a.Eval(run);
                 if (t.Kind == ScriptValueKind.WeakRef && _member == "get")
                 {
-                    object m = ((ScriptWeakRef)t.Ref).Target;
-                    return run.Context.IsReferenceLive(m) ? ScriptValue.FromMascot(m) : ScriptValue.Null;
+                    object m = ((ScriptWeakRef)t.Ref).Get();
+                    return m != null && run.Context.IsReferenceLive(m) ? ScriptValue.FromMascot(m) : ScriptValue.Null;
                 }
                 if (t.Kind == ScriptValueKind.Manager && _member == "getMascotWithAffordance")
                 {
@@ -1750,8 +1810,17 @@ namespace DesktopAICompanion
     /// call, so two lookups of the same companion are not the same reference.</summary>
     internal sealed class ScriptWeakRef
     {
-        public readonly object Target;
-        public ScriptWeakRef(object target) { Target = target; }
+        // Weak, as the source's java.lang.ref.WeakReference is: a handle kept in mascot.variables or a script global
+        // must not keep a disposed companion (and all it references) alive.
+        private readonly WeakReference<object> _target;
+        public ScriptWeakRef(object target) { _target = new WeakReference<object>(target); }
+
+        /// <summary>WeakReference.get: the companion, or null once it has been collected.</summary>
+        public object Get()
+        {
+            object target;
+            return _target.TryGetTarget(out target) ? target : null;
+        }
     }
 
     /// <summary>A SafeScript value: a JS-like number, boolean, string, null or undefined, a point (an anchor or cursor),

@@ -553,7 +553,17 @@ playable variant has no duration whose last tick could fire anything.
 - `mascot.anchor.translate(dx, dy)`: moves the live anchor at once; each argument is truncated to a Java long
   (saturating) and its low 32 bits taken, as Nashorn passes a number to an int. On a copied point it faults.
 - Member chains on values (a local, a call result, a `mascot.variables` read) are resolved by the value's kind
-  when they run; a member of null or undefined is the source's TypeError and aborts the evaluation.
+  when they run; a member of null or undefined is the source's TypeError and aborts the evaluation. On a
+  primitive, a string's `length` is its UTF-16 length and any other property reads undefined; a property or method
+  of String, Number, Boolean or Object.prototype (`charAt`, `toFixed`, `toString` ...) is refused.
+- Names the engine's global object owns (`Array`, `Object`, `String`, `Number`, `parseInt`, `JSON`, `Java`,
+  `Packages`, `print`, `arguments`, the inherited `toString` and the rest) are refused as reads, `var`
+  declarations, assignments and `typeof` operands: the source keeps the builtin where a declaration here would
+  shadow it.
+- A line terminator before a postfix `++` or `--` ends the operand (ES5 7.9.1), so `p` LF `++` is refused, as
+  the source refuses it; there is no automatic semicolon insertion.
+- The reference a lookup returns is weak, as the source's is: a reference kept in `mascot.variables` or a global
+  does not keep a companion alive.
 - `mascot.variables['empty']`, `['class']` and `['rawMap']` are refused: Nashorn links those keys to the map's own
   bean getters.
 

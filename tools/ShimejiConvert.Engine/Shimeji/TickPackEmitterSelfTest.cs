@@ -1580,7 +1580,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     actions.Root.Element("ActionList").Add(S("Action", A("Name", "Odd"), A("Type", "Move"),
                         A("TargetX", "${" + global + " * 10}"), A(global, "5"), S("Animation", Pose("/p.png", 1))));
                     fixture.Actions(actions);
-                    Refusal(fixture, "TICK_EXPRESSION_UNSUPPORTED TargetX: unknown name '" + global + "'");
+                    // Refused as a name of the engine's global object (SafeScript.EngineBuiltins), whatever binds it.
+                    Refusal(fixture, "TICK_EXPRESSION_UNSUPPORTED TargetX: '" + global + "' names the engine's global object");
                 }
         }
 
@@ -1605,7 +1606,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     try { TickPackEmitter.PrepareMembers(fixture.Pack, false); }
                     catch (InvalidDataException error)
                     {
-                        Require(error.Message.Contains("TICK_EXPRESSION_UNSUPPORTED TargetX: unknown name '" + global + "'"),
+                        // engine and context are refused by scope (a bound scalar is carried); arguments is the engine's own.
+                        string expected = global == "arguments" ? "TICK_EXPRESSION_UNSUPPORTED TargetX: 'arguments' names the engine's global object"
+                            : "TICK_EXPRESSION_UNSUPPORTED TargetX: unknown name '" + global + "'";
+                        Require(error.Message.Contains(expected),
                             "nashorn-globals: an unbound object received the wrong refusal: " + global + ": " + error.Message);
                         refused = true;
                     }
@@ -1620,7 +1624,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 actions.Root.Element("ActionList").Add(S("Action", A("Name", "Global"), A("Type", "Move"),
                     A("TargetX", "${arguments * 10}"), A("arguments", "5"), S("Animation", Pose("/p.png", 1))));
                 fixture.Actions(actions);
-                Refusal(fixture, "TICK_EXPRESSION_UNSUPPORTED TargetX: unknown name 'arguments'");
+                Refusal(fixture, "TICK_EXPRESSION_UNSUPPORTED TargetX: 'arguments' names the engine's global object");
                 Require(!Directory.Exists(fixture.Output), "nashorn-globals: a bound arguments object left partial output");
             }
             // WITNESS: the names are case-sensitive globals, not forbidden custom-variable prefixes.

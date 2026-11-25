@@ -595,10 +595,88 @@ namespace DesktopAICompanion
             AssertEqual(".nickname", string.Join(",", odd.AbsentProperties), "An absent property of a value was not recorded.");
             AssertTrue(ParseError(Find + "peer.get().imageSet", none).Contains("not part of the object model"), "A present, unmodelled property of a reference was not refused.");
             AssertTrue(ParseError(Find + "peer.get().dispose()", none).Contains("not part of the object model"), "An unmodelled method of a reference was not refused.");
-            var prim = new FakeScriptContext();
-            AssertEqual(ScriptValueKind.Null, Eval("var n = 1; n.width", prim, none).Kind, "A member of a number did not fault.");
-            AssertEqual(1, prim.Faults.Count, "A member of a number was not reported.");
             AssertTrue(ParseError("var a = 1; a[0]", none).Contains("only mascot.variables can be indexed"), "Indexing a value was not refused.");
+        }
+
+        /// <summary>Members of primitives (Codex's review of 91b24dbf, measured on the pinned runtime): a string's length is
+        /// its UTF-16 length, an absent property of a number reads undefined with no error, and a member the primitive's
+        /// prototype has but the model does not run is refused at parse time.</summary>
+        private static void TestSafeScriptPrimitiveMembers()
+        {
+            Func<string, bool> none = n => false;
+            var prim = new FakeScriptContext();
+            AssertTrue(Eval("var label = 'walk'; label.length > 2", prim, none).IsTruthy, "'walk'.length > 2 was not true, as the source measures it.");
+            AssertEqual(4.0, Eval("var label = 'walk'; label.length", prim, none).Number, "A string's length was not its length.");
+            string astral = "'" + char.ConvertFromUtf32(0x1F600) + "'";
+            AssertEqual(2.0, Eval("var s = " + astral + "; s.length", prim, none).Number, "A string's length was not counted in UTF-16 units.");
+            AssertEqual("undefined", Eval("var pace = 1; typeof pace.width", prim, none).Text, "typeof of an absent property of a number was not 'undefined'.");
+            AssertEqual(ScriptValueKind.Null, Eval("var pace = 1; pace.length", prim, none).Kind, "A number's length did not read undefined.");
+            AssertEqual("undefined", Eval("var lit = true; typeof lit.x", prim, none).Text, "typeof of an absent property of a boolean was not 'undefined'.");
+            AssertEqual("undefined", Eval("var b = mascot.bounds; typeof b.length", prim, none).Text, "A Java object's length did not read undefined.");
+            AssertEqual(0, prim.Faults.Count, "A primitive's length or absent property was reported as a fault: " + string.Join("; ", prim.Faults));
+            AssertEqual(0, ParseOrFail("var s = 'a'; s.length", none).AbsentProperties.Count, "length was recorded (and would be warned) as an absent property.");
+            AssertTrue(ParseError("var s = 'a'; s.charAt(0)", none).Contains("not part of the object model"), "A string method call was not refused.");
+            AssertTrue(ParseError("var s = 'a'; s.toUpperCase", none).Contains("not part of the object model"), "A string method read as a property was not refused.");
+            AssertTrue(ParseError("var n = 1; n.toFixed", none).Contains("not part of the object model"), "A number method read as a property was not refused.");
+        }
+
+        /// <summary>Names the engine's global object owns are refused as reads, declarations, assignments and typeof operands
+        /// (measured: "var Array; typeof (Array)" is "function" in the source); ordinary locals keep working.</summary>
+        private static void TestSafeScriptEngineNames()
+        {
+            AssertTrue(ParseError("var Array; typeof (Array)").Contains("engine's global object"), "Declaring Array was not refused.");
+            AssertTrue(ParseError("typeof (Array)").Contains("engine's global object"), "A parenthesised typeof of Array was not refused.");
+            AssertTrue(ParseError("typeof Object").Contains("engine's global object"), "typeof Object was not refused.");
+            AssertTrue(ParseError("Object = 1", n => true).Contains("engine's global object"), "Assigning Object was not refused, even with an open scope.");
+            AssertTrue(ParseError("parseInt", n => true).Contains("engine's global object"), "Reading parseInt was not refused, even with an open scope.");
+            AssertTrue(ParseError("var toString = 1").Contains("engine's global object"), "Declaring an inherited Object.prototype name was not refused.");
+            AssertTrue(ParseError("Java++", n => true).Contains("engine's global object"), "Updating Java was not refused.");
+            AssertEqual("undefined", Eval("var arr; typeof arr").Text, "WITNESS: an ordinary uninitialised local is not 'undefined'.");
+            AssertEqual(3.0, Eval("var stride = 3; stride").Number, "WITNESS: an ordinary initialised local does not read back.");
+        }
+
+        /// <summary>ES5 7.9.1: a line terminator before a postfix ++ or -- ends the operand, so "p" LF "++" is not p++
+        /// (the source refuses the script). Measured: the same-line update is accepted by both.</summary>
+        private static void TestSafeScriptNewlineBeforeUpdate()
+        {
+            foreach (int terminator in new[] { 10, 13, 0x2028, 0x2029 })
+            {
+                string nl = ((char)terminator).ToString();
+                AssertTrue(ParseError("var p = 2; p" + nl + "++; p").Length > 0, "A line terminator U+" + terminator.ToString("X4") + " before ++ was read as a postfix update.");
+                AssertTrue(ParseError("mascot.variables['k']" + nl + "--").Length > 0, "A line terminator U+" + terminator.ToString("X4") + " before -- was read as a postfix update.");
+                AssertEqual(3.0, Eval("var p = 2;" + nl + "p++;" + nl + "p").Number, "WITNESS: line terminators between statements broke a same-line update.");
+            }
+            AssertEqual(3.0, Eval("var p = 2; p ++; p").Number, "WITNESS: a same-line postfix update with a space was refused.");
+            AssertEqual(3.0, Eval("var p = 2; p" + (char)10 + "+ 1").Number, "WITNESS: a line terminator before a binary + was refused.");
+        }
+
+        /// <summary>The weak reference a lookup returns does not keep its companion alive (Codex's review): once nothing
+        /// else holds the companion, a reference kept in mascot.variables reads null after a collection.</summary>
+        private static void TestSafeScriptWeakReferenceIsWeak()
+        {
+            var c = new FakeScriptContext();
+            KeepOnlyAWeakReference(c);
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+            AssertTrue(Eval("mascot.variables['w'] != null && mascot.variables['w'].get() == null", c).IsTruthy,
+                "A weak reference kept in mascot.variables still held its companion after a collection.");
+            var live = new FakeMascot { Name = "live" };
+            live.Offers.Add("Here");
+            c.Manager.Add(live);
+            AssertTrue(Eval("mascot.variables['v'] = mascot.manager.getMascotWithAffordance('Here'); mascot.variables['v'].get() != null", c).IsTruthy,
+                "WITNESS: a weak reference to a companion still held elsewhere read as cleared.");
+            GC.KeepAlive(live);
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void KeepOnlyAWeakReference(FakeScriptContext c)
+        {
+            var gone = new FakeMascot { Name = "gone" };
+            gone.Offers.Add("Gone");
+            c.Manager.Add(gone);
+            Eval("mascot.variables['w'] = mascot.manager.getMascotWithAffordance('Gone'); true", c);
+            c.Manager.Remove(gone);
         }
 
         /// <summary>Rule 8: translate moves the live anchor, in argument order, visible to the rest of the evaluation.</summary>
