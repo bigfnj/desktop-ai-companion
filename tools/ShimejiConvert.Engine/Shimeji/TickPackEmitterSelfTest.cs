@@ -3234,6 +3234,24 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     }
                     Require(sum <= total, "sound recovery (" + c.Name + "): the emitted clips total " + sum + " bytes");
                 }
+                // Review of 52fe1fab: the source identity is the source's whatever recovery drops. Every played clip's file
+                // is in its manifest, the dropped one included, though recovery keeps no bytes of it and the identity hashes
+                // files by path; reproduced here independently, as SoundSourceIdentity does, with no emitter helper.
+                using (Fixture fixture = build())
+                {
+                    var paths = new SortedSet<string>(StringComparer.Ordinal) { "conf/actions.xml", "conf/behaviors.xml", "img/A/p.png", "img/A/q.png" };
+                    foreach (string file in c.Files) paths.Add("sound/" + file);
+                    var manifest = new StringBuilder();
+                    foreach (string path in paths)
+                        manifest.Append(IdentityHash(File.ReadAllBytes(Path.Combine(fixture.Pack, path.Replace('/', Path.DirectorySeparatorChar)))))
+                            .Append("  ").Append(path).Append('\n');
+                    string expected = "shimeji-" + IdentityHash(Encoding.UTF8.GetBytes("shimeji-source-pack/1\nA\n"
+                        + IdentityHash(Encoding.UTF8.GetBytes(manifest.ToString())))).Substring(0, 24);
+                    IReadOnlyList<string> ignored;
+                    TickPackEmitter.ConvertPack(fixture.Pack, fixture.Output, "A", out ignored, true);
+                    string actual = (string)XDocument.Load(fixture.XmlPath).Root.Element(Ns + "header").Element(Ns + "pack").Attribute("id");
+                    Require(actual == expected, "sound recovery (" + c.Name + "): the pack id is not the source's: " + actual + " against " + expected);
+                }
                 // The pack API (Studio's path) files the drop under the member's Dropped residue, which the import-loss
                 // summary renders under "Dropped entirely", and as one pack warning.
                 using (Fixture fixture = build())

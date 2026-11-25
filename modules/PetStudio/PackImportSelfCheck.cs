@@ -35,6 +35,7 @@ namespace DesktopAICompanion.PetStudioModule
             CheckWithSyntheticPack(probe);
             CheckRecovery(probe);
             CheckSoundRecovery(probe);
+            CheckRefusedRecovery(probe);
         }
 
         // ---- decision 64: strict by default; "Import with recovery" is the author's choice, shown before Install ----
@@ -161,6 +162,57 @@ namespace DesktopAICompanion.PetStudioModule
                     && PackImport.DroppedClipsByRecovery(recovered) == 1 && PackImport.DroppedByRecovery(recovered) == 0);
             }
             catch (Exception ex) { probe.Check("the sound recovery checks ran without an exception: " + ex.GetType().Name + ": " + ex.Message, false); }
+            finally
+            {
+                try { if (Directory.Exists(scratch)) Directory.Delete(scratch, true); } catch { }
+            }
+        }
+
+        /// <summary>
+        /// Review of 52fe1fab: a retry with recovery that is itself refused says so and gives no install advice. Alpha has a
+        /// clip past 60 s, which recovery drops; Beta a next entry naming no behaviour under a scripted condition, which
+        /// recovery does not lift (TICK_NEXT_MISSING_SCRIPTED). The strict refusal offers recovery for Alpha's clip; the
+        /// retry is refused for Beta's entry, and its note and status must not read as a recovered pack.
+        /// </summary>
+        private static void CheckRefusedRecovery(SelfTestProbe probe)
+        {
+            string scratch = Path.Combine(Path.GetTempPath(), "dp-petstudio-refused-recovery-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                string packRoot = Path.Combine(scratch, "Stubborn Pack");
+                WriteMember(packRoot, "Alpha", null);
+                WriteMember(packRoot, "Beta", null);
+                string actions = Path.Combine(packRoot, "img", "Alpha", "conf", "actions.xml");
+                XDocument alpha = XDocument.Load(actions);
+                alpha.Descendants("Pose").First().SetAttributeValue("Sound", "/long.wav");
+                File.WriteAllText(actions, alpha.ToString());
+                Directory.CreateDirectory(Path.Combine(packRoot, "sound"));
+                File.WriteAllBytes(Path.Combine(packRoot, "sound", "long.wav"), Wave8BitMono(8000, 61 * 8000));
+                string behaviours = Path.Combine(packRoot, "img", "Beta", "conf", "behaviors.xml");
+                XDocument beta = XDocument.Load(behaviours);
+                beta.Root.Element("BehaviorList").Elements("Behavior").First().Add(new XElement("NextBehaviorList", new XAttribute("Add", "true"),
+                    new XElement("BehaviorReference", new XAttribute("Name", "Ghost"), new XAttribute("Action", "Stand"), new XAttribute("Frequency", 1),
+                        new XAttribute("Condition", "${mascot.lookRight}"))));
+                File.WriteAllText(behaviours, beta.ToString());
+                string refusal;
+                PackConversionOptions options = PackImport.SelectPackOptions(PackImport.DefaultChoices(PackImport.ListMemberKeys(packRoot), "Alpha"),
+                    "Alpha", null, null, out refusal);
+                PackConversionResult strict = options == null ? null : PackImport.ConvertGuarded(packRoot, options, PackImport.ConvertWithEngine, out refusal);
+                probe.Check("WITNESS the strict pack is refused for both members and offers recovery for Alpha's clip: " + (strict == null ? refusal : string.Join(" | ", strict.Errors)),
+                    strict != null && !strict.Accepted && PackImport.OffersRecovery(strict, options)
+                    && strict.Errors.Any(e => e.Contains("TICK_SOUND_DECODE_LIMIT")) && strict.Errors.Any(e => e.Contains("TICK_NEXT_MISSING_SCRIPTED")));
+                PackConversionOptions recovering = PackImport.WithRecovery(options);
+                PackConversionResult retried = PackImport.ConvertGuarded(packRoot, recovering, PackImport.ConvertWithEngine, out refusal);
+                string note = PackImport.RecoveryNote(retried, recovering);
+                string status = retried == null ? refusal : PackImport.StatusPrefix(retried, recovering, "Stubborn Pack");
+                probe.Check("a retry with recovery that is itself refused says so, with no install advice, and installs nothing: " + status + " / " + note,
+                    retried != null && !retried.Accepted && !PackImport.CanInstall(retried, true) && !PackImport.OffersRecovery(retried, recovering)
+                    && note == PackImport.RecoveryRefusedNote && note.IndexOf("Install pack", StringComparison.Ordinal) < 0
+                    && status.StartsWith("Pack 'Stubborn Pack' not accepted: ", StringComparison.Ordinal)
+                    && status.EndsWith("Recovery did not lift this refusal. ", StringComparison.Ordinal)
+                    && status.IndexOf("Converted with recovery", StringComparison.Ordinal) < 0);
+            }
+            catch (Exception ex) { probe.Check("the refused-recovery checks ran without an exception: " + ex.GetType().Name + ": " + ex.Message, false); }
             finally
             {
                 try { if (Directory.Exists(scratch)) Directory.Delete(scratch, true); } catch { }

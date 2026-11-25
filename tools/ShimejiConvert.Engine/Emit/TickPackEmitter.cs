@@ -440,8 +440,11 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             // Embedded audio assets by canonical Sound identity, in first-use order. Runtime clips additionally use
             // the pose's volume (TickClip): two volumes share these bytes but have independent playback state.
             // DecodedSeconds: set, under recovery only, when the clip decodes past the host's cap (Clip), so the member's
-            // build drops it (CarriedClips) instead of the pose refusing the member.
-            private sealed class SoundClip { public string Id, SourceName, DecodedSeconds; public byte[] Bytes; public bool Used; }
+            // build drops it (CarriedClips) instead of the pose refusing the member. Length is the clip's byte count, kept
+            // when Bytes is released: under recovery a clip that will be dropped whatever else happens (past the cap or
+            // the per-clip limit) keeps only its length and decoded length (review of 52fe1fab); the source identity
+            // hashes its file by path, streaming, so nothing else reads its bytes.
+            private sealed class SoundClip { public string Id, SourceName, DecodedSeconds; public byte[] Bytes; public long Length; public bool Used; }
             private readonly Dictionary<string, SoundClip> _clips = new Dictionary<string, SoundClip>(StringComparer.Ordinal);
             private readonly List<SoundClip> _clipOrder = new List<SoundClip>();
             // Source identity predates asset deduplication: only paths of played source spellings enter its manifest.
@@ -591,6 +594,11 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 // pf/sound-limits: under recovery a played clip the host cannot carry is dropped, never emitted, before
                 // anything reads the clip list (the 'wav' token, the sounds, the limits below); by default it refuses.
                 if (RecoverMissingNext) clips = CarriedClips(clips);
+                // Review of 52fe1fab: a clip whose bytes recovery released (Clip) is always one CarriedClips drops; one that
+                // reached the document would be emitted empty, so it is an internal fault, said by name.
+                if (clips.Any(c => c.Bytes == null))
+                    throw new InvalidOperationException("TICK_SOUND_RELEASED: clip '" + clips.First(c => c.Bytes == null).SourceName
+                        + "' had its bytes released for a drop that did not happen");
                 // grimoire/06 sections 1 and 3: every clip is a WAV (Clip refuses anything else), so 'wav' is declared.
                 if (clips.Count > 0) features += " wav";
                 // Display names have a shorter host limit than exact pack member keys.
@@ -1462,7 +1470,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     string path = Path.GetFullPath(Path.Combine(_pack, relative.Replace('/', Path.DirectorySeparatorChar)));
                     if (!Inside(_pack, path)) throw new InvalidDataException("Source identity input leaves its pack.");
                     SafeEntry(path);
-                    manifest.Append(Hash(File.ReadAllBytes(path))).Append("  ").Append(relative).Append('\n');
+                    manifest.Append(HashFile(path)).Append("  ").Append(relative).Append('\n');
                 }
                 return Hash(Encoding.UTF8.GetBytes(manifest.ToString()));
             }
@@ -1791,7 +1799,12 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     Fail(pose, "TICK_SOUND_MP3: clip '" + soundText + "' holds MP3 audio, which the source's javax.sound cannot open, so the source refuses this image set");
                 else
                     Fail(pose, "TICK_SOUND_FORMAT: clip '" + soundText + "' is neither a RIFF/WAVE nor MP3; the host plays WAV clips");
-                clip = new SoundClip { Id = id, SourceName = soundText, Bytes = bytes, DecodedSeconds = decodedSeconds };
+                clip = new SoundClip { Id = id, SourceName = soundText, Bytes = bytes, Length = bytes.Length, DecodedSeconds = decodedSeconds };
+                // Review of 52fe1fab: recovery drops this clip whatever the member's other clips are, so its buffer is not
+                // held to the end of the member's build; its length and decoded length are all CarriedClips reads.
+                if (RecoverMissingNext && (decodedSeconds != null
+                    || bytes.Length > DesktopAICompanion.CompanionXmlValidator.MaximumAudioBytesFor(new XmlData.SoundNode { Format = "wav" })))
+                    clip.Bytes = null;
                 _clips.Add(id, clip);
                 _clipOrder.Add(clip);
                 _soundSources.Add(soundText, new SoundSource { Name = soundText, PackPath = chosen, Clip = clip });
@@ -1862,18 +1875,18 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     if (clip.DecodedSeconds != null)
                         DropClip(clip, "the clip decodes to " + clip.DecodedSeconds + " s, past the " + (MaximumClipDecodedSamples / MixerChannels / MixerSampleRate)
                             + " s the host decodes");
-                    else if (clip.Bytes.Length > clipLimit)
-                        DropClip(clip, "the clip is " + clip.Bytes.Length + " bytes, past the host's per-clip limit of " + clipLimit + " bytes");
+                    else if (clip.Length > clipLimit)
+                        DropClip(clip, "the clip is " + clip.Length + " bytes, past the host's per-clip limit of " + clipLimit + " bytes");
                     else carried.Add(clip);
                 }
-                long total = carried.Sum(c => (long)c.Bytes.Length);
+                long total = carried.Sum(c => c.Length);
                 while (total > DesktopAICompanion.CompanionXmlValidator.MaximumAudioBytesTotal)
                 {
-                    SoundClip largest = carried.OrderByDescending(c => c.Bytes.Length).ThenBy(c => c.Id, StringComparer.Ordinal).First();
+                    SoundClip largest = carried.OrderByDescending(c => c.Length).ThenBy(c => c.Id, StringComparer.Ordinal).First();
                     DropClip(largest, "the member's played clips total " + total + " bytes, past the " + DesktopAICompanion.CompanionXmlValidator.MaximumAudioBytesTotal
-                        + " bytes of audio one document may hold, and this clip (" + largest.Bytes.Length + " bytes) was the largest left");
+                        + " bytes of audio one document may hold, and this clip (" + largest.Length + " bytes) was the largest left");
                     carried.Remove(largest);
-                    total -= largest.Bytes.Length;
+                    total -= largest.Length;
                 }
                 return carried;
             }
@@ -2075,6 +2088,15 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         {
             using (SHA256 sha = SHA256.Create())
                 return BitConverter.ToString(sha.ComputeHash(bytes)).Replace("-", "").ToLowerInvariant();
+        }
+
+        /// <summary>The same digest as <see cref="Hash"/> of the file's bytes, read as a stream (review of 52fe1fab: the
+        /// source identity no longer holds a whole clip or sprite in memory to hash it).</summary>
+        private static string HashFile(string path)
+        {
+            using (SHA256 sha = SHA256.Create())
+            using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 16, FileOptions.SequentialScan))
+                return BitConverter.ToString(sha.ComputeHash(stream)).Replace("-", "").ToLowerInvariant();
         }
         private static IEnumerable<ShimejiSourceAttribute> Attributes(ShimejiSourceElement source)
         {

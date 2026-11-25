@@ -672,6 +672,10 @@ namespace DesktopAICompanion.PetStudioModule
             }
             if (result != null && options != null && options.RecoverMissingNext)
             {
+                // Review of 52fe1fab: a retry with recovery can itself be refused (a refusal recovery does not lift, beside
+                // one it does). It says so, and gives no install advice: nothing can be installed (CanInstall).
+                if (!result.Accepted)
+                    return RecoveryRefusedNote;
                 if (DroppedClipsByRecovery(result) > 0)
                     return "Converted with recovery: every dropped next entry and sound clip is listed above (policy:next-missing-dropped, "
                         + SoundRecoveryPolicy + ", differences from the original program, which plays those clips). Install pack "
@@ -681,6 +685,11 @@ namespace DesktopAICompanion.PetStudioModule
             }
             return null;
         }
+
+        /// <summary>The note after a retry with recovery that was itself refused: the refusal listed above is not one
+        /// recovery lifts, and nothing can be installed.</summary>
+        internal const string RecoveryRefusedNote = "Converted again with recovery, and still not accepted: the refusal listed above "
+            + "is not one recovery lifts, so nothing can be installed from this pack.";
 
         /// <summary>The policy tag the converter puts on each next entry recovery dropped (PD-1: one Dropped residue item
         /// per entry, in its member's residue).</summary>
@@ -724,6 +733,8 @@ namespace DesktopAICompanion.PetStudioModule
                 ? "Pack '" + title + "' accepted. "
                 : "Pack '" + title + "' not accepted" + (string.IsNullOrWhiteSpace(result.Error) ? "" : ": " + result.Error.Trim().TrimEnd('.')) + ". ";
             if (options == null || !options.RecoverMissingNext) return verdict;
+            // Review of 52fe1fab: a refused retry reports no recovery counts, which read as a recovered pack.
+            if (!result.Accepted) return verdict + "Recovery did not lift this refusal. ";
             int clips = DroppedClipsByRecovery(result);
             return verdict + "Converted with recovery: " + DroppedByRecovery(result) + " dropped next entry(s)"
                 + (clips > 0 ? " and " + clips + " dropped sound clip(s)" : "") + ", each listed in the pack report. ";
