@@ -450,7 +450,10 @@ namespace DesktopAICompanion.Shimeji
             List<string> stepErrors = Errors(t, emitted);
             string internalLine = stepErrors.Find(l => l.Contains("\"sid\":\"m1\""));
             string internalError = ErrorOf(internalLine, out message);
-            Golden(golden, message, "internal fault: NullReferenceException: Object reference not set to an instance of an object.");
+            // The Bad action's scripted Affordance yields null: the source's getAffordance().trim() throws a NullPointerException
+            // there, and the host raises its NullReferenceException with that site named (TickAction.CurrentOffers, the
+            // SafeScript lane), still not the host's own fault class, so still unclassified via [].
+            Golden(golden, message, "internal fault: NullReferenceException: action 'Bad': Affordance is null (getAffordance().trim(), ActionBase.java:95)");
             check(internalError == "{\"code\":\"unclassified\",\"lookup\":null,\"via\":[]}" && bad.Disposing,
                 "parity error: a fault that is not the host's own class, caught by the step, is unclassified with via [] (" + internalError + ")");
 
