@@ -441,7 +441,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             }
             private int _next = 2;
             // The feature tokens the validator demands for what this member USES (grimoire/06 sections 1 and 10).
-            private bool _lifecycle, _social, _windows, _hotspots, _expressions, _variables;
+            private bool _lifecycle, _social, _windows, _hotspots, _expressions, _variables, _statements;
             // Embedded audio assets by canonical Sound identity, in first-use order. Runtime clips additionally use
             // the pose's volume (TickClip): two volumes share these bytes but have independent playback state.
             // DecodedSeconds: set, under recovery only, when the clip decodes past the host's cap (Clip), so the member's
@@ -596,6 +596,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     + (_windows ? " windows" : "") + (_hotspots ? " hotspots" : "");
                 if (_expressions || _nodes.SelectMany(n => n.Descendants()).Any(n => n.Attribute("when") != null)) features += " expressions";
                 if (_variables) features += " variables";
+                if (_statements) features += " statements";
                 List<SoundClip> clips = _clipOrder.Where(c => c.Used).ToList();
                 // pf/sound-limits: under recovery a played clip the host cannot carry is dropped, never emitted, before
                 // anything reads the clip list (the 'wav' token, the sounds, the limits below); by default it refuses.
@@ -1611,8 +1612,31 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     if (!declared.Contains(global) && (own == null || !_alwaysBoundCustom.TryGetValue(own, out every) || !every.Contains(global)))
                         names.Remove(global);
                 }
+                // SafeScript SPEC rule 2: the scripts of one action share one global store, so a name any of them declares
+                // (var) or assigns is in scope for its siblings. Bindings onto the action are not searched: a name only a
+                // binding declares stays refused in its siblings.
+                names.UnionWith(SiblingGlobals(action));
                 if (names.Count == 0) return ActionScope;
                 return name => ActionScope(name) || names.Contains(name);
+            }
+
+            /// <summary>The script globals the action's own scripted attributes and its Animation Conditions declare or
+            /// assign, read with the host's parser in an open scope (a script that does not parse adds nothing and is
+            /// refused where it is lowered).</summary>
+            private static IEnumerable<string> SiblingGlobals(ShimejiSourceElement action)
+            {
+                var found = new HashSet<string>(StringComparer.Ordinal);
+                var scripted = new List<ShimejiSourceAttribute>(action.Attributes.Where(a => !a.IsNamespaceDeclaration && a.Cache != ShimejiSourceCache.Literal));
+                foreach (ShimejiSourceElement animation in action.Children.Where(n => n.Kind == ShimejiSourceKind.Animation))
+                    scripted.AddRange(animation.Attributes.Where(a => !a.IsNamespaceDeclaration && a.Cache != ShimejiSourceCache.Literal));
+                foreach (ShimejiSourceAttribute attribute in scripted)
+                {
+                    DesktopAICompanion.ScriptProgram program;
+                    string error;
+                    if (DesktopAICompanion.SafeScript.TryParse(BeanProperties(attribute.Expression), name => true, out program, out error))
+                        found.UnionWith(program.Globals);
+                }
+                return found;
             }
 
             /// <summary>Records Affordance overrides and the custom variables a reference or behaviour binds to its
@@ -1730,8 +1754,16 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 bool parsed = DesktopAICompanion.SafeScript.TryParse(body, scope, out program, out error);
                 if (!parsed) Fail(owner, "TICK_EXPRESSION_UNSUPPORTED " + attribute.QualifiedName + ": " + error);
                 _expressions = true;
-                // The validator demands 'variables' of an expression its parser finds reading or writing them.
+                // The validator demands 'variables' of an expression its parser finds reading or writing them, and
+                // 'statements' of one that uses the statement grammar or the extended object model.
                 if (program != null && program.UsesVariables) _variables = true;
+                if (program != null && program.UsesStatements) _statements = true;
+                // Nashorn reads an absent Java property as undefined, and so does the host; the script runs as the source's
+                // does, but a read of nothing is usually a mistake in the skin, so it is named (SPEC rule 4).
+                if (program != null)
+                    foreach (string absent in program.AbsentProperties)
+                        _warnings.Add("TICK_SCRIPT_ABSENT_PROPERTY: " + attribute.QualifiedName + " reads '" + absent
+                            + "', which the source's object has no property for; it reads undefined there and here");
                 return body;
             }
 

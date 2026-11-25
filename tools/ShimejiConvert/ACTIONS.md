@@ -234,7 +234,15 @@ cache `action` or `frame` where the source reads it as a script: an action param
 binding, a scripted action Condition (a cached parameter the guard's `when` names), a scripted Animation
 Condition (a cached `AnimationConditionN` parameter the variant's `when` names) and a selection condition (the
 edge's `when`, uncached). Every body is parsed with the host's own tick grammar (`SafeScript`) in the scope
-the validator gives it, and one that does not parse is refused with the attribute and the parser's message; a
+the validator gives it, and one that does not parse is refused with the attribute and the parser's message. A
+script using the statement grammar (statement sequences, `var`, `++`/`--`, compound assignment, `typeof`,
+undefined, `getManager().getMascotWithAffordance(...)` with `.get()`, `getBounds()`, `anchor.translate(...)`)
+lowers unchanged and its member declares `statements`; a name another script of the same action declares or
+assigns is in scope; each absent Java property a script reads (undefined in the source and the host) is warned as
+`TICK_SCRIPT_ABSENT_PROPERTY` with its path. The host reads a scripted Affordance as the source types it (a String
+offered untrimmed unless Java's trim leaves it empty; null and any other kind are the source's NullPointerException
+and ClassCastException). Host policy difference: the source does not contain those exceptions per companion; the
+host ends only the companion whose step threw, reported, and the step goes on. A
 scripted Affordance is refused, and so is a script-shaped value in any attribute the source reads literally.
 Every embedded class of the host's closed list is lowered, with its parameters by the names the host's family
 files read; the member declares `lifecycle`, `social` and `windows` for the classes the validator gates by

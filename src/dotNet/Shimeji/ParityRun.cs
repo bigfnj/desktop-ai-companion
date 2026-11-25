@@ -1119,7 +1119,8 @@ namespace DesktopAICompanion.Shimeji
             foreach (string k in keys)
             {
                 ScriptValue v = m.Variables[k];
-                if (v.Kind == ScriptValueKind.Point) continue;   // stored SCALAR variables only
+                // Stored SCALAR variables only: a point, a companion or weak reference and a rectangle are objects.
+                if (v.Kind == ScriptValueKind.Point || v.IsJavaObject) continue;
                 if (!first) b.Append(',');
                 first = false;
                 b.Append(JsonLine.Quote(k)).Append(':').Append(JsonLine.Value(v));

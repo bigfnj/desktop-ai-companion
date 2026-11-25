@@ -26,6 +26,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "lifecycle-parameters", Run = (Action)LifecycleParameters },
                 new { Name = "expression-placements", Run = (Action)ExpressionPlacements },
                 new { Name = "expression-variables", Run = (Action)ExpressionVariables },
+                new { Name = "expression-statements", Run = (Action)ExpressionStatements },
                 new { Name = "expression-grammar-refusal", Run = (Action)ExpressionGrammarRefusal },
                 new { Name = "affordance-script-cache", Run = (Action)AffordanceScriptCache },
                 new { Name = "unrecognised-border", Run = (Action)UnrecognisedBorder },
@@ -421,6 +422,81 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 Validate(document, "variables member");
                 Require(Features(document).Contains("variables") && Features(document).Contains("expressions"),
                     "expression reading mascot.variables did not declare variables");
+            }
+        }
+
+        // SafeScript statements: the synthetic equivalents of the shapes that used to refuse as TICK_EXPRESSION_UNSUPPORTED
+        // now lower, declare 'statements', validate, and keep their bodies; a sibling script reads a var another script of
+        // the same action declares; an absent property is warned by name; a malformed script still refuses.
+        private static void ExpressionStatements()
+        {
+            using (var fixture = new Fixture())
+            {
+                XDocument actions = BuildActions();
+                XElement stand = actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Stand");
+                stand.SetAttributeValue("Condition", "#{var seen = typeof seen == 'undefined' ? 1 : seen + 1; mascot.variables['k'] ++; true}");
+                stand.SetAttributeValue("Duration", "${mascot.variables['d'] = seen; 3}");
+                XElement walk = actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Walk");
+                walk.SetAttributeValue("TargetX", "${var t = mascot.getManager( ).getMascotWithAffordance('Offer'); t != null && t.get( ) != null"
+                    + " ? t.get( ).anchor.x : mascot.anchor.x + mascot.getBounds().width}");
+                walk.SetAttributeValue("Condition", "${mascot.environment.activeIE.bottom < mascot.environment.bottom}");
+                fixture.Actions(actions);
+                string refusal;
+                IReadOnlyList<string> warnings = ConvertInto(fixture, "statements", null, new[] { "A" }, out refusal);
+                Require(refusal == null, "a statement-grammar script was refused: " + refusal);
+                Require(warnings.Count(w => w.Contains("TICK_SCRIPT_ABSENT_PROPERTY") && w.Contains("'mascot.environment.bottom'")) >= 1
+                    && warnings.All(w => !w.Contains("TICK_SCRIPT_ABSENT_PROPERTY") || w.Contains("'mascot.environment.bottom'")),
+                    "the absent property was not warned by its path, or something else was: " + string.Join(" | ", warnings));
+                XDocument document = fixture.Convert();
+                Validate(document, "statements member");
+                Require(Features(document).Contains("statements") && Features(document).Contains("variables"),
+                    "a member using the statement grammar did not declare 'statements'");
+                XElement walkAct = NamedNode(document, "Walk").Element(Ns + "act");
+                Require(Scripted(walkAct, "param", "TargetX", "action").Contains("mascot.manager.getMascotWithAffordance('Offer')")
+                    && Scripted(walkAct, "param", "TargetX", "action").Contains("mascot.bounds.width"),
+                    "the reference script's body was not kept with its getters as properties");
+            }
+            using (var fixture = new Fixture())
+            {
+                XDocument actions = BuildActions();
+                actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Stand").SetAttributeValue("Condition", "${true}");
+                fixture.Actions(actions);
+                Require(!Features(fixture.Convert()).Contains("statements"), "WITNESS: a member using only expressions declared 'statements'");
+            }
+            using (var fixture = new Fixture())
+            {
+                XDocument actions = BuildActions();
+                actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Stand").SetAttributeValue("Condition", "${var x = ${1}}");
+                fixture.Actions(actions);
+                Refusal(fixture, "TICK_EXPRESSION_UNSUPPORTED Condition: ");
+            }
+            using (var fixture = new Fixture())
+            {
+                // An action attribute named action is replaced by the Action object at ActionBase.init, so a script reading
+                // it is refused by name rather than run on the carried scalar.
+                XDocument actions = BuildActions();
+                XElement stand = actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Stand");
+                stand.SetAttributeValue("action", "7");
+                stand.SetAttributeValue("Condition", "${action === 7}");
+                fixture.Actions(actions);
+                Refusal(fixture, "TICK_EXPRESSION_UNSUPPORTED Condition: 'action' is the action object the source binds there");
+            }
+            using (var fixture = new Fixture())
+            {
+                // A Java String member a string reaches in the source is refused, not warned as absent.
+                XDocument actions = BuildActions();
+                actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Stand")
+                    .SetAttributeValue("Condition", "${var label = 'walk'; typeof label.startsWith == 'function'}");
+                fixture.Actions(actions);
+                Refusal(fixture, "TICK_EXPRESSION_UNSUPPORTED Condition: '.startsWith' is not part of the object model");
+            }
+            using (var fixture = new Fixture())
+            {
+                // A name no script of the action declares and no scope holds still refuses.
+                XDocument actions = BuildActions();
+                actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Stand").SetAttributeValue("Duration", "${seen + 1}");
+                fixture.Actions(actions);
+                Refusal(fixture, "TICK_EXPRESSION_UNSUPPORTED Duration: ");
             }
         }
 
@@ -1527,7 +1603,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     actions.Root.Element("ActionList").Add(S("Action", A("Name", "Odd"), A("Type", "Move"),
                         A("TargetX", "${" + global + " * 10}"), A(global, "5"), S("Animation", Pose("/p.png", 1))));
                     fixture.Actions(actions);
-                    Refusal(fixture, "TICK_EXPRESSION_UNSUPPORTED TargetX: unknown name '" + global + "'");
+                    // Refused as a name of the engine's global object (SafeScript.EngineBuiltins), whatever binds it.
+                    Refusal(fixture, "TICK_EXPRESSION_UNSUPPORTED TargetX: '" + global + "' names the engine's global object");
                 }
         }
 
@@ -1552,7 +1629,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     try { TickPackEmitter.PrepareMembers(fixture.Pack, false); }
                     catch (InvalidDataException error)
                     {
-                        Require(error.Message.Contains("TICK_EXPRESSION_UNSUPPORTED TargetX: unknown name '" + global + "'"),
+                        // engine and context are refused by scope (a bound scalar is carried); arguments is the engine's own.
+                        string expected = global == "arguments" ? "TICK_EXPRESSION_UNSUPPORTED TargetX: 'arguments' names the engine's global object"
+                            : "TICK_EXPRESSION_UNSUPPORTED TargetX: unknown name '" + global + "'";
+                        Require(error.Message.Contains(expected),
                             "nashorn-globals: an unbound object received the wrong refusal: " + global + ": " + error.Message);
                         refused = true;
                     }
@@ -1567,7 +1647,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 actions.Root.Element("ActionList").Add(S("Action", A("Name", "Global"), A("Type", "Move"),
                     A("TargetX", "${arguments * 10}"), A("arguments", "5"), S("Animation", Pose("/p.png", 1))));
                 fixture.Actions(actions);
-                Refusal(fixture, "TICK_EXPRESSION_UNSUPPORTED TargetX: unknown name 'arguments'");
+                Refusal(fixture, "TICK_EXPRESSION_UNSUPPORTED TargetX: 'arguments' names the engine's global object");
                 Require(!Directory.Exists(fixture.Output), "nashorn-globals: a bound arguments object left partial output");
             }
             // WITNESS: the names are case-sensitive globals, not forbidden custom-variable prefixes.

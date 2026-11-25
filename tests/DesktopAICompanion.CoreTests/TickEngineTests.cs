@@ -726,5 +726,126 @@ namespace DesktopAICompanion
                 "WITNESS a chain of behaviours that cannot start, as long as the hand-off bound, did not land in Stand: "
                 + string.Join("; ", atLog.Faults));
         }
+
+        /// <summary>
+        /// SafeScript SPEC rule 2 on the real engine (oracle-measured 2026-11-24): a var declared by an action's guard is
+        /// read by a sibling script of the same activation (its Duration), carries across that activation's evaluations,
+        /// and the next activation of the same definition starts fresh. A behaviour selection's store is its own.
+        /// </summary>
+        private static void TestTickScriptGlobalsLifetime()
+        {
+            TickType t = TickType.Compile("Alpha", TickDoc(
+                TRoute(TEdge(10, 1)),
+                TBeh(10, "Probe", "Probe", 1, null, TEdge(10, 1)),
+                new XmlData.AnimationNode
+                {
+                    Id = 30, Name = "Probe",
+                    Sequence = new XmlData.SequenceNode { RepeatCount = "0", Next = new XmlData.NextNode[0] },
+                    Act = new XmlData.ActNode
+                    {
+                        Type = "Stay", Border = "Floor",
+                        Guard = new XmlData.GuardNode
+                        {
+                            When = "var marker = typeof marker == 'undefined' ? 1 : marker + 1; mascot.variables['declared'] = marker; true",
+                            Duration = "mascot.variables['sibling'] = typeof marker == 'undefined' ? -1 : marker; 3",
+                        },
+                        Variants = new XmlData.VariantsNode { Variant = new[] { new XmlData.VariantNode { Pose = new[] { TPose(0, 1) } } } },
+                    },
+                }));
+            var log = new TickLog();
+            TickWorld w = TickWorldOf(log, null, t);
+            TickMascot m = w.CreateAtStart("m1", t, new TickPoint(640, 680), false, "Probe");
+            TickAction first = m.Behaviour.Action;
+            var declared = new List<double>();
+            TickAction second = null;
+            for (int i = 0; i < 12 && second == null; i++)
+            {
+                w.StepOnce();
+                if (!ReferenceEquals(m.Behaviour.Action, first)) second = m.Behaviour.Action;
+                else declared.Add(m.Variables["declared"].Number);
+            }
+            AssertTrue(second != null, "The probe behaviour never started a second activation.");
+            AssertTrue(declared.Count >= 2 && declared[declared.Count - 1] > declared[0] && declared[0] >= 1,
+                "The guard's global did not carry across one activation's evaluations: " + string.Join(",", declared));
+            AssertEqual(m.Variables["declared"].Number, m.Variables["sibling"].Number,
+                "The sibling Duration did not read the global the guard declared in the same activation.");
+            double startOfSecond = m.Variables["declared"].Number;
+            AssertTrue(startOfSecond < declared[declared.Count - 1],
+                "The second activation did not start a fresh store: declared went " + declared[declared.Count - 1] + " then " + startOfSecond + ".");
+            AssertEqual(0, log.Faults.Count, "WITNESS: the probe's scripts reported faults: " + string.Join("; ", log.Faults));
+
+            // The script lookup: the asking companion first in manager order wins, a peer is found when it does not
+            // offer, and no scan-target event is written (the source observes only the scan actions' lookups).
+            TickMascot peer = w.CreateAtStart("m2", t, new TickPoint(700, 680), true, "Probe");
+            w.StepOnce();
+            AssertTrue(peer.InManager, "The peer did not join the manager.");
+            ScriptProgram look;
+            string error;
+            AssertTrue(SafeScript.TryParse("var p = mascot.manager.getMascotWithAffordance('Signal'); p != null && p.get() != null ? p.get().anchor.x : -1",
+                n => false, out look, out error), "The lookup did not parse: " + error);
+            var context = new TickScriptContext(w, m, null, null);
+            m.Affordances.Clear();
+            peer.Affordances.Clear();
+            AssertEqual(-1.0, context.Evaluate(look, "test").Number, "A lookup nobody answers did not miss.");
+            peer.Affordances.Add("Signal");
+            AssertEqual(700.0, context.Evaluate(look, "test").Number, "The offering peer was not found.");
+            ScriptProgram keep, held;
+            AssertTrue(SafeScript.TryParse("mascot.variables['r'] = mascot.manager.getMascotWithAffordance('Signal')", null, out keep, out error),
+                "The keeping script did not parse: " + error);
+            AssertTrue(SafeScript.TryParse("mascot.variables['r'].get() == null", null, out held, out error), "The reading script did not parse: " + error);
+            context.Evaluate(keep, "test");
+            AssertFalse(context.Evaluate(held, "test").IsTruthy, "WITNESS: a live companion's kept reference read as cleared.");
+            m.Affordances.Add("Signal");
+            AssertEqual(640.0, context.Evaluate(look, "test").Number, "The asking companion, first in manager order, did not win.");
+            AssertFalse(log.Events.Exists(e => e.Contains("scan-target")), "A script's lookup wrote a scan-target event.");
+            peer.Dispose("test");
+            AssertTrue(context.Evaluate(held, "test").IsTruthy, "A disposed companion's kept reference did not read as cleared.");
+        }
+
+        /// <summary>A scripted Affordance is read as getAffordance() types it (ActionBase.next): a String is offered, a
+        /// Java-blank one offers nothing, null and a non-String are fatal to the companion on its step; a binding of
+        /// Affordance wins over the action's own literal offers.</summary>
+        private static void TestTickScriptedAffordance()
+        {
+            var faults = new List<string>();
+            Func<string, ScriptValue?, string, TickMascot> run = (cache, stored, bound) =>
+            {
+                XmlData.AnimationNode act = TAct(30, "Offer", "Stay", null,
+                    new[] { TParam("Affordance", "mascot.variables['key']", cache), TParam("Duration", "100") }, TPose(0, 1));
+                XmlData.AnimationNode behaviour = TBeh(10, "Offer", "Offer", 1, null);
+                if (bound != null)
+                {
+                    act.Act.Params = new[] { TParam("Affordance", "Own"), TParam("Duration", "100") };
+                    act.Act.Offers = new XmlData.OffersNode { Offer = new[] { new XmlData.OfferNode { Value = "Own" } } };
+                    behaviour.Behaviour.Bind = new[] { new XmlData.BindNode { Name = "Affordance", Value = bound, Cache = "action" } };
+                }
+                TickType t = TickType.Compile("Alpha", TickDoc(TRoute(TEdge(10, 1)), behaviour, act));
+                var log = new TickLog();
+                TickWorld w = TickWorldOf(log, null, t);
+                TickMascot m = w.CreateAtStart("m1", t, new TickPoint(640, 680), false, "Offer");
+                if (stored.HasValue) m.Variables["key"] = stored.Value;
+                w.StepOnce();
+                faults.Clear();
+                faults.AddRange(log.Faults);
+                return m;
+            };
+            TickMascot offered = run("action", ScriptValue.FromString("Signal"), null);
+            AssertTrue(offered.InManager && offered.Affordances.Count == 1 && offered.Affordances[0] == "Signal", "A scripted String Affordance was not offered.");
+            TickMascot blank = run("frame", ScriptValue.FromString(" "), null);
+            AssertTrue(blank.InManager && blank.Affordances.Count == 0, "A Java-blank scripted Affordance offered something.");
+            TickMascot number = run("action", ScriptValue.FromNumber(3), null);
+            AssertTrue(!number.InManager || number.Disposing, "A numeric scripted Affordance was offered; the source's cast throws.");
+            AssertEqual(0, number.Affordances.Count, "A numeric scripted Affordance was coerced to text.");
+            AssertTrue(faults.Exists(f => f.Contains("InvalidCastException") && f.Contains("cannot cast to String")),
+                "A numeric scripted Affordance did not end the companion as the source's ClassCastException: " + string.Join("; ", faults));
+            TickMascot missing = run("action", null, null);
+            AssertTrue(!missing.InManager || missing.Disposing, "A null scripted Affordance did not end the companion (getAffordance().trim()).");
+            AssertTrue(faults.Exists(f => f.Contains("NullReferenceException") && f.Contains("Affordance is null")),
+                "A null scripted Affordance did not end the companion as the source's NullPointerException: " + string.Join("; ", faults));
+            TickMascot overridden = run("action", ScriptValue.FromString("Bound"), "mascot.variables['key']");
+            AssertTrue(overridden.Affordances.Count == 1 && overridden.Affordances[0] == "Bound", "A binding of Affordance did not win over the action's own offers.");
+            TickMascot literal = run("action", null, "'Lit'");
+            AssertTrue(literal.Affordances.Count == 1 && literal.Affordances[0] == "Lit", "WITNESS: a scripted literal binding was not offered.");
+        }
     }
 }

@@ -198,6 +198,9 @@ namespace DesktopAICompanion.Shimeji
         private readonly Dictionary<string, ScriptValue> _locals = new Dictionary<string, ScriptValue>(StringComparer.Ordinal);
         private readonly HashSet<string> _evaluating = new HashSet<string>(StringComparer.Ordinal);
 
+        /// <summary>The script globals every script of this action instance shares (<see cref="TickScriptGlobals"/>).</summary>
+        public readonly TickScriptGlobals Globals = TickScriptGlobals.ForActionInstance();
+
         public TickVars(Dictionary<string, TickParamDef> own, Dictionary<string, TickParamDef> incoming)
         {
             _defs = new Dictionary<string, TickParamDef>(own, StringComparer.Ordinal);
@@ -205,8 +208,12 @@ namespace DesktopAICompanion.Shimeji
                 foreach (KeyValuePair<string, TickParamDef> p in incoming) _defs[p.Key] = p.Value;
         }
 
-        /// <summary>ActionBase.init: every script value is cleared (Script.init).</summary>
-        public void Init() { _cache.Clear(); }
+        /// <summary>ActionBase.init: every script value is cleared (Script.init); the globals follow their lifetime rule.</summary>
+        public void Init()
+        {
+            _cache.Clear();
+            Globals.ActionInit();
+        }
 
         /// <summary>ActionBase.initFrame: frame-cached (#{}) values are cleared.</summary>
         public void InitFrame()
@@ -259,6 +266,39 @@ namespace DesktopAICompanion.Shimeji
             if (v.Kind != ScriptValueKind.Null) _cache[name] = v;
             return v;
         }
+    }
+
+    /// <summary>
+    /// Script globals (SafeScript SPEC rule 2): what a script's <c>var</c> declarations and bare-name assignments write.
+    /// Nashorn keeps one global object per Bindings and stores it IN them ("nashorn.global", a Constant entry of the
+    /// VariableMap that VariableMap.init leaves alone), so globals live exactly as long as the map: one action instance,
+    /// shared by all of its scripts (parameters, guards, variant conditions), fresh for the next instance (a new
+    /// activation builds new actions), and kept across a re-init of the same instance. A behaviour selection builds a
+    /// fresh map per selection (Configuration.buildNextBehavior), so it gets a fresh store per selection.
+    /// Measured on the pinned oracle (P4 expression observations, 2026-11-24): a var declared by a Condition is read
+    /// by a sibling Duration of the same activation, another action reads it as undefined, and a second activation of
+    /// the same definition starts fresh.
+    /// THE ONE SEAM for this lifetime: the two factories and <see cref="ActionInit"/> are the only places it is decided.
+    /// </summary>
+    internal sealed class TickScriptGlobals
+    {
+        private readonly Dictionary<string, ScriptValue> _values = new Dictionary<string, ScriptValue>(StringComparer.Ordinal);
+
+        private TickScriptGlobals() { }
+
+        /// <summary>The store of one action instance (one VariableMap).</summary>
+        public static TickScriptGlobals ForActionInstance() { return new TickScriptGlobals(); }
+
+        /// <summary>The store of one behaviour selection's map.</summary>
+        public static TickScriptGlobals ForSelection() { return new TickScriptGlobals(); }
+
+        /// <summary>ActionBase.init of the owning instance: the "nashorn.global" entry survives VariableMap.init, so the
+        /// globals are kept.</summary>
+        public void ActionInit() { }
+
+        public bool TryGet(string name, out ScriptValue value) { return _values.TryGetValue(name, out value); }
+        public void Set(string name, ScriptValue value) { _values[name] = value; }
+        public int Count { get { return _values.Count; } }
     }
 
     /// <summary>Which source a parameter read took (CONTRACT v1.4 P2-A), decided passively before the read.</summary>
@@ -417,6 +457,59 @@ namespace DesktopAICompanion.Shimeji
         public bool TryGetVariable(string key, out ScriptValue value) { return _mascot.Variables.TryGetValue(key, out value); }
         public void SetVariable(string key, ScriptValue value) { _mascot.Variables[key] = value; }
         public int VariableCount { get { return _mascot.Variables.Count; } }
+
+        // ---- script globals: the action instance's store, or this selection's (TickScriptGlobals decides the lifetime)
+
+        private TickScriptGlobals _selectionGlobals;
+        private TickScriptGlobals Globals
+        {
+            get { return _vars != null ? _vars.Globals : (_selectionGlobals ?? (_selectionGlobals = TickScriptGlobals.ForSelection())); }
+        }
+
+        public bool TryGetGlobal(string name, out ScriptValue value) { return Globals.TryGet(name, out value); }
+        public void SetGlobal(string name, ScriptValue value) { Globals.Set(name, value); }
+        public int GlobalCount { get { return Globals.Count; } }
+
+        // ---- companion references (a handle is the TickMascot itself)
+
+        public object Self { get { return _mascot; } }
+
+        /// <summary>Manager.getMascotWithAffordance (Manager.java:356-368) as a script calls it: the active companions in
+        /// manager order, the asking one included. Unlike a scan action's lookup (TickSocialFamily.Scan) it writes no
+        /// scan-target event: the source instruments the scan actions' call sites, not the manager.</summary>
+        public object FindMascotWithAffordance(string affordance)
+        {
+            foreach (TickMascot m in _world.Mascots)
+                if (m.Affordances.Contains(affordance)) return m;
+            return null;
+        }
+
+        public bool IsReferenceLive(object mascot)
+        {
+            var m = mascot as TickMascot;
+            return m != null && m.InManager && !m.Disposing;
+        }
+
+        public void GetMascotAnchor(object mascot, out double x, out double y)
+        {
+            TickPoint a = ((TickMascot)mascot).Anchor;
+            x = a.X;
+            y = a.Y;
+        }
+
+        public bool GetMascotLookRight(object mascot) { return ((TickMascot)mascot).LookRight; }
+
+        public ScriptRect GetMascotBounds(object mascot)
+        {
+            TickRect r = ((TickMascot)mascot).Bounds;
+            return new ScriptRect(r.X, r.Y, r.Width, r.Height);
+        }
+
+        public void TranslateAnchor(int dx, int dy)
+        {
+            TickPoint a = _mascot.Anchor;
+            _mascot.Anchor = new TickPoint(unchecked(a.X + dx), unchecked(a.Y + dy));
+        }
 
         /// <summary>A script's Math.random. Its site name is the host's own (image set, attribute label, ordinal), not
         /// CONTRACT v1.1 section 2's <c>script:&lt;refKey&gt;#&lt;attribute&gt;#&lt;k&gt;</c>: map/2 has no table from the
@@ -611,10 +704,35 @@ namespace DesktopAICompanion.Shimeji
             return true;
         }
 
+        /// <summary>
+        /// ActionBase.next's offer: getAffordance(), which is eval("Affordance", String.class, ""). An incoming binding of
+        /// Affordance replaces the action's own (ActionBuilder puts the bindings over the action's attributes), so it wins
+        /// over the action's literal &lt;offers&gt; too. A scripted Affordance is read as the source types it: a String is
+        /// offered untrimmed unless Java's trim() leaves it empty (Next, IsJavaBlank); null is the source's
+        /// NullPointerException at getAffordance().trim() (ActionBase.java:93-96) and any other kind its ClassCastException
+        /// in eval's cast, thrown here as their .NET analogues. HOST POLICY DIFFERENCE: the source does not contain either
+        /// per companion (Manager.java:106-109, 148-150 catch only what the step declares), while TickMascot.Tick's
+        /// catch-all ends just this companion, reported, and the step goes on. A literal Affordance reads as before.
+        /// </summary>
         private IEnumerable<string> CurrentOffers()
         {
-            if (Def.Offers != null) return Def.Offers;
-            string one = EvalString("Affordance", null, "");
+            bool local;
+            TickParamDef winner = Vars.Selection("Affordance", out local);
+            TickParamDef own;
+            bool bound = winner != null && !(Def.Params.TryGetValue("Affordance", out own) && ReferenceEquals(winner, own));
+            if (Def.Offers != null && !bound) return Def.Offers;
+            string one;
+            if (!local && winner != null && winner.Program != null)
+            {
+                ScriptValue v = Read("Affordance", null);
+                if (v.Kind == ScriptValueKind.Null)
+                    throw new NullReferenceException("action '" + Name + "': Affordance is null (getAffordance().trim(), ActionBase.java:95)");
+                if (v.Kind != ScriptValueKind.String)
+                    throw new InvalidCastException("action '" + Name + "': Affordance is " + v.Kind + " " + v.ToDisplayString()
+                        + ", which ActionBase.eval cannot cast to String");
+                one = v.Text;
+            }
+            else one = EvalString("Affordance", null, "");
             return one.Length > 0 ? new[] { one } : new string[0];
         }
 

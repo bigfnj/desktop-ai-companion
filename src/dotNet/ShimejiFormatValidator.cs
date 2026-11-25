@@ -38,6 +38,12 @@ namespace DesktopAICompanion
         /// token of its own so a host that cannot decode one refuses the companion by this name before the schema, instead
         /// of failing on an attribute its schema has never heard of.</summary>
         public const string Wav = "wav";
+        /// <summary>The SafeScript statement grammar and extended object model (grimoire/06 section 6): statement
+        /// sequences, var and script globals, update and compound operators, undefined and typeof, the manager's
+        /// affordance lookup with companion references, bounds, translate and member chains on values. A host without it
+        /// would refuse each such expression as a parse error; the token makes it refuse the companion by name first.</summary>
+        public const string Statements = "statements";
+
         /// <summary>A tick sheet in more than one page, <c>&lt;image&gt;&lt;pages&gt;</c> (grimoire/06 section 3): a member whose
         /// frames no single grid holds. A token of its own so a host that reads one sheet refuses the companion by this
         /// name before the schema, instead of failing on an element its schema has never heard of.</summary>
@@ -45,7 +51,7 @@ namespace DesktopAICompanion
 
         /// <summary>Every token the format defines. A token outside this list belongs to a newer format.</summary>
         public static readonly string[] All =
-            { Tick, Actions, Behaviours, Expressions, Packs, Social, Lifecycle, Windows, Hotspots, Variables, Wav, Pages };
+            { Tick, Actions, Behaviours, Expressions, Packs, Social, Lifecycle, Windows, Hotspots, Variables, Wav, Statements, Pages };
 
         /// <summary>What this build accepts: the tokens its token hook registers (the app's runtime, or Studio's copy of
         /// the app's list), none in the converter, which implements no hook. A companion that uses anything else is
@@ -569,7 +575,31 @@ namespace DesktopAICompanion
                 foreach (XmlData.ParamNode p in node.Act.Params) if (p != null && p.Name != null) names.Add(p.Name);
             HashSet<string> bound;
             if (actionName != null && boundNames.TryGetValue(actionName, out bound)) names.UnionWith(bound);
+            // The scripts of one action share one global store (grimoire/06 section 6), so a name any of them declares or
+            // assigns is in scope for the others.
+            if (actionName != null && actByName.TryGetValue(actionName, out node)) names.UnionWith(ScriptGlobals(node.Act));
             return n => names.Contains(n);
+        }
+
+        /// <summary>The script globals an action's own scripts (parameters, guard, variant conditions) declare or assign,
+        /// read in an open scope; a script that does not parse adds none and is refused where it is checked.</summary>
+        private static IEnumerable<string> ScriptGlobals(XmlData.ActNode act)
+        {
+            var found = new HashSet<string>(StringComparer.Ordinal);
+            if (act == null) return found;
+            var sources = new List<string>();
+            if (act.Params != null)
+                foreach (XmlData.ParamNode p in act.Params) if (p != null && IsScripted(p.Cache)) sources.Add(p.Value);
+            if (act.Guard != null) sources.AddRange(new[] { act.Guard.When, act.Guard.Duration, act.Guard.Draggable });
+            if (act.Variants != null && act.Variants.Variant != null)
+                foreach (XmlData.VariantNode v in act.Variants.Variant) if (v != null) sources.Add(v.When);
+            foreach (string source in sources)
+            {
+                ScriptProgram program;
+                string error;
+                if (!string.IsNullOrEmpty(source) && SafeScript.TryParse(source, n => true, out program, out error)) found.UnionWith(program.Globals);
+            }
+            return found;
         }
 
         /// <summary>A paged sheet's pose (grimoire/06 section 3, feature 'pages'): its frame's cell IS its image, so an image
@@ -726,6 +756,7 @@ namespace DesktopAICompanion
             if (!SafeScript.TryParse(source, scope, out program, out error))
                 throw new InvalidDataException(where + " has an invalid expression: " + error);
             Require(declared, CompanionFormatFeatures.Variables, program.UsesVariables, where + " mascot.variables");
+            Require(declared, CompanionFormatFeatures.Statements, program.UsesStatements, where + " statements");
         }
 
         private static bool IsPair(string value)
