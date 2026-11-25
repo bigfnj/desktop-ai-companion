@@ -1,12 +1,19 @@
 # Shimeji action parity status
 
-## Provisional paired results on e29a3f66
+## Paired results on the 1.12.0 candidate
 
-The 2026-11-24 campaign compared 176 directed synthetic scenarios against host build
-`e29a3f669505c031aaa3f6f8839dd9b7552f8087`. P1 contributed 107 scenarios (87 exact), and P2 added 69
-(66 exact). The ordinary comparer found **153 exact**. Seven raw failures matched the finite policy shapes
-below. Fifteen cases remained unjudged, and one deliberately exhausted its RNG tape. These counts describe
-this build. Family support and the results of the integrated build await a fresh run.
+The 2026-11-24 campaign compared 176 directed synthetic scenarios against the real Shimeji-EE 1.0.23 runtime,
+first on host build `e29a3f669505c031aaa3f6f8839dd9b7552f8087` (v1.11.2) and then on the integrated 1.12.0
+candidate `5a6b3aebb12724d881dd7dc4cadb231fafbf0d64`, with the same verdict for every scenario on both. P1
+contributed 107 scenarios (87 exact), and P2 added 69 (66 exact). The ordinary comparer found **153 exact**.
+Seven raw failures match the finite policy shapes below, and `--campaign-shape` grades all seven as their
+policy on the candidate. Fifteen cases remain unjudged, and one deliberately exhausts its RNG tape.
+
+Twenty further directed scenarios (`S-expr-*`) measure the scripting idioms real skins use: statement sequences
+and their completion value, `++`/`--` on `mascot.variables`, script globals per action activation, `typeof`,
+`anchor.translate`, `getBounds`, `getMascotWithAffordance` (self, peer, miss and a moving peer) and an absent
+bean property, each with an action-cached and a frame-cached script. The 1.11.2 converter refused all twenty;
+on the candidate all twenty are exact. They sit outside the 176-case table below.
 
 Each scenario contributes once under its primary family. ID patterns apply only to these 176 inputs.
 The policy column counts matched campaign shapes. The control column counts expected failures.
@@ -199,8 +206,8 @@ out-of-range fourth companion. Both cases enter Huddled at tick 31. This packet 
 initialization; the older tick-0 termination note does not describe these paired traces.
 
 These compare packs lowered by the historical 1.10.0 converter and executed by the historical 1.10.0 host. They do
-not verify this branch's map/2 lowering or establish a supported-family verdict. Current map/2 host traces await the
-N-shimeji-1106-13 host half, which must integrate with the producer and converter readers.
+not verify a later lowering. The paired results at the top of this page supersede them: they pair the current
+map/3 lowering with the host that runs it.
 Every paired scenario and scenario-specific pack hash matched. The host header's `commit` is a version string,
 not a source commit; the executable was neither located nor rerun, so the comparer reports its witness as
 `shape-only`. The oracle witness is `artifact-bound`. The input snapshot was generated at 184fbe0; it retains
