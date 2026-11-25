@@ -156,6 +156,11 @@ namespace XmlData
         public int TilesY;
         [XmlElement("png")]
         public string Png;
+
+        /// <summary>The page's PNG bytes as CompanionXmlValidator decoded and proved them (F318): the loader stages these
+        /// and decodes no base64 of its own. Set only by validation, after every check of the page passed; never serialized.</summary>
+        [XmlIgnore]
+        public byte[] ValidatedPng;
     }
 
     /// <summary>

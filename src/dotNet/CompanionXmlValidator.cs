@@ -707,6 +707,8 @@ namespace DesktopAICompanion
                     if (pixels > MaximumPagedPixels)
                         throw new InvalidDataException("Sheet pages together exceed " + MaximumPagedPixels + " pixels.");
                     for (int t = 0; t < page.TilesX * page.TilesY; t++) cells.Add(new Size(width / page.TilesX, height / page.TilesY));
+                    // Proven: handed to the loader on the page itself, so it stages these bytes and decodes nothing (F318).
+                    page.ValidatedPng = pageBytes;
                 }
                 pageCells = cells.ToArray();
             }

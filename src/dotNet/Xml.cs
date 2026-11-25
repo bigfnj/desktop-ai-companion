@@ -177,7 +177,6 @@ namespace DesktopAICompanion
             return spriteFrames.GetFrame(index, flipped);
         }
 
-        /// <summary>The part of a frame a tick pose shows (<see cref="SpriteFrameStore.GetRegion"/>), owned by the store.</summary>
         /// <summary>Frame <paramref name="index"/>'s staged size: its cell, which on a paged tick sheet is its page's.</summary>
         internal Size SpriteFrameSize(int index)
         {
@@ -188,6 +187,7 @@ namespace DesktopAICompanion
             return new Size(frame.Width, frame.Height);
         }
 
+        /// <summary>The part of a frame a tick pose shows (<see cref="SpriteFrameStore.GetRegion"/>), owned by the store.</summary>
         internal Bitmap GetSpriteRegion(int index, bool flipped, Rectangle region, out bool exact)
         {
             if (disposed) throw new ObjectDisposedException("Xml");
@@ -665,8 +665,9 @@ namespace DesktopAICompanion
         /// A paged tick sheet (grimoire/06 section 3, feature 'pages'): every page's cells, in tile order (the first page,
         /// then each page), each page staged at its own cell size times one factor. The factor is fitted as a one-sheet
         /// document's is, against the largest cell side and the paged budget, so a frame is never shrunk below the size
-        /// a one-sheet document of its cells would get. The pages were proven by the validator; their bytes are decoded
-        /// here (only the first page's are handed over, F318). <paramref name="width"/> and <paramref name="height"/> are
+        /// a one-sheet document of its cells would get. The pages were proven by the validator, which hands over the first
+        /// page's bytes and leaves every further page's on that page (PageNode.ValidatedPng), so nothing is decoded here
+        /// (F318). <paramref name="width"/> and <paramref name="height"/> are
         /// the largest staged cell, the window's first size.
         /// </summary>
         private IList<Bitmap> ReadPages(XmlData.RootNode root, byte[] firstPage, bool usesAlpha, out int width, out int height,
@@ -682,7 +683,9 @@ namespace DesktopAICompanion
                 tiles.Add(new Size(root.Image.TilesX, root.Image.TilesY));
                 foreach (XmlData.PageNode page in root.Image.Pages)
                 {
-                    sheets.Add(new Bitmap(new MemoryStream(Convert.FromBase64String(page.Png.Trim()), false)));
+                    // The validator's decoded, proven bytes (F318); a page it did not prove is never staged.
+                    byte[] proven = page.ValidatedPng ?? throw new InvalidDataException("sheet page was not validated");
+                    sheets.Add(new Bitmap(new MemoryStream(proven, false)));
                     tiles.Add(new Size(page.TilesX, page.TilesY));
                 }
                 int frameLimit = CompanionXmlValidator.MaximumFrameDimensionFor(true);
