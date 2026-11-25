@@ -226,7 +226,8 @@ def prepare(args, scratch, scene, report, desktop=None):
             dest.parent.mkdir(parents=True, exist_ok=True)
             with archive.open(entry) as content, dest.open("xb") as output:
                 shutil.copyfileobj(content, output)
-    for name in ("conf", "img"):
+    # AnimationBuilder loads referenced clips during startup even when playback is disabled.
+    for name in ("conf", "img", "sound"):
         if (pack / name).is_dir():
             shutil.copytree(pack / name, source / name, dirs_exist_ok=True)
     members = [m["imageSet"] for m in scene["mascots"]]
