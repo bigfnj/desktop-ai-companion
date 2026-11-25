@@ -226,7 +226,8 @@ def prepare(args, scratch, scene, report, desktop=None):
             dest.parent.mkdir(parents=True, exist_ok=True)
             with archive.open(entry) as content, dest.open("xb") as output:
                 shutil.copyfileobj(content, output)
-    for name in ("conf", "img"):
+    # AnimationBuilder loads referenced clips during startup even when playback is disabled.
+    for name in ("conf", "img", "sound"):
         if (pack / name).is_dir():
             shutil.copytree(pack / name, source / name, dirs_exist_ok=True)
     members = [m["imageSet"] for m in scene["mascots"]]
@@ -268,6 +269,7 @@ def prepare(args, scratch, scene, report, desktop=None):
     data = scratch / "host-data"
     data.mkdir()
     library = data / "companions"
+    converted = scratch / "converted"
     temp = scratch / "temp"
     temp.mkdir()
     env = os.environ | {
@@ -280,22 +282,32 @@ def prepare(args, scratch, scene, report, desktop=None):
         env["SHIMEJI_RECORD_DESKTOP"] = desktop
     with (scratch / "converter.log").open("wb") as log:
         converter = start(
-            [args.converter, "paritypack", pack, library, members[0]], scratch, env, log, report["processes"]
+            [args.converter, "paritypack", pack, converted, members[0]], scratch, env, log, report["processes"]
         )
         try:
             if converter.wait(timeout=120):
                 raise ValueError("converter refused test pack")
         finally:
             stop(converter, report["processes"])
-    available = [d.name for d in library.iterdir() if (d / "animations.xml").is_file()]
-    if not set(members).issubset(available):
+    # Installed folder IDs belong to the host. The pack header keeps the original member key, which can
+    # start with a dot or otherwise be ineligible as a catalog folder ID (CompanionCatalog.AddPackCandidates).
+    documents = sorted(converted.glob("*/animations.xml"), key=lambda xml: xml.parent.name)
+    install_ids = {}
+    for number, document in enumerate(documents, 1):
+        install_id = f"recording-member-{number}"
+        destination = library / install_id
+        destination.mkdir(parents=True)
+        shutil.copyfile(document, destination / "animations.xml")
+        install_ids[document.parent.name] = install_id
+    if not set(members).issubset(install_ids):
         raise ValueError("converted starter member is missing")
+    report["installedMembers"] = install_ids
     write_json(
         data / "settings.json",
         {
             "schemaVersion": 2,
-            "activeCompanionId": members[0],
-            "companions": [{"id": m, "count": n} for m, n in Counter(members).items()],
+            "activeCompanionId": install_ids[members[0]],
+            "companions": [{"id": install_ids[m], "count": n} for m, n in Counter(members).items()],
             "autoStartCompanions": len(members),
             "multiScreen": False,
             "scalePercent": 100,
@@ -309,7 +321,7 @@ def prepare(args, scratch, scene, report, desktop=None):
             "companionSoundsEnabled": False,
             "notificationSoundsEnabled": False,
             "randomDropEnabled": False,
-            "companionSwitches": [{"id": m, "key": "WindowActions", "on": False} for m in available],
+            "companionSwitches": [{"id": i, "key": "WindowActions", "on": False} for i in install_ids.values()],
         },
     )
     report["artifacts"] = {
@@ -735,8 +747,9 @@ def main():
                     )
                     if role == "host":
                         data = Path(env["DESKTOP_AI_COMPANION_DATA_ROOT"])
-                        active = scene["mascots"][0]["imageSet"]
+                        active = report["installedMembers"][scene["mascots"][0]["imageSet"]]
                         diagnostic = (data / "diagnostics.log").read_text(encoding="utf-8-sig")
+                        shutil.copyfile(data / "diagnostics.log", args.out / "host-diagnostics.log")
                         source_line = f"the default companion '{active}' runs from its companion file"
                         if source_line not in diagnostic or str(data) not in diagnostic:
                             raise RecordingUnavailable(
