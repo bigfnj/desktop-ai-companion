@@ -26,7 +26,20 @@ namespace DesktopAICompanion.PetStudioModule
         {
             Id = "petstudio",
             Name = "Companion Studio",
-            Version = "1.4.1",   // 1.4.1: the 2026-11-06 audit burn-down. Install pack installs the pack it was clicked
+            Version = "1.5.0",   // 1.5.0: converts far more real Shimeji packs (375 of the 381 in the private test corpus,
+                                 //        341 before). Scripts may be statement sequences with var, ++/--, typeof and
+                                 //        script globals, read another companion through getMascotWithAffordance, and use
+                                 //        getBounds and anchor.translate (feature 'statements'); what the original program
+                                 //        exposes but this model does not run is refused by name. A skin whose frames no
+                                 //        single sheet holds is stored on further sheet pages (feature 'pages'). A hotspot
+                                 //        naming a missing behaviour, an unknown string border and a scripted Affordance
+                                 //        now convert as the original program treats them. WAV clips are read as javax.sound
+                                 //        reads them, a declared clip may be 8 MiB, and "Import with recovery" also drops a
+                                 //        clip the host cannot carry, naming it in the pack report; a recovery retry that
+                                 //        is still refused says so. A host older than 1.12.0 refuses a companion that uses
+                                 //        'statements' or 'pages' by that feature's name, and nothing here calls a new host
+                                 //        member, so MinHostVersion stays 1.10.0, as it did for 'wav' in 1.4.0.
+                                 // 1.4.1: the 2026-11-06 audit burn-down. Install pack installs the pack it was clicked
                                  //        on, with that pack's replace map, and nothing when another pack landed under its
                                  //        question; it and Preview pack wait for an import in flight. Its outcome stays in
                                  //        the pack report. A replace that stops part way says the earlier install is still
