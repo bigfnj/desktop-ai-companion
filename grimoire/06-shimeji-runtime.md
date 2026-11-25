@@ -579,12 +579,17 @@ playable variant has no duration whose last tick could fire anything.
   (saturating) and its low 32 bits taken, as Nashorn passes a number to an int. On a copied point it faults.
 - Member chains on values (a local, a call result, a `mascot.variables` read) are resolved by the value's kind
   when they run; a member of null or undefined is the source's TypeError and aborts the evaluation. On a
-  primitive, a string's `length` is its UTF-16 length and any other property reads undefined; a property or method
-  of String, Number, Boolean or Object.prototype (`charAt`, `toFixed`, `toString` ...) is refused.
+  primitive, a string's `length` is its UTF-16 length; a member the source resolves on a string, number or boolean
+  is refused: its JS prototype chain AND the Java class it falls back to (java.lang.String, Integer, Long, Double,
+  Boolean), so `'walk'.startsWith` and `'walk'.empty` are refused, not read as undefined. That table is generated
+  from the pinned JDK's Nashorn (`tools/ShimejiConvert/nashorn-primitive-surface.js`); any other name reads
+  undefined, and only those are warned as absent.
 - Names the engine's global object owns (`Array`, `Object`, `String`, `Number`, `parseInt`, `JSON`, `Java`,
   `Packages`, `print`, `arguments`, the inherited `toString` and the rest) are refused as reads, `var`
   declarations, assignments and `typeof` operands: the source keeps the builtin where a declaration here would
   shadow it.
+- `action` is refused in every script: ActionBase.init binds the action object itself under that name, replacing
+  a parameter or binding of it, and nothing here models that object. `engine` and `context` read a bound scalar.
 - A line terminator before a postfix `++` or `--` ends the operand (ES5 7.9.1), so `p` LF `++` is refused, as
   the source refuses it; there is no automatic semicolon insertion.
 - The reference a lookup returns is weak, as the source's is: a reference kept in `mascot.variables` or a global

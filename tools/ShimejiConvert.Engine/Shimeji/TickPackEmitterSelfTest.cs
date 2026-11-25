@@ -472,6 +472,26 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             }
             using (var fixture = new Fixture())
             {
+                // An action attribute named action is replaced by the Action object at ActionBase.init, so a script reading
+                // it is refused by name rather than run on the carried scalar.
+                XDocument actions = BuildActions();
+                XElement stand = actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Stand");
+                stand.SetAttributeValue("action", "7");
+                stand.SetAttributeValue("Condition", "${action === 7}");
+                fixture.Actions(actions);
+                Refusal(fixture, "TICK_EXPRESSION_UNSUPPORTED Condition: 'action' is the action object the source binds there");
+            }
+            using (var fixture = new Fixture())
+            {
+                // A Java String member a string reaches in the source is refused, not warned as absent.
+                XDocument actions = BuildActions();
+                actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Stand")
+                    .SetAttributeValue("Condition", "${var label = 'walk'; typeof label.startsWith == 'function'}");
+                fixture.Actions(actions);
+                Refusal(fixture, "TICK_EXPRESSION_UNSUPPORTED Condition: '.startsWith' is not part of the object model");
+            }
+            using (var fixture = new Fixture())
+            {
                 // A name no script of the action declares and no scope holds still refuses.
                 XDocument actions = BuildActions();
                 actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Stand").SetAttributeValue("Duration", "${seen + 1}");

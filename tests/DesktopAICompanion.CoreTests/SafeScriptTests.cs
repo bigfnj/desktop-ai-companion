@@ -431,7 +431,7 @@ namespace DesktopAICompanion
             var unguarded = new FakeScriptContext();
             AssertEqual(ScriptValueKind.Null, Eval("typeof marker == 'string' ? 1 : marker", unguarded).Kind, "An unresolved read past the guard did not fault.");
             AssertTrue(unguarded.Faults.Count == 1, "An unresolved read past the guard was not reported (the source's ReferenceError).");
-            AssertTrue(ParseError("typeof action").Contains("engine's global object"), "typeof action (the source's own binding) was not refused.");
+            AssertTrue(ParseError("typeof action").Contains("action object"), "typeof action (the source's own binding) was not refused as the action object.");
             AssertTrue(ParseError("typeof Java").Contains("engine's global object"), "typeof of an engine global was not refused.");
 
             // A global shadows a binding of the same name; the binding itself is never written.
@@ -617,6 +617,18 @@ namespace DesktopAICompanion
             AssertEqual(0, ParseOrFail("var s = 'a'; s.length", none).AbsentProperties.Count, "length was recorded (and would be warned) as an absent property.");
             AssertTrue(ParseError("var s = 'a'; s.charAt(0)", none).Contains("not part of the object model"), "A string method call was not refused.");
             AssertTrue(ParseError("var s = 'a'; s.toUpperCase", none).Contains("not part of the object model"), "A string method read as a property was not refused.");
+            // Beyond ES5.1: dot access on a primitive falls back to its Java class's members in the source (measured on
+            // 8u504: typeof 'walk'.startsWith is "function", 'walk'.empty a boolean), so those are refused too, and none of
+            // them is recorded (or warned) as an absent property.
+            foreach (string member in new[] { "startsWith", "endsWith", "getBytes", "isEmpty", "empty", "bytes", "contains", "matches", "chars" })
+                AssertTrue(ParseError("var label = 'walk'; typeof label." + member, none).Contains("not part of the object model"),
+                    "A Java String member reachable on a string ('." + member + "') was not refused.");
+            foreach (string member in new[] { "intValue", "doubleValue", "isNaN", "naN", "infinite", "booleanValue", "hashCode", "getClass", "class" })
+                AssertTrue(ParseError("var pace = 1; typeof pace." + member, none).Contains("not part of the object model"),
+                    "A Java Number/Boolean/Object member reachable on a primitive ('." + member + "') was not refused.");
+            ScriptProgram nonsuch = ParseOrFail("var label = 'walk'; typeof label.nonsuch", none);
+            AssertTrue(nonsuch.AbsentProperties.Count == 1 && nonsuch.AbsentProperties[0] == ".nonsuch" && nonsuch.Evaluate(new FakeScriptContext()).Text == "undefined",
+                "WITNESS: a name on no surface no longer reads undefined, or was not recorded as absent.");
             AssertTrue(ParseError("var n = 1; n.toFixed", none).Contains("not part of the object model"), "A number method read as a property was not refused.");
         }
 
@@ -633,6 +645,18 @@ namespace DesktopAICompanion
             AssertTrue(ParseError("Java++", n => true).Contains("engine's global object"), "Updating Java was not refused.");
             AssertEqual("undefined", Eval("var arr; typeof arr").Text, "WITNESS: an ordinary uninitialised local is not 'undefined'.");
             AssertEqual(3.0, Eval("var stride = 3; stride").Number, "WITNESS: an ordinary initialised local does not read back.");
+            // action is the Action object ActionBase.init binds (measured: action="7" with action === 7 stores 3 in the
+            // source); refused read, declared, assigned or under typeof. engine and context, which a bound scalar shadows,
+            // still read from the bindings.
+            AssertTrue(ParseError("action === 7", n => true).Contains("action object"), "A read of action was not refused as the action object.");
+            AssertTrue(ParseError("var action = 7").Contains("action object"), "Declaring action (with no read) was not refused.");
+            AssertTrue(ParseError("action = 7", n => true).Contains("action object"), "Assigning action was not refused.");
+            AssertTrue(ParseError("typeof (action)", n => true).Contains("action object"), "A parenthesised typeof of action was not refused.");
+            var bound = new FakeScriptContext();
+            bound.Names["engine"] = ScriptValue.FromNumber(7);
+            bound.Names["context"] = ScriptValue.FromNumber(7);
+            AssertTrue(Eval("engine === 7 && context === 7", bound, n => n == "engine" || n == "context").IsTruthy,
+                "WITNESS: bound engine and context scalars no longer read (the source reads them as bound).");
         }
 
         /// <summary>ES5 7.9.1: a line terminator before a postfix ++ or -- ends the operand, so "p" LF "++" is not p++

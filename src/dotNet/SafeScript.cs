@@ -401,16 +401,38 @@ namespace DesktopAICompanion
         }
 
         /// <summary>
-        /// The properties and methods JS primitives have (ES5.1 15.5.4, 15.7.4, 15.6.4 and the Object.prototype members
-        /// they inherit, with Nashorn's trimLeft/trimRight): a member of a string, number or boolean that is on this list
-        /// and is not modelled (only a string's length is) is refused, since its source value is not the undefined an
-        /// absent property reads.
+        /// ActionBase.init puts the Action object itself into the action's VariableMap under "action" (ActionBase.java:76-77),
+        /// replacing any parameter or binding of that name before a script runs, so a script reading `action` reads that
+        /// object, which nothing here models (measured: action="7" with `action === 7` stored 3 in the source where a
+        /// carried scalar stored 7). The name is refused in every SafeScript program, read, declared, assigned or under
+        /// typeof; engine and context, which a bound scalar does shadow, are not.
         /// </summary>
+        private static ScriptSyntaxException ActionObject(int offset)
+        {
+            return new ScriptSyntaxException("'action' is the action object the source binds there (ActionBase.init), which is outside the supported subset (at "
+                + offset + ")");
+        }
+
+        /// <summary>
+        /// Every member name `value.name` resolves to on a JS string, number or boolean in the source runtime's Nashorn:
+        /// the JS prototype chains AND the members of the Java class the value is (java.lang.String, Integer, Long,
+        /// Double, Boolean), which dot access falls back to, so 'walk'.startsWith is a function there (measured).
+        /// A member on this list that is not modelled (only a string's length is) is refused at parse time; a name on no
+        /// list reads undefined. GENERATED, do not edit by hand: tools/ShimejiConvert/nashorn-primitive-surface.js run
+        /// with jjs from the pinned JDK 8u504 (java.version 1.8.0_504; Map-backed string resolves as a literal: true).
+        /// </summary>
+        // BEGIN GENERATED nashorn-primitive-surface
         private static readonly HashSet<string> PrimitiveSurface = new HashSet<string>((
-            "length charAt charCodeAt concat indexOf lastIndexOf localeCompare match replace search slice split substring substr "
-            + "toLowerCase toLocaleLowerCase toUpperCase toLocaleUpperCase trim trimLeft trimRight toFixed toExponential "
-            + "toPrecision toString toLocaleString valueOf constructor hasOwnProperty isPrototypeOf propertyIsEnumerable "
-            + "__proto__ __defineGetter__ __defineSetter__ __lookupGetter__ __lookupSetter__").Split(' '), StringComparer.Ordinal);
+            "__proto__ booleanValue byteValue bytes charAt charCodeAt chars class codePointAt codePointBefore "
+            + "codePointCount codePoints compareTo compareToIgnoreCase concat constructor contains contentEquals "
+            + "doubleValue empty endsWith equals equalsIgnoreCase floatValue getBytes getChars getClass "
+            + "hasOwnProperty hashCode indexOf infinite intValue intern isEmpty isInfinite isNaN isPrototypeOf "
+            + "lastIndexOf length localeCompare longValue match matches naN notify notifyAll offsetByCodePoints "
+            + "propertyIsEnumerable regionMatches replace replaceAll replaceFirst search shortValue slice split "
+            + "startsWith subSequence substr substring toCharArray toExponential toFixed toLocaleLowerCase "
+            + "toLocaleString toLocaleUpperCase toLowerCase toPrecision toString toUpperCase trim trimLeft "
+            + "trimRight valueOf wait ").Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries), StringComparer.Ordinal);
+        // END GENERATED nashorn-primitive-surface
 
         private static bool IsReservedLiteral(string name)
         {
@@ -528,6 +550,7 @@ namespace DesktopAICompanion
             private static void CheckAssignable(string name, int offset)
             {
                 if (ReservedWords.Contains(name)) throw new ScriptSyntaxException("'" + name + "' is outside the supported subset (at " + offset + ")");
+                if (name == "action") throw ActionObject(offset);
                 if (EngineBuiltins.Contains(name))
                     throw new ScriptSyntaxException("'" + name + "' is owned by the engine's global object and cannot be declared or assigned (at " + offset + ")");
                 switch (name)
@@ -664,6 +687,7 @@ namespace DesktopAICompanion
                                  && (_tokens[_pos + 1].Text == "." || _tokens[_pos + 1].Text == "(" || _tokens[_pos + 1].Text == "[")))
                         {
                             Token name = Next();
+                            if (name.Text == "action") throw ActionObject(name.Offset);
                             if (TypeofRefused(name.Text))
                                 throw new ScriptSyntaxException("typeof '" + name.Text + "' names the engine's global object, which is outside the supported subset (at " + name.Offset + ")");
                             if (IsOp("++") || IsOp("--")) throw new ScriptSyntaxException("an update under typeof is outside the supported subset (at " + Peek.Offset + ")");
@@ -761,6 +785,7 @@ namespace DesktopAICompanion
                     case "Math": return ParseMath(t.Offset);
                 }
                 if (ReservedWords.Contains(t.Text)) throw new ScriptSyntaxException("'" + t.Text + "' is outside the supported subset (at " + t.Offset + ")");
+                if (t.Text == "action") throw ActionObject(t.Offset);
                 if (EngineBuiltins.Contains(t.Text))
                     throw new ScriptSyntaxException("'" + t.Text + "' names the engine's global object, which is outside the supported subset (at " + t.Offset + ")");
                 // Checked against the scope once the whole program is read (ParseProgram): a var or an assignment later in
