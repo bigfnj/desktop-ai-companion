@@ -148,8 +148,18 @@ namespace DesktopAICompanion
         /// 'wav' (<see cref="WavFormat.DeclaresFormat"/> is the one reading of "declares", for both): a host older than the
         /// token refuses the companion by that name before any size check, never with a size error that reads as a broken
         /// file. The document total (<see cref="MaximumAudioBytesTotal"/>) is unchanged, so a document's decoded audio is
-        /// bounded exactly as before; see <see cref="MaximumAudioBytesFor"/>.</summary>
-        public const int MaximumDeclaredAudioBytesPerSound = 4 * 1024 * 1024;
+        /// bounded exactly as before; see <see cref="MaximumAudioBytesFor"/>.
+        ///
+        /// Raised from 4 MiB to the document total, 8 MiB (lane pf/sound-limits): the source's Clip loads a clip whole
+        /// with no size cap of its own, and of the converter's 381-pack corpus three packs were refused only for a clip of
+        /// 5.2 to 5.3 MB (30 s of 16-bit stereo 44.1 kHz). One clip may now be the whole document's audio. Nothing a
+        /// document can hold grows: its bytes stay within the total, and each clip is still capped at 60 s when decoded
+        /// (AudioOutput.MaximumClipDecodedSamples), whatever its format. For WAV the decoded floats are also within 44.1
+        /// times the bytes (the 8 kHz 8-bit mono floor), so within 44.1 times the total however the clips are split. A clip
+        /// declared format="mp3" gets this declared limit too (<see cref="MaximumAudioBytesFor"/>) and expands differently,
+        /// up to about 353 times its bytes at 8 kbps; for it the 60 s cap per clip is the bound. What moves is a v1.11 host, which has 'wav' and the 4 MiB limit: it
+        /// refuses a declared clip between the two by its size ("sound exceeds its decoded size limit"), naming no feature.</summary>
+        public const int MaximumDeclaredAudioBytesPerSound = 8 * 1024 * 1024;
         public const int MaximumAudioBytesTotal = 8 * 1024 * 1024;
         public const int MaximumImageDimension = 4096;
         public const long MaximumImagePixels = 16L * 1024L * 1024L;
@@ -1402,9 +1412,19 @@ namespace DesktopAICompanion
     /// clip of the converter's corpus uses them (all 1168 of its WAVE clips are 8- or 16-bit PCM). And the structure is no
     /// stricter than real clips: chunks after the data chunk, an 18-byte fmt chunk and an odd-sized LAST chunk with no pad
     /// byte all pass, as they do in the source's javax.sound reader. NAudio's own chunk reader never sees a clip: the
-    /// decoder plays the fmt and data <see cref="TryParse"/> found (review F1). What is refused is what leaves the
-    /// bytes in doubt: a RIFF size that disagrees with the clip (truncated, or trailing bytes), a chunk past the end, no
-    /// fmt or no data chunk, an empty or ragged data chunk, a block align that contradicts the channels and bits.
+    /// decoder plays the fmt and data <see cref="TryParse"/> found (review F1).
+    ///
+    /// The sizes are read as javax.sound reads them (lane pf/sound-limits, measured on JDK 8's WaveFileReader and
+    /// DirectClip with synthetic clips): the RIFF form's own size is never read, so a header that claims more bytes than
+    /// the clip holds, or fewer, plays; a data chunk that runs past the end plays the whole frames present; a data chunk
+    /// of part frames plays its whole frames; and the frame is channels x bits / 8 whatever the header's block align says.
+    /// The data is the first data chunk AFTER the fmt, as the source's reader looks for the fmt and then for the data: a
+    /// data chunk before the fmt is skipped (review of f20286d4, probed: a clip whose only data precedes its fmt does not
+    /// open; one with data on both sides plays the data after the fmt).
+    /// Two corpus clips were refused here before and play in the source: one whose RIFF size counts its own 8-byte header,
+    /// one 16-bit mono clip whose block align says 1. What is still refused is what the source cannot open or what leaves
+    /// nothing to play: no fmt chunk or one cut short, a chunk other than the data that runs past the end before both are
+    /// found, no data chunk after the fmt, and a data chunk holding no whole frame.
     /// </summary>
     internal static class WavFormat
     {
@@ -1470,6 +1490,8 @@ namespace DesktopAICompanion
         /// behind a non-zero pad byte, turned a 568-byte clip into 44.1 M samples on the UI thread (the stand-in review,
         /// F1). Refusing duplicates and non-zero pads instead was rejected: that list tracks one reader's internals and
         /// would have to follow them; one parse has nothing to track, and the set it accepts is the one already measured.
+        /// The layout it returns is what plays: <see cref="WaveLayout.BlockAlign"/> is the frame javax.sound computes and
+        /// <see cref="WaveLayout.DataLength"/> the whole frames the clip holds, never more than its bytes (see the class).
         /// </summary>
         internal static bool TryParse(byte[] b, out WaveLayout layout, out string error)
         {
@@ -1480,39 +1502,30 @@ namespace DesktopAICompanion
                 error = "is not a RIFF/WAVE";
                 return false;
             }
-            long riffEnd = (long)ReadUInt32(b, 4) + 8;
-            if (riffEnd > b.Length)
-            {
-                error = "is truncated: its RIFF header claims " + riffEnd + " bytes and it holds " + b.Length;
-                return false;
-            }
-            if (riffEnd < b.Length)
-            {
-                error = "has " + (b.Length - riffEnd) + " bytes after its RIFF form";
-                return false;
-            }
-
+            // The walk is over the bytes the clip holds, never the RIFF form's size, which javax.sound does not read. Like
+            // JDK 8's WaveFileReader it looks for the first fmt chunk, then for the first data chunk AFTER it, and stops
+            // there: a data chunk before the fmt is skipped as any other chunk (probed: a clip whose only data precedes its
+            // fmt does not open; one with data on both sides plays the data after the fmt).
+            long end = b.Length;
             long fmt = -1, fmtSize = 0, data = -1, dataSize = 0;
             long at = 12;
-            while (at + 8 <= riffEnd)
+            while (at + 8 <= end && (fmt < 0 || data < 0))
             {
                 long size = ReadUInt32(b, (int)at + 4);
                 long body = at + 8;
-                if (body + size > riffEnd)
+                bool firstData = fmt >= 0 && data < 0 && IsChunk(b, (int)at, "data");
+                if (body + size > end)
                 {
+                    // The source plays what a cut-short data chunk holds (its Clip reads to the end of the stream).
+                    if (firstData) { data = body; dataSize = end - body; break; }
                     error = "is truncated: its '" + ChunkName(b, (int)at) + "' chunk runs past the end";
                     return false;
                 }
                 if (fmt < 0 && IsChunk(b, (int)at, "fmt ")) { fmt = body; fmtSize = size; }
-                else if (data < 0 && IsChunk(b, (int)at, "data")) { data = body; dataSize = size; }
+                else if (firstData) { data = body; dataSize = size; }
                 at = body + size;
                 // A chunk of odd size is followed by a pad byte, which a writer may leave off the very last one.
-                if ((size & 1) == 1 && at < riffEnd) at++;
-            }
-            if (at != riffEnd)
-            {
-                error = "ends in " + (riffEnd - at) + " bytes that are not a chunk";
-                return false;
+                if ((size & 1) == 1 && at < end) at++;
             }
             if (fmt < 0)
             {
@@ -1525,7 +1538,7 @@ namespace DesktopAICompanion
                 return false;
             }
             int f = (int)fmt;
-            int tag = ReadUInt16(b, f), channels = ReadUInt16(b, f + 2), blockAlign = ReadUInt16(b, f + 12), bits = ReadUInt16(b, f + 14);
+            int tag = ReadUInt16(b, f), channels = ReadUInt16(b, f + 2), bits = ReadUInt16(b, f + 14);
             long rate = ReadUInt32(b, f + 4);
             if (tag == Extensible)
             {
@@ -1575,25 +1588,24 @@ namespace DesktopAICompanion
                 error = "has a sample rate of " + rate + " Hz, outside " + MinimumSampleRate + " to " + MaximumSampleRate;
                 return false;
             }
-            if (blockAlign != channels * bits / 8)
-            {
-                error = "has a block align of " + blockAlign + ", which " + channels + " channel(s) of " + bits + " bits contradict";
-                return false;
-            }
+            // The frame is what javax.sound computes from the channels and bits; the header's block align is not read.
+            int frame = channels * bits / 8;
             if (data < 0)
             {
                 error = "has no data chunk";
                 return false;
             }
-            if (dataSize == 0 || dataSize % blockAlign != 0)
+            // Whole frames only, as the source's reader counts them (data length / frame size, rounded down).
+            long frames = dataSize / frame;
+            if (frames == 0)
             {
-                error = dataSize == 0 ? "has no audio (its data chunk is empty)" : "has a data chunk that is not a whole number of frames";
+                error = dataSize == 0 ? "has no audio (its data chunk is empty)" : "has no audio (its data chunk holds no whole frame)";
                 return false;
             }
             layout = new WaveLayout
             {
-                Tag = tag, Channels = channels, SampleRate = (int)rate, BitsPerSample = bits, BlockAlign = blockAlign,
-                DataOffset = (int)data, DataLength = (int)dataSize,
+                Tag = tag, Channels = channels, SampleRate = (int)rate, BitsPerSample = bits, BlockAlign = frame,
+                DataOffset = (int)data, DataLength = (int)(frames * frame),
             };
             return true;
         }

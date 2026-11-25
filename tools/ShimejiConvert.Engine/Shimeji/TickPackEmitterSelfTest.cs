@@ -98,6 +98,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "sound-source-identity", Run = (Action)SoundSourceIdentity },
                 new { Name = "sprite-read-diagnostics", Run = (Action)SpriteReadDiagnostics },
                 new { Name = "sound-refusal", Run = (Action)SoundRefusal },
+                new { Name = "sound-source-sizes", Run = (Action)SoundSourceSizes },
+                new { Name = "sound-recovery", Run = (Action)SoundRecovery },
                 new { Name = "configuration-spelling", Run = (Action)ConfigurationSpelling },
                 new { Name = "sheet-layout", Run = (Action)SheetLayout },
                 new { Name = "conf-less-member-skipped", Run = (Action)ConfLessMemberSkipped },
@@ -3236,26 +3238,28 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
         }
 
         // What the source cannot load refuses the member, by name: a Sound naming no file, MP3 bytes (whatever the
-        // name), a WAVE the host's rule rejects, a Volume outside the gain range, a path out of the pack, an id over
-        // 64 characters, and a clip larger than the host's per-clip limit.
+        // name), a WAVE the host's rule rejects (here one cut inside its fmt chunk, which the source cannot open either),
+        // a Volume outside the gain range, a path out of the pack, an id over 64 characters, and a clip larger than the
+        // host's per-clip limit.
         private static void SoundRefusal()
         {
             byte[] good = Wave(100, 4);
             byte[] mp3 = new byte[64];
             mp3[0] = 0x49; mp3[1] = 0x44; mp3[2] = 0x33;
-            byte[] truncated = good.Take(good.Length - 10).ToArray();
+            byte[] truncated = good.Take(30).ToArray();
             var cases = new[] {
                 new { File = (string)null, Bytes = good, Sound = "/none.wav", Volume = (string)null, Expected = "TICK_SOUND_MISSING: Sound '/none.wav'" },
                 new { File = "sound/fake.wav", Bytes = mp3, Sound = "/fake.wav", Volume = (string)null, Expected = "TICK_SOUND_MP3: clip '/fake.wav'" },
-                new { File = "sound/cut.wav", Bytes = truncated, Sound = "/cut.wav", Volume = (string)null, Expected = "TICK_SOUND_WAV: clip '/cut.wav' is truncated" },
+                new { File = "sound/cut.wav", Bytes = truncated, Sound = "/cut.wav", Volume = (string)null, Expected = "TICK_SOUND_WAV: clip '/cut.wav' is truncated: its 'fmt ' chunk runs past the end" },
                 new { File = "sound/ok.wav", Bytes = good, Sound = "/ok.wav", Volume = "7", Expected = "TICK_SOUND_VOLUME: Volume '7'" },
                 new { File = "sound/ok.wav", Bytes = good, Sound = "/ok.wav", Volume = "loud", Expected = "TICK_SOUND_VOLUME: Volume 'loud'" },
                 // Review N6 (r4): Java's trim keeps a no-break space, so Float.parseFloat refuses the text.
                 new { File = "sound/ok.wav", Bytes = good, Sound = "/ok.wav", Volume = "\u00A0-6", Expected = "TICK_SOUND_VOLUME: Volume '\u00A0-6' is not a number" },
                 new { File = (string)null, Bytes = good, Sound = "../../../../ok.wav", Volume = (string)null, Expected = "TICK_SOUND_PATH: Sound '../../../../ok.wav' leaves the pack" },
                 new { File = (string)null, Bytes = good, Sound = new string('s', 65), Volume = (string)null, Expected = "TICK_SOUND_ID_LIMIT" },
-                // Over the host's per-clip limit for a declared-format clip in bytes, yet under 60 s (48 kHz 16-bit stereo).
-                new { File = "sound/big.wav", Bytes = RawWave(48000, 2, 16, DesktopAICompanion.CompanionXmlValidator.MaximumDeclaredAudioBytesPerSound + 64),
+                // One byte over the host's per-clip limit for a declared-format clip, yet under 60 s (48 kHz 16-bit stereo,
+                // its last frame part of one); SoundSourceSizes converts a clip of exactly the limit.
+                new { File = "sound/big.wav", Bytes = RawWave(48000, 2, 16, DesktopAICompanion.CompanionXmlValidator.MaximumDeclaredAudioBytesPerSound - 43),
                     Sound = "/big.wav", Volume = (string)null, Expected = "TICK_SOUND_CLIP_LIMIT: the host refuses clip '/big.wav'" },
                 // Three clips each inside the per-clip limit (2.75 MiB of 48 kHz 16-bit stereo, 15 s) and together past the
                 // host's per-document total of 8 MiB, while the document stays inside its 12 MiB XML limit.
@@ -3311,6 +3315,148 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     .Add(Enumerable.Range(0, 513).Select(i => Pose("/p.png", 1)));
                 fixture.Actions(actions);
                 Refusal(fixture, "TICK_SOUND_CLIP_LIMIT: the host refuses clip '/big.wav'");
+            }
+        }
+
+        // pf/sound-limits: a clip the source opens converts, embedded with its bytes unchanged. A clip cut 10 bytes short of
+        // what its header claims (the source plays the whole frames present, and so does the host's WAV rule), and a clip of
+        // exactly the host's per-clip limit for a declared clip (the document's whole audio; 43.7 s of 48 kHz 16-bit stereo,
+        // inside the 60 s decode cap). SoundRefusal holds the limit plus one byte.
+        private static void SoundSourceSizes()
+        {
+            byte[] good = Wave(100, 4);
+            int limit = DesktopAICompanion.CompanionXmlValidator.MaximumDeclaredAudioBytesPerSound;
+            foreach (byte[] bytes in new[] { good.Take(good.Length - 10).ToArray(), RawWave(48000, 2, 16, limit - 44) })
+                using (var fixture = new Fixture())
+                {
+                    WriteBytes(fixture, "sound/clip.wav", bytes);
+                    fixture.Actions(SoundActions("/clip.wav", null, null));
+                    XDocument document = fixture.Convert();
+                    string[] embedded = document.Descendants(Ns + "sound").Select(s => (string)s.Element(Ns + "base64")).ToArray();
+                    Require(embedded.Length == 1 && embedded[0] == Convert.ToBase64String(bytes),
+                        "sound source sizes: a clip of " + bytes.Length + " bytes did not convert with its bytes unchanged (" + embedded.Length + " clips)");
+                }
+        }
+
+        // pf/sound-limits: under recovery (the decision-64 choice) a played clip the host cannot carry is dropped instead of
+        // refusing the member: one that decodes past 60 s, one past the per-clip limit, and, while the member's clips pass the
+        // document total, the largest left. Each drop is one named warning and one Dropped residue item in the pack API
+        // (policy:sound-clip-dropped); every pose that named the clip keeps its ticks and has no sound or volume; the clips
+        // kept are untouched. The same fixture without recovery refuses by its code, and what recovery emits is inside every
+        // host limit (bytes per clip, the document total, the decode cap).
+        private static void SoundRecovery()
+        {
+            const int Mi = 1024 * 1024;
+            int perClip = DesktopAICompanion.CompanionXmlValidator.MaximumDeclaredAudioBytesPerSound;
+            int total = DesktopAICompanion.CompanionXmlValidator.MaximumAudioBytesTotal;
+            byte[] keep = Wave(100, 4);
+            var cases = new[]
+            {
+                new { Name = "decode", Files = new[] { "long.wav", "keep.wav" }, Bytes = new[] { RawWave(8000, 1, 8, 61 * 8000), keep },
+                    Dropped = "long.wav", Refusal = "TICK_SOUND_DECODE_LIMIT: clip '/long.wav' decodes to 61.0 s",
+                    Why = "the clip decodes to 61.0 s, past the 60 s the host decodes" },
+                new { Name = "per-clip", Files = new[] { "big.wav", "keep.wav" }, Bytes = new[] { RawWave(48000, 2, 16, perClip - 43), keep },
+                    Dropped = "big.wav", Refusal = "TICK_SOUND_CLIP_LIMIT: the host refuses clip '/big.wav'",
+                    Why = "the clip is " + (perClip + 1) + " bytes, past the host's per-clip limit of " + perClip + " bytes" },
+                // 3, 4 and 2 MiB, 9 MiB together: the largest, the middle one, goes and 5 MiB stay.
+                new { Name = "total", Files = new[] { "a.wav", "b.wav", "c.wav" },
+                    Bytes = new[] { RawWave(48000, 2, 16, 3 * Mi - 44), RawWave(48000, 2, 16, 4 * Mi - 44), RawWave(48000, 2, 16, 2 * Mi - 44) },
+                    Dropped = "b.wav", Refusal = "TICK_SOUND_DOCUMENT_LIMIT: the host refuses the member's 3 clips (" + 9 * Mi + " bytes)",
+                    Why = "the member's played clips total " + 9 * Mi + " bytes, past the " + total
+                        + " bytes of audio one document may hold, and this clip (" + 4 * Mi + " bytes) was the largest left" },
+            };
+            foreach (var c in cases)
+            {
+                Func<Fixture> build = delegate
+                {
+                    var fixture = new Fixture();
+                    XDocument actions = SoundActions(null, null, null);
+                    XElement[] poses = actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Stand").Descendants("Pose").ToArray();
+                    for (int i = 0; i < c.Files.Length; i++)
+                    {
+                        WriteBytes(fixture, "sound/" + c.Files[i], c.Bytes[i]);
+                        poses[i].SetAttributeValue("Sound", "/" + c.Files[i]);
+                        poses[i].SetAttributeValue("Volume", "-3");
+                    }
+                    fixture.Actions(actions);
+                    return fixture;
+                };
+                using (Fixture strict = build()) Refusal(strict, c.Refusal);
+                using (Fixture fixture = build())
+                {
+                    IReadOnlyList<string> warnings;
+                    TickPackEmitter.ConvertPack(fixture.Pack, fixture.Output, null, out warnings, true);
+                    XDocument document = XDocument.Load(fixture.XmlPath);
+                    string expected = "Image set 'A': Sound '/" + c.Dropped + "': " + c.Why + ", so it was dropped; the source plays it,"
+                        + " and every pose that names it keeps its timing here and plays no sound (policy:sound-clip-dropped)";
+                    Require(warnings.Count(w => w.Contains("policy:sound-clip-dropped")) == 1 && warnings.Contains(expected),
+                        "sound recovery (" + c.Name + "): the drop is not one named warning: " + string.Join(" | ", warnings));
+                    string[] kept = c.Files.Where(f => f != c.Dropped).ToArray();
+                    XElement[] sounds = document.Descendants(Ns + "sound").ToArray();
+                    Require(sounds.Select(e => (string)e.Attribute("id")).SequenceEqual(kept),
+                        "sound recovery (" + c.Name + "): the clips emitted are " + string.Join(",", sounds.Select(e => (string)e.Attribute("id"))));
+                    for (int i = 0; i < c.Files.Length; i++)
+                        if (c.Files[i] != c.Dropped)
+                            Require(System.Convert.ToBase64String(c.Bytes[i]) == (string)sounds.Single(e => (string)e.Attribute("id") == c.Files[i]).Element(Ns + "base64"),
+                                "sound recovery (" + c.Name + "): a kept clip's bytes changed");
+                    XElement[] emittedPoses = NamedNode(document, "Stand").Element(Ns + "act").Descendants(Ns + "pose").ToArray();
+                    XElement[] named = emittedPoses.Take(c.Files.Length).ToArray();
+                    for (int i = 0; i < c.Files.Length; i++)
+                    {
+                        bool dropped = c.Files[i] == c.Dropped;
+                        Require(dropped ? named[i].Attribute("sound") == null && named[i].Attribute("volume") == null
+                                : (string)named[i].Attribute("sound") == c.Files[i] && (string)named[i].Attribute("volume") == "-3",
+                            "sound recovery (" + c.Name + "): pose " + i + " is " + named[i]);
+                    }
+                    // Hard limits: every clip emitted is inside each host limit.
+                    long sum = 0;
+                    foreach (XElement sound in sounds)
+                    {
+                        byte[] bytes = System.Convert.FromBase64String((string)sound.Element(Ns + "base64"));
+                        DesktopAICompanion.WavFormat.WaveLayout layout;
+                        string why;
+                        Require(DesktopAICompanion.WavFormat.TryParse(bytes, out layout, out why), "sound recovery: an emitted clip does not parse: " + why);
+                        long frames = layout.DataLength / layout.BlockAlign;
+                        long decoded = (long)Math.Ceiling(frames * (double)TickPackEmitter.MixerSampleRate / layout.SampleRate) * TickPackEmitter.MixerChannels;
+                        Require(bytes.Length <= perClip && decoded <= TickPackEmitter.MaximumClipDecodedSamples,
+                            "sound recovery (" + c.Name + "): an emitted clip passes a host limit (" + bytes.Length + " bytes, " + decoded + " samples)");
+                        sum += bytes.Length;
+                    }
+                    Require(sum <= total, "sound recovery (" + c.Name + "): the emitted clips total " + sum + " bytes");
+                }
+                // Review of 52fe1fab: the source identity is the source's whatever recovery drops. Every played clip's file
+                // is in its manifest, the dropped one included, though recovery keeps no bytes of it and the identity hashes
+                // files by path; reproduced here independently, as SoundSourceIdentity does, with no emitter helper.
+                using (Fixture fixture = build())
+                {
+                    var paths = new SortedSet<string>(StringComparer.Ordinal) { "conf/actions.xml", "conf/behaviors.xml", "img/A/p.png", "img/A/q.png" };
+                    foreach (string file in c.Files) paths.Add("sound/" + file);
+                    var manifest = new StringBuilder();
+                    foreach (string path in paths)
+                        manifest.Append(IdentityHash(File.ReadAllBytes(Path.Combine(fixture.Pack, path.Replace('/', Path.DirectorySeparatorChar)))))
+                            .Append("  ").Append(path).Append('\n');
+                    string expected = "shimeji-" + IdentityHash(Encoding.UTF8.GetBytes("shimeji-source-pack/1\nA\n"
+                        + IdentityHash(Encoding.UTF8.GetBytes(manifest.ToString())))).Substring(0, 24);
+                    IReadOnlyList<string> ignored;
+                    TickPackEmitter.ConvertPack(fixture.Pack, fixture.Output, "A", out ignored, true);
+                    string actual = (string)XDocument.Load(fixture.XmlPath).Root.Element(Ns + "header").Element(Ns + "pack").Attribute("id");
+                    Require(actual == expected, "sound recovery (" + c.Name + "): the pack id is not the source's: " + actual + " against " + expected);
+                }
+                // The pack API (Studio's path) files the drop under the member's Dropped residue, which the import-loss
+                // summary renders under "Dropped entirely", and as one pack warning.
+                using (Fixture fixture = build())
+                {
+                    string error;
+                    PackConversionResult result = PackConverter.Convert(fixture.Pack,
+                        new PackConversionOptions { MainMember = "A", RecoverMissingNext = true }, out error);
+                    PackMemberConversionResult member = result == null ? null : result.Members.SingleOrDefault(m => m.SourceKey == "A");
+                    string residue = member == null ? "" : member.Residue.ToText("A");
+                    Require(result != null && result.Accepted && member != null
+                        && member.Residue.Dropped.Count(i => i.Detail.Contains("policy:sound-clip-dropped")) == 1
+                        && residue.Contains("Dropped entirely (1):" + Environment.NewLine + "  - Sound '/" + c.Dropped + "': " + c.Why)
+                        && result.Warnings.Count(w => w.StartsWith("Image set 'A': Sound '/" + c.Dropped + "': ", StringComparison.Ordinal)) == 1,
+                        "sound recovery (" + c.Name + "): the pack API does not report the drop: " + (result == null ? error : result.Error + " | " + residue));
+                }
             }
         }
 

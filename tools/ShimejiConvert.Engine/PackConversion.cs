@@ -20,7 +20,12 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
         /// default, refuses such an entry with TICK_NEXT_MISSING. Only an explicit choice sets it; this call reads it once,
         /// into its own snapshot. An entry under a scripted condition is refused either way. One the source never selects
         /// (every condition literal, and a literal Frequency of 0 or a false condition) is dropped either way, with a
-        /// TICK_NEXT_MISSING_UNSELECTABLE warning (decision 117, a source-compatible mapping).</summary>
+        /// TICK_NEXT_MISSING_UNSELECTABLE warning (decision 117, a source-compatible mapping).
+        /// The same choice recovers a member refused for a played clip the host cannot carry (pf/sound-limits): a clip that
+        /// decodes past 60 s, one past the per-clip limit, and, while the member's clips pass the document's audio total,
+        /// the largest left, are dropped, each with a warning and a Dropped residue item (policy:sound-clip-dropped); every
+        /// pose that names one keeps its timing and plays no sound. False refuses them (TICK_SOUND_DECODE_LIMIT,
+        /// TICK_SOUND_CLIP_LIMIT, TICK_SOUND_DOCUMENT_LIMIT).</summary>
         public bool RecoverMissingNext { get; set; }
     }
 
@@ -189,6 +194,12 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                         {
                             report.Residue.Dropped.Add(dropped);
                             warnings.Add("Image set '" + member.Name + "': " + TickPackEmitter.PreparedMember.DroppedWarning(dropped));
+                        }
+                        // pf/sound-limits: each played clip recovery dropped is lost the same way, filed the same way.
+                        foreach (ResidueItem clip in member.DroppedClips)
+                        {
+                            report.Residue.Dropped.Add(clip);
+                            warnings.Add("Image set '" + member.Name + "': " + TickPackEmitter.PreparedMember.DroppedClipWarning(clip));
                         }
                         // Decision 117: a next entry the source never selects was dropped as a source-compatible mapping.
                         // Nothing the source does is lost, so it is not in Dropped: one member-prefixed pack warning, and

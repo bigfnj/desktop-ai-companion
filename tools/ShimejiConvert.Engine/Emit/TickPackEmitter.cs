@@ -132,6 +132,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             }
             warnings = found.SelectMany(member => member.Warnings.Select(warning => "Image set '" + member.Name + "': " + warning))
                 .Concat(found.SelectMany(member => member.Dropped.Select(item => "Image set '" + member.Name + "': " + PreparedMember.DroppedWarning(item))))
+                .Concat(found.SelectMany(member => member.DroppedClips.Select(item => "Image set '" + member.Name + "': " + PreparedMember.DroppedClipWarning(item))))
                 .ToList().AsReadOnly();
             return paths.AsReadOnly();
         }
@@ -343,11 +344,21 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             /// a behaviour, a name or a text are two items. The pack API files each under the member's Residue.Dropped,
             /// with one pack warning (<see cref="DroppedWarning"/>).</summary>
             public List<ResidueItem> Dropped = new List<ResidueItem>();
+            /// <summary>pf/sound-limits: one item per played clip that recovery dropped because the host cannot carry it
+            /// (policy:sound-clip-dropped): "Sound '&lt;the pose's Sound&gt;'" as its Name, the reason in its Detail. The pack
+            /// API files each under the member's Residue.Dropped with one pack warning (<see cref="DroppedClipWarning"/>).</summary>
+            public List<ResidueItem> DroppedClips = new List<ResidueItem>();
 
             /// <summary>The pack warning for one dropped entry, without its image-set prefix.</summary>
             internal static string DroppedWarning(ResidueItem item)
             {
                 return "Behaviour '" + item.Name + "': " + item.Detail;
+            }
+
+            /// <summary>The pack warning for one dropped clip, without its image-set prefix.</summary>
+            internal static string DroppedClipWarning(ResidueItem item)
+            {
+                return item.Name + ": " + item.Detail;
             }
         }
         private sealed class RootBehaviour
@@ -433,7 +444,12 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             private bool _lifecycle, _social, _windows, _hotspots, _expressions, _variables;
             // Embedded audio assets by canonical Sound identity, in first-use order. Runtime clips additionally use
             // the pose's volume (TickClip): two volumes share these bytes but have independent playback state.
-            private sealed class SoundClip { public string Id, SourceName; public byte[] Bytes; public bool Used; }
+            // DecodedSeconds: set, under recovery only, when the clip decodes past the host's cap (Clip), so the member's
+            // build drops it (CarriedClips) instead of the pose refusing the member. Length is the clip's byte count, kept
+            // when Bytes is released: under recovery a clip that will be dropped whatever else happens (past the cap or
+            // the per-clip limit) keeps only its length and decoded length (review of 52fe1fab); the source identity
+            // hashes its file by path, streaming, so nothing else reads its bytes.
+            private sealed class SoundClip { public string Id, SourceName, DecodedSeconds; public byte[] Bytes; public long Length; public bool Used; }
             private readonly Dictionary<string, SoundClip> _clips = new Dictionary<string, SoundClip>(StringComparer.Ordinal);
             private readonly List<SoundClip> _clipOrder = new List<SoundClip>();
             // Source identity predates asset deduplication: only paths of played source spellings enter its manifest.
@@ -444,9 +460,12 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             private readonly List<MuteSound> _muteSounds = new List<MuteSound>();
             // PD-1: the next entries recovery dropped, one item each (PreparedMember.Dropped).
             private readonly List<ResidueItem> _dropped = new List<ResidueItem>();
+            // pf/sound-limits: the played clips recovery dropped, one item each (PreparedMember.DroppedClips).
+            private readonly List<ResidueItem> _droppedClips = new List<ResidueItem>();
             // Decision 117: the next entries the source never selects, dropped under both settings (PreparedMember.Warnings).
             private readonly List<string> _warnings = new List<string>();
             // Decision 64: whether this call selected recovery of a next entry naming no root behaviour (EmitNextEntries).
+            // The same choice drops a played clip the host cannot carry (pf/sound-limits, CarriedClips).
             internal bool RecoverMissingNext;
             // Header toggles, one per Toggleable behaviour name, in first-seen order.
             private readonly List<string> _toggles = new List<string>();
@@ -578,6 +597,14 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 if (_expressions || _nodes.SelectMany(n => n.Descendants()).Any(n => n.Attribute("when") != null)) features += " expressions";
                 if (_variables) features += " variables";
                 List<SoundClip> clips = _clipOrder.Where(c => c.Used).ToList();
+                // pf/sound-limits: under recovery a played clip the host cannot carry is dropped, never emitted, before
+                // anything reads the clip list (the 'wav' token, the sounds, the limits below); by default it refuses.
+                if (RecoverMissingNext) clips = CarriedClips(clips);
+                // Review of 52fe1fab: a clip whose bytes recovery released (Clip) is always one CarriedClips drops; one that
+                // reached the document would be emitted empty, so it is an internal fault, said by name.
+                if (clips.Any(c => c.Bytes == null))
+                    throw new InvalidOperationException("TICK_SOUND_RELEASED: clip '" + clips.First(c => c.Bytes == null).SourceName
+                        + "' had its bytes released for a drop that did not happen");
                 // grimoire/06 sections 1 and 3: every clip is a WAV (Clip refuses anything else), so 'wav' is declared.
                 if (clips.Count > 0) features += " wav";
                 // grimoire/06 section 3: a member no single grid holds keeps its frames on pages, declared by 'pages'.
@@ -650,7 +677,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                         frames = frameMap, actions = _actionMap, children = _childMap, behaviours = _behaviourMap,
                         sourceNames = _sourceNames, poses = poseMap, soundParameters = SoundParameters() },
                         new JsonSerializerOptions { WriteIndented = true }) + "\n",
-                    CrossMember = crossMember, Dropped = _dropped,
+                    CrossMember = crossMember, Dropped = _dropped, DroppedClips = _droppedClips,
                     Warnings = _warnings, SourceIdentity = SourceIdentity(), BehaviourNames = _rootOrder.ToDictionary(name => name, BehaviourName, StringComparer.Ordinal) };
             }
 
@@ -1471,7 +1498,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     string path = Path.GetFullPath(Path.Combine(_pack, relative.Replace('/', Path.DirectorySeparatorChar)));
                     if (!Inside(_pack, path)) throw new InvalidDataException("Source identity input leaves its pack.");
                     SafeEntry(path);
-                    manifest.Append(Hash(File.ReadAllBytes(path))).Append("  ").Append(relative).Append('\n');
+                    manifest.Append(HashFile(path)).Append("  ").Append(relative).Append('\n');
                 }
                 return Hash(Encoding.UTF8.GetBytes(manifest.ToString()));
             }
@@ -1715,7 +1742,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             /// javax.sound does not read, such as MP3) refuses the image set (AnimationBuilder.java:161-165,
             /// Main.java:478-484). The format is decided from the BYTES, never the name: a RIFF/WAVE the host decodes
             /// (WavFormat, the host's own rule) becomes a named clip; MP3 bytes refuse as the source refuses them; a
-            /// WAVE the host's rule rejects (two corpus clips have a bad header field) refuses by name, unrepaired.
+            /// WAVE the host's rule rejects refuses by name, unrepaired. That rule reads a clip's sizes as javax.sound
+            /// does (pf/sound-limits), so the corpus's two clips with a bad header field (a RIFF size counting its own
+            /// header, a block align of 1 for 16-bit mono) are named clips now, their bytes unchanged.
             /// Separator/case aliases share one embedded asset; Mute prefix match sets must remain source-exact.
             /// Volume remains on the pose: the host's runtime cache keys (image set, id, volume), not bytes alone.
             /// </summary>
@@ -1763,7 +1792,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     return clip;
                 }
                 byte[] bytes = File.ReadAllBytes(path);
-                string reason;
+                string reason, decodedSeconds = null;
                 if (DesktopAICompanion.WavFormat.HasWaveHeader(bytes))
                 {
                     if (!DesktopAICompanion.WavFormat.IsDecodableWave(bytes, out reason))
@@ -1775,14 +1804,23 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     long frames = layout.DataLength / Math.Max(1, layout.BlockAlign);
                     long decoded = (long)Math.Ceiling(frames * (double)MixerSampleRate / layout.SampleRate) * MixerChannels;
                     if (decoded > MaximumClipDecodedSamples)
-                        Fail(pose, "TICK_SOUND_DECODE_LIMIT: clip '" + soundText + "' decodes to " + (frames / (double)layout.SampleRate).ToString("0.0", Invariant)
-                            + " s, past the " + (MaximumClipDecodedSamples / MixerChannels / MixerSampleRate) + " s the host decodes; it would stay silent");
+                    {
+                        if (!RecoverMissingNext)
+                            Fail(pose, "TICK_SOUND_DECODE_LIMIT: clip '" + soundText + "' decodes to " + (frames / (double)layout.SampleRate).ToString("0.0", Invariant)
+                                + " s, past the " + (MaximumClipDecodedSamples / MixerChannels / MixerSampleRate) + " s the host decodes; it would stay silent");
+                        decodedSeconds = (frames / (double)layout.SampleRate).ToString("0.0", Invariant);
+                    }
                 }
                 else if (DesktopAICompanion.Mp3Format.LooksLikeMp3(bytes, out reason))
                     Fail(pose, "TICK_SOUND_MP3: clip '" + soundText + "' holds MP3 audio, which the source's javax.sound cannot open, so the source refuses this image set");
                 else
                     Fail(pose, "TICK_SOUND_FORMAT: clip '" + soundText + "' is neither a RIFF/WAVE nor MP3; the host plays WAV clips");
-                clip = new SoundClip { Id = id, SourceName = soundText, Bytes = bytes };
+                clip = new SoundClip { Id = id, SourceName = soundText, Bytes = bytes, Length = bytes.Length, DecodedSeconds = decodedSeconds };
+                // Review of 52fe1fab: recovery drops this clip whatever the member's other clips are, so its buffer is not
+                // held to the end of the member's build; its length and decoded length are all CarriedClips reads.
+                if (RecoverMissingNext && (decodedSeconds != null
+                    || bytes.Length > DesktopAICompanion.CompanionXmlValidator.MaximumAudioBytesFor(new XmlData.SoundNode { Format = "wav" })))
+                    clip.Bytes = null;
                 _clips.Add(id, clip);
                 _clipOrder.Add(clip);
                 _soundSources.Add(soundText, new SoundSource { Name = soundText, PackPath = chosen, Clip = clip });
@@ -1835,6 +1873,52 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 if (volume < -80f || volume > 6.0206f)
                     Fail(pose, "TICK_SOUND_VOLUME: Volume '" + text + "' dB is outside the gain range the source can set (-80 to 6.02)");
                 return volume;
+            }
+
+            /// <summary>
+            /// pf/sound-limits, under recovery only: the played clips the host can carry, in their order. A clip that decodes
+            /// past the host's cap is dropped, then one larger than its per-clip limit, then, while the rest together pass
+            /// the document's audio total, the largest left (the earlier id on a tie). The source plays each of them, so
+            /// each is a loss, filed by <see cref="DropClip"/>. What is returned is inside every limit CheckAudioLimits
+            /// checks, so recovery never emits a clip past them.
+            /// </summary>
+            private List<SoundClip> CarriedClips(List<SoundClip> clips)
+            {
+                int clipLimit = DesktopAICompanion.CompanionXmlValidator.MaximumAudioBytesFor(new XmlData.SoundNode { Format = "wav" });
+                var carried = new List<SoundClip>();
+                foreach (SoundClip clip in clips)
+                {
+                    if (clip.DecodedSeconds != null)
+                        DropClip(clip, "the clip decodes to " + clip.DecodedSeconds + " s, past the " + (MaximumClipDecodedSamples / MixerChannels / MixerSampleRate)
+                            + " s the host decodes");
+                    else if (clip.Length > clipLimit)
+                        DropClip(clip, "the clip is " + clip.Length + " bytes, past the host's per-clip limit of " + clipLimit + " bytes");
+                    else carried.Add(clip);
+                }
+                long total = carried.Sum(c => c.Length);
+                while (total > DesktopAICompanion.CompanionXmlValidator.MaximumAudioBytesTotal)
+                {
+                    SoundClip largest = carried.OrderByDescending(c => c.Length).ThenBy(c => c.Id, StringComparer.Ordinal).First();
+                    DropClip(largest, "the member's played clips total " + total + " bytes, past the " + DesktopAICompanion.CompanionXmlValidator.MaximumAudioBytesTotal
+                        + " bytes of audio one document may hold, and this clip (" + largest.Length + " bytes) was the largest left");
+                    carried.Remove(largest);
+                    total -= largest.Length;
+                }
+                return carried;
+            }
+
+            /// <summary>Drop a played clip: every pose that names it loses its sound and volume, and so keeps its timing
+            /// and plays nothing, as the host plays a pose with no Sound; the loss is one named residue item.</summary>
+            private void DropClip(SoundClip clip, string why)
+            {
+                foreach (XElement pose in _nodes.SelectMany(n => n.Descendants(Ns + "pose")))
+                    if ((string)pose.Attribute("sound") == clip.Id)
+                    {
+                        pose.SetAttributeValue("sound", null);
+                        pose.SetAttributeValue("volume", null);
+                    }
+                _droppedClips.Add(new ResidueItem { Name = "Sound '" + clip.SourceName + "'", Detail = why + ", so it was dropped; the source plays it,"
+                    + " and every pose that names it keeps its timing here and plays no sound (policy:sound-clip-dropped)" });
             }
 
             /// <summary>
@@ -2102,6 +2186,15 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         {
             using (SHA256 sha = SHA256.Create())
                 return BitConverter.ToString(sha.ComputeHash(bytes)).Replace("-", "").ToLowerInvariant();
+        }
+
+        /// <summary>The same digest as <see cref="Hash"/> of the file's bytes, read as a stream (review of 52fe1fab: the
+        /// source identity no longer holds a whole clip or sprite in memory to hash it).</summary>
+        private static string HashFile(string path)
+        {
+            using (SHA256 sha = SHA256.Create())
+            using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 16, FileOptions.SequentialScan))
+                return BitConverter.ToString(sha.ComputeHash(stream)).Replace("-", "").ToLowerInvariant();
         }
         private static IEnumerable<ShimejiSourceAttribute> Attributes(ShimejiSourceElement source)
         {
