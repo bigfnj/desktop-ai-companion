@@ -41,6 +41,13 @@ namespace DesktopAICompanion.Shimeji
                 if (type == null) return;
                 check(type.FrameCells != null && type.FrameCells.Length == 7 && type.FrameCells[3] == new Size(40, 50),
                     "paged sheet: the tick type knows each frame's cell");
+                // The live graph lives as long as the pet: once the pages are staged it keeps neither their base64 nor the
+                // validator's proven bytes (the compiler re-parses AnimationXMLString into a graph of its own).
+                XmlData.PageNode[] livePages = xml.AnimationXML.Image.Pages;
+                check(livePages != null && livePages.Length > 0
+                      && Array.TrueForAll(livePages, p => p != null && string.IsNullOrEmpty(p.Png) && p.ValidatedPng == null)
+                      && xml.SpriteCount == 7,
+                    "paged sheet: once staged, the live graph keeps no page's base64 or proven bytes, and the frames stay staged");
                 TickPoseDef small = type.Actions["Stand"].Variants[0].Poses[0];
                 TickPoseDef middle = type.Actions["Stand"].Variants[0].Poses[1];
                 // Frame 6's cell is wider than the first page's and narrower than the largest: its pose keeps its own size.

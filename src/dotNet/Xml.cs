@@ -322,6 +322,12 @@ namespace DesktopAICompanion
                 if (AnimationXML.Sounds != null && AnimationXML.Sounds.Sound != null)
                     foreach (XmlData.SoundNode sound in AnimationXML.Sounds.Sound)
                         if (sound != null) sound.Base64 = string.Empty;
+                // The sheet's further pages too (feature 'pages'): their frames are staged, so neither their base64 nor
+                // the validator's proven bytes (F318) stay alive with the pet. The tick compiler re-parses
+                // AnimationXMLString into a graph of its own (TickStaging), so nothing reads these afterwards.
+                if (AnimationXML.Image.Pages != null)
+                    foreach (XmlData.PageNode page in AnimationXML.Image.Pages)
+                        if (page != null) { page.Png = string.Empty; page.ValidatedPng = null; }
                 return true;
             }
             catch (Exception ex)
