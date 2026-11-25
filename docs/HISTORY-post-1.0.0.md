@@ -1960,6 +1960,65 @@ Each module's `Version` line carries its changelog for the campaign, in the file
 self-tests, invariants or projects is repeated here: the gate asserts those against the documents that
 state them.
 
+## 🚢 Released: v1.12.0 and Companion Studio 1.5.1 (2026-11-24)
+
+The fifth release of the Shimeji runtime campaign, and the one its owner asked for: every Shimeji-EE action family
+converted, run, and shown side by side with the real Shimeji-EE 1.0.23 runtime. Host 1.12.0 is a MINOR: two new
+companion format features, `statements` (SafeScript programs with statements, `var`, `++`/`--`, `typeof`, script
+globals per action activation, companion references through `getMascotWithAffordance`, `getBounds` and
+`anchor.translate`) and `pages` (sprite sheets on further pages, one per frame size, for members no single sheet
+holds), plus WAV clips read the way javax.sound reads them and a declared clip of up to 8 MiB. A 1.11 host refuses a
+companion that uses either feature by name; there is no module ABI change. Companion Studio 1.5.0 carries the converter
+that emits them, and its "Import with recovery" now also drops an audio clip the host cannot carry, naming it. Studio
+1.5.1 followed within the hour: the page-memory fix below changed the host loader Studio compiles in, after 1.5.0 was
+already on the catalog, and build.yml's freshness step refused the stale payload on master. An install takes an update
+only from a higher version, so the fix shipped as 1.5.1 rather than as a second 1.5.0.
+
+Parity. The paired comparison against the instrumented real runtime grew from 58 scenarios (1.10.0 converter and
+host) to 176 directed synthetic scenarios plus 20 scripting-idiom scenarios, rerun on the 1.11.2 build and on the 1.12.0
+candidate with the same verdict for every scenario: 153 exact; seven recorded policy differences, now graded
+mechanically by the comparer's `--campaign-shape` (birth-cap, window-off-plays five times, complexmove-guarded);
+fifteen unjudged (fourteen Mute cases where the real runtime itself errors or the harness aborts, and the missing
+next-behaviour case, policy next-missing-dropped); one deliberate RNG control. Every action family in
+tools/ShimejiConvert/ACTIONS.md now has paired evidence, including Turn, Mute, SelfDestruct, ScanJump, ComplexMove,
+ComplexJump, FallWithIE, JumpWithIE, the four Broadcast classes, Look, Offset, BringToFront, toggles and scripted
+conditions. The twenty scripting scenarios, which the 1.11.2 converter refused, are all exact.
+
+Side by side. Every paired scenario has a video (tools/ShimejiParity/video/render_pair.py): the two runtimes' traces
+drawn frame by frame from the pack's own sprites, labelled as reconstructions, refused when the traces are
+cross-wired, with a sidecar binding the scenario, traces, sprites and renderer by SHA-256. Ten of the owner's own skins
+were run for 60 seconds on both runtimes; their scripts draw random numbers, which the graded harness cannot yet
+attribute (N-shimeji-script-draw-sites-01), so they were recorded through the oracle's separate, ungraded
+visual-observation mode, and all ten draw the same picture on every tick. Seven real-window pairs (both GUIs, recorded
+on a fresh private desktop with a watchdog that restores the owner's desktop) show z-order, breeding, transform,
+interaction and three real skins. The videos and the skin runs stay with the private evidence.
+
+Corpus. Studio accepts 375 of the 381 packs in the private test corpus (341 at 1.11.2), and 911 of 918 image sets
+prepare (857), with no pack that was accepted refused: expressions 17 packs, sheet grid 8, sound limits 6, scripted
+Affordance, unknown border and a truncated WAV one each. Five of the 375 convert only under recovery, with audio past
+one document's capacity dropped and named (N-shimeji-large-audio-01). Six remain refused
+(N-shimeji-corpus-refusals-01).
+
+How it was built. Codex led the oracle, the converter and the scenarios; Claude coordinated and led the host lanes,
+three of them built by agents from written specs. Every lane was reviewed by the other side before it merged, and the
+reviews were not a formality: the WAV parser went back once (data before fmt), the paged sheets once (a right-only
+pose skipped its cell check), SafeScript twice (five false accepts measured on the real runtime), the renderer twice.
+The integration gate then caught three defects no lane had run into (the paged loader decoding base64 itself against
+F318, an orphaned doc summary, ten mutation guards pointing at code the lanes had changed) and one pre-existing gate
+wrapper defect (N-gate-isolated-temp-01). Codex's review of the F318 fix found the last one: the parsed graph a
+companion keeps for its life still held every further sheet page's base64 and, after the fix, its proven bytes too.
+The loader now clears both once the frames are staged, and a window self-test check fails if either survives.
+
+Still open: the six refused corpus packs (N-shimeji-corpus-refusals-01); the fourteen Mute cases the real runtime
+cannot finish (N-shimeji-mute-source-faults-01); attributing the random draws real skins' scripts make, so their runs
+can be graded rather than only watched (N-shimeji-script-draw-sites-01); and the follow-ups filed at this release
+(N-shimeji-large-audio-01, N-shimeji-import-memory-01, N-shimeji-affordance-literals-01,
+N-shimeji-pages-thumbnails-01, N-shimeji-safescript-approx-01, N-gate-isolated-temp-01). build.yml on the tagged
+commit failed once on the known Remembrance shutdown flake (N-remembrance-pull-shutdown-flake-01, its second
+occurrence) and passed every step when that job was rerun. The run on the tag (release.yml 45553393605) published
+v1.12.0, unsigned: the portable ZIP, the MSI, the Contracts and ModuleKit 1.12.0 author packages and SHA256SUMS, each
+asset checked against that list after download.
+
 ## 🚢 Released: v1.11.2 and eight module updates (2026-11-23)
 
 The fourth release of the Shimeji runtime campaign, and the first after its code audit and backlog burn-down. Host
