@@ -18823,12 +18823,22 @@ CASES = (
      b'* 4 + side + 1);',
      CORETESTS_CSPROJ, CORETESTS_DLL,
      CORETESTS, None, 'SafeScript object model'),
+    # Re-pointed 2026-11-24 (pf/guard-repoint): the SafeScript statements lane (8fbcaad6, ac4a106f) moved the scope test out
+    # of the bare-name read into Parser.CheckReads, which judges every read once the whole program is parsed (a var or an
+    # assignment anywhere makes a name the program's own, and a typeof test admits it). The mutant still lets through
+    # every name the caller's scope does not hold.
+    # A documented three-label owner (measured with --only at 3167c3cd: COLLATERAL, these 3 labels and no other). CheckReads
+    # is the one place a name nothing resolves is refused, and three groups assert that refusal by its "unknown name"
+    # message: SafeScriptTests.cs:187 (a name outside the caller's scope, this case's guard), :258 (a name outside the
+    # object model) and :417 (a name no script declares). Never narrow those groups to leave one label sole.
     ('shimeji-format: SafeScript: names outside the scope are accepted',
      os.path.join(REPO, "src", "dotNet", "SafeScript.cs"),
-     b'if (!_scope(t.Text)) throw new ScriptSyntaxException',
-     b'if (false && !_scope(t.Text)) throw new ScriptSyntaxException',
+     b'!_typeofNames.Contains(read.Text) && !_scope(read.Text))',
+     b'!_typeofNames.Contains(read.Text) && !_scope(read.Text) && false)',
      CORETESTS_CSPROJ, CORETESTS_DLL,
-     CORETESTS, None, 'SafeScript variables and names'),
+     CORETESTS, None, ('SafeScript variables and names',
+                       'SafeScript refusals and faults',
+                       'SafeScript globals: var, hoisting, sibling reads, shadowed parameters and the cap')),
     ('shimeji-format: SafeScript: the nesting limit is not enforced',
      os.path.join(REPO, "src", "dotNet", "SafeScript.cs"),
      b'if (++_depth > MaximumDepth)',
@@ -18859,12 +18869,22 @@ CASES = (
      b'return ScriptValue.FromBool(a.Visible && x >= a.Left && x <= a.Right && y >= a.Top && y <= a.Bottom);',
      CORETESTS_CSPROJ, CORETESTS_DLL,
      CORETESTS, None, 'SafeScript JS edge semantics'),
+    # Re-pointed 2026-11-24 (pf/guard-repoint): 8fbcaad6 replaced the rule this case first guarded. undefined was refused as
+    # outside the subset; it is now a value of its own kind (ScriptValueKind.Undefined: NaN in arithmetic, "undefined" as
+    # text and under typeof, loosely equal and strictly unequal to null). The mutant is the same defect against the new
+    # rule, undefined read as null, so the case keeps its name.
+    # A documented three-label owner (measured with --only at 3167c3cd: COLLATERAL, these 3 labels and no other). Each group
+    # reads the literal undefined and tells it from null: SafeScriptTests.cs:309 (strictly unequal to null), :479
+    # (undefined++ stores NaN) and :507 (undefined + 1 is NaN, the first line of the group written for the value kind).
+    # Never narrow those groups to leave one label sole.
     ('shimeji-format: SafeScript: undefined is read as null',
      os.path.join(REPO, "src", "dotNet", "SafeScript.cs"),
-     b'case "undefined": throw new ScriptSyntaxException("\'undefined\' is outside the supported subset (at " + t.Offset + ")");',
-     b'case "undefined": return new LiteralNode(ScriptValue.Null);',
+     b'case "undefined": UsesStatements = true; return new LiteralNode(ScriptValue.Undefined);',
+     b'case "undefined": UsesStatements = true; return new LiteralNode(ScriptValue.Null);',
      CORETESTS_CSPROJ, CORETESTS_DLL,
-     CORETESTS, None, 'SafeScript JS edge semantics'),
+     CORETESTS, None, ('SafeScript JS edge semantics',
+                       'SafeScript update and compound operators',
+                       'SafeScript undefined, typeof and absent properties')),
     ('shimeji-format: SafeScript: hex literals are read signed',
      os.path.join(REPO, "src", "dotNet", "SafeScript.cs"),
      b'Number = (double)hex });',
@@ -19224,13 +19244,20 @@ CASES = (
      HOST_CSPROJ, HOST_DLL,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
      'a tick-clock document stages a tick type and an empty classic set'),
+    # Re-pointed 2026-11-24 (pf/guard-repoint): 61b8405d (paged sheets) hands ApplyScale the frames' staged sizes as well.
+    # A documented two-label owner (measured with --only at 3167c3cd: COLLATERAL, these 2 labels and no other). Both checks
+    # assert type.Scale == xml.ScaleFactorD after StartUp.TryStageRuntime: ShimejiWindowSelfTest.cs CheckStaging (at 2.0,
+    # this case's guard) and ShimejiWindowSelfTest.Limits.cs's large-frame check (at a size lowered to fit the budget,
+    # added by d2e28912 before the release, so the single-label form was already COLLATERAL there). Never narrow either
+    # check to leave one label sole.
     ("shimeji-host: a staged tick type ignores the frames' scale",
      os.path.join(REPO, "src", "dotNet", "Shimeji", "TickStaging.cs"),
-     b'                type.ApplyScale(xml.ScaleFactorD, xml.spriteWidth, xml.spriteHeight);\n',
-     b'                type.ApplyScale(1.0, xml.spriteWidth, xml.spriteHeight);\n',
+     b'                type.ApplyScale(xml.ScaleFactorD, xml.spriteWidth, xml.spriteHeight, xml.SpriteFrameSize);\n',
+     b'                type.ApplyScale(1.0, xml.spriteWidth, xml.spriteHeight, xml.SpriteFrameSize);\n',
      HOST_CSPROJ, HOST_DLL,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
-     "the tick type is scaled to its frames' staged size"),
+     ("the tick type is scaled to its frames' staged size",
+      "large frames: a tick companion whose frames would pass the budget at the user's size stages at the largest size that fits")),
     ('shimeji-host: Play respawns a tick window classically',
      os.path.join(REPO, "src", "dotNet", "FormCompanion.cs"),
      b'            // relocation or the debug menu changes nothing here.\n            if (TickHost != null) return;\n',
@@ -21402,13 +21429,22 @@ CASES = (
      HOST_CSPROJ, HOST_DLL,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
      "geometry: on the alpha path a mirrored pose's window is its image too"),
+    # Re-pointed 2026-11-24 (pf/guard-repoint): 61b8405d (paged sheets) mirrors a frame about its OWN cell's width,
+    # cellWidth(index), since a paged sheet's cells differ by page.
+    # A documented three-label owner (measured with --only at 3167c3cd: COLLATERAL, these 3 labels and no other). Region is
+    # the one place a mirrored pose's image is found in its flipped cell, and three checks of ShimejiWindowSelfTest.cs read
+    # it: the colour-key window facing right (this case's guard), the alpha window facing right, and the whole cell drawn
+    # past the region budget, whose window moves left by the region's x. All three were there before the release, so the
+    # single-label form was already COLLATERAL there. Never narrow them to leave one label sole.
     ("shimeji-geometry: a mirrored region is the flipped cell's top-left",
      os.path.join(REPO, "src", "dotNet", "Shimeji", "TickPoseImage.cs"),
-     b'return new Rectangle(right ? cellWidth - pose.Width : 0, 0, pose.Width, pose.Height);',
+     b'return new Rectangle(right ? cellWidth(index) - pose.Width : 0, 0, pose.Width, pose.Height);',
      b'return new Rectangle(0, 0, pose.Width, pose.Height);',
      HOST_CSPROJ, HOST_DLL,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
-     "geometry: facing right, a mirrored pose shows the flipped cell's top-right"),
+     ("geometry: facing right, a mirrored pose shows the flipped cell's top-right",
+      "geometry: on the alpha path a mirrored pose's window is its image too",
+      "geometry: past the region budget the whole cell is drawn with the image at the bounds")),
     ("shimeji-geometry: an explicit right frame shows the left image's size",
      os.path.join(REPO, "src", "dotNet", "Shimeji", "TickPoseImage.cs"),
      b'return new Rectangle(0, 0, pose.RightWidth, pose.RightHeight);',
@@ -21657,12 +21693,27 @@ CASES = (
      b"                if (_variables) features += \"\";\n",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
      SHIMEJI, None, "expression-variables: TICK_OUTPUT_INVALID: image set 'A': the host's validator refuses the emitted document: animation 7 'Change' parameter Condition mascot.variables needs feature 'variables'"),
-    ("convert-widen: a scripted Affordance is written as a scripted parameter",
+    # RETIRED 2026-11-24 (pf/guard-repoint): "convert-widen: a scripted Affordance is written as a scripted parameter" renamed
+    # the attribute the TICK_AFFORDANCE_SCRIPTED refusal tested, so a scripted Affordance went unrefused. 73af6a18 (Codex,
+    # "Preserve unresolved hotspot, border and offer semantics in tick packs") removed that refusal on purpose: the source
+    # reads Affordance from the active parameter map, so a scripted Affordance IS written as a scripted parameter now, and
+    # the runtime offers it through TickAction.CurrentOffers' parameter path, with no fixed <offers> and with 'social'
+    # declared (self-test 'affordance-script-cache'). No refusal is left to mutate. The two cases below guard the new
+    # rule's two halves: no fixed offer for a script, and 'social' for it.
+    ("convert-widen: an Affordance script is frozen into a fixed offer",
      os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
-     b"                    if (attribute.Name == \"Affordance\")\n                        Fail(owner, \"TICK_AFFORDANCE_SCRIPTED \"",
-     b"                    if (attribute.Name == \"Affordances\")\n                        Fail(owner, \"TICK_AFFORDANCE_SCRIPTED \"",
+     b"                        if (attribute.Cache == ShimejiSourceCache.Literal && !_boundAffordances.Contains(name))\n",
+     b"                        if (!_boundAffordances.Contains(name))\n",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
-     SHIMEJI, None, "conversion accepted an input requiring refusal: TICK_AFFORDANCE_SCRIPTED Affordance"),
+     SHIMEJI, None, "affordance-script-cache: scripted offer lost its variable read, cache, or social feature"),
+    ("convert-widen: an Affordance script declares no 'social'",
+     os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
+     b"                    {\n                        _social = true;\n"
+     b"                        if (attribute.Cache == ShimejiSourceCache.Literal && !_boundAffordances.Contains(name))\n",
+     b"                    {\n                        if (attribute.Cache == ShimejiSourceCache.Literal) _social = true;\n"
+     b"                        if (attribute.Cache == ShimejiSourceCache.Literal && !_boundAffordances.Contains(name))\n",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, None, "affordance-script-cache: scripted offer lost its variable read, cache, or social feature"),
     # One class per family taken out of Classes: its family case refuses the class by name.
     ("convert-widen: Jump is dropped from the class list",
      os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
@@ -21746,9 +21797,11 @@ CASES = (
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
      SHIMEJI, None, "class-complex: TICK_OUTPUT_INVALID: image set 'A': the host's validator refuses the emitted document: animation 2 Characteristics Scan needs feature 'social'"),
     # Hotspots and offers: each mutant drops or bends one lowering; the hotspot and offer cases name it.
+    # Re-pointed 2026-11-24 (pf/guard-repoint): 73af6a18 keeps an unresolved hotspot target by its source name (the runtime
+    # skips it on a first press and tries it under a hold), so the attribute is written either way; the mutant drops it.
     ("convert-widen: a hotspot's behaviour is dropped",
      os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
-     b"                    hotspot.Add(new XAttribute(\"behaviour\", BehaviourName(behaviour)));\n",
+     b"                    hotspot.Add(new XAttribute(\"behaviour\", resolved ? BehaviourName(behaviour) : behaviour));\n",
      b"",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
      SHIMEJI, None, "hotspot lost its behaviour"),
@@ -21774,19 +21827,29 @@ CASES = (
      SHIMEJI, None, "class-broadcast: Call lost its offer"),
     # N-shimeji-1106-19: since 98d687d ConvertPack runs the host's validator over what it emitted and refuses with TICK_OUTPUT_INVALID
     # before the self-test reads the document, so the check fails on that refusal; the fragment names its rule.
+    # Re-pointed 2026-11-24 (pf/guard-repoint): 73af6a18 moved `_social = true;` ahead of the offer, where it covers a scripted
+    # or rebound Affordance too. The mutant takes it from the literal Affordance only, the offering member this case has
+    # always guarded; "convert-widen: an Affordance script declares no 'social'" takes it from the other half.
     ("convert-widen: an offering member declares no 'social' (N-shimeji-1106-19)",
      os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
-     b"                        offers = E(\"offers\", E(\"offer\", new XAttribute(\"value\", attribute.RawValue)));\n"
-     b"                        _social = true;\n",
-     b"                        offers = E(\"offers\", E(\"offer\", new XAttribute(\"value\", attribute.RawValue)));\n",
+     b"                    {\n                        _social = true;\n"
+     b"                        if (attribute.Cache == ShimejiSourceCache.Literal && !_boundAffordances.Contains(name))\n",
+     b"                    {\n                        if (attribute.Cache != ShimejiSourceCache.Literal) _social = true;\n"
+     b"                        if (attribute.Cache == ShimejiSourceCache.Literal && !_boundAffordances.Contains(name))\n",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
      SHIMEJI, None, "class-broadcast: TICK_OUTPUT_INVALID: image set 'A': the host's validator refuses the emitted document: animation 8 social needs feature 'social'"),
-    ("convert-widen: an Affordance binding onto an offering action is written anyway",
+    # RETIRED 2026-11-24 (pf/guard-repoint): "convert-widen: an Affordance binding onto an offering action is written anyway"
+    # bent the TICK_AFFORDANCE_BINDING refusal, which refused a reference or behaviour binding Affordance onto an action
+    # with its own literal one, since a fixed <offers> could not take the binding. 73af6a18 (Codex) removed that refusal
+    # on purpose: NoteBindings records every action an Affordance binding targets (_boundAffordances), and such an action
+    # writes no fixed <offers>, so the runtime offers the binding, or the unbound default, through the parameter (self-test
+    # 'offer-binding-override'). No refusal is left to mutate; the case below freezes the rebound default again.
+    ("convert-widen: an Affordance a binding overrides is frozen into a fixed offer",
      os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
-     b"                    if (own != null && own.Cache == ShimejiSourceCache.Literal && !JavaBlank(own.RawValue))\n",
-     b"                    if (own != null && own.Cache == ShimejiSourceCache.Frame && !JavaBlank(own.RawValue))\n",
+     b"                        if (attribute.Cache == ShimejiSourceCache.Literal && !_boundAffordances.Contains(name))\n",
+     b"                        if (attribute.Cache == ShimejiSourceCache.Literal)\n",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
-     SHIMEJI, None, "conversion accepted an input requiring refusal: TICK_AFFORDANCE_BINDING Affordance"),
+     SHIMEJI, None, "offer-binding-override: a static offer masked the reference binding or the unbound default was lost"),
     # Toggles: the header switch, the behaviour's name for it, and the id limit.
     # N-shimeji-1106-19: since 98d687d ConvertPack runs the host's validator over what it emitted and refuses with TICK_OUTPUT_INVALID
     # before the self-test reads the document, so the check fails on that refusal; the fragment names its rule.
@@ -22154,12 +22217,17 @@ CASES = (
      b"                    bool neverCurrent = ticks == int.MinValue;\n",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
      SHIMEJI, None, "zero-duration-poses: actions.xml#/Mascot[1]/ActionList[1]/Action[3]/Animation[1]/Pose[2]"),
+    # Re-pointed 2026-11-24 (pf/guard-repoint): 73af6a18 has CheckSprite name the attribute a missing image came from
+    # (TICK_SPRITE_MISSING Image), and its self-test 'missing-pose-image', which runs before 'zero-duration-poses', is now
+    # the first to meet the mutant. Its Duration 0 pose is its Animation's only one, so with the image unchecked the
+    # conversion goes on to refuse that Animation as TICK_POSE_ZERO_LENGTH: the source loads the missing image first and
+    # fails there, and the self-test catches only that FileNotFoundException (measured with --only at 3167c3cd).
     ("convert-corpus: a never-shown pose's image is not checked",
      os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
-     b"                            CheckSprite(image, child);\n",
+     b"                            CheckSprite(image, child, \"Image\");\n",
      b"",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
-     SHIMEJI, None, "a never-shown pose's missing image was not refused"),
+     SHIMEJI, None, "TickPackEmitterSelfTest/missing-pose-image: actions.xml#/Mascot[1]/ActionList[1]/Action[1]/Action[1]/Animation[1] (6,10): TICK_POSE_ZERO_LENGTH"),
     ("convert-corpus: an Animation whose every pose is 0 long is refused unnamed",
      os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
      b"                if (!variant.Elements().Any() && anyPose)\n",
@@ -26871,12 +26939,18 @@ CASES = (
      b"                if (op == null) { }\n",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
      SHIMEJI, "tick-emitter/nan-refusal", "a NaN script with an unread character was not refused as TICK_NAN_SHAPE TargetX"),
-    ("bd-w7-converter-1: the sheet's no-grid refusal is deleted (N-audit-1106-163)",
+    # RETIRED 2026-11-24 (pf/guard-repoint): "bd-w7-converter-1: the sheet's no-grid refusal is deleted (N-audit-1106-163)"
+    # made TICK_SHEET_NO_GRID unreachable (bestX == 0 -> bestX < 0). 61b8405d (paged sheets, feature 'pages') replaced that
+    # refusal on purpose: a member no one grid holds now goes on pages of its own cell sizes (PagedComposite), and the
+    # self-test 'paged-sheets' replaced the 26 x 768x768 refusal with an accepted paged member. The refusal that member
+    # class still meets is TICK_SHEET_BUDGET (pages past the host's paged pixel budget); the case below deletes it the same
+    # way, and 'paged-sheets' must see its 43 x 768x768 member go unrefused by that name.
+    ("bd-w7-converter-1: the paged sheets' budget refusal is deleted (N-audit-1106-163)",
      os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
-     b"                    if (bestX == 0)\n                        throw new InvalidDataException(\"TICK_SHEET_NO_GRID: no grid of \"",
-     b"                    if (bestX < 0)\n                        throw new InvalidDataException(\"TICK_SHEET_NO_GRID: no grid of \"",
+     b"                if (pixels > DesktopAICompanion.CompanionXmlValidator.MaximumPagedPixels)\n",
+     b"                if (pixels < 0)\n",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
-     SHIMEJI, "tick-emitter/sheet-layout", "26 distinct 768x768 frames were not refused as TICK_SHEET_NO_GRID"),
+     SHIMEJI, "tick-emitter/paged-sheets", "43 distinct 768x768 frames were not refused as TICK_SHEET_BUDGET"),
 
     # ---- burndown/w7-host-1 ----
     # Host entries of burn-down wave 7. "bd-w7-host-1:" for one --only.
