@@ -26,7 +26,12 @@ namespace DesktopAICompanion.PetStudioModule
         {
             Id = "petstudio",
             Name = "Companion Studio",
-            Version = "1.5.0",   // 1.5.0: converts far more real Shimeji packs (375 of the 381 in the private test corpus,
+            Version = "1.5.1",   // 1.5.1: the shared loader (source-linked Xml.cs, host 1.12.0) also lets go of each further
+                                 //        sheet page's base64 and proven bytes once its frames are staged; nothing a
+                                 //        user sees changes. A version of its own because 1.5.0's payload was already
+                                 //        on the catalog when this landed, and an install of it is offered an update
+                                 //        only by a higher version.
+                                 // 1.5.0: converts far more real Shimeji packs (375 of the 381 in the private test corpus,
                                  //        341 before). Scripts may be statement sequences with var, ++/--, typeof and
                                  //        script globals, read another companion through getMascotWithAffordance, and use
                                  //        getBounds and anchor.translate (feature 'statements'); what the original program
