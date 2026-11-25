@@ -137,6 +137,25 @@ namespace XmlData
         public int AnchorY;
         [XmlIgnore]
         public bool AnchorYSpecified;
+        /// <summary>A tick companion's further sheet pages (grimoire/06 section 3, feature <c>pages</c>): each a grid of
+        /// its own cell size, whose tiles number on after the tiles before it (this image's first, then each page in
+        /// order). Null for a one-sheet document.</summary>
+        [XmlArray("pages")]
+        [XmlArrayItem("page")]
+        public PageNode[] Pages;
+    }
+
+    /// <summary>
+    ///  One further page of a tick companion's sheet: a PNG grid of <see cref="TilesX"/> by <see cref="TilesY"/> cells.
+    /// </summary>
+    public class PageNode
+    {
+        [XmlElement("tilesx")]
+        public int TilesX;
+        [XmlElement("tilesy")]
+        public int TilesY;
+        [XmlElement("png")]
+        public string Png;
     }
 
     /// <summary>

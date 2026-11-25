@@ -197,6 +197,7 @@
     <Compile Include="dotNet\Shimeji\ShimejiSoundSelfTest.cs" />
     <Compile Include="dotNet\Shimeji\ShimejiWindowSelfTest.Packs.cs" />
     <Compile Include="dotNet\Shimeji\ShimejiWindowSelfTest.Limits.cs" />
+    <Compile Include="dotNet\Shimeji\ShimejiWindowSelfTest.Pages.cs" />
     <Compile Include="dotNet\Shimeji\ShimejiWindowSelfTest.Host.cs" />
     <Compile Include="dotNet\Shimeji\ShimejiWindowSelfTest.Parity.cs" />
     <Compile Include="dotNet\Shimeji\ShimejiWindowSelfTest.ParityErrors.cs" />

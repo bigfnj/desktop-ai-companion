@@ -123,6 +123,24 @@
               </xsd:element>
               <xsd:element name='anchorx' type='xsd:integer' minOccurs='0' maxOccurs='1' />
               <xsd:element name='anchory' type='xsd:integer' minOccurs='0' maxOccurs='1' />
+              <xsd:element name='pages' minOccurs='0' maxOccurs='1'>
+                <xsd:annotation>
+                  <xsd:documentation>A tick companion's further sheet pages (feature 'pages'): each a grid of its own cell size, numbered on after the tiles before it.</xsd:documentation>
+                </xsd:annotation>
+                <xsd:complexType>
+                  <xsd:sequence>
+                    <xsd:element name='page' minOccurs='1' maxOccurs='1023'>
+                      <xsd:complexType>
+                        <xsd:all>
+                          <xsd:element name='tilesx' type='xsd:integer' minOccurs='1' maxOccurs='1' />
+                          <xsd:element name='tilesy' type='xsd:integer' minOccurs='1' maxOccurs='1' />
+                          <xsd:element name='png' type='xsd:string' minOccurs='1' maxOccurs='1' />
+                        </xsd:all>
+                      </xsd:complexType>
+                    </xsd:element>
+                  </xsd:sequence>
+                </xsd:complexType>
+              </xsd:element>
             </xsd:all>
           </xsd:complexType>
         </xsd:element>

@@ -30,6 +30,8 @@ namespace DesktopAICompanion
             // 'statements' runs: the SafeScript statement grammar and its object model (SafeScript.cs), with script
             // globals per action activation (TickScriptGlobals) and companion references (TickScriptContext).
             supported.Add(Statements);
+            // 'pages' runs: Xml.ReadImages stages every page's cells into the one sprite store, in tile order.
+            supported.Add(Pages);
         }
 
         static partial void CheckRuntimeClass(string embeddedClass, ref bool runs)

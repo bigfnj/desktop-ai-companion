@@ -222,6 +222,7 @@ namespace DesktopAICompanion.Shimeji
                 CheckParityMapV2(check, scratch, log);
                 CheckArrivalSpawn(check, log);
                 CheckLargeFrames(check, log);
+                CheckPagedSheet(check, log);
                 CheckHostStep(check, log);
                 CheckResourceChurnTickStep(check);
             }

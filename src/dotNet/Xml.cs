@@ -178,6 +178,16 @@ namespace DesktopAICompanion
         }
 
         /// <summary>The part of a frame a tick pose shows (<see cref="SpriteFrameStore.GetRegion"/>), owned by the store.</summary>
+        /// <summary>Frame <paramref name="index"/>'s staged size: its cell, which on a paged tick sheet is its page's.</summary>
+        internal Size SpriteFrameSize(int index)
+        {
+            if (disposed) throw new ObjectDisposedException("Xml");
+            if (spriteFrames == null)
+                throw new InvalidOperationException("Pet sprite frames are unavailable.");
+            Bitmap frame = spriteFrames.GetFrame(index, false);
+            return new Size(frame.Width, frame.Height);
+        }
+
         internal Bitmap GetSpriteRegion(int index, bool flipped, Rectangle region, out bool exact)
         {
             if (disposed) throw new ObjectDisposedException("Xml");
@@ -280,7 +290,8 @@ namespace DesktopAICompanion
                         parsed.Header.Petname,
                         16);
 
-                stagedFrameStore = new SpriteFrameStore(stagedSprites);
+                stagedFrameStore = new SpriteFrameStore(stagedSprites,
+                    parsed.Image.Pages != null ? SpriteFrameStore.MaximumPagedPixels : SpriteFrameStore.MaximumOriginalPixels);
                 stagedSprites = null;
                 DisposeAssets();
                 AnimationXML = parsed;
@@ -589,6 +600,12 @@ namespace DesktopAICompanion
 
             try
             {
+                if (root.Image.Pages != null)
+                {
+                    stagedSprites = ReadPages(root, imageBytes, stagedUsesAlpha, out stagedWidth, out stagedHeight,
+                        ref stagedFactor, out stagedLoweredFrom);
+                    return;
+                }
                 using (var imageStream = new MemoryStream(imageBytes, false))
                 using (var decoded = new Bitmap(imageStream))
                 {
@@ -641,6 +658,82 @@ namespace DesktopAICompanion
                 stagedIcon.Dispose();
                 stagedIcon = null;
                 throw;
+            }
+        }
+
+        /// <summary>
+        /// A paged tick sheet (grimoire/06 section 3, feature 'pages'): every page's cells, in tile order (the first page,
+        /// then each page), each page staged at its own cell size times one factor. The factor is fitted as a one-sheet
+        /// document's is, against the largest cell side and the paged budget, so a frame is never shrunk below the size
+        /// a one-sheet document of its cells would get. The pages were proven by the validator; their bytes are decoded
+        /// here (only the first page's are handed over, F318). <paramref name="width"/> and <paramref name="height"/> are
+        /// the largest staged cell, the window's first size.
+        /// </summary>
+        private IList<Bitmap> ReadPages(XmlData.RootNode root, byte[] firstPage, bool usesAlpha, out int width, out int height,
+            ref double factor, out double loweredFrom)
+        {
+            loweredFrom = 0;
+            var sheets = new List<Bitmap>();
+            var tiles = new List<Size>();
+            var result = new List<Bitmap>();
+            try
+            {
+                sheets.Add(new Bitmap(new MemoryStream(firstPage, false)));
+                tiles.Add(new Size(root.Image.TilesX, root.Image.TilesY));
+                foreach (XmlData.PageNode page in root.Image.Pages)
+                {
+                    sheets.Add(new Bitmap(new MemoryStream(Convert.FromBase64String(page.Png.Trim()), false)));
+                    tiles.Add(new Size(page.TilesX, page.TilesY));
+                }
+                int frameLimit = CompanionXmlValidator.MaximumFrameDimensionFor(true);
+                int largestWidth = 0, largestHeight = 0;
+                double cells = 0;
+                long frames = 0;
+                for (int i = 0; i < sheets.Count; i++)
+                {
+                    int cellWidth = sheets[i].Width / tiles[i].Width, cellHeight = sheets[i].Height / tiles[i].Height;
+                    largestWidth = Math.Max(largestWidth, cellWidth);
+                    largestHeight = Math.Max(largestHeight, cellHeight);
+                    long count = (long)tiles[i].Width * tiles[i].Height;
+                    frames += count;
+                    cells += count * (cellWidth + 1.0) * (cellHeight + 1.0);
+                }
+                if (frames > MaximumGeneratedFrames)
+                    throw new InvalidDataException("Sprite sheet expands to more than " + MaximumGeneratedFrames + " runtime frames.");
+                double requested = factor;
+                factor = ScalePolicy.FitFactorForFrameD(factor, largestWidth, largestHeight, frameLimit);
+                if (factor > 1.0)
+                {
+                    double fits = Math.Sqrt(SpriteFrameStore.MaximumPagedPixels / cells);
+                    double fitted = factor <= fits ? factor : Math.Max(1.0, fits);
+                    if (fitted < factor) loweredFrom = requested;
+                    factor = fitted;
+                }
+                width = Math.Max(1, (int)Math.Round(largestWidth * factor));
+                height = Math.Max(1, (int)Math.Round(largestHeight * factor));
+                if (width > frameLimit || height > frameLimit)
+                    throw new InvalidDataException("A sprite frame exceeds the " + frameLimit + "-pixel runtime limit.");
+                long pixels = 0;
+                for (int i = 0; i < sheets.Count; i++)
+                {
+                    int cellWidth = sheets[i].Width / tiles[i].Width, cellHeight = sheets[i].Height / tiles[i].Height;
+                    int stagedWidth = Math.Max(1, (int)Math.Round(cellWidth * factor));
+                    int stagedHeight = Math.Max(1, (int)Math.Round(cellHeight * factor));
+                    pixels = checked(pixels + (long)tiles[i].Width * tiles[i].Height * stagedWidth * stagedHeight);
+                    if (pixels > SpriteFrameStore.MaximumPagedPixels)
+                        throw new InvalidDataException("Expanded sprite frames exceed the runtime pixel budget.");
+                    bool smooth = usesAlpha && (stagedWidth < cellWidth || stagedHeight < cellHeight);
+                    result.AddRange(BuildSprites(sheets[i], tiles[i].Width, tiles[i].Height, cellWidth, cellHeight,
+                        stagedWidth, stagedHeight, smooth));
+                }
+                IList<Bitmap> staged = result;
+                result = null;
+                return staged;
+            }
+            finally
+            {
+                foreach (Bitmap sheet in sheets) sheet.Dispose();
+                if (result != null) foreach (Bitmap frame in result) frame.Dispose();
             }
         }
 
@@ -896,6 +989,11 @@ namespace DesktopAICompanion
     {
         internal const int MaximumFrames = 1024;
         internal const long MaximumOriginalPixels = 16L * 1024L * 1024L;
+        /// <summary>A paged tick sheet's frame budget (CompanionXmlValidator.MaximumPagedPixels, grimoire/06 section 3).
+        /// Its poses each show a whole cell, so no region is ever cut from it and the region budget is never spent; its
+        /// frames and flipped copies together stay within what a one-sheet document's frames, flipped copies and regions
+        /// may cost (3 x <see cref="MaximumOriginalPixels"/>).</summary>
+        internal const long MaximumPagedPixels = CompanionXmlValidator.MaximumPagedPixels;
 
         private readonly object sync = new object();
         private Bitmap[] originals;
@@ -913,7 +1011,11 @@ namespace DesktopAICompanion
         private bool regionBudgetSpent;
         private bool regionBudgetReported;
 
-        public SpriteFrameStore(IList<Bitmap> frames)
+        public SpriteFrameStore(IList<Bitmap> frames) : this(frames, MaximumOriginalPixels) { }
+
+        /// <summary>A store whose frames may hold <paramref name="pixelBudget"/> pixels: <see cref="MaximumOriginalPixels"/>,
+        /// or <see cref="MaximumPagedPixels"/> for a paged tick sheet.</summary>
+        public SpriteFrameStore(IList<Bitmap> frames, long pixelBudget)
         {
             if (frames == null) throw new ArgumentNullException("frames");
             if (frames.Count > MaximumFrames)
@@ -930,7 +1032,7 @@ namespace DesktopAICompanion
                 if (frame == null)
                     throw new InvalidDataException("A runtime sprite frame is missing.");
                 pixels = checked(pixels + (long)frame.Width * frame.Height);
-                if (pixels > MaximumOriginalPixels)
+                if (pixels > pixelBudget)
                     throw new InvalidDataException(
                         "Expanded sprite frames exceed the runtime pixel budget.");
                 staged[index] = frame;

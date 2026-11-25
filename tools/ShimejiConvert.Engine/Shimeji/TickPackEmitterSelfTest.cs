@@ -45,6 +45,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "offer-lowering", Run = (Action)OfferLowering },
                 new { Name = "offer-binding-override", Run = (Action)OfferBindingOverride },
                 new { Name = "mixed-pose-geometry", Run = (Action)MixedPoseGeometry },
+                new { Name = "paged-sheets", Run = (Action)PagedSheetChecks },
                 new { Name = "explicit-right-geometry", Run = (Action)ExplicitRightGeometry },
                 new { Name = "pair-anchor-cache", Run = (Action)PairAnchorCache },
                 new { Name = "pair-anchor-preload-order", Run = (Action)PairAnchorPreloadOrder },
@@ -98,6 +99,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "sound-source-identity", Run = (Action)SoundSourceIdentity },
                 new { Name = "sprite-read-diagnostics", Run = (Action)SpriteReadDiagnostics },
                 new { Name = "sound-refusal", Run = (Action)SoundRefusal },
+                new { Name = "sound-source-sizes", Run = (Action)SoundSourceSizes },
+                new { Name = "sound-recovery", Run = (Action)SoundRecovery },
                 new { Name = "configuration-spelling", Run = (Action)ConfigurationSpelling },
                 new { Name = "sheet-layout", Run = (Action)SheetLayout },
                 new { Name = "conf-less-member-skipped", Run = (Action)ConfLessMemberSkipped },
@@ -2631,14 +2634,123 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     Require(!accepted && error != null && error.Contains("between 1 and " + TickPackEmitter.MaxTilesPerAxis + "."),
                         "the validator's tile-axis bound is not MaxTilesPerAxis (" + TickPackEmitter.MaxTilesPerAxis + "): " + error);
                 }
-            // N-audit-1106-163: and a member NO grid fits refuses by name. 26 distinct 768x768 frames: at most 5 fit across
-            // 4096 pixels, and 26 cells in 5 columns need 6 rows, 4608 pixels. Without the throw the search's empty answer
-            // (0 by 0) reached the Bitmap constructor, and the named refusal became an unhandled exception. Any exception
-            // is caught and its type printed, so that regression reads as this check failing.
+            // A member no one grid fits goes on pages (N-audit-1106-163's refusal is gone): the "paged-sheets" case.
+            // Review item 2: what the file API writes, the host accepts. A variant of 513 poses is past the schema's 512,
+            // which the emitter does not count, so the host's validator refuses it, and nothing is written.
+            using (var fixture = new Fixture())
+            {
+                XDocument many = BuildActions();
+                many.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Stand").Element("Animation")
+                    .ReplaceNodes(Enumerable.Range(0, 513).Select(i => Pose("/p.png", 1)));
+                fixture.Actions(many);
+                Refusal(fixture, "TICK_OUTPUT_INVALID: image set 'A': the host's validator refuses the emitted document");
+                Require(!Directory.Exists(fixture.Output), "a document the host refuses was written");
+            }
+        }
+
+        /// <summary>
+        /// grimoire/06 section 3, feature 'pages' (the corpus's TICK_SHEET_NO_GRID members). 26 distinct 768x768 frames:
+        /// at most 5 fit across 4096 pixels, and 26 cells in 5 columns need 6 rows, 4608 pixels, so no one grid holds them
+        /// (N-audit-1106-163 refused them by name). They now go on pages of their own size, and the conversion keeps every
+        /// pose's geometry: the same image, anchor and size per pose as a one-sheet member would carry, every cell's pixels
+        /// the source image's own, unpadded from the top-left, and the host's validator accepts it. Smaller frames of
+        /// another size share the member, so a page per size and the renumbering are both exercised. And a member whose
+        /// pages would pass the host's paged budget is refused by name (TICK_SHEET_BUDGET), writing nothing.
+        /// </summary>
+        private static void PagedSheetChecks()
+        {
             using (var fixture = new Fixture())
             {
                 var poses = new List<XElement>();
-                for (int i = 0; i < 26; i++)
+                var sources = new List<string>();
+                for (int i = 0; i < 30; i++)
+                {
+                    // Frames 0, 7, 14, 21 and 28 are 40 x 50, the rest 768 x 768: sizes interleave, so page order is not
+                    // source order and every pose must be renumbered.
+                    bool small = i % 7 == 0;
+                    string name = (small ? "small" : "big") + i + ".png";
+                    fixture.Write("img/A/" + name, "");
+                    string path = Path.Combine(fixture.Pack, "img", "A", name);
+                    SavePng(path, i % 2 == 1, small ? 40 : 768, height: small ? 50 : 768);
+                    using (var bitmap = new Bitmap(path))
+                    {
+                        // A per-image mark, so two frames of one size can never pass for each other.
+                        bitmap.SetPixel(i % bitmap.Width, (i * 3) % bitmap.Height, Color.FromArgb(255, 10 + i, 200 - i, 7 * i % 256));
+                        bitmap.Save(path + ".tmp", ImageFormat.Png);
+                    }
+                    File.Delete(path);
+                    File.Move(path + ".tmp", path);
+                    sources.Add(path);
+                    XElement pose = Pose("/" + name, 1);
+                    pose.SetAttributeValue("ImageAnchor", (small ? 20 + i : 384 + i) + "," + (small ? 50 : 760 - i));
+                    poses.Add(pose);
+                }
+                fixture.Actions(new XDocument(S("Mascot", S("ActionList", S("Action", A("Name", "Stand"), A("Type", "Stay"),
+                    S("Animation", poses))))));
+                fixture.Behaviors(new XDocument(S("Mascot", S("BehaviorList", S("Behavior", A("Name", "Main"),
+                    A("Action", "Stand"), A("Frequency", 1))))));
+                string outcome;
+                try { TickPackEmitter.ConvertPack(fixture.Pack, fixture.Output); outcome = "accepted"; }
+                catch (Exception error) { outcome = error.GetType().Name + ": " + error.Message; }
+                Require(outcome == "accepted", "30 frames no one grid holds did not convert on pages (" + outcome + ")");
+                if (outcome != "accepted") return;
+                XDocument document = XDocument.Load(Path.Combine(fixture.Output, "A", "animations.xml"));
+                XElement image = document.Root.Element(Ns + "image");
+                Require(document.Root.Element(Ns + "header").Element(Ns + "features").Value.Split(' ').Contains("pages"),
+                    "a paged member does not declare 'pages'");
+                var sheets = new List<Tuple<int, int, string>> { Tuple.Create((int)image.Element(Ns + "tilesx"),
+                    (int)image.Element(Ns + "tilesy"), image.Element(Ns + "png").Value) };
+                XElement pagesElement = image.Element(Ns + "pages");
+                Require(pagesElement != null, "a paged member wrote no pages");
+                if (pagesElement == null) return;
+                foreach (XElement page in pagesElement.Elements(Ns + "page"))
+                    sheets.Add(Tuple.Create((int)page.Element(Ns + "tilesx"), (int)page.Element(Ns + "tilesy"), page.Element(Ns + "png").Value));
+                // One page of 40 x 50 (5 cells) and two of 768 x 768 (25 and 0 left over... 25 cells hold 25 frames).
+                Require(sheets.Count == 2, "30 frames in two sizes took " + sheets.Count + " pages, not 2");
+                Validate(document, "paged member");
+                // Tile -> (page, cell) and the cell's pixels, for the pixel comparison.
+                var cells = new List<Bitmap>();
+                try
+                {
+                    foreach (var sheet in sheets)
+                        using (var decoded = new Bitmap(new MemoryStream(Convert.FromBase64String(sheet.Item3))))
+                        {
+                            int w = decoded.Width / sheet.Item1, h = decoded.Height / sheet.Item2;
+                            for (int c = 0; c < sheet.Item1 * sheet.Item2; c++)
+                                cells.Add(decoded.Clone(new Rectangle(c % sheet.Item1 * w, c / sheet.Item1 * h, w, h), PixelFormat.Format32bppArgb));
+                        }
+                    List<XElement> shown = document.Descendants(Ns + "pose").ToList();
+                    Require(shown.Count == 30, "the paged member shows " + shown.Count + " poses, not 30");
+                    var map = System.Text.Json.JsonDocument.Parse(File.ReadAllText(Path.Combine(fixture.Output, "A", "parity-map.json")));
+                    var mapFrames = map.RootElement.GetProperty("frames").EnumerateArray().ToDictionary(f => f.GetProperty("frame").GetInt32());
+                    for (int i = 0; i < 30 && i < shown.Count; i++)
+                    {
+                        bool small = i % 7 == 0;
+                        XElement pose = shown[i];
+                        int frame = (int)pose.Attribute("frame");
+                        string geometry = (int)pose.Attribute("ax") + "," + (int)pose.Attribute("ay") + " " + (int)pose.Attribute("w") + "x" + (int)pose.Attribute("h");
+                        string expected = (small ? 20 + i : 384 + i) + "," + (small ? 50 : 760 - i) + " " + (small ? "40x50" : "768x768");
+                        Require(geometry == expected, "paged pose " + i + " has geometry " + geometry + ", not the source's " + expected);
+                        Require(frame >= 0 && frame < cells.Count && cells[frame].Width == (small ? 40 : 768) && cells[frame].Height == (small ? 50 : 768),
+                            "paged pose " + i + " shows frame " + frame + ", whose cell is not its image's size");
+                        System.Text.Json.JsonElement entry;
+                        Require(mapFrames.TryGetValue(frame, out entry) && entry.GetProperty("image").GetString() == "img/A/" + (small ? "small" : "big") + i + ".png",
+                            "the parity map does not name pose " + i + "'s image under its frame " + frame);
+                        if (frame < 0 || frame >= cells.Count) continue;
+                        using (var source = new Bitmap(sources[i]))
+                            Require(SamePixels(source, cells[frame]), "paged frame " + frame + " is not pose " + i + "'s source image, pixel for pixel");
+                    }
+                }
+                finally { foreach (Bitmap cell in cells) cell.Dispose(); }
+            }
+            // The paged budget: 43 distinct 768x768 frames take a page of 25 cells and one of 20 (18 frames, 5 by 4, the
+            // fewest cells that fit), 45 cells of 768 x 768 = 26,542,080 pixels, past the host's 24 Mi (25,165,824): the
+            // empty cells count, as the host stages them. Refused by name, and nothing is written. (41 frames, 25 + 16
+            // cells, 24,182,784 pixels, would fit.)
+            using (var fixture = new Fixture())
+            {
+                var poses = new List<XElement>();
+                for (int i = 0; i < 43; i++)
                 {
                     string name = "big" + i + ".png";
                     fixture.Write("img/A/" + name, "");
@@ -2653,21 +2765,36 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 try { TickPackEmitter.ConvertPack(fixture.Pack, fixture.Output); outcome = "accepted"; }
                 catch (InvalidDataException error) { outcome = error.Message; }
                 catch (Exception error) { outcome = error.GetType().Name + ": " + error.Message; }
-                Require(outcome.IndexOf("TICK_SHEET_NO_GRID: no grid of 26 cells of 768 x 768", StringComparison.Ordinal) >= 0,
-                    "26 distinct 768x768 frames were not refused as TICK_SHEET_NO_GRID (" + outcome + ")");
-                Require(!Directory.Exists(fixture.Output), "a sheet no grid fits left output");
+                Require(outcome.IndexOf("TICK_SHEET_BUDGET: 43 frames of up to 768 x 768 need 26542080 pixels", StringComparison.Ordinal) >= 0,
+                    "43 distinct 768x768 frames were not refused as TICK_SHEET_BUDGET (" + outcome + ")");
+                Require(!Directory.Exists(fixture.Output), "a member past the paged budget left output");
             }
-            // Review item 2: what the file API writes, the host accepts. A variant of 513 poses is past the schema's 512,
-            // which the emitter does not count, so the host's validator refuses it, and nothing is written.
-            using (var fixture = new Fixture())
+        }
+
+        private static bool SamePixels(Bitmap a, Bitmap b)
+        {
+            if (a.Width != b.Width || a.Height != b.Height) return false;
+            int[] p = Argb(a), q = Argb(b);
+            for (int i = 0; i < p.Length; i++)
             {
-                XDocument many = BuildActions();
-                many.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Stand").Element("Animation")
-                    .ReplaceNodes(Enumerable.Range(0, 513).Select(i => Pose("/p.png", 1)));
-                fixture.Actions(many);
-                Refusal(fixture, "TICK_OUTPUT_INVALID: image set 'A': the host's validator refuses the emitted document");
-                Require(!Directory.Exists(fixture.Output), "a document the host refuses was written");
+                // Fully transparent pixels draw nothing whatever their colour; every other pixel must match exactly.
+                if ((p[i] >> 24) == 0 && (q[i] >> 24) == 0) continue;
+                if (p[i] != q[i]) return false;
             }
+            return true;
+        }
+
+        private static int[] Argb(Bitmap bitmap)
+        {
+            var pixels = new int[bitmap.Width * bitmap.Height];
+            BitmapData data = bitmap.LockBits(new Rectangle(0, 0, bitmap.Width, bitmap.Height), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+            try
+            {
+                for (int y = 0; y < bitmap.Height; y++)
+                    Marshal.Copy(IntPtr.Add(data.Scan0, y * data.Stride), pixels, y * bitmap.Width, bitmap.Width);
+            }
+            finally { bitmap.UnlockBits(data); }
+            return pixels;
         }
 
         /// <summary>A PCM RIFF/WAVE clip of <paramref name="data"/> sample bytes in the given shape, the samples a ramp.</summary>
@@ -3171,26 +3298,28 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
         }
 
         // What the source cannot load refuses the member, by name: a Sound naming no file, MP3 bytes (whatever the
-        // name), a WAVE the host's rule rejects, a Volume outside the gain range, a path out of the pack, an id over
-        // 64 characters, and a clip larger than the host's per-clip limit.
+        // name), a WAVE the host's rule rejects (here one cut inside its fmt chunk, which the source cannot open either),
+        // a Volume outside the gain range, a path out of the pack, an id over 64 characters, and a clip larger than the
+        // host's per-clip limit.
         private static void SoundRefusal()
         {
             byte[] good = Wave(100, 4);
             byte[] mp3 = new byte[64];
             mp3[0] = 0x49; mp3[1] = 0x44; mp3[2] = 0x33;
-            byte[] truncated = good.Take(good.Length - 10).ToArray();
+            byte[] truncated = good.Take(30).ToArray();
             var cases = new[] {
                 new { File = (string)null, Bytes = good, Sound = "/none.wav", Volume = (string)null, Expected = "TICK_SOUND_MISSING: Sound '/none.wav'" },
                 new { File = "sound/fake.wav", Bytes = mp3, Sound = "/fake.wav", Volume = (string)null, Expected = "TICK_SOUND_MP3: clip '/fake.wav'" },
-                new { File = "sound/cut.wav", Bytes = truncated, Sound = "/cut.wav", Volume = (string)null, Expected = "TICK_SOUND_WAV: clip '/cut.wav' is truncated" },
+                new { File = "sound/cut.wav", Bytes = truncated, Sound = "/cut.wav", Volume = (string)null, Expected = "TICK_SOUND_WAV: clip '/cut.wav' is truncated: its 'fmt ' chunk runs past the end" },
                 new { File = "sound/ok.wav", Bytes = good, Sound = "/ok.wav", Volume = "7", Expected = "TICK_SOUND_VOLUME: Volume '7'" },
                 new { File = "sound/ok.wav", Bytes = good, Sound = "/ok.wav", Volume = "loud", Expected = "TICK_SOUND_VOLUME: Volume 'loud'" },
                 // Review N6 (r4): Java's trim keeps a no-break space, so Float.parseFloat refuses the text.
                 new { File = "sound/ok.wav", Bytes = good, Sound = "/ok.wav", Volume = "\u00A0-6", Expected = "TICK_SOUND_VOLUME: Volume '\u00A0-6' is not a number" },
                 new { File = (string)null, Bytes = good, Sound = "../../../../ok.wav", Volume = (string)null, Expected = "TICK_SOUND_PATH: Sound '../../../../ok.wav' leaves the pack" },
                 new { File = (string)null, Bytes = good, Sound = new string('s', 65), Volume = (string)null, Expected = "TICK_SOUND_ID_LIMIT" },
-                // Over the host's per-clip limit for a declared-format clip in bytes, yet under 60 s (48 kHz 16-bit stereo).
-                new { File = "sound/big.wav", Bytes = RawWave(48000, 2, 16, DesktopAICompanion.CompanionXmlValidator.MaximumDeclaredAudioBytesPerSound + 64),
+                // One byte over the host's per-clip limit for a declared-format clip, yet under 60 s (48 kHz 16-bit stereo,
+                // its last frame part of one); SoundSourceSizes converts a clip of exactly the limit.
+                new { File = "sound/big.wav", Bytes = RawWave(48000, 2, 16, DesktopAICompanion.CompanionXmlValidator.MaximumDeclaredAudioBytesPerSound - 43),
                     Sound = "/big.wav", Volume = (string)null, Expected = "TICK_SOUND_CLIP_LIMIT: the host refuses clip '/big.wav'" },
                 // Three clips each inside the per-clip limit (2.75 MiB of 48 kHz 16-bit stereo, 15 s) and together past the
                 // host's per-document total of 8 MiB, while the document stays inside its 12 MiB XML limit.
@@ -3246,6 +3375,148 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     .Add(Enumerable.Range(0, 513).Select(i => Pose("/p.png", 1)));
                 fixture.Actions(actions);
                 Refusal(fixture, "TICK_SOUND_CLIP_LIMIT: the host refuses clip '/big.wav'");
+            }
+        }
+
+        // pf/sound-limits: a clip the source opens converts, embedded with its bytes unchanged. A clip cut 10 bytes short of
+        // what its header claims (the source plays the whole frames present, and so does the host's WAV rule), and a clip of
+        // exactly the host's per-clip limit for a declared clip (the document's whole audio; 43.7 s of 48 kHz 16-bit stereo,
+        // inside the 60 s decode cap). SoundRefusal holds the limit plus one byte.
+        private static void SoundSourceSizes()
+        {
+            byte[] good = Wave(100, 4);
+            int limit = DesktopAICompanion.CompanionXmlValidator.MaximumDeclaredAudioBytesPerSound;
+            foreach (byte[] bytes in new[] { good.Take(good.Length - 10).ToArray(), RawWave(48000, 2, 16, limit - 44) })
+                using (var fixture = new Fixture())
+                {
+                    WriteBytes(fixture, "sound/clip.wav", bytes);
+                    fixture.Actions(SoundActions("/clip.wav", null, null));
+                    XDocument document = fixture.Convert();
+                    string[] embedded = document.Descendants(Ns + "sound").Select(s => (string)s.Element(Ns + "base64")).ToArray();
+                    Require(embedded.Length == 1 && embedded[0] == Convert.ToBase64String(bytes),
+                        "sound source sizes: a clip of " + bytes.Length + " bytes did not convert with its bytes unchanged (" + embedded.Length + " clips)");
+                }
+        }
+
+        // pf/sound-limits: under recovery (the decision-64 choice) a played clip the host cannot carry is dropped instead of
+        // refusing the member: one that decodes past 60 s, one past the per-clip limit, and, while the member's clips pass the
+        // document total, the largest left. Each drop is one named warning and one Dropped residue item in the pack API
+        // (policy:sound-clip-dropped); every pose that named the clip keeps its ticks and has no sound or volume; the clips
+        // kept are untouched. The same fixture without recovery refuses by its code, and what recovery emits is inside every
+        // host limit (bytes per clip, the document total, the decode cap).
+        private static void SoundRecovery()
+        {
+            const int Mi = 1024 * 1024;
+            int perClip = DesktopAICompanion.CompanionXmlValidator.MaximumDeclaredAudioBytesPerSound;
+            int total = DesktopAICompanion.CompanionXmlValidator.MaximumAudioBytesTotal;
+            byte[] keep = Wave(100, 4);
+            var cases = new[]
+            {
+                new { Name = "decode", Files = new[] { "long.wav", "keep.wav" }, Bytes = new[] { RawWave(8000, 1, 8, 61 * 8000), keep },
+                    Dropped = "long.wav", Refusal = "TICK_SOUND_DECODE_LIMIT: clip '/long.wav' decodes to 61.0 s",
+                    Why = "the clip decodes to 61.0 s, past the 60 s the host decodes" },
+                new { Name = "per-clip", Files = new[] { "big.wav", "keep.wav" }, Bytes = new[] { RawWave(48000, 2, 16, perClip - 43), keep },
+                    Dropped = "big.wav", Refusal = "TICK_SOUND_CLIP_LIMIT: the host refuses clip '/big.wav'",
+                    Why = "the clip is " + (perClip + 1) + " bytes, past the host's per-clip limit of " + perClip + " bytes" },
+                // 3, 4 and 2 MiB, 9 MiB together: the largest, the middle one, goes and 5 MiB stay.
+                new { Name = "total", Files = new[] { "a.wav", "b.wav", "c.wav" },
+                    Bytes = new[] { RawWave(48000, 2, 16, 3 * Mi - 44), RawWave(48000, 2, 16, 4 * Mi - 44), RawWave(48000, 2, 16, 2 * Mi - 44) },
+                    Dropped = "b.wav", Refusal = "TICK_SOUND_DOCUMENT_LIMIT: the host refuses the member's 3 clips (" + 9 * Mi + " bytes)",
+                    Why = "the member's played clips total " + 9 * Mi + " bytes, past the " + total
+                        + " bytes of audio one document may hold, and this clip (" + 4 * Mi + " bytes) was the largest left" },
+            };
+            foreach (var c in cases)
+            {
+                Func<Fixture> build = delegate
+                {
+                    var fixture = new Fixture();
+                    XDocument actions = SoundActions(null, null, null);
+                    XElement[] poses = actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Stand").Descendants("Pose").ToArray();
+                    for (int i = 0; i < c.Files.Length; i++)
+                    {
+                        WriteBytes(fixture, "sound/" + c.Files[i], c.Bytes[i]);
+                        poses[i].SetAttributeValue("Sound", "/" + c.Files[i]);
+                        poses[i].SetAttributeValue("Volume", "-3");
+                    }
+                    fixture.Actions(actions);
+                    return fixture;
+                };
+                using (Fixture strict = build()) Refusal(strict, c.Refusal);
+                using (Fixture fixture = build())
+                {
+                    IReadOnlyList<string> warnings;
+                    TickPackEmitter.ConvertPack(fixture.Pack, fixture.Output, null, out warnings, true);
+                    XDocument document = XDocument.Load(fixture.XmlPath);
+                    string expected = "Image set 'A': Sound '/" + c.Dropped + "': " + c.Why + ", so it was dropped; the source plays it,"
+                        + " and every pose that names it keeps its timing here and plays no sound (policy:sound-clip-dropped)";
+                    Require(warnings.Count(w => w.Contains("policy:sound-clip-dropped")) == 1 && warnings.Contains(expected),
+                        "sound recovery (" + c.Name + "): the drop is not one named warning: " + string.Join(" | ", warnings));
+                    string[] kept = c.Files.Where(f => f != c.Dropped).ToArray();
+                    XElement[] sounds = document.Descendants(Ns + "sound").ToArray();
+                    Require(sounds.Select(e => (string)e.Attribute("id")).SequenceEqual(kept),
+                        "sound recovery (" + c.Name + "): the clips emitted are " + string.Join(",", sounds.Select(e => (string)e.Attribute("id"))));
+                    for (int i = 0; i < c.Files.Length; i++)
+                        if (c.Files[i] != c.Dropped)
+                            Require(System.Convert.ToBase64String(c.Bytes[i]) == (string)sounds.Single(e => (string)e.Attribute("id") == c.Files[i]).Element(Ns + "base64"),
+                                "sound recovery (" + c.Name + "): a kept clip's bytes changed");
+                    XElement[] emittedPoses = NamedNode(document, "Stand").Element(Ns + "act").Descendants(Ns + "pose").ToArray();
+                    XElement[] named = emittedPoses.Take(c.Files.Length).ToArray();
+                    for (int i = 0; i < c.Files.Length; i++)
+                    {
+                        bool dropped = c.Files[i] == c.Dropped;
+                        Require(dropped ? named[i].Attribute("sound") == null && named[i].Attribute("volume") == null
+                                : (string)named[i].Attribute("sound") == c.Files[i] && (string)named[i].Attribute("volume") == "-3",
+                            "sound recovery (" + c.Name + "): pose " + i + " is " + named[i]);
+                    }
+                    // Hard limits: every clip emitted is inside each host limit.
+                    long sum = 0;
+                    foreach (XElement sound in sounds)
+                    {
+                        byte[] bytes = System.Convert.FromBase64String((string)sound.Element(Ns + "base64"));
+                        DesktopAICompanion.WavFormat.WaveLayout layout;
+                        string why;
+                        Require(DesktopAICompanion.WavFormat.TryParse(bytes, out layout, out why), "sound recovery: an emitted clip does not parse: " + why);
+                        long frames = layout.DataLength / layout.BlockAlign;
+                        long decoded = (long)Math.Ceiling(frames * (double)TickPackEmitter.MixerSampleRate / layout.SampleRate) * TickPackEmitter.MixerChannels;
+                        Require(bytes.Length <= perClip && decoded <= TickPackEmitter.MaximumClipDecodedSamples,
+                            "sound recovery (" + c.Name + "): an emitted clip passes a host limit (" + bytes.Length + " bytes, " + decoded + " samples)");
+                        sum += bytes.Length;
+                    }
+                    Require(sum <= total, "sound recovery (" + c.Name + "): the emitted clips total " + sum + " bytes");
+                }
+                // Review of 52fe1fab: the source identity is the source's whatever recovery drops. Every played clip's file
+                // is in its manifest, the dropped one included, though recovery keeps no bytes of it and the identity hashes
+                // files by path; reproduced here independently, as SoundSourceIdentity does, with no emitter helper.
+                using (Fixture fixture = build())
+                {
+                    var paths = new SortedSet<string>(StringComparer.Ordinal) { "conf/actions.xml", "conf/behaviors.xml", "img/A/p.png", "img/A/q.png" };
+                    foreach (string file in c.Files) paths.Add("sound/" + file);
+                    var manifest = new StringBuilder();
+                    foreach (string path in paths)
+                        manifest.Append(IdentityHash(File.ReadAllBytes(Path.Combine(fixture.Pack, path.Replace('/', Path.DirectorySeparatorChar)))))
+                            .Append("  ").Append(path).Append('\n');
+                    string expected = "shimeji-" + IdentityHash(Encoding.UTF8.GetBytes("shimeji-source-pack/1\nA\n"
+                        + IdentityHash(Encoding.UTF8.GetBytes(manifest.ToString())))).Substring(0, 24);
+                    IReadOnlyList<string> ignored;
+                    TickPackEmitter.ConvertPack(fixture.Pack, fixture.Output, "A", out ignored, true);
+                    string actual = (string)XDocument.Load(fixture.XmlPath).Root.Element(Ns + "header").Element(Ns + "pack").Attribute("id");
+                    Require(actual == expected, "sound recovery (" + c.Name + "): the pack id is not the source's: " + actual + " against " + expected);
+                }
+                // The pack API (Studio's path) files the drop under the member's Dropped residue, which the import-loss
+                // summary renders under "Dropped entirely", and as one pack warning.
+                using (Fixture fixture = build())
+                {
+                    string error;
+                    PackConversionResult result = PackConverter.Convert(fixture.Pack,
+                        new PackConversionOptions { MainMember = "A", RecoverMissingNext = true }, out error);
+                    PackMemberConversionResult member = result == null ? null : result.Members.SingleOrDefault(m => m.SourceKey == "A");
+                    string residue = member == null ? "" : member.Residue.ToText("A");
+                    Require(result != null && result.Accepted && member != null
+                        && member.Residue.Dropped.Count(i => i.Detail.Contains("policy:sound-clip-dropped")) == 1
+                        && residue.Contains("Dropped entirely (1):" + Environment.NewLine + "  - Sound '/" + c.Dropped + "': " + c.Why)
+                        && result.Warnings.Count(w => w.StartsWith("Image set 'A': Sound '/" + c.Dropped + "': ", StringComparison.Ordinal)) == 1,
+                        "sound recovery (" + c.Name + "): the pack API does not report the drop: " + (result == null ? error : result.Error + " | " + residue));
+                }
             }
         }
 

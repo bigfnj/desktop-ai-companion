@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.IO;
 using System.Xml;
 
@@ -43,9 +44,14 @@ namespace DesktopAICompanion
         /// would refuse each such expression as a parse error; the token makes it refuse the companion by name first.</summary>
         public const string Statements = "statements";
 
+        /// <summary>A tick sheet in more than one page, <c>&lt;image&gt;&lt;pages&gt;</c> (grimoire/06 section 3): a member whose
+        /// frames no single grid holds. A token of its own so a host that reads one sheet refuses the companion by this
+        /// name before the schema, instead of failing on an element its schema has never heard of.</summary>
+        public const string Pages = "pages";
+
         /// <summary>Every token the format defines. A token outside this list belongs to a newer format.</summary>
         public static readonly string[] All =
-            { Tick, Actions, Behaviours, Expressions, Packs, Social, Lifecycle, Windows, Hotspots, Variables, Wav, Statements };
+            { Tick, Actions, Behaviours, Expressions, Packs, Social, Lifecycle, Windows, Hotspots, Variables, Wav, Statements, Pages };
 
         /// <summary>What this build accepts: the tokens its token hook registers (the app's runtime, or Studio's copy of
         /// the app's list), none in the converter, which implements no hook. A companion that uses anything else is
@@ -229,6 +235,7 @@ namespace DesktopAICompanion
             Require(declared, CompanionFormatFeatures.Variables, h.Constants != null, "header/constants");
             Require(declared, CompanionFormatFeatures.Behaviours, h.Toggles != null, "header/toggles");
             Require(declared, CompanionFormatFeatures.Tick, root.Image.AnchorXSpecified || root.Image.AnchorYSpecified, "image/anchorx, anchory");
+            Require(declared, CompanionFormatFeatures.Pages, root.Image.Pages != null, "image/pages");
             foreach (XmlData.AnimationNode a in root.Animations.Animation)
             {
                 string where = "animation " + a.Id;
@@ -361,7 +368,7 @@ namespace DesktopAICompanion
 
         /// <summary>The tick-mode document rules: node kinds, poses, composites, names and expressions.</summary>
         public static void ValidateTickDocument(XmlData.RootNode root, int tileCount, int cellWidth, int cellHeight,
-            HashSet<string> declared, Func<string, bool> runsClass)
+            HashSet<string> declared, Func<string, bool> runsClass, Size[] pageCells = null)
         {
             XmlData.AnimationNode[] animations = root.Animations.Animation;
             var actByName = new Dictionary<string, XmlData.AnimationNode>(StringComparer.Ordinal);
@@ -476,7 +483,7 @@ namespace DesktopAICompanion
             {
                 string where = "animation " + a.Id + " '" + a.Name + "'";
                 if (a.Act != null)
-                    ValidateAct(a, a.Act, where, tileCount, cellWidth, cellHeight, soundIds, actByName, boundNames, declared, runsClass);
+                    ValidateAct(a, a.Act, where, tileCount, cellWidth, cellHeight, soundIds, actByName, boundNames, declared, runsClass, pageCells);
                 else if (a.Behaviour != null)
                 {
                     if (string.IsNullOrWhiteSpace(a.Behaviour.Runs) || !actByName.ContainsKey(a.Behaviour.Runs))
@@ -595,6 +602,32 @@ namespace DesktopAICompanion
             return found;
         }
 
+        /// <summary>A paged sheet's pose (grimoire/06 section 3, feature 'pages'): its frame's cell IS its image, so an image
+        /// pose gives w and h equal to that cell, and rw and rh equal to its right frame's cell whenever it has one (a
+        /// right-only pose too). The sprite
+        /// store then never cuts a region from a paged sheet (a region the size of its frame is the frame), which is what
+        /// lets the pages hold more pixels (CompanionXmlValidator.MaximumPagedPixels). Otherwise as a one-sheet pose.</summary>
+        private static void ValidatePagedPoseGeometry(XmlData.PoseNode p, string where, Size[] pageCells)
+        {
+            if (p.Frame >= 0)
+            {
+                Size cell = pageCells[p.Frame];
+                if (!p.WidthSpecified || !p.HeightSpecified || p.Width != cell.Width || p.Height != cell.Height)
+                    throw new InvalidDataException(where + " has a pose on a paged sheet whose image size (w, h) is not its frame's cell "
+                        + cell.Width + " x " + cell.Height + ".");
+            }
+            // Whether or not the pose has a left frame: a right-only pose (frame -1, right given) is drawn facing right
+            // (TickMascot.HasImage), from its right frame, so its right image must be that frame's whole cell too.
+            if (p.RightSpecified)
+            {
+                Size right = pageCells[p.Right];
+                if (!p.RightWidthSpecified || !p.RightHeightSpecified || p.RightWidth != right.Width || p.RightHeight != right.Height)
+                    throw new InvalidDataException(where + " has a pose on a paged sheet whose right image size (rw, rh) is not its right frame's cell "
+                        + right.Width + " x " + right.Height + ".");
+            }
+            ValidatePoseGeometry(p, where, int.MaxValue, int.MaxValue);
+        }
+
         /// <summary>A pose's image geometry stays inside its cell: each frame is drawn at its cell's top-left, so an image
         /// is 1 to the cell size in each direction, and a right image's size is only given with its right frame. The
         /// anchor may lie outside the image, within <see cref="MaximumPoseAnchor"/>.</summary>
@@ -618,7 +651,7 @@ namespace DesktopAICompanion
         private static void ValidateAct(XmlData.AnimationNode a, XmlData.ActNode act, string where, int tileCount,
             int cellWidth, int cellHeight, HashSet<string> soundIds, Dictionary<string, XmlData.AnimationNode> actByName,
             Dictionary<string, HashSet<string>> boundNames,
-            HashSet<string> declared, Func<string, bool> runsClass)
+            HashSet<string> declared, Func<string, bool> runsClass, Size[] pageCells)
         {
             bool embedded = string.Equals(act.Type, "Embedded", StringComparison.Ordinal);
             string cls = act.Class ?? "";
@@ -673,7 +706,8 @@ namespace DesktopAICompanion
                             throw new InvalidDataException(where + " has a pose with an invalid volume.");
                         if (p.Sound != null && !soundIds.Contains(p.Sound))
                             throw new InvalidDataException(where + " has a pose naming sound '" + p.Sound + "', which is not defined.");
-                        ValidatePoseGeometry(p, where, cellWidth, cellHeight);
+                        if (pageCells == null) ValidatePoseGeometry(p, where, cellWidth, cellHeight);
+                        else ValidatePagedPoseGeometry(p, where, pageCells);
                     }
                     if (v.Hotspots != null && v.Hotspots.Hotspot != null)
                         foreach (XmlData.HotspotNode h in v.Hotspots.Hotspot)

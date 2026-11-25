@@ -331,6 +331,8 @@ Recorded divergences from the source (each a correction of a source defect, neve
 |---|---|---|
 | `policy:next-missing-dropped` (decision 55) | A next-list entry naming no root behaviour is a behaviour of its own and can be selected: its Frequency is part of every draw over that list (Configuration.java:216-257), and its behaviour runs. A drag or a fall replaces it with no crash; only when it ENDS (UserBehavior.java:286) does Configuration.java:210-211 dereference the missing root builder, and the NullPointerException ends the tick thread (Mascot.java:545-554, Manager.java:88-108), stopping every companion. | Opt-in (decision 64): without the caller's choice the entry refuses (TICK_NEXT_MISSING). With it, the entry is dropped, with a warning naming it and its behaviour (each one structured residue item, PreparedMember.Dropped; the pack API files each, once, under its member's Residue.Dropped, so it counts in the member's residue total and residue.txt lists it under "Dropped entirely", and adds one member-prefixed warning to PackConversionResult.Warnings, which Pet Studio shows; the paritypack verb prints each as a WARNING line). It is never selected, its behaviour never runs and its weight leaves every draw over the list, so the lowering differs from the source from the first draw that could pick it, not only at the crash. A list left empty runs as the source runs an empty list (Configuration.java:208-245): with Add false the companion drops in and falls, with Add true the root list stays. An entry whose own or enclosing condition is a script stays refused under both settings. Not exact: an opt-in policy divergence. |
 
+The same recovery choice also lifts a host limit, which is a loss and not a correction (`policy:sound-clip-dropped`, lane pf/sound-limits). The source loads every pose's Sound whole into a javax.sound Clip, with no length or size cap of its own, and plays it. The host decodes a clip only up to 60 s, takes a clip that declares a format only up to 8 MiB, and holds only 8 MiB of audio in one document. By default a played clip past one of those refuses its member (TICK_SOUND_DECODE_LIMIT, TICK_SOUND_CLIP_LIMIT, TICK_SOUND_DOCUMENT_LIMIT). With recovery, a clip past 60 s and one past the per-clip limit are dropped, and then, while the clips left pass the document total, the largest left (the earlier id on a tie). Every pose that names a dropped clip keeps its timing and plays no sound, as a pose with no Sound does, and each drop is one warning and one Dropped residue item naming the clip and its reason. Nothing past those limits is emitted.
+
 Source-compatible mappings (the lowering writes what the source does in another form; nothing it does changes):
 
 | mapping | source | lowering |
@@ -342,7 +344,11 @@ Composite activation cycles, depth above 32 and expansion above 4096 actions are
 Sheet cells use the maximum source image width and height, with each image copied at its cell's top-left. The
 cells form a near-square grid. When that grid breaks one of the host's sheet limits (4096 pixels a side, 256 tiles an
 axis, 1024 tiles), the sheet takes, of the grids that satisfy all of them, the one with the fewest cells, then the
-fewest columns; a member that no grid fits refuses by name (TICK_SHEET_NO_GRID). Every member the file-writing API and
+fewest columns. A member that no grid fits (the source loads each image on its own, so it has no such limit) keeps its
+frames on pages (feature `pages`, grimoire/06 section 3): one page per image size, so each cell is its image, unpadded
+at the top-left; the frames are renumbered in page order with every pose's frame and right and the parity map's
+frames, and no pixel, image size or anchor changes. Pages past the host's paged budget (24 Mi pixels, empty trailing
+cells included) refuse by name (TICK_SHEET_BUDGET). Every member the file-writing API and
 paritypack write has first passed the host's validator (TICK_OUTPUT_INVALID otherwise).
 A configuration file is named as the pack spells it on disk; two directory entries that differ only in case refuse by
 name (SOURCE_PATH_AMBIGUOUS). That refusal can be stricter than the source on a case-sensitive file system; it refuses

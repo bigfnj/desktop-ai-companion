@@ -132,6 +132,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             }
             warnings = found.SelectMany(member => member.Warnings.Select(warning => "Image set '" + member.Name + "': " + warning))
                 .Concat(found.SelectMany(member => member.Dropped.Select(item => "Image set '" + member.Name + "': " + PreparedMember.DroppedWarning(item))))
+                .Concat(found.SelectMany(member => member.DroppedClips.Select(item => "Image set '" + member.Name + "': " + PreparedMember.DroppedClipWarning(item))))
                 .ToList().AsReadOnly();
             return paths.AsReadOnly();
         }
@@ -343,11 +344,21 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             /// a behaviour, a name or a text are two items. The pack API files each under the member's Residue.Dropped,
             /// with one pack warning (<see cref="DroppedWarning"/>).</summary>
             public List<ResidueItem> Dropped = new List<ResidueItem>();
+            /// <summary>pf/sound-limits: one item per played clip that recovery dropped because the host cannot carry it
+            /// (policy:sound-clip-dropped): "Sound '&lt;the pose's Sound&gt;'" as its Name, the reason in its Detail. The pack
+            /// API files each under the member's Residue.Dropped with one pack warning (<see cref="DroppedClipWarning"/>).</summary>
+            public List<ResidueItem> DroppedClips = new List<ResidueItem>();
 
             /// <summary>The pack warning for one dropped entry, without its image-set prefix.</summary>
             internal static string DroppedWarning(ResidueItem item)
             {
                 return "Behaviour '" + item.Name + "': " + item.Detail;
+            }
+
+            /// <summary>The pack warning for one dropped clip, without its image-set prefix.</summary>
+            internal static string DroppedClipWarning(ResidueItem item)
+            {
+                return item.Name + ": " + item.Detail;
             }
         }
         private sealed class RootBehaviour
@@ -362,6 +373,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             public int X, Y, Width, Height;
         }
         private sealed class PairAnchor { public int X, Y; }
+        /// <summary>A sheet page after the first (grimoire/06 section 3, feature 'pages').</summary>
+        private sealed class SheetPage { public int TilesX, TilesY; public byte[] Png; }
 
         private sealed class MemberBuilder
         {
@@ -399,6 +412,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             private readonly Dictionary<string, RootBehaviour> _roots = new Dictionary<string, RootBehaviour>(StringComparer.Ordinal);
             private readonly List<string> _rootOrder = new List<string>();
             private readonly List<Frame> _frames = new List<Frame>();
+            // A paged member's frames by their tile (PagedComposite), null at an empty cell; null for a one-sheet member.
+            private Frame[] _pagedFrames;
             private readonly Dictionary<string, int> _frameIds = new Dictionary<string, int>(StringComparer.Ordinal);
             private readonly Dictionary<string, PairAnchor> _pairAnchors = new Dictionary<string, PairAnchor>(StringComparer.Ordinal);
             private readonly Dictionary<string, string> _actionMap = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -429,7 +444,12 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             private bool _lifecycle, _social, _windows, _hotspots, _expressions, _variables, _statements;
             // Embedded audio assets by canonical Sound identity, in first-use order. Runtime clips additionally use
             // the pose's volume (TickClip): two volumes share these bytes but have independent playback state.
-            private sealed class SoundClip { public string Id, SourceName; public byte[] Bytes; public bool Used; }
+            // DecodedSeconds: set, under recovery only, when the clip decodes past the host's cap (Clip), so the member's
+            // build drops it (CarriedClips) instead of the pose refusing the member. Length is the clip's byte count, kept
+            // when Bytes is released: under recovery a clip that will be dropped whatever else happens (past the cap or
+            // the per-clip limit) keeps only its length and decoded length (review of 52fe1fab); the source identity
+            // hashes its file by path, streaming, so nothing else reads its bytes.
+            private sealed class SoundClip { public string Id, SourceName, DecodedSeconds; public byte[] Bytes; public long Length; public bool Used; }
             private readonly Dictionary<string, SoundClip> _clips = new Dictionary<string, SoundClip>(StringComparer.Ordinal);
             private readonly List<SoundClip> _clipOrder = new List<SoundClip>();
             // Source identity predates asset deduplication: only paths of played source spellings enter its manifest.
@@ -440,9 +460,12 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             private readonly List<MuteSound> _muteSounds = new List<MuteSound>();
             // PD-1: the next entries recovery dropped, one item each (PreparedMember.Dropped).
             private readonly List<ResidueItem> _dropped = new List<ResidueItem>();
+            // pf/sound-limits: the played clips recovery dropped, one item each (PreparedMember.DroppedClips).
+            private readonly List<ResidueItem> _droppedClips = new List<ResidueItem>();
             // Decision 117: the next entries the source never selects, dropped under both settings (PreparedMember.Warnings).
             private readonly List<string> _warnings = new List<string>();
             // Decision 64: whether this call selected recovery of a next entry naming no root behaviour (EmitNextEntries).
+            // The same choice drops a played clip the host cannot carry (pf/sound-limits, CarriedClips).
             internal bool RecoverMissingNext;
             // Header toggles, one per Toggleable behaviour name, in first-seen order.
             private readonly List<string> _toggles = new List<string>();
@@ -566,7 +589,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 }
                 _nodes.Insert(0, route);
                 int anchorX, anchorY, tilesX, tilesY;
-                byte[] png = Composite(out anchorX, out anchorY, out tilesX, out tilesY);
+                List<SheetPage> pages;
+                byte[] png = Composite(out anchorX, out anchorY, out tilesX, out tilesY, out pages);
                 // Token order is fixed so a member that uses none of the newer extensions keeps its exact earlier bytes.
                 string features = "tick actions behaviours" + (_lifecycle ? " lifecycle" : "") + (_social ? " social" : "")
                     + (_windows ? " windows" : "") + (_hotspots ? " hotspots" : "");
@@ -574,8 +598,18 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 if (_variables) features += " variables";
                 if (_statements) features += " statements";
                 List<SoundClip> clips = _clipOrder.Where(c => c.Used).ToList();
+                // pf/sound-limits: under recovery a played clip the host cannot carry is dropped, never emitted, before
+                // anything reads the clip list (the 'wav' token, the sounds, the limits below); by default it refuses.
+                if (RecoverMissingNext) clips = CarriedClips(clips);
+                // Review of 52fe1fab: a clip whose bytes recovery released (Clip) is always one CarriedClips drops; one that
+                // reached the document would be emitted empty, so it is an internal fault, said by name.
+                if (clips.Any(c => c.Bytes == null))
+                    throw new InvalidOperationException("TICK_SOUND_RELEASED: clip '" + clips.First(c => c.Bytes == null).SourceName
+                        + "' had its bytes released for a drop that did not happen");
                 // grimoire/06 sections 1 and 3: every clip is a WAV (Clip refuses anything else), so 'wav' is declared.
                 if (clips.Count > 0) features += " wav";
+                // grimoire/06 section 3: a member no single grid holds keeps its frames on pages, declared by 'pages'.
+                if (pages != null) features += " pages";
                 // Display names have a shorter host limit than exact pack member keys.
                 int displayLength = Math.Min(_member.Length, 128);
                 if (displayLength < _member.Length && char.IsHighSurrogate(_member[displayLength - 1])) displayLength--;
@@ -589,7 +623,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     header.Add(E("toggles", _toggles.Select(t => E("toggle", new XAttribute("id", t), new XAttribute("label", t)))));
                 var document = new XDocument(new XDeclaration("1.0", "utf-8", null), E("animations", header,
                     E("image", E("tilesx", tilesX), E("tilesy", tilesY), E("png", Convert.ToBase64String(png)),
-                        E("transparency", "Alpha"), E("anchorx", anchorX), E("anchory", anchorY)),
+                        E("transparency", "Alpha"), E("anchorx", anchorX), E("anchory", anchorY),
+                        pages == null ? null : E("pages", pages.Select(p => E("page", E("tilesx", p.TilesX), E("tilesy", p.TilesY),
+                            E("png", Convert.ToBase64String(p.Png)))))),
                     E("spawns", E("spawn", new XAttribute("id", 0), new XAttribute("probability", 1),
                         E("x", "0"), E("y", "0"), E("next", new XAttribute("probability", 1), 1))),
                     E("animations", _nodes), E("childs"),
@@ -598,9 +634,11 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     clips.Count == 0 ? null : E("sounds", clips.Select(c => E("sound", new XAttribute("id", c.Id),
                         new XAttribute("format", "wav"), E("probability", 0), E("base64", Convert.ToBase64String(c.Bytes)))))));
                 var frameMap = new List<object>();
-                for (int i = 0; i < _frames.Count; i++)
+                Frame[] mapped = _pagedFrames ?? _frames.ToArray();
+                for (int i = 0; i < mapped.Length; i++)
                 {
-                    Frame frame = _frames[i];
+                    Frame frame = mapped[i];
+                    if (frame == null) continue;
                     frameMap.Add(new { frame = i, image = frame.Image, anchor = new[] { frame.X, frame.Y }, size = new[] { frame.Width, frame.Height } });
                 }
                 var poseMap = new Dictionary<string, object>(StringComparer.Ordinal);
@@ -629,6 +667,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 string xml = document.ToString();
                 CheckAudioLimits(clips);
                 if (png.Length > DesktopAICompanion.CompanionXmlValidator.MaximumImageBytes
+                    || (pages != null && pages.Any(p => p.Png.Length > DesktopAICompanion.CompanionXmlValidator.MaximumImageBytes))
                     || Encoding.UTF8.GetByteCount(xml) > DesktopAICompanion.CompanionXmlValidator.MaximumXmlBytes)
                     throw new InvalidDataException("Tick member exceeds the host's image or XML byte limit: " + _member);
                 bool crossMember = _nodes.SelectMany(n => n.Descendants()).Any(n =>
@@ -639,7 +678,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                         frames = frameMap, actions = _actionMap, children = _childMap, behaviours = _behaviourMap,
                         sourceNames = _sourceNames, poses = poseMap, soundParameters = SoundParameters() },
                         new JsonSerializerOptions { WriteIndented = true }) + "\n",
-                    CrossMember = crossMember, Dropped = _dropped,
+                    CrossMember = crossMember, Dropped = _dropped, DroppedClips = _droppedClips,
                     Warnings = _warnings, SourceIdentity = SourceIdentity(), BehaviourNames = _rootOrder.ToDictionary(name => name, BehaviourName, StringComparer.Ordinal) };
             }
 
@@ -1460,7 +1499,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     string path = Path.GetFullPath(Path.Combine(_pack, relative.Replace('/', Path.DirectorySeparatorChar)));
                     if (!Inside(_pack, path)) throw new InvalidDataException("Source identity input leaves its pack.");
                     SafeEntry(path);
-                    manifest.Append(Hash(File.ReadAllBytes(path))).Append("  ").Append(relative).Append('\n');
+                    manifest.Append(HashFile(path)).Append("  ").Append(relative).Append('\n');
                 }
                 return Hash(Encoding.UTF8.GetBytes(manifest.ToString()));
             }
@@ -1735,7 +1774,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             /// javax.sound does not read, such as MP3) refuses the image set (AnimationBuilder.java:161-165,
             /// Main.java:478-484). The format is decided from the BYTES, never the name: a RIFF/WAVE the host decodes
             /// (WavFormat, the host's own rule) becomes a named clip; MP3 bytes refuse as the source refuses them; a
-            /// WAVE the host's rule rejects (two corpus clips have a bad header field) refuses by name, unrepaired.
+            /// WAVE the host's rule rejects refuses by name, unrepaired. That rule reads a clip's sizes as javax.sound
+            /// does (pf/sound-limits), so the corpus's two clips with a bad header field (a RIFF size counting its own
+            /// header, a block align of 1 for 16-bit mono) are named clips now, their bytes unchanged.
             /// Separator/case aliases share one embedded asset; Mute prefix match sets must remain source-exact.
             /// Volume remains on the pose: the host's runtime cache keys (image set, id, volume), not bytes alone.
             /// </summary>
@@ -1783,7 +1824,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     return clip;
                 }
                 byte[] bytes = File.ReadAllBytes(path);
-                string reason;
+                string reason, decodedSeconds = null;
                 if (DesktopAICompanion.WavFormat.HasWaveHeader(bytes))
                 {
                     if (!DesktopAICompanion.WavFormat.IsDecodableWave(bytes, out reason))
@@ -1795,14 +1836,23 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     long frames = layout.DataLength / Math.Max(1, layout.BlockAlign);
                     long decoded = (long)Math.Ceiling(frames * (double)MixerSampleRate / layout.SampleRate) * MixerChannels;
                     if (decoded > MaximumClipDecodedSamples)
-                        Fail(pose, "TICK_SOUND_DECODE_LIMIT: clip '" + soundText + "' decodes to " + (frames / (double)layout.SampleRate).ToString("0.0", Invariant)
-                            + " s, past the " + (MaximumClipDecodedSamples / MixerChannels / MixerSampleRate) + " s the host decodes; it would stay silent");
+                    {
+                        if (!RecoverMissingNext)
+                            Fail(pose, "TICK_SOUND_DECODE_LIMIT: clip '" + soundText + "' decodes to " + (frames / (double)layout.SampleRate).ToString("0.0", Invariant)
+                                + " s, past the " + (MaximumClipDecodedSamples / MixerChannels / MixerSampleRate) + " s the host decodes; it would stay silent");
+                        decodedSeconds = (frames / (double)layout.SampleRate).ToString("0.0", Invariant);
+                    }
                 }
                 else if (DesktopAICompanion.Mp3Format.LooksLikeMp3(bytes, out reason))
                     Fail(pose, "TICK_SOUND_MP3: clip '" + soundText + "' holds MP3 audio, which the source's javax.sound cannot open, so the source refuses this image set");
                 else
                     Fail(pose, "TICK_SOUND_FORMAT: clip '" + soundText + "' is neither a RIFF/WAVE nor MP3; the host plays WAV clips");
-                clip = new SoundClip { Id = id, SourceName = soundText, Bytes = bytes };
+                clip = new SoundClip { Id = id, SourceName = soundText, Bytes = bytes, Length = bytes.Length, DecodedSeconds = decodedSeconds };
+                // Review of 52fe1fab: recovery drops this clip whatever the member's other clips are, so its buffer is not
+                // held to the end of the member's build; its length and decoded length are all CarriedClips reads.
+                if (RecoverMissingNext && (decodedSeconds != null
+                    || bytes.Length > DesktopAICompanion.CompanionXmlValidator.MaximumAudioBytesFor(new XmlData.SoundNode { Format = "wav" })))
+                    clip.Bytes = null;
                 _clips.Add(id, clip);
                 _clipOrder.Add(clip);
                 _soundSources.Add(soundText, new SoundSource { Name = soundText, PackPath = chosen, Clip = clip });
@@ -1855,6 +1905,52 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 if (volume < -80f || volume > 6.0206f)
                     Fail(pose, "TICK_SOUND_VOLUME: Volume '" + text + "' dB is outside the gain range the source can set (-80 to 6.02)");
                 return volume;
+            }
+
+            /// <summary>
+            /// pf/sound-limits, under recovery only: the played clips the host can carry, in their order. A clip that decodes
+            /// past the host's cap is dropped, then one larger than its per-clip limit, then, while the rest together pass
+            /// the document's audio total, the largest left (the earlier id on a tie). The source plays each of them, so
+            /// each is a loss, filed by <see cref="DropClip"/>. What is returned is inside every limit CheckAudioLimits
+            /// checks, so recovery never emits a clip past them.
+            /// </summary>
+            private List<SoundClip> CarriedClips(List<SoundClip> clips)
+            {
+                int clipLimit = DesktopAICompanion.CompanionXmlValidator.MaximumAudioBytesFor(new XmlData.SoundNode { Format = "wav" });
+                var carried = new List<SoundClip>();
+                foreach (SoundClip clip in clips)
+                {
+                    if (clip.DecodedSeconds != null)
+                        DropClip(clip, "the clip decodes to " + clip.DecodedSeconds + " s, past the " + (MaximumClipDecodedSamples / MixerChannels / MixerSampleRate)
+                            + " s the host decodes");
+                    else if (clip.Length > clipLimit)
+                        DropClip(clip, "the clip is " + clip.Length + " bytes, past the host's per-clip limit of " + clipLimit + " bytes");
+                    else carried.Add(clip);
+                }
+                long total = carried.Sum(c => c.Length);
+                while (total > DesktopAICompanion.CompanionXmlValidator.MaximumAudioBytesTotal)
+                {
+                    SoundClip largest = carried.OrderByDescending(c => c.Length).ThenBy(c => c.Id, StringComparer.Ordinal).First();
+                    DropClip(largest, "the member's played clips total " + total + " bytes, past the " + DesktopAICompanion.CompanionXmlValidator.MaximumAudioBytesTotal
+                        + " bytes of audio one document may hold, and this clip (" + largest.Length + " bytes) was the largest left");
+                    carried.Remove(largest);
+                    total -= largest.Length;
+                }
+                return carried;
+            }
+
+            /// <summary>Drop a played clip: every pose that names it loses its sound and volume, and so keeps its timing
+            /// and plays nothing, as the host plays a pose with no Sound; the loss is one named residue item.</summary>
+            private void DropClip(SoundClip clip, string why)
+            {
+                foreach (XElement pose in _nodes.SelectMany(n => n.Descendants(Ns + "pose")))
+                    if ((string)pose.Attribute("sound") == clip.Id)
+                    {
+                        pose.SetAttributeValue("sound", null);
+                        pose.SetAttributeValue("volume", null);
+                    }
+                _droppedClips.Add(new ResidueItem { Name = "Sound '" + clip.SourceName + "'", Detail = why + ", so it was dropped; the source plays it,"
+                    + " and every pose that names it keeps its timing here and plays no sound (policy:sound-clip-dropped)" });
             }
 
             /// <summary>
@@ -1932,8 +2028,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     && (long)tilesX * width <= SpriteSheetBuilder.MaxSheetDimension && (long)tilesY * height <= SpriteSheetBuilder.MaxSheetDimension;
             }
 
-            private byte[] Composite(out int anchorX, out int anchorY, out int tilesX, out int tilesY)
+            private byte[] Composite(out int anchorX, out int anchorY, out int tilesX, out int tilesY, out List<SheetPage> pages)
             {
+                pages = null;
                 if (_frames.Count == 0) throw new InvalidDataException("Tick member needs at least one visible pose: " + _member);
                 int width = _frames.Max(frame => frame.Width), height = _frames.Max(frame => frame.Height);
                 // The host's TICK cap (768), not the classic one: the host validator grades this sheet as a tick companion's.
@@ -1959,11 +2056,92 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                         if (SheetFits(x, y, width, height) && (bestX == 0 || (long)x * y < (long)bestX * bestY)) { bestX = x; bestY = y; }
                     }
                     if (bestX == 0)
-                        throw new InvalidDataException("TICK_SHEET_NO_GRID: no grid of " + _frames.Count + " cells of " + width + " x " + height
-                            + " fits the host's sheet (4096 px a side, 256 tiles an axis, 1024 tiles).");
+                    {
+                        // grimoire/06 section 3, feature 'pages': no one grid holds the member, and the source loads each
+                        // image on its own, so its frames go on pages of their own size instead (PagedComposite).
+                        pages = PagedComposite(width, height);
+                        SheetPage first = pages[0];
+                        pages.RemoveAt(0);
+                        anchorX = _frames[0].X; anchorY = _frames[0].Y;
+                        tilesX = first.TilesX;
+                        tilesY = first.TilesY;
+                        return first.Png;
+                    }
                     tilesX = bestX;
                     tilesY = bestY;
                 }
+                return RenderPage(Enumerable.Range(0, _frames.Count).ToList(), tilesX, tilesY, width, height);
+            }
+
+            /// <summary>
+            /// The frames on pages (grimoire/06 section 3): one page per frame size, in the order the sizes first appear,
+            /// so every cell IS its frame and every pose shows its whole cell, drawn from the top-left as before; a size
+            /// with more frames than one page holds continues on the next. Each page's grid is the fewest cells, then the
+            /// fewest columns, that fit the host's sheet (SheetFits). The frames are renumbered in page order, and every
+            /// pose's frame and right with them, so the parity map's frames (image, anchor, size) still describe the poses
+            /// that show them; no pixel, size or anchor changes. Refused by name when the pages need more pixels than the
+            /// host's paged budget (TICK_SHEET_BUDGET).
+            /// </summary>
+            private List<SheetPage> PagedComposite(int largestWidth, int largestHeight)
+            {
+                var order = new List<int>();
+                var layout = new List<Tuple<List<int>, int, int, int, int>>();
+                long pixels = 0;
+                foreach (var size in Enumerable.Range(0, _frames.Count).GroupBy(i => new { _frames[i].Width, _frames[i].Height }))
+                {
+                    int w = size.Key.Width, h = size.Key.Height;
+                    int perPage = Math.Min(Math.Min(SpriteSheetBuilder.MaxSheetDimension / w, MaxTilesPerAxis)
+                        * Math.Min(SpriteSheetBuilder.MaxSheetDimension / h, MaxTilesPerAxis), SpriteSheetBuilder.MaxTiles);
+                    List<int> members = size.ToList();
+                    for (int start = 0; start < members.Count; start += perPage)
+                    {
+                        List<int> chunk = members.Skip(start).Take(perPage).ToList();
+                        int bestX = 0, bestY = 0;
+                        for (int x = 1; x <= Math.Min(chunk.Count, MaxTilesPerAxis); x++)
+                        {
+                            int y = (chunk.Count + x - 1) / x;
+                            if (SheetFits(x, y, w, h) && (bestX == 0 || (long)x * y < (long)bestX * bestY)) { bestX = x; bestY = y; }
+                        }
+                        layout.Add(Tuple.Create(chunk, bestX, bestY, w, h));
+                        order.AddRange(chunk);
+                        // A page's trailing cells are empty and never shown, but the host stages them, so they count.
+                        pixels += (long)bestX * w * bestY * h;
+                        // The empty cells number on too: the next page starts after them.
+                        for (int pad = chunk.Count; pad < bestX * bestY; pad++) order.Add(-1);
+                    }
+                }
+                // More cells than the host holds (only a page's empty trailing cells can add any) is left to the host's
+                // validator, which every emitted member passes before anything is written: it refuses "too many tiles".
+                if (pixels > DesktopAICompanion.CompanionXmlValidator.MaximumPagedPixels)
+                    throw new InvalidDataException("TICK_SHEET_BUDGET: " + _frames.Count + " frames of up to " + largestWidth + " x " + largestHeight
+                        + " need " + pixels + " pixels on pages, past the host's paged budget of "
+                        + DesktopAICompanion.CompanionXmlValidator.MaximumPagedPixels + ".");
+                // Renumber: old frame index -> its tile in page order.
+                var renumber = new Dictionary<int, int>();
+                for (int tile = 0; tile < order.Count; tile++) if (order[tile] >= 0) renumber.Add(order[tile], tile);
+                var pages = new List<SheetPage>();
+                foreach (var page in layout)
+                    pages.Add(new SheetPage { TilesX = page.Item2, TilesY = page.Item3,
+                        Png = RenderPage(page.Item1, page.Item2, page.Item3, page.Item4, page.Item5) });
+                foreach (XElement pose in _nodes.SelectMany(n => n.Descendants(Ns + "pose")))
+                {
+                    int frame = (int)pose.Attribute("frame");
+                    if (frame >= 0) pose.SetAttributeValue("frame", renumber[frame]);
+                    XAttribute right = pose.Attribute("right");
+                    if (right != null) right.Value = renumber[(int)right].ToString(Invariant);
+                }
+                var frames = new Frame[order.Count];
+                foreach (KeyValuePair<int, int> moved in renumber) frames[moved.Value] = _frames[moved.Key];
+                // Empty cells have no frame: the map lists the shown frames only, each under its new index.
+                _pagedFrames = frames;
+                foreach (string key in _frameIds.Keys.ToList()) _frameIds[key] = renumber[_frameIds[key]];
+                return pages;
+            }
+
+            /// <summary>A grid of <paramref name="tilesX"/> by <paramref name="tilesY"/> cells of the given size holding
+            /// <paramref name="frames"/> in order, each at its cell's top-left, as a PNG.</summary>
+            private byte[] RenderPage(List<int> frames, int tilesX, int tilesY, int width, int height)
+            {
                 using (var sheet = new Bitmap(tilesX * width, tilesY * height, PixelFormat.Format32bppArgb))
                 {
                     BitmapData destination = sheet.LockBits(new Rectangle(0, 0, sheet.Width, sheet.Height),
@@ -1973,9 +2151,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                         var blank = new byte[checked(sheet.Width * 4)];
                         for (int y = 0; y < sheet.Height; y++)
                             Marshal.Copy(blank, 0, IntPtr.Add(destination.Scan0, checked(y * destination.Stride)), blank.Length);
-                        for (int i = 0; i < _frames.Count; i++)
+                        for (int i = 0; i < frames.Count; i++)
                         {
-                            Frame frame = _frames[i];
+                            Frame frame = _frames[frames[i]];
                             int tile = i, columns = tilesX;
                             ReadSprite(frame.Path, bitmap => CopyPixels(bitmap, destination, (tile % columns) * width, (tile / columns) * height,
                                 frame.Width, frame.Height));
@@ -2040,6 +2218,15 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         {
             using (SHA256 sha = SHA256.Create())
                 return BitConverter.ToString(sha.ComputeHash(bytes)).Replace("-", "").ToLowerInvariant();
+        }
+
+        /// <summary>The same digest as <see cref="Hash"/> of the file's bytes, read as a stream (review of 52fe1fab: the
+        /// source identity no longer holds a whole clip or sprite in memory to hash it).</summary>
+        private static string HashFile(string path)
+        {
+            using (SHA256 sha = SHA256.Create())
+            using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 16, FileOptions.SequentialScan))
+                return BitConverter.ToString(sha.ComputeHash(stream)).Replace("-", "").ToLowerInvariant();
         }
         private static IEnumerable<ShimejiSourceAttribute> Attributes(ShimejiSourceElement source)
         {

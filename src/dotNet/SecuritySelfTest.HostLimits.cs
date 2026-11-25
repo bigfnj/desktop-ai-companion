@@ -47,12 +47,16 @@ namespace DesktopAICompanion
             int declared = CompanionXmlValidator.MaximumDeclaredAudioBytesPerSound, undeclared = CompanionXmlValidator.MaximumAudioBytesPerSound;
             XmlData.RootNode parsed;
             string error;
+            // pf/sound-limits: one declared clip may be the whole document's audio, so nothing a document holds grows.
+            Check(declared == CompanionXmlValidator.MaximumAudioBytesTotal,
+                "host limits: a declared clip's limit is the document total (" + declared / Mi + " MiB of " + CompanionXmlValidator.MaximumAudioBytesTotal / Mi
+                + " MiB)", ref failures, output);
             byte[] atDeclared = WaveOfLength(declared);
-            Check(CompanionXmlValidator.TryParseWithFeatures(Serialize(WavClipFixture(classic, atDeclared, "wav", true)), WavExtensionFeatures, out parsed, out error),
+            Check(CompanionXmlValidator.TryParseWithFeatures(Serialize(SmallSheetClip(classic, atDeclared, "wav", true)), WavExtensionFeatures, out parsed, out error),
                 "host limits: WITNESS a clip declaring a format validates at exactly the declared limit (" + declared / Mi + " MiB)" + FormatError(error),
                 ref failures, output);
             byte[] pastDeclared = WaveOfLength(declared + 1);
-            Check(!CompanionXmlValidator.TryParseWithFeatures(Serialize(WavClipFixture(classic, pastDeclared, "wav", true)), WavExtensionFeatures, out parsed, out error)
+            Check(!CompanionXmlValidator.TryParseWithFeatures(Serialize(SmallSheetClip(classic, pastDeclared, "wav", true)), WavExtensionFeatures, out parsed, out error)
                   && Contains(error, "sound exceeds its decoded size limit"),
                 "host limits: a declared clip one byte past the declared limit is refused (" + error + ")", ref failures, output);
             // format="mp3" declares a format too: the attribute, whatever its value, is what needs the token.
@@ -91,22 +95,25 @@ namespace DesktopAICompanion
 
             // The order: a clip past EVERY size limit, on a host that does not run 'wav', is refused by the feature's name;
             // and a format with the token undeclared is refused by name too, before any clip is measured.
-            Check(!CompanionXmlValidator.TryParseWithFeatures(Serialize(WavClipFixture(classic, pastDeclared, "wav", true)), AllExtensionFeatures, out parsed, out error)
+            Check(!CompanionXmlValidator.TryParseWithFeatures(Serialize(SmallSheetClip(classic, pastDeclared, "wav", true)), AllExtensionFeatures, out parsed, out error)
                   && Contains(error, "uses feature 'wav', which this version of Desktop AI Companion does not run yet") && !Contains(error, "size limit"),
                 "host limits: a host that does not run 'wav' refuses a clip past every size limit by the feature's name, not its size (" + error + ")",
                 ref failures, output);
-            Check(!CompanionXmlValidator.TryParseWithFeatures(Serialize(WavClipFixture(classic, pastDeclared, "wav", false)), WavExtensionFeatures, out parsed, out error)
+            Check(!CompanionXmlValidator.TryParseWithFeatures(Serialize(SmallSheetClip(classic, pastDeclared, "wav", false)), WavExtensionFeatures, out parsed, out error)
                   && Contains(error, "format needs feature 'wav' declared in header/features") && !Contains(error, "size limit"),
                 "host limits: an undeclared 'wav' is refused by name before a clip past every size limit is measured (" + error + ")",
                 ref failures, output);
 
             // The document total stays: three declared clips of exactly 8 MiB together validate, one byte more does not. A
-            // small generated sheet keeps the document under the XML limit, which the base64 of 8 MiB nearly fills.
+            // small generated sheet keeps the document under the XML limit, which the base64 of 8 MiB nearly fills. The
+            // first clip is as large as the per-clip limit lets it be while the other two keep 1000 bytes each
+            // (pf/sound-limits: the per-clip limit is the total now, so it cannot take the whole).
             int total = CompanionXmlValidator.MaximumAudioBytesTotal, last = 1000;
-            int second = total - declared - last;
-            Check(CompanionXmlValidator.TryParseWithFeatures(Serialize(ThreeClips(classic, declared, second, last)), WavExtensionFeatures, out parsed, out error),
+            int first = Math.Min(declared, total - 2 * last);
+            int second = total - first - last;
+            Check(CompanionXmlValidator.TryParseWithFeatures(Serialize(ThreeClips(classic, first, second, last)), WavExtensionFeatures, out parsed, out error),
                 "host limits: WITNESS declared clips of exactly the document total validate (" + total / Mi + " MiB)" + FormatError(error), ref failures, output);
-            Check(!CompanionXmlValidator.TryParseWithFeatures(Serialize(ThreeClips(classic, declared, second, last + 1)), WavExtensionFeatures, out parsed, out error)
+            Check(!CompanionXmlValidator.TryParseWithFeatures(Serialize(ThreeClips(classic, first, second, last + 1)), WavExtensionFeatures, out parsed, out error)
                   && Contains(error, "Pet audio exceeds the total size limit"),
                 "host limits: one byte past the document total is refused, however the clips are declared (" + error + ")", ref failures, output);
         }
@@ -151,6 +158,17 @@ namespace DesktopAICompanion
                 },
             };
             StandAct(r).Variants.Variant[0].Pose[0].Sound = "a";
+            return r;
+        }
+
+        /// <summary>The wav gate's one-clip fixture on a small generated sheet (two 16 px cells), so a clip as large as the
+        /// per-clip limit, the whole document's audio, still fits the XML limit and is measured by its own.</summary>
+        private static XmlData.RootNode SmallSheetClip(XmlData.RootNode classic, byte[] audio, string format, bool declareToken)
+        {
+            XmlData.RootNode r = WavClipFixture(classic, audio, format, declareToken);
+            r.Image.TilesX = 2;
+            r.Image.TilesY = 1;
+            r.Image.Png = SheetPng(32, 16);
             return r;
         }
 

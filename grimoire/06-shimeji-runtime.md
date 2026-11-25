@@ -37,6 +37,7 @@ schema validation.
 | `variables` | per-instance variables (`mascot.variables`) and `<constants>` |
 | `wav` | a named clip's `format` attribute, so its bytes may be a RIFF/WAVE (section 3) |
 | `statements` | the statement grammar and extended object model of SafeExpression (section 6, **Statements**) |
+| `pages` | `<image><pages>`: a tick sheet on more than one page, each of its own cell size (section 3) |
 
 A token becomes "known" only in the host build whose runtime implements it, so no build accepts a companion it cannot
 run.
@@ -135,6 +136,21 @@ run.
   - All six need feature `tick`; the validator keeps each inside its cell (`w`, `h`, `rw`, `rh` from 1 to the cell size),
     allows `rw` and `rh` only with `right`, and keeps the anchor within -4096..4096. The parity map's frames carry each
     image's anchor and size too, and a parity run refuses a pose that disagrees with its frame.
+- **`<image><pages>`** (feature `pages`, tick only). A member whose frames no single sheet holds (one grid of the
+  largest image's cell past 4096 px a side, 256 tiles an axis or 1024 tiles) keeps them on further pages:
+  `<pages><page><tilesx>3</tilesx><tilesy>1</tilesy><png>...</png></page></pages>`. Each page is a grid of its own
+  cell size, held to the first sheet's rules (PNG, 1 to 256 tiles an axis, 4096 px a side, the 768 px frame cap); its
+  tiles number on after the tiles before it (the first sheet's, then each page in order), within 1024 in all, and
+  `frame` and `right` index that one sequence. The converter puts one frame size on a page (a size with more frames
+  than a page holds continues on the next), so each cell IS its image, unpadded, at its cell's top-left as before, and
+  no pixel, size or anchor changes. On a paged sheet the validator requires every image pose's `w`, `h` to equal its
+  frame's cell and `rw`, `rh` its right frame's, so the host never cuts a region from it (a region the size of its
+  frame is the frame) and mirrors a frame about its own width. That is what lets the pages together hold 24 Mi pixels
+  at 1:1 where one sheet holds 16 Mi: frames and their flipped copies (2 x 24 Mi) cost at most what a one-sheet
+  companion's frames, flipped copies and cut regions may (3 x 16 Mi). The host stages every page at its own cell
+  times one factor, fitted against the largest cell and that budget. A host that predates the token refuses the
+  companion by name: "needs a newer Desktop AI Companion (feature 'pages')". Companion Studio previews and installs a
+  paged companion through the host; its own sheet thumbnails show the first sheet's cells only.
 - **`<pose>`.** Replaces `<frame>` inside `<variant>`:
   `<pose frame="12" right="40" ticks="6" dx="-2" dy="0" sound="s3" volume="-6"/>` (plus the geometry above)
   - `frame` is a sheet index, or `-1` for an image-less pose. It HIDES the companion's window while the companion
@@ -149,8 +165,10 @@ run.
 - **`<sound id="...">`.** A new optional attribute, so poses can name clips. `animationid` stays for classic use. In a
   tick-clock companion every sound is a named clip (an id of 1 to 64 characters, unique, no `animationid`), and its
   audio passes the same size limits as a classic sound (2 MiB a clip, 8 MiB a document), except that a clip that
-  declares a `format` (below) may be 4 MiB: WAV is uncompressed, and the attribute needs feature `wav`, so a host
-  older than that refuses such a clip by the feature's name before any size is measured. A named clip's `<probability>`
+  declares a `format` (below) may be 8 MiB, the whole document's audio: WAV is uncompressed, and the source's Clip
+  loads a clip whole with no cap of its own. The attribute needs feature `wav`, so a host older than that refuses such
+  a clip by the feature's name before any size is measured; a v1.11 host, which has `wav` and a 4 MiB limit, refuses a
+  declared clip between 4 and 8 MiB by its size. A named clip's `<probability>`
   and `<loop>` are both 0, the serializer's own values: the schema requires a `<probability>` on every `<sound>`, so a
   named clip writes `<probability>0</probability>`, and its `<loop>` is left out or 0. A clip plays once per start, as
   the source's does, so any other value would be ignored, and the validator refuses one rather than accept a setting
@@ -162,14 +180,21 @@ run.
   MP3 only, `Animations.AddSound` and `AudioOutput.Decode`, and the converter's WAV clips are all pose clips). The
   validator proves the bytes ARE the declared format and refuses, naming the clip, MP3 bytes declared
   `wav` and WAV bytes declared MP3. A `wav` clip must be:
-  - a RIFF/WAVE whose RIFF size equals the clip's length (not truncated, nothing after the form), every chunk inside
-    it; an odd-sized chunk is followed by a pad byte, which the LAST chunk may omit; chunks after `data` are allowed;
+  - a RIFF/WAVE whose sizes are read as javax.sound reads them: the RIFF form's own size is not read (a header that
+    claims more bytes than the clip holds, or fewer, is accepted); the chunks are walked over the bytes the clip holds
+    until the first `fmt ` and then the first `data` AFTER it are found, and nothing after them is read (a `data`
+    chunk before the `fmt ` is skipped, as JDK 8's WaveFileReader skips it: a clip whose only `data` precedes its `fmt `
+    is refused, and one with `data` on both sides plays the one after); an odd-sized chunk is
+    followed by a pad byte, which the LAST chunk may omit; a chunk other than `data` that runs past the end before both
+    are found is refused, as is a `fmt ` chunk cut short;
   - with a `fmt ` chunk of PCM (8, 16, 24 or 32 bits) or IEEE float (32 or 64 bits), plain or `WAVE_FORMAT_EXTENSIBLE`
     with that standard subformat; ADPCM, mu-law, A-law and every other tag are refused, by tag;
-  - mono or stereo, 8000 to 192000 Hz, with a block align of channels x bits / 8;
-  - with a non-empty `data` chunk of whole frames.
-  The walk takes the FIRST `fmt ` and the FIRST `data` chunk and skips an odd chunk's pad byte whatever its value; the
-  host decodes exactly those, never re-reading the RIFF, so what plays is what was checked.
+  - mono or stereo, 8000 to 192000 Hz; the frame is channels x bits / 8, and the header's block align is not read;
+  - with a `data` chunk holding at least one whole frame. What plays is its whole frames, of the bytes it claims that
+    the clip holds: a `data` chunk cut short plays what is present, and a part frame at its end is not played, as the
+    source's Clip does (probed on JDK 8 with synthetic clips, lane pf/sound-limits).
+  The walk takes the FIRST `fmt ` and the FIRST `data` chunk after it and skips an odd chunk's pad byte whatever its value; the
+  host decodes exactly those frames, never re-reading the RIFF, so what plays is what was checked.
   The source loads clips through javax.sound (WAV, AU, AIFF; not MP3), and a clip it cannot open refuses the whole
   image set at load (`SoundLoader.java:21-24`, `AnimationBuilder.java:161-165`, `Main.java:478-484`). A clip this
   validator accepts that the host's decoder then cannot decode plays silently: the app logs it once and the

@@ -43,6 +43,9 @@ namespace DesktopAICompanion
             // A companion whose scripts use the statement grammar (feature 'statements') opens, previews and installs
             // like any other: Studio source-links the parser, and the host runs the scripts.
             supported.Add(Statements);
+            // A paged sheet (feature 'pages') opens, previews and installs through the host, which stages every page.
+            // Studio's own sheet thumbnails (PetSprite) cut the first page's grid only.
+            supported.Add(Pages);
         }
     }
 }

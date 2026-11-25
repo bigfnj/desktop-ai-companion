@@ -626,7 +626,16 @@ namespace DesktopAICompanion.PetStudioModule
         internal static bool OffersRecovery(PackConversionResult result, PackConversionOptions options)
         {
             if (result == null || result.Accepted || options == null || options.RecoverMissingNext) return false;
-            return result.Errors.Any(e => e.IndexOf("TICK_NEXT_MISSING:", StringComparison.Ordinal) >= 0);
+            return HasRefusal(result, "TICK_NEXT_MISSING:") || SoundRefusals.Any(code => HasRefusal(result, code));
+        }
+
+        /// <summary>pf/sound-limits: the refusals for a played clip the host cannot carry, which recovery lifts by dropping
+        /// the clip (policy:sound-clip-dropped): past 60 s decoded, past the per-clip limit, or past the document total.</summary>
+        internal static readonly string[] SoundRefusals = { "TICK_SOUND_DECODE_LIMIT:", "TICK_SOUND_CLIP_LIMIT:", "TICK_SOUND_DOCUMENT_LIMIT:" };
+
+        private static bool HasRefusal(PackConversionResult result, string code)
+        {
+            return result != null && result.Errors.Any(e => e.IndexOf(code, StringComparison.Ordinal) >= 0);
         }
 
         /// <summary>The options of <paramref name="options"/> with recovery selected, as a copy: the strict options the
@@ -648,14 +657,39 @@ namespace DesktopAICompanion.PetStudioModule
         internal static string RecoveryNote(PackConversionResult result, PackConversionOptions options)
         {
             if (OffersRecovery(result, options))
-                return "This pack's next lists name behaviours it does not define; the original program stops every companion "
-                    + "when one of those entries ends. \u201C" + RecoveryAction + "\u201D converts it again without those entries, "
-                    + "and lists each one here before you install.";
+            {
+                var notes = new List<string>();
+                if (HasRefusal(result, "TICK_NEXT_MISSING:"))
+                    notes.Add("This pack's next lists name behaviours it does not define; the original program stops every companion "
+                        + "when one of those entries ends. \u201C" + RecoveryAction + "\u201D converts it again without those entries, "
+                        + "and lists each one here before you install.");
+                if (SoundRefusals.Any(code => HasRefusal(result, code)))
+                    notes.Add("This pack has sound clips the original program plays and this app cannot carry (longer than 60 s, "
+                        + "larger than one clip may be, or more audio than one companion may hold). \u201C" + RecoveryAction + "\u201D "
+                        + "converts it again without those clips: the poses that name them keep their timing and play no sound, and "
+                        + "each clip is listed here before you install.");
+                return string.Join(" ", notes);
+            }
             if (result != null && options != null && options.RecoverMissingNext)
+            {
+                // Review of 52fe1fab: a retry with recovery can itself be refused (a refusal recovery does not lift, beside
+                // one it does). It says so, and gives no install advice: nothing can be installed (CanInstall).
+                if (!result.Accepted)
+                    return RecoveryRefusedNote;
+                if (DroppedClipsByRecovery(result) > 0)
+                    return "Converted with recovery: every dropped next entry and sound clip is listed above (policy:next-missing-dropped, "
+                        + SoundRecoveryPolicy + ", differences from the original program, which plays those clips). Install pack "
+                        + "installs the pack without them.";
                 return "Converted with recovery: every dropped next entry is listed above (policy:next-missing-dropped, a "
                     + "difference from the original program). Install pack installs the pack without them.";
+            }
             return null;
         }
+
+        /// <summary>The note after a retry with recovery that was itself refused: the refusal listed above is not one
+        /// recovery lifts, and nothing can be installed.</summary>
+        internal const string RecoveryRefusedNote = "Converted again with recovery, and still not accepted: the refusal listed above "
+            + "is not one recovery lifts, so nothing can be installed from this pack.";
 
         /// <summary>The policy tag the converter puts on each next entry recovery dropped (PD-1: one Dropped residue item
         /// per entry, in its member's residue).</summary>
@@ -668,6 +702,22 @@ namespace DesktopAICompanion.PetStudioModule
             if (result == null) return 0;
             return result.Members.Sum(m => m.Residue == null ? 0
                 : m.Residue.Dropped.Count(i => i.Detail != null && i.Detail.IndexOf(RecoveryPolicy, StringComparison.Ordinal) >= 0));
+        }
+
+        /// <summary>The policy tag the converter puts on each played clip recovery dropped (pf/sound-limits: one Dropped
+        /// residue item per clip, in its member's residue).</summary>
+        internal const string SoundRecoveryPolicy = "policy:sound-clip-dropped";
+
+        /// <summary>How many played clips recovery dropped across the pack: the members' Dropped residue items that carry
+        /// <see cref="SoundRecoveryPolicy"/>. Pure.</summary>
+        internal static int DroppedClipsByRecovery(PackConversionResult result)
+        {
+            int clips = 0;
+            if (result != null)
+                foreach (PackMemberConversionResult member in result.Members)
+                    if (member.Residue != null)
+                        clips += member.Residue.Dropped.Count(i => i.Detail != null && i.Detail.IndexOf(SoundRecoveryPolicy, StringComparison.Ordinal) >= 0);
+            return clips;
         }
 
         /// <summary>
@@ -683,7 +733,11 @@ namespace DesktopAICompanion.PetStudioModule
                 ? "Pack '" + title + "' accepted. "
                 : "Pack '" + title + "' not accepted" + (string.IsNullOrWhiteSpace(result.Error) ? "" : ": " + result.Error.Trim().TrimEnd('.')) + ". ";
             if (options == null || !options.RecoverMissingNext) return verdict;
-            return verdict + "Converted with recovery: " + DroppedByRecovery(result) + " dropped next entry(s), each listed in the pack report. ";
+            // Review of 52fe1fab: a refused retry reports no recovery counts, which read as a recovered pack.
+            if (!result.Accepted) return verdict + "Recovery did not lift this refusal. ";
+            int clips = DroppedClipsByRecovery(result);
+            return verdict + "Converted with recovery: " + DroppedByRecovery(result) + " dropped next entry(s)"
+                + (clips > 0 ? " and " + clips + " dropped sound clip(s)" : "") + ", each listed in the pack report. ";
         }
 
         /// <summary>

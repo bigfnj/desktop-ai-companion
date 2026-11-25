@@ -110,6 +110,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             Console.Error.WriteLine("                     One the source never selects (all conditions literal, and Frequency 0 or a");
             Console.Error.WriteLine("                     false condition) is dropped either way, with a WARNING line");
             Console.Error.WriteLine("                     (TICK_NEXT_MISSING_UNSELECTABLE).");
+            Console.Error.WriteLine("                     Recovery also drops a played sound clip the host cannot carry (past 60 s, past the");
+            Console.Error.WriteLine("                     per-clip limit, or the largest while the member's clips pass the document");
+            Console.Error.WriteLine("                     total), with a WARNING line (policy:sound-clip-dropped); without it they refuse.");
             Console.Error.WriteLine("  composite <ConfDir> <ImgDir> <out.png>");
             Console.Error.WriteLine("                     DEV: composite a real skin's sprites into one magenta-KEYED sheet and");
             Console.Error.WriteLine("                     write it, for eyeballing. The keyed variant: edges come out jagged here");
